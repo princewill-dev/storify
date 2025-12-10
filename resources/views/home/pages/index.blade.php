@@ -3,410 +3,577 @@
 
 @section('content')
 
-<!--Swiper Banner Start -->
-<div class="main-slider style-1"> 
-    <div class="main-swiper">
-        <div class="swiper-wrapper">
-            @if(isset($slides) && $slides->count())
-                @foreach($slides as $slide)
-                    <div class="swiper-slide bg-light">
-                        <div class="container-fluid">
-                            <div class="banner-content">
-                                <div class="row gx-0">
+<!-- HERO-19 ============================================= -->	
+<section id="hero-19" class="blur--purple gr--ghost hero-section">
+	<div class="container text-center">
 
-                                    <div class="col-md-6 col-sm-6 align-self-center">
-                                        <div class="swiper-content">
-                                            <div class="content-info">
-                                                <h1 class="title mb-2" data-swiper-parallax="-20">{{ $slidesVm[$slide->id]['title'] ?? '' }}</h1>
-                                                <p class="text mb-0" data-swiper-parallax="-40">{{ $slidesVm[$slide->id]['firstSentence'] ?? '' }}</p>
-                                                <div class="swiper-meta-items" data-swiper-parallax="-50">
-                                                    <div class="meta-content">
-                                                        <span class="price-name">Price</span>
-                                                        <span class="price-num">{{ $slidesVm[$slide->id]['price'] ?? '' }}</span>
-                                                    </div>
-                                                    <div class="meta-content">
-                                                        <span class="color-name">Color</span>
-                                                        <div class="d-flex align-items-center color-filter">
-                                                            <div class="form-check">
-                                                                <input class="form-check-input" type="radio" name="radioNoLabel" id="radioNoLabel1_{{ $loop->index }}" value="#24262B" aria-label="..." checked>
-                                                                <span></span>
-                                                            </div>
-                                                            <div class="form-check">
-                                                                <input class="form-check-input" type="radio" name="radioNoLabel" id="radioNoLabel2_{{ $loop->index }}" value="#0D775E" aria-label="...">
-                                                                <span></span>
-                                                            </div>
-                                                            <div class="form-check">
-                                                                <input class="form-check-input" type="radio" name="radioNoLabel" id="radioNoLabel3_{{ $loop->index }}" value="#C7D1CF" aria-label="...">
-                                                                <span></span>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                                <div class="content-btn" data-swiper-parallax="-60">
-                                                    @if($slide->product)
-                                                        <a class="btn btn-secondary me-xl-3 me-2 btnhover20" href="#" data-add-to-cart data-product-id="{{ $slide->product->id }}" data-store="{{ $slide->product->store->slug }}">ADD TO CART</a>
-                                                        <a class="btn btn-outline-secondary btnhover20" href="{{ route('home.products.show',['store_slug' => $slide->product->store->slug, 'slug' => $slide->product->slug, 'code' => $slide->product->product_code]) }}">VIEW DETAILS</a>
-                                                    @endif
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
 
-                                    <div class="col-md-6 col-sm-6">
-                                        <div class="banner-media">
-                                            <div class="img-preview" data-swiper-parallax="-100">
-                                                <img src="{{ $slidesImages[$slide->id] ?? asset('home/images/banner/banner-media.png') }}" alt="banner-media">
-                                            </div>
-                                        </div>
-                                    </div>
+		<!-- HERO TEXT -->
+		<div class="row justify-content-center">
+			<div class="col-md-10 col-lg-9">
+				<div class="hero-19-txt">
+			
+					<!-- Title -->
+					<h2 class="s-56 w-700">We Transform Businesses for the Digital World</h2>	
 
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                @endforeach
-            @else
-                @forelse($fallbackProducts as $p)
-                    <div class="swiper-slide bg-light">
-                        <div class="container-fluid">
-                            <div class="banner-content">
-                                <div class="row gx-0">
-                                    
-                                    <div class="col-md-6 col-sm-6">
-                                        <div class="banner-media">
-                                            <div class="img-preview" data-swiper-parallax="-100">
-                                                <img src="{{ $fallbackImages[$p->id] ?? asset('home/images/banner/banner-media.png') }}" alt="banner-media">
-                                            </div>
-                                        </div>
-                                    </div>
+					<!-- Text -->
+					<p class="p-xl">We Help Traditional Businesses Thrive in the Digital Age Through Customized Web Solutions
+					</p>
 
-                                    <div class="col-md-6 col-sm-6 align-self-center">
-                                        <div class="swiper-content">
-                                            <div class="content-info">
-                                                <h1 class="title mb-2" data-swiper-parallax="-20">{{ $p->name }}</h1>
-                                                <p class="text mb-0" data-swiper-parallax="-40">{{ $fallbackFirst[$p->id] ?? '' }}</p>
-                                                <div class="swiper-meta-items" data-swiper-parallax="-50">
-                                                    <div class="meta-content">
-                                                        <span class="price-name">Price</span>
-                                                        <span class="price-num">{{ $featuredPrices[$p->id] ?? '' }}</span>
-                                                    </div>
-                                                </div>
-                                                <div class="content-btn" data-swiper-parallax="-60">
-                                                    <a class="btn btn-secondary me-xl-3 me-2 btnhover20" href="#" data-add-to-cart data-product-id="{{ $p->id }}" data-store="{{ $p->store->slug ?? ($mainStore->slug ?? '') }}">ADD TO CART</a>
-                                                    <a class="btn btn-outline-secondary btnhover20" href="{{ route('home.products.show', ['store_slug' => $p->store->slug ?? ($mainStore->slug ?? ''), 'slug' => $p->slug, 'code' => $p->product_code]) }}">VIEW DETAILS</a>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                @empty
-                    <div class="">
-                        <p>No slides found</p>
-                    </div>
-                @endforelse
-            @endif
-            <!-- <div class="swiper-pagination-wrapper">
-                <div class="swiper-pagination-five"></div>
-                <i class="flaticon flaticon-left-chevron-1"></i>
-            </div>
-            <div class="swiper-button-next">
-                <i class="flaticon flaticon-right-arrow"></i>
-            </div> -->
-        </div>
-        <div class="banner-social-media">
-            <ul>
-                @if(isset($mainStore) && $mainStore)
-                    @if($mainStore->instagram_url)
-                    <li>
-                        <a target="_blank" href="{{ $mainStore->instagram_url }}">Instagram</a>
-                    </li>
-                    @endif
-                    @if($mainStore->facebook_url)
-                    <li>
-                        <a target="_blank" href="{{ $mainStore->facebook_url }}">Facebook</a>
-                    </li>
-                    @endif
-                    @if($mainStore->twitter_url)
-                    <li>
-                        <a target="_blank" href="{{ $mainStore->twitter_url }}">twitter</a>
-                    </li>
-                    @endif
-                    @if($mainStore->tiktok_url)
-                    <li>
-                        <a target="_blank" href="{{ $mainStore->tiktok_url }}">Tiktok</a>
-                    </li>
-                    @endif
-                @endif
-            </ul>
-            
-        </div>
-        <div class="left-text-bar justify-content-center">
-            <a href="contact-us-1.html" class="service-btn btn-light">Let’s talk</a>
-        </div>
-    </div>
-</div>		
-<!--Swiper Banner End-->
+					<!-- Buttons -->	
+					<div class="btns-group">
+						<a href="contact-us.html" class="btn r-04 btn--theme hover--theme">Get a Free Consultation</a>
+						<a href="projects.html" class="btn r-04 btn--tra-black hover--theme ico-20 ico-right">See our works</a>
+					</div>
+					
+				</div>
+			</div>
+		</div>
+		<!-- END HERO TEXT -->	
 
-<!-- Feature Product -->
-<!-- <section class="content adv-area">
-    <div class="container-fluid px-0">
-        <div class="row product-style2 g-0">
-            <div class="col-lg-6 col-md-6 p-b30 wow fadeInUp" data-wow-delay="0.1s">
-                <div class="product-box style-4" style="background-image: url('{{ asset('home/images/shop/large/product1.png') }}');">
-                    <div class="product-content">
-                        <div class="main-content">
-                            <div class="badge style-1 mb-3">From $29.05</div>
-                            <h2 class="product-name">Organic Skincare for Glowing Complexion.</h2>
-                            <p class="para-text">
-                                Lorem Ipsum is simply dummy text of It’s easy to get lost in the world of lovely valley vapour around and the meridian sun strikes the upper surface.
-                            </p>
-                        </div>
-                        <a href="shop-list.html" class="btn btn-outline-secondary">Shop Now</a>
-                    </div>
-                </div>
-            </div>
-            <div class="col-lg-6 col-md-6 p-b30 wow fadeInUp" data-wow-delay="0.2s">
-                <div class="product-box style-4" style="background-image: url('{{ asset('home/images/shop/large/product2.png') }}');">
-                    <div class="product-content">
-                        <div class="main-content">
-                            <div class="badge style-1 mb-3">free shipping on all orders over $59</div>
-                            <h2 class="product-name">Shop & shipment acrossthe whole North America.</h2>
-                            <p class="para-text">
-                                Lorem Ipsum is simply dummy text of It’s easy to get lost in the world of lovely valley vapour around and the meridian sun strikes the upper surface.
-                            </p>
-                        </div>
-                        <a href="shop-list.html" class="btn btn-outline-secondary">Shop Now</a>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-</section> -->
-<!-- Feature Product End -->
 
-<!-- Company Services Feature Blocks -->
-<section class="content adv-area">
-    <div class="container-fluid px-0">
-        <div class="row product-style2 g-0">
-            @forelse($services as $i => $svc)
-                <div class="col-lg-6 col-md-6 wow fadeInUp" data-wow-delay="{{ $servicesVm[$svc->id]['delay'] ?? '0.1s' }}">
-                    <div class="product-box style-4" style="background-image: url('{{ $servicesVm[$svc->id]['bg'] ?? asset('home/images/shop/large/product1.png') }}'); margin: 16px;">
-                        <div class="product-content">
-                            <div class="main-content text-white" style="background: rgba(0,0,0,0.5); padding: 16px; border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.3);">
-                                <h2 class="product-name mb-2" style="color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.35);">{{ $svc->title }}</h2>
-                                <p class="mb-0" style="color: #f1f1f1; text-shadow: 0 1px 2px rgba(0,0,0,0.25);">{{ $svc->description }}</p>
-                            </div>
-                            <a href="{{ $svc->page_link }}" class="btn btn-secondary">Shop Now</a>
-                        </div>
-                    </div>
-                </div>
-            @empty
-                <div class="col-12">
-                    <div class="text-center text-muted py-5">No services available</div>
-                </div>
-            @endforelse
-        </div>
-    </div>
-    
+		<!-- BRANDS CAROUSEL -->
+		<div id="brands-1" class="py-90" style="display: none;">			
+			<div class="row">
+				<div class="col text-center">	
+					<div class="owl-carousel brands-carousel-6">
+
+										
+						<!-- BRAND LOGO IMAGE -->
+						<div class="brand-logo">
+							<a href="#"><img class="img-fluid" src="images/brand-1-white.png" alt="brand-logo"></a>
+						</div>
+
+											
+						<!-- BRAND LOGO IMAGE -->
+						<div class="brand-logo">
+							<a href="#"><img class="img-fluid" src="images/brand-3-white.png" alt="brand-logo"></a>
+						</div>
+
+											
+						<!-- BRAND LOGO IMAGE -->
+						<div class="brand-logo">
+							<a href="#"><img class="img-fluid" src="images/brand-4-white.png" alt="brand-logo"></a>
+						</div>
+
+											
+						<!-- BRAND LOGO IMAGE -->
+						<div class="brand-logo">
+							<a href="#"><img class="img-fluid" src="images/brand-5-white.png" alt="brand-logo"></a>
+						</div>
+
+											
+						<!-- BRAND LOGO IMAGE -->
+						<div class="brand-logo">
+							<a href="#"><img class="img-fluid" src="images/brand-6-white.png" alt="brand-logo"></a>
+						</div>
+
+											
+						<!-- BRAND LOGO IMAGE -->
+						<div class="brand-logo">
+							<a href="#"><img class="img-fluid" src="images/brand-7-white.png" alt="brand-logo"></a>
+						</div>
+
+
+						<!-- BRAND LOGO IMAGE -->
+						<div class="brand-logo">
+							<a href="#"><img class="img-fluid" src="images/brand-8-white.png" alt="brand-logo"></a>
+						</div>
+
+													
+						<!-- BRAND LOGO IMAGE -->
+						<div class="brand-logo">
+							<a href="#"><img class="img-fluid" src="images/brand-9-white.png" alt="brand-logo"></a>
+						</div>
+
+
+					</div>
+				</div>
+			</div>  <!-- End row -->
+		</div>	<!-- END BRANDS CAROUSEL -->
+
+
+		
+
+
+	</div>    <!-- End container --> 
 </section>
-<!-- Company Services Feature Blocks End -->
+<!-- END HERO-19 -->	
 
-<!-- Product Start-->
-<!-- <section class="content-inner overlay-white-middle">
-    <div class="container">
-        <div class="row product-style1">
-            
-            <div class="col-lg-6">
-                <div class="row product-style-1">
-                    <div class="col-lg-12 m-b30 wow fadeInUp" data-wow-delay="0.2s">
-                        <div class="product-box style-2" style="background-image: url('{{ asset('home/images/shop/product2.png') }}');">
-                            <div class="product-content">
-                                <div class="main-content">
-                                    <h2 class="product-name">Bamboo toothbrushes</h2>
-                                    <span class="offer">Order in large quantities with negotiated rates tailored to your needs.</span>
-                                </div>
-                                <a href="shop-standard.html" class="btn btn-outline-secondary">Shop Now</a>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-lg-12 m-b30 wow fadeInUp" data-wow-delay="0.2s">
-                        <div class="product-box style-2" style="background-image: url('{{ asset('home/images/shop/product2.png') }}');">
-                            <div class="product-content">
-                                <div class="main-content">
-                                    <h2 class="product-name">Bamboo toothbrushes</h2>
-                                    <span class="offer">UP TO 60% OFF</span>
-                                </div>
-                                <a href="shop-standard.html" class="btn btn-outline-secondary">Shop Now</a>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-lg-6">
-                <div class="row product-style-1">
-                    <div class="col-lg-12 m-b30 wow fadeInUp" data-wow-delay="0.2s">
-                        <div class="product-box style-2" style="background-image: url('{{ asset('home/images/shop/product2.png') }}');">
-                            <div class="product-content">
-                                <div class="main-content">
-                                    <h2 class="product-name">Bamboo toothbrushes</h2>
-                                    <span class="offer">UP TO 60% OFF</span>
-                                </div>
-                                <a href="shop-standard.html" class="btn btn-outline-secondary">Shop Now</a>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-lg-12 m-b30 wow fadeInUp" data-wow-delay="0.2s">
-                        <div class="product-box style-2" style="background-image: url('{{ asset('home/images/shop/product2.png') }}');">
-                            <div class="product-content">
-                                <div class="main-content">
-                                    <h2 class="product-name">Bamboo toothbrushes</h2>
-                                    <span class="offer">UP TO 60% OFF</span>
-                                </div>
-                                <a href="shop-standard.html" class="btn btn-outline-secondary">Shop Now</a>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-</section> -->
-<!-- Product End-->
-
-<!--Recommend Section Start-->
-@include('home.partials.featured_products')
-<!--Recommend Section End-->
-
-<!-- icon-box1 -->
-@include('home.components.features_cta')
-<!-- icon-box1 End-->
-
-<!-- Newsletter -->
-<!-- @include('home.components.new_letter_cta') -->
-<!-- Newsletter End -->
+<!-- TEXT CONTENT
+============================================= -->
+<section id="lnk-1" class="pt-100 ct-02 content-section division">
+	<div class="container">
 
 
-<!-- Tranding Start-->
-@include('home.partials.trending_products')
-<!-- Tranding Stop-->
+		<!-- SECTION CONTENT (ROW) -->	
+		<div class="row d-flex align-items-center">
 
-<!-- About Start-->
-@include('home.partials.testimonials')
-<!-- About End -->
+			<!-- TEXT BLOCK -->	
+			<div class="col-md-6">
+				<div class="txt-block right-column wow fadeInLeft">
 
-<!-- Blog Start -->
-    @include('home.partials.blog')
-<!-- Blog End -->
+					<!-- Section ID -->	
+					<span class="section-id">Strategies That Work</span>
 
-<!-- Feature Box -->
-<div class="content-inner py-0 overlay-white-middle">
-    <div class="container-fluid px-0">
-        <div class="row gx-0">
-            <div class="col-xl-2 col-lg-4 col-md-4 col-sm-4 col-4 wow fadeIn" data-wow-delay="0.1s">
-                <div class="insta-post dz-media dz-img-effect rotate">
-                    <a href="javascript:void(0);">
-                        <img src="{{ asset('home/images/feature/1.png') }}" alt="">
-                    </a>
-                </div>
-            </div>
-            <div class="col-xl-2 col-lg-4 col-md-4 col-sm-4 col-4 wow fadeIn" data-wow-delay="0.2s">
-                <div class="insta-post dz-media dz-img-effect rotate">
-                    <a href="javascript:void(0);">
-                        <img src="{{ asset('home/images/feature/2.png') }}" alt="">
-                    </a>	
-                </div>
-            </div>
-            <div class="col-xl-2 col-lg-4 col-md-4 col-sm-4 col-4 wow fadeIn" data-wow-delay="0.3s">
-                <div class="insta-post dz-media dz-img-effect rotate">
-                    <a href="javascript:void(0);">
-                        <img src="{{ asset('home/images/feature/3.png') }}" alt="">
-                    </a>
-                </div>
-            </div>
-            <div class="col-xl-2 col-lg-4 col-md-4 col-sm-4 col-4 wow fadeIn" data-wow-delay="0.4s">
-                <div class="insta-post dz-media dz-img-effect rotate">
-                    <a href="javascript:void(0);">
-                        <img src="{{ asset('home/images/feature/4.png') }}" alt="">
-                    </a>
-                </div>
-            </div>
-            <div class="col-xl-2 col-lg-4 col-md-4 col-sm-4 col-4 wow fadeIn" data-wow-delay="0.5s">
-                <div class="insta-post dz-media dz-img-effect rotate">
-                    <a href="javascript:void(0);">
-                        <img src="{{ asset('home/images/feature/5.png') }}" alt="">
-                    </a>
-                </div>
-            </div>
-            <div class="col-xl-2 col-lg-4 col-md-4 col-sm-4 col-4 wow fadeIn" data-wow-delay="0.6s">
-                <div class="insta-post dz-media dz-img-effect rotate">
-                    <a href="javascript:void(0);">	
-                        <img src="{{ asset('home/images/feature/6.png') }}" alt="">
-                    </a>	
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-<!-- Feature Box End -->
+					<!-- Title -->	
+					<h2 class="s-46 w-700">Take The Big Digital Leap</h2>
 
-<!-- Icon Box Start -->
-<section class="content-inner py-0">
-    <div class="container-fluid px-0">
-        <div class="row gx-0">
-            <div class="col-xl-3 col-lg-3 col-sm-6">
-                <div class="icon-bx-wraper style-2 bg-light wow fadeInUp" data-wow-delay="0.1s">
-                    <div class="icon-bx">
-                        <img src="{{ asset('home/images/svg/icon-bx/password-check.svg') }}" alt="">
-                    </div>
-                    <div class="icon-content">
-                        <h5 class="dz-title">Filter & Discover</h5>
-                        <p>Lorem Ipsum is simply dummy text of the printing and typesetting</p>
-                    </div>
-                    <div class="data-text">01</div>
-                </div>	
-            </div>
-            <div class="col-xl-3 col-lg-3 col-sm-6">
-                <div class="icon-bx-wraper style-2 wow fadeInUp" data-wow-delay="0.2s">
-                    <div class="icon-bx">
-                        <img src="{{ asset('home/images/svg/icon-bx/cart.svg') }}" alt="">
-                    </div>
-                    <div class="icon-content">
-                        <h5 class="dz-title">Add to cart</h5>
-                        <p>Lorem Ipsum is simply dummy text of the printing and typesetting</p>
-                    </div>
-                    <div class="data-text">02</div>
-                </div>	
-            </div>
-            <div class="col-xl-3 col-lg-3 col-sm-6">
-                <div class="icon-bx-wraper style-2 bg-light wow fadeInUp" data-wow-delay="0.3s">
-                    <div class="icon-bx">
-                        <img src="{{ asset('home/images/svg/icon-bx/discovery.svg') }}" alt="">
-                    </div>
-                    <div class="icon-content">
-                        <h5 class="dz-title">Fast Shipping</h5>
-                        <p>Lorem Ipsum is simply dummy text of the printing and typesetting</p>
-                    </div>
-                    <div class="data-text">03</div>
-                </div>	
-            </div>
-            <div class="col-xl-3 col-lg-3 col-sm-6">
-                <div class="icon-bx-wraper style-2 wow fadeInUp" data-wow-delay="0.4s">
-                    <div class="icon-bx">
-                        <img src="{{ asset('home/images/svg/icon-bx/box-tick.svg') }}" alt="">
-                    </div>
-                    <div class="icon-content">
-                        <h5 class="dz-title">Enjoy The Product</h5>
-                        <p>Lorem Ipsum is simply dummy text of the printing and typesetting</p>
-                    </div>
-                    <div class="data-text">04</div>
-                </div>	
-            </div>
-        </div>
-    </div>
+					<!-- Text -->	
+					<p>
+						Whether you need a simple informational website, full-fledged e-commerce store, or just help improving your online presence - we're here to take your business to the next level. We make it easy to get started online and handle all the technical work for you.
+					</p>
+
+					<!-- CONTENT BOX #1 -->
+					<div class="cbox-1 ico-15">
+
+						<div class="ico-wrap color--theme">
+							<div class="cbox-1-ico"><span class="flaticon-check"></span></div>
+						</div>
+
+						<div class="cbox-1-txt">
+							<p>Free Consultation</p>
+						</div>
+
+					</div>
+
+					<!-- CONTENT BOX #2 -->
+					<div class="cbox-1 ico-15">
+
+						<div class="ico-wrap color--theme">
+							<div class="cbox-1-ico"><span class="flaticon-check"></span></div>
+						</div>
+
+						<div class="cbox-1-txt">
+							<p>Professional Services</p>
+						</div>
+
+					</div>
+
+					<!-- CONTENT BOX #3 -->
+					<div class="cbox-1 ico-15">
+
+						<div class="ico-wrap color--theme">
+							<div class="cbox-1-ico"><span class="flaticon-check"></span></div>
+						</div>
+
+						<div class="cbox-1-txt">
+							<p class="mb-0">Fast Project Delivery Window</p>
+						</div>
+
+					</div>
+
+				</div>
+			</div>	<!-- END TEXT BLOCK -->	
+			
+			
+			<!-- IMAGE BLOCK -->
+			<div class="col-md-6">
+				<div class="img-block left-column wow fadeInRight">
+					<img class="img-fluid" src="images/img-11.png" alt="content-image">
+				</div>
+			</div>
+
+
+		</div>	<!-- END SECTION CONTENT (ROW) -->	
+
+
+	</div>	   <!-- End container -->
+</section>	<!-- END TEXT CONTENT -->
+
+<!-- FEATURES-2
+============================================= -->
+<section id="features" class="py-100 features-section division">
+	<div class="container">
+
+
+		<!-- SECTION TITLE -->	
+		<div class="row justify-content-center">	
+			<div class="col-md-10 col-lg-9">
+				<div class="section-title mb-80">	
+
+					<!-- Title -->	
+					<h2 class="s-50 w-700">Everything in One Place</h2>	
+
+					<!-- Text -->	
+					<p class="s-21 color--grey">We Digitize and Modernize Your Business from start to finish.</p>
+						
+				</div>	
+			</div>
+		</div>
+
+
+		<!-- FEATURES-2 WRAPPER -->
+		<div class="fbox-wrapper text-center">
+			<div class="row row-cols-1 row-cols-md-3 rows-2">
+
+
+				<!-- FEATURE BOX #1 -->
+				<div class="col">
+					<div class="fbox-2 fb-1 wow fadeInUp">
+
+						<!-- Image -->
+						<div class="fbox-img gr--whitesmoke h-170">
+							<img class="img-fluid" src="images/f_04_dark.png" alt="feature-image">
+						</div>
+
+						<!-- Text -->
+						<div class="fbox-txt">
+							<h6 class="s-22 w-700">Website Development</h6>
+							<p>We build modern, mobile-friendly websites tailored to your brand and business needs, from informational sites to full e-commerce stores.</p>
+						</div>
+
+					</div>
+				</div>	<!-- END FEATURE BOX #1 -->	
+
+
+				<!-- FEATURE BOX #2 -->
+				<div class="col">
+					<div class="fbox-2 fb-2 wow fadeInUp">
+
+						<!-- Image -->
+						<div class="fbox-img gr--whitesmoke h-170">
+							<img class="img-fluid" src="images/f_09_dark.png" alt="feature-image">
+						</div>
+
+						<!-- Text -->
+						<div class="fbox-txt">
+							<h6 class="s-22 w-700">Automation & Integration</h6>
+							<p>Save time and money by automating manual processes and integrating new tech tools into your existing systems. We customize workflows to optimize operations.</p>
+						</div>
+
+					</div>
+				</div>	<!-- END FEATURE BOX #2 -->		
+
+
+				<!-- FEATURE BOX #3 -->
+				<div class="col">
+					<div class="fbox-2 fb-3 wow fadeInUp">
+
+						<!-- Image -->
+						<div class="fbox-img gr--whitesmoke h-170">
+							<img class="img-fluid" src="images/f_01_dark.png" alt="feature-image">
+						</div>
+
+						<!-- Text -->
+						<div class="fbox-txt">
+							<h6 class="s-22 w-700">Intuitive Designs</h6>
+							<p>Our focus is always on delivering truly world-class projects and top-notch services.</p>
+						</div>
+
+					</div>
+				</div>	<!-- END FEATURE BOX #3 -->	
+
+
+			</div>  <!-- End row -->  
+			
+			
+			
+		</div>	<!-- END FEATURES-2 WRAPPER -->
+
+		
+	</div>
+	<!-- End container -->
 </section>
-<!-- Icon Box End -->
+<!-- END FEATURES-2 -->
+
+<!-- TEXT CONTENT
+============================================= -->
+<section class="pt-100 ct-01 content-section division">
+	<div class="container">
+
+
+		<!-- SECTION CONTENT (ROW) -->	
+		<div class="row d-flex align-items-center">
+
+
+			<!-- TEXT BLOCK -->	
+			<div class="col-md-6 order-last order-md-2">
+				<div class="txt-block left-column wow fadeInRight">
+
+					<!-- Section ID -->	
+					<span class="section-id">Quick Integration</span>
+
+					<!-- Title -->	
+					<h2 class="s-46 w-700">Integrated Payments, Optimized Processes</h2>
+
+					<p>Streamlining the technology behind payments improves cash flow, reduces headaches, and creates seamless experiences. Plus we handle security and compliance concerns so you can focus on your business. </p>
+
+				</div>
+			</div>	<!-- END TEXT BLOCK -->	
+
+
+			<!-- IMAGE BLOCK -->
+			<div class="col-md-6 order-first order-md-2">
+				<div class="img-block right-column wow fadeInLeft">
+					<img class="img-fluid" src="images/img-02.png" alt="content-image">
+				</div>
+			</div>
+
+
+		</div>	<!-- END SECTION CONTENT (ROW) -->
+		
+		<center>
+			<br>
+			<br>
+			<img class="img-fluid" src="images/dashboard-pic.png" alt="content-image">
+		</center>
+		
+		
+
+	</div>	   <!-- End container -->
+	
+	
+</section>	<!-- END TEXT CONTENT -->
+	
+<section class="pt-100 ct-04 content-section division" id="about-us">
+	<div class="container">
+
+
+		<!-- SECTION CONTENT (ROW) -->	
+		<div class="row d-flex align-items-center">
+
+
+			<!-- TEXT BLOCK -->	
+			<div class="col-md-6">
+				<div class="txt-block left-column wow fadeInRight">
+
+
+					<!-- CONTENT BOX #1 -->
+					<div class="cbox-4">
+						
+						<!-- Icon & Title -->
+						<div class="box-title">
+							<h5 class="s-24 w-700">Why Build With Us?</h5>
+						</div>
+
+						<!-- Text -->
+						<div class="cbox-4-txt">
+							<p style="text-align: left;">At DigiSwitch. we don't just build websites - we craft digital experiences that help our clients succeed. Our focus is always on delivering truly world-class projects and top-notch services. We take pride in our work and hold ourselves to the highest standards when it comes to quality code and expert development. Our team stays on top of the latest technologies and industry best practices to ensure we build innovative solutions.</p>
+						</div>
+																																			
+					</div>	<!-- END CONTENT BOX #1 -->	
+
+
+				</div>
+			</div>	<!-- END TEXT BLOCK -->		
+
+
+			<!-- IMAGE BLOCK -->	
+			<div class="col-md-6">
+				<div class="img-block wow fadeInLeft">
+					<img class="img-fluid" src="images/tablet-01.png" alt="content-image">
+				</div>	
+			</div>
+
+
+		</div>	<!-- END SECTION CONTENT (ROW) -->	
+
+
+	</div>	   <!-- End container -->
+</section>
+
+<section id="projects" class="py-100 blog-section division" style="display: none;">
+	<div class="container">
+
+
+		<!-- SECTION TITLE -->	
+		<div class="row justify-content-center">	
+			<div class="col-md-10 col-lg-9">
+				<div class="section-title mb-70">	
+
+					<!-- Title -->	
+					<h2 class="s-50 w-700">Our Works</h2>	
+
+					<!-- Text -->	
+					<p class="s-21 color--grey">Ligula risus auctor tempus magna feugiat lacinia.</p>
+						
+				</div>	
+			</div>
+		</div>
+
+
+		<div class="row">
+
+
+			<!-- BLOG POST #1 -->
+			<div class="col-md-6 col-lg-4">
+				<div id="bp-1-1" class="blog-post wow fadeInUp">	
+
+					<!-- BLOG POST IMAGE -->
+					<div class="blog-post-img mb-35">
+						<img class="img-fluid r-16" src="images/blog/post-8-img.jpg" alt="blog-post-image">
+					</div>	
+
+					<!-- BLOG POST TEXT -->
+					<div class="blog-post-txt">
+
+						<!-- Post Tag -->
+						<span class="post-tag color--theme">Product News</span>	
+
+						<!-- Post Link -->
+						<h6 class="s-20 w-700">
+							<a href="single-post.html">Aliqum mullam porta blandit: tempor sapien and gravida</a>
+						</h6>
+
+						<!-- Text -->
+						<p>Egestas luctus vitae augue and ipsum ultrice quisque in cursus lacus feugiat congue 
+							diam ultrice laoreet sagittis
+						</p>
+
+						<!-- Post Meta -->
+						<div class="blog-post-meta mt-20">
+							<ul class="post-meta-list ico-10">
+								<li><p class="p-sm w-500">By Helen J.</p></li>
+								<li class="meta-list-divider"><p><span class="flaticon-minus"></span></p></li>
+								<li><p class="p-sm">Apr 28, 2023</p></li>
+							</ul>
+						</div>
+
+					</div>	<!-- END BLOG POST TEXT -->
+
+				</div>
+			</div>	<!-- END BLOG POST #1 -->
+
+
+			<!-- BLOG POST #2 -->
+			<div class="col-md-6 col-lg-4">
+				<div id="bp-1-2" class="blog-post wow fadeInUp">	
+
+					<!-- BLOG POST IMAGE -->
+					<div class="blog-post-img mb-35">
+						<img class="img-fluid r-16" src="images/blog/post-2-img.jpg" alt="blog-post-image">
+					</div>	
+
+					<!-- BLOG POST TEXT -->
+					<div class="blog-post-txt">
+
+						<!-- Post Tag -->
+						<span class="post-tag color--green-400">Community</span>	
+
+						<!-- Post Link -->
+						<h6 class="s-20 w-700">
+							<a href="single-post.html">Porttitor cursus fusce egestas CEO cursus at magna sapien 
+								suscipit and egestas ipsum
+							</a>
+						</h6>
+
+						<!-- Text -->
+						<p>Aliqum mullam ipsum vitae and blandit vitae tempor sapien and donec lipsum</p>
+
+						<!-- Post Meta -->
+						<div class="blog-post-meta mt-20">
+							<ul class="post-meta-list ico-10">
+								<li><p class="p-sm w-500">By Martex Team</p></li>
+								<li class="meta-list-divider"><p><span class="flaticon-minus"></span></p></li>
+								<li><p class="p-sm">Apr 14, 2023</p></li>
+							</ul>
+						</div>
+
+					</div>	<!-- END BLOG POST TEXT -->
+					
+				</div>
+			</div>	<!-- END BLOG POST #2 -->
+
+
+			<!-- BLOG POST #3 -->
+			<div class="col-md-12 col-lg-4">
+				<div id="bp-1-3" class="blog-post wow fadeInUp">	
+
+					<!-- BLOG POST IMAGE -->
+					<div class="blog-post-img mb-35">
+						<img class="img-fluid r-16" src="images/blog/post-5-img.jpg" alt="blog-post-image">
+					</div>	
+
+					<!-- BLOG POST TEXT -->
+					<div class="blog-post-txt">
+
+						<!-- Post Tag -->
+						<span class="post-tag color--purple-400">Freelancer Tips</span>	
+
+						<!-- Post Link -->
+						<h6 class="s-20 w-700">
+							<a href="single-post.html">Cubilia laoreet augue egestas and Martex magna impedit</a>
+						</h6>
+
+						<!-- Text -->
+						<p>Luctus vitae egestas augue and ipsum ultrice quisque in cursus lacus feugiat egets 
+							congue ultrice sagittis laoreet 
+						</p>
+
+						<!-- Post Meta -->
+						<div class="blog-post-meta mt-20">
+							<ul class="post-meta-list ico-10">
+								<li><p class="p-sm w-500">By Miranda Green</p></li>
+								<li class="meta-list-divider"><p><span class="flaticon-minus"></span></p></li>
+								<li><p class="p-sm">Mar 27, 2023</p></li>
+							</ul>
+						</div>
+
+					</div>	<!-- END BLOG POST TEXT -->
+					
+				</div>
+			</div>	<!-- END BLOG POST #3 -->
+
+			
+		</div>    <!-- End row -->
+		</div>    <!-- End container -->
+		
+		<br>
+		
+		<center>
+			<a href="projects.php" class="btn r-04 btn--theme hover--theme">See More Projeccts</a>
+		</center>
+		
+</section>
+
+<!-- BANNER-13
+============================================= -->
+<section id="banner-13" class="pt-100 banner-section">
+	<div class="container">
+
+
+		<!-- BANNER-13 WRAPPER -->
+		<div class="banner-13-wrapper bg--03 bg--scroll r-16 block-shadow">
+			<div class="banner-overlay">
+				<div class="row d-flex align-items-center">
+
+
+					<!-- BANNER-5 TEXT -->
+					<div class="col-md-7">
+						<div class="banner-13-txt color--white">
+
+							<!-- Title -->	
+							<h2 class="s-46 w-700">Join the Digital Age today!</h2>
+
+							<!-- Text -->
+							<p class="p-lg">Let's take your business to the next level. We make it easy to get started online and handle all the technical work for you. </p>
+
+							<!-- Button -->
+							<a href="contact-us.html" class="btn r-04 btn--theme hover--tra-white" data-bs-toggle="modal" data-bs-target="#modal-3">Get a Free Consultation</a>
+
+						</div>
+					</div>	<!-- END BANNER-13 TEXT -->
+
+
+					<!-- BANNER-13 IMAGE -->
+					<div class="col-md-5">
+						<div class="banner-13-img text-center">
+							<img class="img-fluid" src="images/img-04.png" alt="banner-image">
+						</div>	
+					</div>
+
+
+				</div>   <!-- End row -->	
+			</div>   <!-- End banner overlay -->	
+		</div>    <!-- END BANNER-13 WRAPPER -->
+
+
+	</div>     <!-- End container -->	
+</section>	<!-- END BANNER-13 -->
+
+
+<!-- DIVIDER LINE -->
+<hr class="divider">
 
 @endsection

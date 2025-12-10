@@ -1,119 +1,111 @@
-<!DOCTYPE html>
+<!doctype html>
+<!-- Martex - Software, App, SaaS & Startup Landing Pages Pack design by DSAThemes (http://www.dsathemes.com) -->
+<!--[if lt IE 7 ]><html class="ie ie6" lang="en"> <![endif]-->
+<!--[if IE 7 ]><html class="ie ie7" lang="en"> <![endif]-->
+<!--[if IE 8 ]><html class="ie ie8" lang="en"> <![endif]-->
+<!--[if (gte IE 9)|!(IE)]><!-->
 <html lang="en">
-<head>
-	
-	<!-- Meta -->
-	<meta charset="utf-8">
-	<meta http-equiv="X-UA-Compatible" content="IE=edge">
-	<meta name="keywords" content="">
-	<meta name="robots" content="">
-	
-    @include('home.components.seo', [
-      'seo' => [
-        'title' => $company->og_title,
-        'description' => $company->og_description,
-        'image' => $company->og_image,
-        'url' => $company->og_url,
-        'type' => $company->og_type,
-        'twitter_card' => 'summary_large_image',
-      ]
-    ])
-	
-	<meta name="format-detection" content="telephone=no">
-	
-	<!-- FAVICONS ICON -->
-	<link rel="icon" type="image/x-icon" href="{{ $company->favicon }}">
-	
-	<!-- PAGE TITLE HERE -->
-	<title>{{ $company->name }} | @yield('title')</title>
-	
-	<!-- MOBILE SPECIFIC -->
-	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<meta name="csrf-token" content="{{ csrf_token() }}">
-	
-	<!-- STYLESHEETS -->
-	<link rel="stylesheet" type="text/css" href="{{ asset('home/vendor/bootstrap-select/dist/css/bootstrap-select.min.css') }}">
-	<link rel="stylesheet" type="text/css" href="{{ asset('home/icons/fontawesome/css/all.min.css') }}">
-	<link rel="stylesheet" type="text/css" href="{{ asset('home/icons/themify/themify-icons.css') }}">
-	<link rel="stylesheet" type="text/css" href="{{ asset('home/icons/flaticon/flaticon_mooncart.css') }}">
-	<link rel="stylesheet" type="text/css" href="{{ asset('home/vendor/swiper/swiper-bundle.min.css') }}">
-	<link rel="stylesheet" type="text/css" href="{{ asset('home/vendor/nouislider/nouislider.min.css') }}">
-	<link rel="stylesheet" type="text/css" href="{{ asset('home/vendor/animate/animate.css') }}">
-	<link rel="stylesheet" type="text/css" href="{{ asset('home/vendor/lightgallery/dist/css/lightgallery.css') }}">
-    <link rel="stylesheet" type="text/css" href="{{ asset('home/vendor/lightgallery/dist/css/lg-thumbnail.css') }}">
-    <link rel="stylesheet" type="text/css" href="{{ asset('home/vendor/lightgallery/dist/css/lg-zoom.css') }}">
-	<link rel="stylesheet" type="text/css" href="{{ asset('home/css/style.css') }}">
-	
-	<!-- GOOGLE FONTS-->
-	<link rel="preconnect" href="https://fonts.googleapis.com">
-	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-	<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Roboto:wght@100;300;400;500;700;900&display=swap" rel="stylesheet">
 
-    @stack('scripts')
+	<head>
 
-</head>	
-<body>
+		<meta charset="utf-8">
+		<meta http-equiv="X-UA-Compatible" content="IE=edge">
+		<meta name="author" content="Digiswitch.tech">	
+		<meta name="description" content="We help traditional businesses thrive in the digital age through customized web solutions. Our experienced team provides website development, digital marketing, automation, and integrated payment solutions to digitize and modernize businesses">
+		<meta name="keywords" content="web development company, website development, web design, digital marketing, online marketing, SEO, social media marketing, conversion optimization, ecommerce website, online payments, POS integration, business digitization, automate business processes, modernize small business, traditional to digital business, bringing businesses online, lagos based web development company, Digiswitch, Digiswitch.tech">	
+		<meta name="viewport" content="width=device-width, initial-scale=1">
+				
+		<!-- SITE TITLE -->
+		<title>{{ $company->name }} | @yield('title')</title>
+							
+		<!-- FAVICON AND TOUCH ICONS -->
+		<link rel="shortcut icon" href="{{ asset('home/images/favicon.ico') }}" type="image/x-icon">
+		<link rel="icon" href="{{ asset('home/images/favicon.ico') }}" type="image/x-icon">
+		<link rel="apple-touch-icon" sizes="152x152" href="{{ asset('home/images/apple-touch-icon-152x152.png') }}">
+		<link rel="apple-touch-icon" sizes="120x120" href="{{ asset('home/images/apple-touch-icon-120x120.png') }}">
+		<link rel="apple-touch-icon" sizes="76x76" href="{{ asset('home/images/apple-touch-icon-76x76.png') }}">
+		<link rel="apple-touch-icon" href="{{ asset('home/images/apple-touch-icon.png') }}">
+		<link rel="icon" href="{{ asset('home/images/apple-touch-icon.png') }}" type="image/x-icon">
 
-    <div class="page-wraper" id="scroll-container">
+		<!-- GOOGLE FONTS -->
+		<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet">
+		<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+		<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet">
+		
+		<!-- BOOTSTRAP CSS -->
+		<link href="css/bootstrap.min.css" rel="stylesheet">
+				
+		<!-- FONT ICONS -->
+		<link href="css/flaticon.css" rel="stylesheet">
 
-        <div id="loading-area" class="preloader-wrapper-1">
-            <div>
-                <span class="loader-2"></span>
-                <img src="{{ $company->logo }}" alt="/">
-                <span class="loader"></span>
-            </div>
-        </div>
-        
-        @include('home.components.header')
-        <!-- Header End -->
-        
-        <div class="page-content bg-white">
-        
-            @yield('content')
-            
-        </div>
-        
-        <!-- Footer -->
-        @include('home.components.footer')
-        <!-- Footer End -->
-        
-        <button class="scroltop" type="button"><i class="fas fa-arrow-up"></i></button>
-        
-        <!-- Quick Modal Start -->
-        @include('home.components.view_product_modal')
-        <!-- Quick Modal End -->
-        
-        <!-- Greeting Modal Start (Homepage Only) -->
-        @if(($company->greeting_modal_enabled ?? false) && request()->is('/'))
-            @include('home.components.greeting-modal', [
-                'company' => $company,
-                'services' => $services ?? collect()
-            ])
-        @endif
-        <!-- Greeting Modal End -->
-        
-    </div>
-    <!-- JAVASCRIPT FILES ========================================= -->
-    <script src="{{ asset('home/js/jquery.min.js') }}"></script><!-- JQUERY MIN JS -->
-    <script src="{{ asset('home/vendor/wow/wow.min.js') }}"></script><!-- WOW JS -->
-    <script src="{{ asset('home/vendor/bootstrap/dist/js/bootstrap.bundle.min.js') }}"></script><!-- BOOTSTRAP MIN JS -->
-    <script src="{{ asset('home/vendor/bootstrap-select/dist/js/bootstrap-select.min.js') }}"></script><!-- BOOTSTRAP SELECT MIN JS -->
-    <script src="{{ asset('home/vendor/bootstrap-touchspin/bootstrap-touchspin.js') }}"></script><!-- BOOTSTRAP TOUCHSPIN JS -->
-    <script src="{{ asset('home/vendor/counter/waypoints-min.js') }}"></script><!-- WAYPOINTS JS -->
-    <script src="{{ asset('home/vendor/counter/counterup.min.js') }}"></script><!-- COUNTERUP JS -->
-    <script src="{{ asset('home/vendor/swiper/swiper-bundle.min.js') }}"></script><!-- SWIPER JS -->
-    <script src="{{ asset('home/vendor/imagesloaded/imagesloaded.js') }}"></script><!-- IMAGESLOADED-->
-    <script src="{{ asset('home/vendor/imagesloaded/imagesloaded.js') }}"></script><!-- IMAGESLOADED-->
-    <script src="{{ asset('home/vendor/masonry/masonry-4.2.2.js') }}"></script><!-- MASONRY -->
-    <script src="{{ asset('home/vendor/masonry/isotope.pkgd.min.js') }}"></script><!-- ISOTOPE -->
-    <script src="{{ asset('home/vendor/countdown/jquery.countdown.js') }}"></script><!-- COUNTDOWN FUCTIONS  -->
-    <script src="{{ asset('home/vendor/wnumb/wNumb.js') }}"></script><!-- WNUMB -->
-    <script src="{{ asset('home/vendor/nouislider/nouislider.min.js') }}"></script><!-- NOUSLIDER MIN JS-->
-    <script src="{{ asset('home/js/dz.carousel.js') }}"></script><!-- DZ CAROUSEL JS -->
-    <script src="{{ asset('home/vendor/lightgallery/dist/lightgallery.min.js') }}"></script>
-    <script src="{{ asset('home/vendor/lightgallery/dist/plugins/thumbnail/lg-thumbnail.min.js') }}"></script>
-    <script src="{{ asset('home/vendor/lightgallery/dist/plugins/zoom/lg-zoom.min.js') }}"></script>
-    <script src="{{ asset('home/js/dz.ajax.js') }}"></script><!-- AJAX -->
-    <script src="{{ asset('home/js/custom.js') }}"></script><!-- CUSTOM JS -->
-</body>
+		<!-- PLUGINS STYLESHEET -->
+		<link href="{{ asset('home/css/menu.css') }}" rel="stylesheet">	
+		<link id="effect" href="{{ asset('home/css/dropdown-effects/fade-down.css') }}" media="all" rel="stylesheet">
+		<link href="{{ asset('home/css/magnific-popup.css') }}" rel="stylesheet">	
+		<link href="{{ asset('home/css/owl.carousel.min.css') }}" rel="stylesheet">
+		<link href="{{ asset('home/css/owl.theme.default.min.css') }}" rel="stylesheet">
+		<link href="{{ asset('home/css/lunar.css') }}" rel="stylesheet">
+
+		<!-- ON SCROLL ANIMATION -->
+		<link href="{{ asset('home/css/animate.css') }}" rel="stylesheet">
+
+		<!-- TEMPLATE CSS -->
+		<link href="{{ asset('home/css/crocus-theme.css') }}" rel="stylesheet">
+		
+		<!-- RESPONSIVE CSS -->
+		<link href="{{ asset('home/css/responsive.css') }}" rel="stylesheet">
+
+	</head>
+
+	<body class="theme--dark">
+
+		<!-- PRELOADER SPINNER
+		============================================= -->	
+		<div id="loading" class="loading--theme">
+			<div id="loading-center"><span class="loader"></span></div>
+		</div>
+
+		<!-- PAGE CONTENT
+		============================================= -->	
+		<div id="page" class="page font--jakarta">
+
+			<!-- HEADER
+			============================================= -->
+			@include('home.components.header')
+			<!-- END HEADER -->
+
+			@yield('content')
+
+			<!-- FOOTER-3
+			============================================= -->
+			@include('home.components.footer')
+			<!-- END FOOTER-3 -->
+
+		</div>
+		
+		<!-- END PAGE CONTENT -->	
+
+
+		<!-- EXTERNAL SCRIPTS
+		============================================= -->	
+		<script src="{{ asset('home/js/jquery-3.7.0.min.js') }}"></script>
+		<script src="{{ asset('home/js/bootstrap.min.js') }}"></script>	
+		<script src="{{ asset('home/js/modernizr.custom.js') }}"></script>
+		<script src="{{ asset('home/js/jquery.easing.js') }}"></script>
+		<script src="{{ asset('home/js/jquery.appear.js') }}"></script>
+		<script src="{{ asset('home/js/menu.js') }}"></script>
+		<script src="{{ asset('home/js/owl.carousel.min.js') }}"></script>
+		<script src="{{ asset('home/js/pricing-toggle.js') }}"></script>
+		<script src="{{ asset('home/js/jquery.magnific-popup.min.js') }}"></script>
+		<script src="{{ asset('home/js/request-form.js' }}"></script>	
+		<script src="{{ asset('home/js/jquery.validate.min.js') }}"></script>
+		<script src="{{ asset('home/js/jquery.ajaxchimp.min.js') }}"></script>	
+		<script src="{{ asset('home/js/popper.min.js') }}"></script>
+		<script src="{{ asset('home/js/lunar.js') }}"></script>
+		<script src="{{ asset('home/js/wow.js') }}"></script>
+				
+		<!-- Custom Script -->		
+		<script src="{{ asset('home/js/custom.js') }}"></script>
+
+	</body>
 </html>
