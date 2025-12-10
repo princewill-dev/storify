@@ -1,0 +1,148 @@
+<?php
+
+namespace Database\Seeders;
+
+use App\Models\Category;
+use App\Models\Product;
+use App\Models\Setting;
+use App\Models\Store;
+use Illuminate\Database\Seeder;
+use Illuminate\Support\Str;
+use Illuminate\Support\Arr;
+
+class MainStoreProductSeeder extends Seeder
+{
+    public function run(): void
+    {
+        $settings = Setting::query()->first();
+        $mainStoreId = $settings?->main_store_id;
+        $store = null;
+        if ($mainStoreId) {
+            $store = Store::find($mainStoreId);
+        }
+        if (!$store) {
+            $store = Store::where('status', 'active')->orderBy('id')->first();
+        }
+        if (!$store) {
+            $this->command?->warn('No store found to seed products. Skipping MainStoreProductSeeder.');
+            return;
+        }
+
+        // Create 5 categories for the store (or reuse existing by name)
+        $categories = collect();
+        for ($i = 1; $i <= 5; $i++) {
+            $name = 'Eco Category ' . $i;
+            $slug = Str::slug($name);
+            $cat = Category::firstOrCreate(
+                ['store_id' => $store->id, 'slug' => $slug],
+                [
+                    'parent_id' => null,
+                    'name' => $name,
+                    'status' => 'active',
+                ]
+            );
+            $categories->push($cat);
+        }
+
+        // For each category, create 10 products, mark first 5 as featured
+        $catalog = [
+            // Category 1
+            [
+                'Stainless Steel Water Bottle 750ml',
+                'Insulated Sports Water Bottle',
+                'Glass Water Bottle with Silicone Sleeve',
+                'Collapsible Travel Water Bottle',
+                'BPA‑Free Plastic Water Bottle',
+                'Wide-Mouth Stainless Steel Flask',
+                'Kids Leakproof Water Bottle',
+                'Filter-Infuser Water Bottle',
+                'Lightweight Aluminum Water Bottle',
+                'Hydration Tracker Bottle',
+            ],
+            // Category 2
+            [
+                'Reusable Cotton Tote Bag',
+                'Heavy-Duty Canvas Shopping Bag',
+                'Foldable Nylon Grocery Bag',
+                'Jute Eco Market Bag',
+                'Insulated Lunch Tote',
+                'Mesh Produce Bag (Set of 5)',
+                'Waxed Canvas Carryall',
+                'Mini Canvas Handbag',
+                'Drawstring Gym Sack',
+                'Waterproof Travel Duffle',
+            ],
+            // Category 3
+            [
+                'Bamboo Toothbrush Soft Bristles',
+                'Charcoal-Infused Toothbrush',
+                'Kids Bamboo Toothbrush 2-Pack',
+                'Recyclable Nylon Bristle Brush',
+                'Sensitive Gum Care Toothbrush',
+                'Travel Folding Toothbrush',
+                'Eco Dental Care Set (Brush + Case)',
+                'Replaceable Head Toothbrush',
+                'Biodegradable Handle Toothbrush',
+                'Ultra-Soft Bamboo Toothbrush',
+            ],
+            // Category 4
+            [
+                'Double-Wall Stainless Steel Cup',
+                'Ceramic Coffee Mug with Lid',
+                'Enamel Camping Cup',
+                'Glass Tumbler with Straw',
+                'Bamboo Fiber Cup',
+                'Insulated Travel Tumbler 500ml',
+                'Stoneware Espresso Cup Set',
+                'Silicone Collapsible Cup',
+                'Reusable Party Cup 4-Pack',
+                'Thermal Mug with Handle',
+            ],
+            // Category 5
+            [
+                'Stainless Steel Bento Lunch Box',
+                'Glass Meal Prep Container',
+                'Leakproof 3-Compartment Lunch Box',
+                'Wheat Straw Lunch Container',
+                'Thermal Soup Jar',
+                'Silicone Snack Box Set',
+                'Kids Bento with Cutlery',
+                'Foldable Silicone Lunch Box',
+                'Insulated Food Jar 700ml',
+                'Stackable Lunch Box Duo',
+            ],
+        ];
+
+        // Load available size and weight units (may be empty if not seeded)
+        $sizeUnitIds = \DB::table('size_units')->pluck('id')->all();
+        $weightUnitIds = \DB::table('weight_units')->pluck('id')->all();
+
+        foreach ($categories as $idx => $cat) {
+            $names = $catalog[$idx % count($catalog)];
+            foreach ($names as $nIndex => $name) {
+                $amount = rand(1500, 15000) / 1.0; // simple price range
+                $featured = $nIndex < 5; // 5 marked featured per category
+
+                Product::create([
+                    'store_id' => $store->id,
+                    'category_id' => $cat->id,
+                    'name' => $name,
+                    'brand' => 'EcoBrand',
+                    'slug' => Str::slug($name) . '-' . substr((string) Str::uuid(), 0, 8),
+                    'description' => 'Autogenerated demo product for seeding.',
+                    'quantity' => rand(1, 200),
+                    'size' => !empty($sizeUnitIds) ? rand(250, 2000) : null,
+                    'size_unit_id' => !empty($sizeUnitIds) ? Arr::random($sizeUnitIds) : null,
+                    'weight' => !empty($weightUnitIds) ? rand(50, 1500) : null,
+                    'weight_unit_id' => !empty($weightUnitIds) ? Arr::random($weightUnitIds) : null,
+                    'amount' => $amount,
+                    'status' => 'active',
+                    'featured' => $featured,
+                    'cod_available' => true,
+                ]);
+            }
+        }
+
+        $this->command?->info('Main store categories and products seeded: 5 categories, 10 products each (5 featured).');
+    }
+}

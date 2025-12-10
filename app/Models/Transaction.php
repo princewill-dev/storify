@@ -1,0 +1,68 @@
+<?php
+
+namespace App\Models;
+
+use App\Enums\TransactionStatus;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Str;
+
+class Transaction extends Model
+{
+    protected $fillable = [
+        'reference',
+        'order_id',
+        'payment_method_id',
+        'amount',
+        'currency',
+        'status',
+        'gateway_reference',
+        'gateway_response',
+        'metadata',
+        'paid_at',
+        'payment_slip',
+    ];
+
+    protected $casts = [
+        'amount' => 'decimal:2',
+        'paid_at' => 'datetime',
+        'status' => TransactionStatus::class,
+        'metadata' => 'array',
+    ];
+
+    protected static function boot()
+    {
+        parent::boot();
+        
+        static::creating(function ($transaction) {
+            if (empty($transaction->reference)) {
+                $transaction->reference = 'TXN-' . strtoupper(Str::random(12));
+            }
+        });
+    }
+
+    public function order(): BelongsTo
+    {
+        return $this->belongsTo(Order::class);
+    }
+
+    public function paymentMethod(): BelongsTo
+    {
+        return $this->belongsTo(PaymentMethod::class);
+    }
+
+    public function getRouteKeyName(): string
+    {
+        return 'reference';
+    }
+
+    public function getStatusLabelAttribute(): string
+    {
+        return $this->status instanceof TransactionStatus ? $this->status->label() : ucfirst($this->status);
+    }
+
+    public function getStatusBadgeClassAttribute(): string
+    {
+        return $this->status instanceof TransactionStatus ? $this->status->badgeClass() : 'badge-secondary light';
+    }
+}

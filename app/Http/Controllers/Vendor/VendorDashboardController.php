@@ -1,0 +1,126 @@
+<?php
+
+namespace App\Http\Controllers\Vendor;
+
+use App\Http\Controllers\Controller;
+use App\Models\Customer;
+use App\Models\Order;
+use App\Models\Product;
+use App\Models\Store;
+use App\Models\Transaction;
+use App\Models\Vendor;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
+use Illuminate\View\View;
+
+class VendorDashboardController extends Controller
+{
+    public function index(Request $request): View|RedirectResponse
+    {
+        /** @var Vendor|null $vendor */
+        $vendor = $request->user('vendor');
+
+        if (!$vendor) {
+            return redirect()->route('vendor.auth.login');
+        }
+
+        if (!$vendor->is_verified) {
+            return redirect()->route('vendor.auth.verify-otp')
+                ->with('warning', 'Verify your email first to continue onboarding.');
+        }
+
+        $now = Carbon::now();
+        $startOfMonth = $now->copy()->startOfMonth();
+        $endOfMonth = $now->copy()->endOfMonth();
+        $lastMonthStart = $now->copy()->subMonth()->startOfMonth();
+        $lastMonthEnd = $now->copy()->subMonth()->endOfMonth();
+        $recentActivityThreshold = $now->copy()->subDays(30);
+
+        $storeIds = $vendor->stores()->pluck('id');
+
+        $ordersQuery = Order::query()->where('vendor_id', $vendor->id);
+        $totalOrders = (clone $ordersQuery)->count();
+        $pendingOrders = (clone $ordersQuery)->where('status', 'pending')->count();
+        $ordersThisMonth = (clone $ordersQuery)
+            ->whereBetween('created_at', [$startOfMonth, $endOfMonth])
+            ->count();
+        $lastMonthOrders = (clone $ordersQuery)
+            ->whereBetween('created_at', [$lastMonthStart, $lastMonthEnd])
+            ->count();
+
+        $transactionsQuery = Transaction::query()->whereHas('order', function ($query) use ($vendor) {
+            $query->where('vendor_id', $vendor->id);
+        });
+
+        $completedStatuses = ['completed', 'success'];
+        $completedTransactionsQuery = (clone $transactionsQuery)->whereIn('status', $completedStatuses);
+
+        $totalRevenue = (clone $completedTransactionsQuery)->sum('amount');
+        $revenueThisMonth = (clone $completedTransactionsQuery)
+            ->whereBetween('created_at', [$startOfMonth, $endOfMonth])
+            ->sum('amount');
+        $lastMonthRevenue = (clone $completedTransactionsQuery)
+            ->whereBetween('created_at', [$lastMonthStart, $lastMonthEnd])
+            ->sum('amount');
+
+        $totalTransactions = (clone $transactionsQuery)->count();
+        $pendingTransactions = (clone $transactionsQuery)->where('status', 'pending')->count();
+        $recentTransactions = (clone $transactionsQuery)
+            ->with(['order.customer', 'paymentMethod'])
+            ->latest()
+            ->take(10)
+            ->get();
+
+        $totalCustomers = Customer::query()
+            ->whereHas('orders', function ($query) use ($vendor) {
+                $query->where('vendor_id', $vendor->id);
+            })
+            ->count();
+
+        $activeCustomers = Customer::query()
+            ->whereHas('orders', function ($query) use ($vendor, $recentActivityThreshold) {
+                $query->where('vendor_id', $vendor->id)
+                    ->where('created_at', '>=', $recentActivityThreshold);
+            })
+            ->count();
+
+        $storeQuery = Store::query()->where('vendor_id', $vendor->id);
+        $totalStores = (clone $storeQuery)->count();
+        $activeStores = (clone $storeQuery)->where('status', 'active')->count();
+
+        $productsQuery = Product::query()->whereIn('store_id', $storeIds);
+        $totalProducts = (clone $productsQuery)->count();
+        $activeProducts = (clone $productsQuery)->where('status', 'active')->count();
+        $totalStock = (clone $productsQuery)->sum('quantity');
+        $lowStockProducts = (clone $productsQuery)->where('quantity', '<=', 10)->count();
+
+        $stats = [
+            'total_revenue' => (float) $totalRevenue,
+            'revenue_this_month' => (float) $revenueThisMonth,
+            'revenue_change_percent' => $lastMonthRevenue > 0
+                ? round((($revenueThisMonth - $lastMonthRevenue) / $lastMonthRevenue) * 100, 2)
+                : ($revenueThisMonth > 0 ? 100 : 0),
+            'total_orders' => $totalOrders,
+            'pending_orders' => $pendingOrders,
+            'orders_change_percent' => $lastMonthOrders > 0
+                ? round((($ordersThisMonth - $lastMonthOrders) / $lastMonthOrders) * 100, 2)
+                : ($ordersThisMonth > 0 ? 100 : 0),
+            'total_transactions' => $totalTransactions,
+            'pending_transactions' => $pendingTransactions,
+            'recent_transactions' => $recentTransactions,
+            'total_customers' => $totalCustomers,
+            'active_customers' => $activeCustomers,
+            'total_vendors' => 1,
+            'active_vendors' => $vendor->status === Vendor::STATUS_ACTIVE ? 1 : 0,
+            'total_stores' => $totalStores,
+            'active_stores' => $activeStores,
+            'total_products' => $totalProducts,
+            'active_products' => $activeProducts,
+            'total_stock' => (int) $totalStock,
+            'low_stock_products' => $lowStockProducts,
+        ];
+
+        return view('vendors.dashboard', compact('vendor', 'stats'));
+    }
+}
