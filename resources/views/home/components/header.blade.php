@@ -4,7 +4,7 @@
 
         <!-- MOBILE HEADER -->
         <div class="wsmobileheader clearfix">	  	
-            <span class="smllogo"><img src="images/ds-logo.png" alt="mobile-logo"></span>
+            <span class="smllogo"><img src="{{ $company->logo }}" alt="mobile-logo"></span>
             <a id="wsnavtoggle" class="wsanimated-arrow"><span></span></a>	
             </div>
 
@@ -16,13 +16,13 @@
 
                 <!-- HEADER BLACK LOGO -->
                 <div class="desktoplogo">
-                    <a href="./" class="logo-black"><img src="images/ds-logo.png" alt="logo"></a>
+                    <a href="{{ route('home.index') }}" class="logo-black"><img src="{{ $company->logo }}" alt="logo"></a>
                 </div>
 
 
                 <!-- HEADER WHITE LOGO -->
                 <div class="desktoplogo">
-                    <a href="./" class="logo-white"><img src="images/ds-logo.png" alt="logo"></a>
+                    <a href="{{ route('home.index') }}" class="logo-white"><img src="{{ $company->logo }}" alt="logo"></a>
                 </div>
 
 
@@ -36,24 +36,19 @@
                         
                         <li class="nl-simple" aria-haspopup="true"><a href="./#features" class="h-link">Our Services</a></li>
 
-                        <li class="nl-simple" aria-haspopup="true"><a href="projects.html" class="h-link">Our Works</a></li>
+                        <li class="nl-simple" aria-haspopup="true"><a href="projects.html" class="h-link">Checkout Stores</a></li>
                         
-                        <!--<li class="nl-simple" aria-haspopup="true"><a href="./#why-us" class="h-link">Why Choose us?</a></li>-->
+                        <li class="nl-simple" aria-haspopup="true"><a href="./#features" class="h-link">Support</a></li>
 
 
                         <!-- SIGN UP BUTTON -->
                         <li class="nl-simple" aria-haspopup="true">
-                            <a href="contact-us.html" class="btn r-04 btn--theme hover--theme last-link">Free Consultation</a>
+                            <a href="contact-us.html" class="btn r-04 btn--theme hover--theme last-link">Create Store</a>
                         </li> 
-
 
                     </ul>
                 </nav>	<!-- END MAIN MENU -->
-
-
             </div>
         </div>	<!-- END NAVIGATION MENU -->
-
-
-    </div>     <!-- End header-wrapper -->
+    </div><!-- End header-wrapper -->
 </header>

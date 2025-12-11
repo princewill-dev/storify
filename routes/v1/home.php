@@ -14,11 +14,17 @@ use App\Http\Controllers\Home\SearchController;
 use App\Http\Controllers\Home\LiveFirstController;
 
 
+//homepage routes
 Route::get('/', [HomePageController::class, 'index'])->name('home.index');
 
 // Order tracking
 Route::get('/track-order', [TrackingController::class, 'index'])->name('tracking.index');
 Route::get('/track-order/{order}', [TrackingController::class, 'show'])->name('tracking.show');
+
+Route::get('/about-us', [HomePageController::class, 'about'])->name('home.about');
+Route::get('/support', [HomePageController::class, 'support'])->name('home.support');
+Route::get('/stores', [HomePageController::class, 'stores'])->name('home.stores');
+Route::get('/services', [HomePageController::class, 'services'])->name('home.services');
 
 // Store-scoped live search (must come BEFORE catch-all store route)
 Route::get('/{store_slug}/search', [SearchController::class, 'liveSearch'])

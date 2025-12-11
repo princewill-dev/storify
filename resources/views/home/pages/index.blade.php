@@ -33,7 +33,7 @@
 
 
 		<!-- BRANDS CAROUSEL -->
-		<div id="brands-1" class="py-90" style="display: none;">			
+		<div id="brands-1" class="py-90">			
 			<div class="row">
 				<div class="col text-center">	
 					<div class="owl-carousel brands-carousel-6">
@@ -41,49 +41,49 @@
 										
 						<!-- BRAND LOGO IMAGE -->
 						<div class="brand-logo">
-							<a href="#"><img class="img-fluid" src="images/brand-1-white.png" alt="brand-logo"></a>
+							<a href="#"><img class="img-fluid" src="{{ asset('home/images/brand-1-white.png') }}" alt="brand-logo"></a>
 						</div>
 
 											
 						<!-- BRAND LOGO IMAGE -->
 						<div class="brand-logo">
-							<a href="#"><img class="img-fluid" src="images/brand-3-white.png" alt="brand-logo"></a>
+							<a href="#"><img class="img-fluid" src="{{ asset('home/images/brand-3-white.png') }}" alt="brand-logo"></a>
 						</div>
 
 											
 						<!-- BRAND LOGO IMAGE -->
 						<div class="brand-logo">
-							<a href="#"><img class="img-fluid" src="images/brand-4-white.png" alt="brand-logo"></a>
+							<a href="#"><img class="img-fluid" src="{{ asset('home/images/brand-4-white.png') }}" alt="brand-logo"></a>
 						</div>
 
 											
 						<!-- BRAND LOGO IMAGE -->
 						<div class="brand-logo">
-							<a href="#"><img class="img-fluid" src="images/brand-5-white.png" alt="brand-logo"></a>
+							<a href="#"><img class="img-fluid" src="{{ asset('home/images/brand-5-white.png') }}" alt="brand-logo"></a>
 						</div>
 
 											
 						<!-- BRAND LOGO IMAGE -->
 						<div class="brand-logo">
-							<a href="#"><img class="img-fluid" src="images/brand-6-white.png" alt="brand-logo"></a>
+							<a href="#"><img class="img-fluid" src="{{ asset('home/images/brand-6-white.png') }}" alt="brand-logo"></a>
 						</div>
 
 											
 						<!-- BRAND LOGO IMAGE -->
 						<div class="brand-logo">
-							<a href="#"><img class="img-fluid" src="images/brand-7-white.png" alt="brand-logo"></a>
+							<a href="#"><img class="img-fluid" src="{{ asset('home/images/brand-7-white.png') }}" alt="brand-logo"></a>
 						</div>
 
 
 						<!-- BRAND LOGO IMAGE -->
 						<div class="brand-logo">
-							<a href="#"><img class="img-fluid" src="images/brand-8-white.png" alt="brand-logo"></a>
+							<a href="#"><img class="img-fluid" src="{{ asset('home/images/brand-8-white.png') }}" alt="brand-logo"></a>
 						</div>
 
 													
 						<!-- BRAND LOGO IMAGE -->
 						<div class="brand-logo">
-							<a href="#"><img class="img-fluid" src="images/brand-9-white.png" alt="brand-logo"></a>
+							<a href="#"><img class="img-fluid" src="{{ asset('home/images/brand-9-white.png') }}" alt="brand-logo"></a>
 						</div>
 
 
@@ -170,7 +170,7 @@
 			<!-- IMAGE BLOCK -->
 			<div class="col-md-6">
 				<div class="img-block left-column wow fadeInRight">
-					<img class="img-fluid" src="images/img-11.png" alt="content-image">
+					<img class="img-fluid" src="{{ asset('home/images/img-11.png') }}" alt="content-image">
 				</div>
 			</div>
 
@@ -214,7 +214,7 @@
 
 						<!-- Image -->
 						<div class="fbox-img gr--whitesmoke h-170">
-							<img class="img-fluid" src="images/f_04_dark.png" alt="feature-image">
+							<img class="img-fluid" src="{{ asset('home/images/f_04_dark.png') }}" alt="feature-image">
 						</div>
 
 						<!-- Text -->
@@ -233,7 +233,7 @@
 
 						<!-- Image -->
 						<div class="fbox-img gr--whitesmoke h-170">
-							<img class="img-fluid" src="images/f_09_dark.png" alt="feature-image">
+							<img class="img-fluid" src="{{ asset('home/images/f_09_dark.png') }}" alt="feature-image">
 						</div>
 
 						<!-- Text -->
@@ -252,7 +252,7 @@
 
 						<!-- Image -->
 						<div class="fbox-img gr--whitesmoke h-170">
-							<img class="img-fluid" src="images/f_01_dark.png" alt="feature-image">
+							<img class="img-fluid" src="{{ asset('home/images/f_01_dark.png') }}" alt="feature-image">
 						</div>
 
 						<!-- Text -->
@@ -306,7 +306,7 @@
 			<!-- IMAGE BLOCK -->
 			<div class="col-md-6 order-first order-md-2">
 				<div class="img-block right-column wow fadeInLeft">
-					<img class="img-fluid" src="images/img-02.png" alt="content-image">
+					<img class="img-fluid" src="{{ asset('home/images/img-02.png') }}" alt="content-image">
 				</div>
 			</div>
 
@@ -316,7 +316,7 @@
 		<center>
 			<br>
 			<br>
-			<img class="img-fluid" src="images/dashboard-pic.png" alt="content-image">
+			<img class="img-fluid" src="{{ asset('home/images/dashboard-pic.png') }}" alt="content-image">
 		</center>
 		
 		
@@ -362,7 +362,7 @@
 			<!-- IMAGE BLOCK -->	
 			<div class="col-md-6">
 				<div class="img-block wow fadeInLeft">
-					<img class="img-fluid" src="images/tablet-01.png" alt="content-image">
+					<img class="img-fluid" src="{{ asset('home/images/tablet-01.png') }}" alt="content-image">
 				</div>	
 			</div>
 
@@ -402,7 +402,7 @@
 
 					<!-- BLOG POST IMAGE -->
 					<div class="blog-post-img mb-35">
-						<img class="img-fluid r-16" src="images/blog/post-8-img.jpg" alt="blog-post-image">
+						<img class="img-fluid r-16" src="{{ asset('home/images/blog/post-8-img.jpg') }}" alt="blog-post-image">
 					</div>	
 
 					<!-- BLOG POST TEXT -->
@@ -442,7 +442,7 @@
 
 					<!-- BLOG POST IMAGE -->
 					<div class="blog-post-img mb-35">
-						<img class="img-fluid r-16" src="images/blog/post-2-img.jpg" alt="blog-post-image">
+						<img class="img-fluid r-16" src="{{ asset('home/images/blog/post-2-img.jpg') }}" alt="blog-post-image">
 					</div>	
 
 					<!-- BLOG POST TEXT -->
@@ -482,7 +482,7 @@
 
 					<!-- BLOG POST IMAGE -->
 					<div class="blog-post-img mb-35">
-						<img class="img-fluid r-16" src="images/blog/post-5-img.jpg" alt="blog-post-image">
+						<img class="img-fluid r-16" src="{{ asset('home/images/blog/post-5-img.jpg') }}" alt="blog-post-image">
 					</div>	
 
 					<!-- BLOG POST TEXT -->
@@ -559,7 +559,7 @@
 					<!-- BANNER-13 IMAGE -->
 					<div class="col-md-5">
 						<div class="banner-13-img text-center">
-							<img class="img-fluid" src="images/img-04.png" alt="banner-image">
+							<img class="img-fluid" src="{{ asset('home/images/img-04.png') }}" alt="banner-image">
 						</div>	
 					</div>
 

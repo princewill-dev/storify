@@ -33,10 +33,10 @@
 		<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet">
 		
 		<!-- BOOTSTRAP CSS -->
-		<link href="css/bootstrap.min.css" rel="stylesheet">
+		<link href="{{ asset('home/css/bootstrap.min.css') }}" rel="stylesheet">
 				
 		<!-- FONT ICONS -->
-		<link href="css/flaticon.css" rel="stylesheet">
+		<link href="{{ asset('home/css/flaticon.css') }}" rel="stylesheet">
 
 		<!-- PLUGINS STYLESHEET -->
 		<link href="{{ asset('home/css/menu.css') }}" rel="stylesheet">	
@@ -97,7 +97,7 @@
 		<script src="{{ asset('home/js/owl.carousel.min.js') }}"></script>
 		<script src="{{ asset('home/js/pricing-toggle.js') }}"></script>
 		<script src="{{ asset('home/js/jquery.magnific-popup.min.js') }}"></script>
-		<script src="{{ asset('home/js/request-form.js' }}"></script>	
+		<script src="{{ asset('home/js/request-form.js') }}"></script>	
 		<script src="{{ asset('home/js/jquery.validate.min.js') }}"></script>
 		<script src="{{ asset('home/js/jquery.ajaxchimp.min.js') }}"></script>	
 		<script src="{{ asset('home/js/popper.min.js') }}"></script>
