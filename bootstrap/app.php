@@ -16,6 +16,10 @@ return Application::configure(basePath: dirname(__DIR__))
             \Monicahq\Cloudflare\Http\Middleware\TrustProxies::class
         );
         
+        $middleware->alias([
+            'vendor.subscription' => \App\Http\Middleware\CheckVendorSubscription::class,
+        ]);
+        
         // Configure authentication redirects for customer guard
         $middleware->redirectGuestsTo(function ($request) {
             if ($request->is('vendor') || $request->is('vendor/*')) {

@@ -36,6 +36,7 @@ class DatabaseSeeder extends Seeder
             PaymentMethodSeeder::class,
             KycDocumentTypeSeeder::class,
             FeatureSeeder::class,
+            SubscriptionPlanSeeder::class,
         ]);
     }
 }

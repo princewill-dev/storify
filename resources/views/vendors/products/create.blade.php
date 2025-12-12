@@ -30,12 +30,17 @@
           </div>
           <div class="col-md-4">
             <label class="form-label">Category</label>
-            <select name="category_id" class="form-select">
-              <option value="">—</option>
-              @foreach($categories as $c)
-                <option value="{{ $c->id }}" @selected(old('category_id')==$c->id)>{{ $c->name }}</option>
-              @endforeach
-            </select>
+            <div class="input-group">
+              <select name="category_id" id="category-select" class="form-select">
+                <option value="">—</option>
+                @foreach($categories as $c)
+                  <option value="{{ $c->id }}" @selected(old('category_id')==$c->id)>{{ $c->name }}</option>
+                @endforeach
+              </select>
+              <button type="button" class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#newCategoryModal">
+                <i class="bi bi-plus-lg"></i> Add New
+              </button>
+            </div>
           </div>
           <div class="col-md-4">
             <label class="form-label">Status</label>
@@ -230,6 +235,54 @@
   </div>
 </div>
 
+<!-- New Category Modal -->
+<div class="modal fade" id="newCategoryModal" tabindex="-1" aria-labelledby="newCategoryModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="newCategoryModalLabel">Create New Category</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <form id="newCategoryForm">
+          @csrf
+          <div class="mb-3">
+            <label for="newCategoryStore" class="form-label">Store</label>
+            @if(isset($stores) && $stores->count() === 1)
+              @php($only = $stores->first())
+              <input type="hidden" id="newCategoryStore" value="{{ $only->id }}">
+              <div class="form-control bg-light">{{ $only->name }}</div>
+            @else
+              <select id="newCategoryStore" class="form-select" required>
+                <option value="">Select store</option>
+                @foreach($stores as $s)
+                  <option value="{{ $s->id }}" @selected(old('store_id', $selectedStoreId ?? null)==$s->id)>{{ $s->name }}</option>
+                @endforeach
+              </select>
+            @endif
+          </div>
+          <div class="mb-3">
+            <label for="newCategoryName" class="form-label">Category Name</label>
+            <input type="text" class="form-control" id="newCategoryName" required>
+            <div class="invalid-feedback" id="categoryNameError"></div>
+          </div>
+          <div class="mb-3">
+            <label for="newCategoryStatus" class="form-label">Status</label>
+            <select id="newCategoryStatus" class="form-select" required>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </select>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" id="saveCategoryBtn">Save Category</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/trix@2.0.8/dist/trix.min.css">
 <script src="https://cdn.jsdelivr.net/npm/trix@2.0.8/dist/trix.umd.min.js"></script>
 
@@ -322,6 +375,103 @@
         addVariantRow();
       }
     }
+  })();
+
+  // Category creation AJAX handler
+  (function(){
+    const saveBtn = document.getElementById('saveCategoryBtn');
+    const modal = document.getElementById('newCategoryModal');
+    const categorySelect = document.getElementById('category-select');
+    const nameInput = document.getElementById('newCategoryName');
+    const storeInput = document.getElementById('newCategoryStore');
+    const statusSelect = document.getElementById('newCategoryStatus');
+    const nameError = document.getElementById('categoryNameError');
+
+    if (!saveBtn) return;
+
+    saveBtn.addEventListener('click', function(){
+      const name = nameInput.value.trim();
+      const storeId = storeInput.value;
+      const status = statusSelect.value;
+
+      // Reset validation
+      nameInput.classList.remove('is-invalid');
+      nameError.textContent = '';
+
+      if (!name) {
+        nameInput.classList.add('is-invalid');
+        nameError.textContent = 'Category name is required';
+        return;
+      }
+
+      if (!storeId) {
+        alert('Please select a store');
+        return;
+      }
+
+      // Disable button and show loading
+      saveBtn.disabled = true;
+      saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Saving...';
+
+      // Make AJAX request
+      fetch('{{ route("vendor.categories.store", ["vendor" => $vendor]) }}', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
+        },
+        body: JSON.stringify({
+          store_id: storeId,
+          name: name,
+          status: status
+        })
+      })
+      .then(response => response.json())
+      .then(data => {
+        if (data.success) {
+          // Add new option to select
+          const option = new Option(data.category.name, data.category.id, true, true);
+          categorySelect.add(option);
+          
+          // Close modal
+          const bsModal = bootstrap.Modal.getInstance(modal);
+          bsModal.hide();
+
+          // Reset form
+          nameInput.value = '';
+          statusSelect.value = 'active';
+
+          // Show success message
+          const alert = document.createElement('div');
+          alert.className = 'alert alert-success alert-dismissible fade show';
+          alert.innerHTML = `
+            <strong>Success!</strong> Category "${data.category.name}" created successfully.
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+          `;
+          document.querySelector('.container-fluid').insertBefore(alert, document.querySelector('.container-fluid').firstChild);
+          setTimeout(() => alert.remove(), 5000);
+        } else {
+          throw new Error(data.message || 'Failed to create category');
+        }
+      })
+      .catch(error => {
+        nameInput.classList.add('is-invalid');
+        nameError.textContent = error.message || 'An error occurred. Please try again.';
+      })
+      .finally(() => {
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save Category';
+      });
+    });
+
+    // Reset form when modal is closed
+    modal.addEventListener('hidden.bs.modal', function(){
+      nameInput.value = '';
+      statusSelect.value = 'active';
+      nameInput.classList.remove('is-invalid');
+      nameError.textContent = '';
+    });
   })();
 </script>
 @endsection

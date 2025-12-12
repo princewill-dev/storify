@@ -1,404 +1,295 @@
-<!doctype html>
-<html class="no-js" lang="zxx">
-   <head>
-      <meta charset="utf-8">
-      <meta http-equiv="x-ua-compatible" content="ie=edge">
-      <title>Markit - Digital Marketplace  HTML5 Template </title>
-      <meta name="description" content="">
-      <meta name="viewport" content="width=device-width, initial-scale=1">
-      <!-- Place favicon.ico in the root directory -->
-      <link rel="shortcut icon" type="image/x-icon" href="assets/img/favicon.png">
-      <!-- CSS here -->
-      <link rel="stylesheet" href="assets/css/preloader.css">
-      <link rel="stylesheet" href="assets/css/bootstrap.min.css">
-      <link rel="stylesheet" href="assets/css/slick.css">
-      <link rel="stylesheet" href="assets/css/meanmenu.css">
-      <link rel="stylesheet" href="assets/css/owl.carousel.min.css">
-      <link rel="stylesheet" href="assets/css/animate.min.css">
-      <link rel="stylesheet" href="assets/css/backToTop.css">
-      <link rel="stylesheet" href="assets/css/jquery.fancybox.min.css">
-      <link rel="stylesheet" href="assets/css/fontAwesome5Pro.css">
-      <link rel="stylesheet" href="assets/css/elegantFont.css">
-      <link rel="stylesheet" href="assets/css/imagetooltip.min.css">
-      <link rel="stylesheet" href="assets/css/default.css">
-      <link rel="stylesheet" href="assets/css/style.css">
-   </head>
-   <body>
-      <!--[if lte IE 9]>
-      <p class="browserupgrade">You are using an <strong>outdated</strong> browser. Please <a href="https://browsehappy.com/">upgrade your browser</a> to improve your experience and security.</p>
-      <![endif]-->
-      
-      <!-- Add your site or application content here -->  
+@extends('storefront.layout')
+@section('title', $product->name)
 
-      <!-- pre loader area start -->
-      <div id="loading">
-         <div id="loading-center">
-            <div id="loading-center-absolute">
-               <div class="object" id="object_one"></div>
-               <div class="object" id="object_two"></div>
-               <div class="object" id="object_three"></div>
-               <div class="object" id="object_four"></div>
-               <div class="object" id="object_five"></div>
-            </div>
-         </div>  
-      </div>
-      <!-- pre loader area end -->
+@section('content')
 
-      <!-- back to top start -->
-      <div class="progress-wrap">
-         <svg class="progress-circle svg-content" width="100%" height="100%" viewBox="-1 -1 102 102">
-            <path d="M50,1 a49,49 0 0,1 0,98 a49,49 0 0,1 0,-98" />
-         </svg>
-      </div>
-      <!-- back to top end -->
+<style>
+.product-detail-page { background: #fff; padding: 60px 0; }
+.product-gallery { display: flex; gap: 20px; }
+.gallery-thumbnails { display: flex; flex-direction: column; gap: 12px; }
+.gallery-thumb { width: 80px; height: 80px; border: 2px solid #e5e5e5; border-radius: 8px; overflow: hidden; cursor: pointer; transition: border-color 0.3s; }
+.gallery-thumb:hover, .gallery-thumb.active { border-color: #333; }
+.gallery-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.gallery-main { flex: 1; background: #f8f8f8; border-radius: 12px; overflow: hidden; display: flex; align-items: center; justify-content: center; min-height: 500px; }
+.gallery-main img { max-width: 100%; max-height: 500px; object-fit: contain; }
+.product-info { padding-left: 40px; }
+.product-category { color: #666; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+.product-title { font-size: 32px; font-weight: 400; line-height: 1.3; margin-bottom: 16px; color: #1a1a1a; }
+.product-rating { display: flex; align-items: center; gap: 8px; margin-bottom: 20px; }
+.stars { color: #ffa500; display: flex; gap: 2px; }
+.review-count { color: #666; font-size: 14px; }
+.product-price { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+.current-price { font-size: 24px; font-weight: 600; color: #1a1a1a; }
+.original-price { font-size: 18px; color: #999; text-decoration: line-through; }
+.discount-badge { background: #d4f4dd; color: #0d6832; padding: 4px 12px; border-radius: 20px; font-size: 13px; font-weight: 600; }
+.product-description { color: #666; line-height: 1.7; margin-bottom: 30px; font-size: 15px; }
+.size-selector { margin-bottom: 24px; }
+.size-selector label { display: block; margin-bottom: 12px; font-weight: 600; color: #333; font-size: 15px; }
+.size-options { display: flex; gap: 10px; }
+.size-btn { padding: 12px 24px; border: 2px solid #e5e5e5; background: #fff; border-radius: 8px; cursor: pointer; transition: all 0.3s; font-size: 14px; }
+.size-btn:hover { border-color: #999; }
+.size-btn.active { background: #e8f5e9; border-color: #4caf50; color: #1b5e20; }
+.quantity-cart-wrapper { display: flex; gap: 16px; align-items: center; margin-bottom: 20px; }
+.quantity-selector { display: flex; align-items: center; border: 2px solid #e5e5e5; border-radius: 8px; }
+.qty-btn { width: 44px; height: 48px; border: none; background: #fff; cursor: pointer; font-size: 18px; color: #666; transition: color 0.3s; }
+.qty-btn:hover { color: #000; }
+.qty-input { width: 60px; height: 48px; border: none; text-align: center; font-size: 16px; font-weight: 600; }
+.add-to-cart-btn { flex: 1; height: 52px; background: #2c3e50; color: #fff; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; cursor: pointer; transition: background 0.3s; }
+.add-to-cart-btn:hover { background: #1a252f; }
+.wishlist-btn { width: 52px; height: 52px; border: 2px solid #e5e5e5; background: #fff; border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.3s; }
+.wishlist-btn:hover { border-color: #e91e63; color: #e91e63; }
+.shipping-info { color: #666; font-size: 13px; margin-bottom: 30px; text-align: center; }
+.product-features { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-bottom: 30px; padding: 30px 0; border-top: 1px solid #e5e5e5; border-bottom: 1px solid #e5e5e5; }
+.feature-item { text-align: center; }
+.feature-icon { width: 40px; height: 40px; margin: 0 auto 10px; }
+.feature-icon svg { width: 100%; height: 100%; }
+.feature-label { font-size: 12px; color: #666; line-height: 1.4; }
+.product-details-section { }
+.details-header { padding: 20px 0; border-bottom: 1px solid #e5e5e5; cursor: pointer; display: flex; justify-content: between; align-items: center; }
+.details-header h4 { margin: 0; font-size: 16px; font-weight: 600; flex: 1; }
+.details-content { padding: 20px 0; display: none; color: #666; line-height: 1.7; font-size: 14px; }
+.details-content.active { display: block; }
+.back-link { display: inline-flex; align-items: center; gap: 8px; color: #666; text-decoration: none; margin-bottom: 30px; font-size: 14px; }
+.back-link:hover { color: #333; }
+@media (max-width: 991px) {
+   .product-info { padding-left: 0; margin-top: 40px; }
+   .product-features { grid-template-columns: repeat(2, 1fr); }
+}
+</style>
 
-      <!-- header area start -->
-      <header>
-         <div class="header__area header__shadow-2 " id="header-sticky" style="background-color: #000;">
-            <div class="container">
-               <div class="row align-items-center">
-                  <div class="col-xxl-2 col-xl-2 col-lg-2 col-md-4 col-6">
-                     <div class="logo">
-                        <a href="index.html">
-                        <img src="assets/img/logo/logo-white.png" alt="logo">
-                        </a>
-                     </div>
-                  </div>
-                  <div class="col-xxl-7 col-xl-7 col-lg-8 d-none d-lg-block">
-                     <div class="main-menu d-flex justify-content-end">
-                        <nav id="mobile-menu">
-                           <ul>
-                              <li class="active"><a href="index.html">Home</a></li>
+<section class="product-detail-page">
+   <div class="container">
+      <a href="{{ route('home.store.products.index', ['store_slug' => $product->store->slug ?? 'store']) }}" class="back-link">
+         <i class="fas fa-arrow-left"></i> Back to {{ $product->store->name ?? 'Store' }}
+      </a>
 
-                              <li><a href="support.html">Support</a></li>
-
-                              <li  class="has-dropdown">
-                                 <a href="product.html">pages</a>
-
-                                 <ul class="submenu">
-                                    <li><a href="about.html">About</a></li>
-                                    <li><a href="documentation.html">Documentation</a></li>
-                                    <li><a href="pricing.html">Pricing</a></li>
-                                    <li><a href="sign-up.html">Sign Up</a></li>
-                                    <li><a href="sign-in.html">Log In</a></li>
-                                 </ul>
-                              </li>
-
-                              <li class="has-dropdown">
-                                 <a href="blog.html">Blog</a>
-
-                                 <ul class="submenu">
-                                    <li><a href="blog.html">Blog</a></li>
-                                    <li><a href="blog-details.html">Blog Details</a></li>
-                                 </ul>
-                              </li>
-                              
-                              <li><a href="contact.html">Contact</a></li>
-                           </ul>
-                        </nav>
-                     </div>
-                  </div>
-                  <div class="col-xxl-3 col-xl-3 col-lg-2 col-md-8 col-6">
-                     <div class="header__action d-flex align-items-center justify-content-end">
-                        <!-- <div class="header__login header__login-2 d-none d-sm-block">
-                           <a href="sign-in.html"><i class="far fa-unlock"></i> Log In</a>
+      <div class="row">
+         <!-- Product Gallery -->
+         <div class="col-lg-6">
+            <div class="product-gallery">
+               <div class="gallery-thumbnails">
+                  @if($product->images && $product->images->count() > 0)
+                     @foreach($product->images as $index => $image)
+                        <div class="gallery-thumb {{ $index === 0 ? 'active' : '' }}" onclick="changeMainImage('{{ asset('storage/' . $image->path) }}', this)">
+                           <img src="{{ asset('storage/' . $image->path) }}" alt="{{ $product->name }}">
                         </div>
-                        <div class="header__btn d-none d-xl-block">
-                           <a href="contact.html" class="m-btn m-btn-2">get started</a>
-                        </div> -->
-                        <div class="sidebar__menu d-lg-none">
-                           <div class="sidebar-toggle-btn" id="sidebar-toggle">
-                               <span class="line"></span>
-                               <span class="line"></span>
-                               <span class="line"></span>
-                           </div>
-                       </div>
+                     @endforeach
+                  @else
+                     <div class="gallery-thumb active">
+                        <img src="{{ asset('Storefront/assets/img/product/product-1.jpg') }}" alt="{{ $product->name }}">
                      </div>
+                  @endif
+               </div>
+               <div class="gallery-main" id="mainGallery">
+                  @if($product->images && $product->images->count() > 0)
+                     <img src="{{ asset('storage/' . $product->images->first()->path) }}" alt="{{ $product->name }}" id="mainImage">
+                  @else
+                     <img src="{{ asset('Storefront/assets/img/product/product-1.jpg') }}" alt="{{ $product->name }}" id="mainImage">
+                  @endif
+               </div>
+            </div>
+         </div>
+
+         <!-- Product Info -->
+         <div class="col-lg-6">
+            <div class="product-info">
+               <div class="product-category">{{ $product->category->name ?? ($product->store->name ?? 'Products') }}</div>
+               
+               <h1 class="product-title">{{ $product->name }}</h1>
+               
+               <div class="product-rating">
+                  <div class="stars">
+                     <i class="fas fa-star"></i>
+                     <i class="fas fa-star"></i>
+                     <i class="fas fa-star"></i>
+                     <i class="fas fa-star"></i>
+                     <i class="fas fa-star"></i>
+                  </div>
+                  <span class="review-count">{{ $product->views ?? 0 }} views</span>
+               </div>
+
+               <div class="product-price">
+                  @if($product->has_variants && $priceInfoSymbol)
+                     <span class="current-price">{{ $priceInfoSymbol }}</span>
+                  @else
+                     @if($hasDiscount && $displayDiscountedAmount)
+                        <span class="current-price">{{ $displayDiscountedAmount }}</span>
+                        <span class="original-price">{{ $displayBaseAmount }}</span>
+                        <span class="discount-badge">{{ $displayDiscountPct ?? '' }}</span>
+                     @else
+                        <span class="current-price">{{ $displayBaseAmount }}</span>
+                     @endif
+                  @endif
+               </div>
+
+               @if($product->description)
+                  <div class="product-description">
+                     {{ Str::limit(strip_tags($product->description), 200) }}
+                  </div>
+               @endif
+
+               <!-- Size/Variant Selector -->
+               @if($product->has_variants && isset($sizeOptions) && count($sizeOptions) > 0)
+                  <div class="size-selector">
+                     <label>Size:</label>
+                     <div class="size-options">
+                        @foreach($sizeOptions as $size)
+                           <button class="size-btn" onclick="selectSize(this)">{{ $size }}</button>
+                        @endforeach
+                     </div>
+                  </div>
+               @elseif(!$product->has_variants && $baseMeta['size'])
+                  <div class="size-selector">
+                     <label>Size:</label>
+                     <div class="size-options">
+                        <button class="size-btn active">{{ $baseMeta['size'] }}</button>
+                     </div>
+                  </div>
+               @endif
+
+               <!-- Quantity & Add to Cart -->
+               <div class="quantity-cart-wrapper">
+                  <div class="quantity-selector">
+                     <button class="qty-btn" onclick="decrementQty()">−</button>
+                     <input type="number" class="qty-input" id="quantity" value="1" min="1" readonly>
+                     <button class="qty-btn" onclick="incrementQty()">+</button>
+                  </div>
+                  <button class="add-to-cart-btn">Add to Cart</button>
+                  <button class="wishlist-btn">
+                     <i class="far fa-heart" style="font-size: 20px;"></i>
+                  </button>
+               </div>
+
+               <div class="shipping-info">
+                  <i class="fas fa-truck"></i> Ships within 3-5 business days
+               </div>
+
+               <!-- Product Features -->
+               <div class="product-features">
+                  <div class="feature-item">
+                     <div class="feature-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                           <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        </svg>
+                     </div>
+                     <div class="feature-label">Quality Assured</div>
+                  </div>
+                  <div class="feature-item">
+                     <div class="feature-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                           <path d="M12 2a10 10 0 100 20 10 10 0 000-20zm0 18a8 8 0 110-16 8 8 0 010 16z"/>
+                           <path d="M12 6v6l4 2"/>
+                        </svg>
+                     </div>
+                     <div class="feature-label">Fast Delivery</div>
+                  </div>
+                  <div class="feature-item">
+                     <div class="feature-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                           <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>
+                           <path d="M9 22V12h6v10"/>
+                        </svg>
+                     </div>
+                     <div class="feature-label">Secure Packaging</div>
+                  </div>
+                  <div class="feature-item">
+                     <div class="feature-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                           <path d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+                        </svg>
+                     </div>
+                     <div class="feature-label">{{ $product->brand ?? 'Authentic' }}</div>
+                  </div>
+               </div>
+
+               <!-- Product Details Accordion -->
+               <div class="product-details-section">
+                  <div class="details-header" onclick="toggleDetails(this)">
+                     <h4>Product Details</h4>
+                     <i class="fas fa-chevron-down"></i>
+                  </div>
+                  <div class="details-content">
+                     @if($product->description)
+                        <p>{!! nl2br(e($product->description)) !!}</p>
+                     @endif
+                     
+                     <ul style="list-style: none; padding: 0; margin-top: 20px;">
+                        @if(isset($baseMeta['qty']))
+                           <li style="padding: 8px 0; border-bottom: 1px solid #f0f0f0;">
+                              <strong>Stock:</strong> {{ $baseMeta['qty'] }} {{ $product->has_variants ? 'Total' : 'Available' }}
+                           </li>
+                        @endif
+                        @if($product->sku)
+                           <li style="padding: 8px 0; border-bottom: 1px solid #f0f0f0;">
+                              <strong>SKU:</strong> {{ $product->sku }}
+                           </li>
+                        @endif
+                        <li style="padding: 8px 0; border-bottom: 1px solid #f0f0f0;">
+                           <strong>Product Code:</strong> {{ $product->product_code }}
+                        </li>
+                        @if($product->brand)
+                           <li style="padding: 8px 0; border-bottom: 1px solid #f0f0f0;">
+                              <strong>Brand:</strong> {{ $product->brand }}
+                           </li>
+                        @endif
+                        @if(!$product->has_variants && $baseMeta['weight'])
+                           <li style="padding: 8px 0; border-bottom: 1px solid #f0f0f0;">
+                              <strong>Weight:</strong> {{ $baseMeta['weight'] }}
+                           </li>
+                        @endif
+                        @if(!$product->has_variants && $baseMeta['color'])
+                           <li style="padding: 8px 0; border-bottom: 1px solid #f0f0f0;">
+                              <strong>Color:</strong> {{ $baseMeta['color'] }}
+                           </li>
+                        @endif
+                     </ul>
+
+                     @if($tagsArr && $tagsArr->count() > 0)
+                        <div style="margin-top: 20px;">
+                           <strong style="display: block; margin-bottom: 10px;">Tags:</strong>
+                           @foreach($tagsArr as $tag)
+                              <span style="display: inline-block; padding: 4px 12px; background: #f0f0f0; border-radius: 16px; margin: 4px; font-size: 13px;">{{ $tag }}</span>
+                           @endforeach
+                        </div>
+                     @endif
                   </div>
                </div>
             </div>
          </div>
-      </header>
-      <!-- header area end -->
-
-
-
-      <!-- sidebar area start -->
-      <div class="sidebar__area">
-         <div class="sidebar__wrapper">
-            <div class="sidebar__close">
-               <button class="sidebar__close-btn" id="sidebar__close-btn">
-               <span><i class="fal fa-times"></i></span>
-               <span>close</span>
-               </button>
-            </div>
-            <div class="sidebar__content">
-               <div class="logo mb-40">
-                  <a href="index.html">
-                  <img src="assets/img/logo/logo-white.png" alt="logo">
-                  </a>
-               </div>
-               <div class="mobile-menu"></div>
-               <!-- <div class="sidebar__action mt-330">
-                  <div class="sidebar__login mt-15">
-                     <a href="#"><i class="far fa-unlock"></i> Log In</a>
-                  </div>
-                  <div class="sidebar__cart mt-20">
-                     <a href="javascript:void(0);" class="cart-toggle-btn">
-                        <i class="far fa-shopping-cart"></i>
-                        <span>2</span>
-                     </a>
-                  </div>
-               </div> -->
-            </div>
-         </div>
       </div>
-      <!-- sidebar area end -->      
-      <div class="body-overlay"></div>
-      <!-- sidebar area end -->
+   </div>
+</section>
 
+<script>
+function changeMainImage(imageSrc, thumbElement) {
+   document.getElementById('mainImage').src = imageSrc;
+   document.querySelectorAll('.gallery-thumb').forEach(thumb => thumb.classList.remove('active'));
+   thumbElement.classList.add('active');
+}
 
-      <main>
+function selectSize(btn) {
+   document.querySelectorAll('.size-btn').forEach(b => b.classList.remove('active'));
+   btn.classList.add('active');
+}
 
-         
+function incrementQty() {
+   const input = document.getElementById('quantity');
+   input.value = parseInt(input.value) + 1;
+}
 
-        <section class="product__area pt-105 pb-110 grey-bg-2pb-115">
-            <div class="container">
-               <div class="row">
-                  <!-- <div class="col-xxl-8 col-xl-8 col-lg-8">
-                     <div class="product__wrapper">
-                        <div class="product__details-thumb w-img mb-30">
-                           <img src="assets/img/product/details/pro-de-1.jpg" alt="product-details">
-                        </div>
-                     </div>
-                  </div> -->
+function decrementQty() {
+   const input = document.getElementById('quantity');
+   if (parseInt(input.value) > 1) {
+      input.value = parseInt(input.value) - 1;
+   }
+}
 
-                  <div class="col"></div>
+function toggleDetails(header) {
+   const content = header.nextElementSibling;
+   const icon = header.querySelector('i');
+   content.classList.toggle('active');
+   icon.style.transform = content.classList.contains('active') ? 'rotate(180deg)' : 'rotate(0deg)';
+}
+</script>
 
-                  <div class="col-md-6">
-                     <div class="product__details-sidebar ml-30">
-                        <div class="product__proprietor white-bg mb-30">
-                           <div class="product__proprietor-head mb-25">
-                              <div class="product__prorietor-info mb-20 d-flex justify-content-between">
-                                 <div class="product__proprietor-avater d-flex align-items-center">
-                                    <div class="product__proprietor-thumb">
-                                       <img src="assets/img/store-checkout.png" alt="">
-                                    </div>
-                                    <div class="product__proprietor-name">
-                                       <h5><a href="#">Your cart</a></h5>
-                                    </div>
-                                 </div>
-                                 <div class="product__proprietor-price">
-                                    <span class="d-flex align-items-start"><span></span></span>
-                                 </div>
-                              </div>
-                              <div class="product__proprietor-text">
-                                 <p>Item: <span>Jeffrey arse over tit give us a bell old posh morish wellies cheeky.</span></p>
-                              </div>
-                           </div>
-                           <div class="product__proprietor-body fix">
-                              
-                              <ul class="mb-10 fix">
-                                 <li>
-                                    <h6>Quanty:</h6>
-                                    <span>10</span>
-                                 </li>
-                                 <li>
-                                    <h6>Released On:</h6>
-                                    <span>16 February 2021</span>
-                                 </li>
-                                 <li>
-                                    <h6>Version:</h6>
-                                    <span>1.0</span>
-                                 </li>
-                                 <li>
-                                    <h6>Compatibility:</h6>
-                                    <span>Elementor</span>
-                                 </li>
-                                 <li>
-                                    <h6>Framework:</h6>
-                                    <span>Redux:</span>
-                                 </li>
-                              </ul>
-
-                              <form action="checkout.html" method="get">
-
-                                 <input type="hidden" name="amount" id="amount" value="">
-                                 <input type="hidden" name="item" id="item" value="">
-
-
-                                 <button class="m-btn m-btn-2 w-100 mb-20">checkout</button>
-
-                              </form>
-                           </div>
-                        </div>
-
-                     </div>
-
-
-                     <script>
-                        // Parse the URL
-                        const urlParams = new URLSearchParams(window.location.search);
-
-                        // Get the price
-                        const price = urlParams.get('amount');
-
-                        // Get the product name and decode it
-                        const productName = decodeURIComponent(urlParams.get('item'));
-
-                        // Select the HTML elements
-                        const priceElement = document.querySelector('.product__proprietor-price span span');
-                        const productNameElement = document.querySelector('.product__proprietor-text p span');
-                        const priceInputElement = document.querySelector('#amount');
-                        const itemNameInputElement = document.querySelector('#item');
-
-                        // Update the HTML content with a dollar sign in front of the price
-                        priceElement.textContent = `$${price}`;
-
-                        // Update the HTML content with the product name
-                        productNameElement.textContent = productName;
-
-                        // Update the value of the price input element with the price
-                        priceInputElement.value = price;
-                        itemNameInputElement.value = productName;
-                     </script>
-
-                  </div>
-
-                  <div class="col"></div>
-
-
-               </div>
-            </div>
-         </section>
-         
-      </main>
-
-      <!-- footer area start -->
-      <footer>
-         <div class="footer__area footer-bg-2">
-            <div class="footer__top pt-90 pb-50">
-               <div class="container">
-                  <div class="row">
-                     <div class="col-xxl-3 col-xl-3 col-lg-3 col-md-4 col-sm-6">
-                        <div class="footer__widget mb-40 wow fadeInUp" data-wow-delay=".3s">
-                           <div class="footer__widget-head mb-35">
-                              <a href="index.html">
-                                 <img src="assets/img/logo/logo.png" alt="">
-                              </a>
-                           </div>
-                           <div class="footer__widget-content">
-                              <div class="footer__social mb-30">
-                                 <h4>Follow our Socials</h4>
-                                 <ul>
-                                    <li><a href="#" class="fb"><i class="fab fa-facebook-f"></i></a></li>
-                                    <li><a href="#" class="tw"><i class="fab fa-twitter"></i></a></li>
-                                    <li><a href="#" class="pin"><i class="fab fa-pinterest-p"></i></a></li>
-                                 </ul>
-                              </div>
-                           </div>
-                        </div>
-                     </div>
-                     <div class="col-xxl-2 col-xl-2 col-lg-2 col-md-4 col-sm-6">
-                        <div class="footer__widget mb-40 wow fadeInUp" data-wow-delay=".5s">
-                           <div class="footer__widget-head">
-                              <h4 class="footer__widget-title footer__widget-title-2">Products</h4>
-                           </div>
-                           <div class="footer__widget-content">
-                              <div class="footer__link footer__link-2">
-                                 <ul>
-                                    <li><a href="#">Tutor LMS </a></li>
-                                    <li><a href="#">WP Mega Menu </a></li>
-                                    <li><a href="#">WP Page Builder </a></li>
-                                    <li><a href="#">Themes</a></li>
-                                    <li><a href="#">Interactions</a></li>
-                                 </ul>
-                              </div>
-                           </div>
-                        </div>
-                     </div>
-                     <div class="col-xxl-3 col-xl-3 col-lg-3 col-md-4 col-sm-6">
-                        <div class="footer__widget mb-40 wow fadeInUp footer__widget-pl-70"  data-wow-delay=".7s">
-                           <div class="footer__widget-head">
-                              <h4 class="footer__widget-title footer__widget-title-2">Resources</h4>
-                           </div>
-                           <div class="footer__widget-content">
-                              <div class="footer__link footer__link-2">
-                                 <ul>
-                                    <li><a href="#">Promotion </a></li>
-                                    <li><a href="#">Submit Content</a></li>
-                                    <li><a href="#">Resources</a></li>
-                                    <li><a href="#">Design System</a></li>
-                                    <li><a href="#">Expert</a></li>
-                                 </ul>
-                              </div>
-                           </div>
-                        </div>
-                     </div>
-                     <div class="col-xxl-4 col-xl-3 col-lg-3 col-md-5 col-sm-6">
-                        <div class="footer__widget mb-40 wow fadeInUp footer__widget-sub-pl-70"  data-wow-delay=".7s">
-                           <div class="footer__widget-head">
-                              <h4 class="footer__widget-title footer__widget-title-2">Newsletter</h4>
-                           </div>
-                           <div class="footer__widget-content">
-                              <div class="footer__subscribe">
-                                 <p>Subscribe to recieve a monthly email on the latest news!</p>
-                                 <div class="footer__subscribe-input">
-                                    <form action="#">
-                                       <input type="email" placeholder="Email">
-                                       <button type="submit" class="m-btn">Subscribe!</button>
-                                    </form>
-                                 </div>
-                              </div>
-                           </div>
-                        </div>
-                     </div>
-                  </div>
-               </div>
-            </div>
-            <div class="footer__bottom">
-               <div class="container">
-                  <div class="footer__bottom-inner footer__bottom-inner-2">
-                     <div class="row">
-                        <div class="col-xxl-6 col-xl-6 col-md-6">
-                           <div class="footer__copyright footer__copyright-2 wow fadeInUp" data-wow-delay=".5s">
-                              <p>Copyright © 2021 All Rights Reserved, Design by <a href="#">Theme Pure</a></p>
-                           </div>
-                        </div>
-                        <div class="col-xxl-6 col-xl-6 col-md-6">
-                           <div class="footer__bottom-link footer__bottom-link-2 wow fadeInUp text-md-end" data-wow-delay=".8s">
-                              <ul>
-                                 <li><a href="#">Licence</a></li>
-                                 <li><a href="#">Privacy Policy </a></li>
-                                 <li><a href="#">Affiliate Notice</a></li>
-                              </ul>
-                           </div>
-                        </div>
-                     </div>
-                  </div>
-               </div>
-            </div>
-         </div>
-      </footer>
-      <!-- footer area end -->
-
-      <!-- JS here -->
-      <script src="assets/js/vendor/jquery-3.5.1.min.js"></script>
-      <script src="assets/js/vendor/waypoints.min.js"></script>
-      <script src="assets/js/bootstrap.bundle.min.js"></script>
-      <script src="assets/js/jquery.meanmenu.js"></script>
-      <script src="assets/js/slick.min.js"></script>
-      <script src="assets/js/jquery.fancybox.min.js"></script>
-      <script src="assets/js/isotope.pkgd.min.js"></script>
-      <script src="assets/js/parallax.min.js"></script>
-      <script src="assets/js/owl.carousel.min.js"></script>
-      <script src="assets/js/backToTop.js"></script>
-      <script src="assets/js/jquery.counterup.min.js"></script>
-      <script src="assets/js/ajax-form.js"></script>
-      <script src="assets/js/wow.min.js"></script>
-      <script src="assets/js/imagetooltip.min.js"></script>
-      <script src="assets/js/imagesloaded.pkgd.min.js"></script>
-      <script src="assets/js/main.js"></script>
-   </body>
-</html>
-
+@endsection

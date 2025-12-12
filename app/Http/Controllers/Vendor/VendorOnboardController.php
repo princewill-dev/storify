@@ -160,19 +160,13 @@ class VendorOnboardController extends Controller
 
         session()->forget('onboarding_store_id');
 
-        $storeUrl = null;
-        if (!empty($store->slug) && app('router')->has('home.store.products.index')) {
-            try {
-                $storeUrl = route('home.store.products.index', ['store_slug' => $store->slug]);
-            } catch (\Throwable $e) {
-                Log::warning('vendor.onboarding_store_success_url_failed', [
-                    'store_id' => $store->id,
-                    'error' => $e->getMessage(),
-                ]);
-            }
-        }
+        Log::info('vendor.onboarding.store_success_redirect_to_subscription', [
+            'vendor_id' => $vendor->id,
+            'store_id' => $store->id,
+        ]);
 
-        return view('vendors.auth.success', ['store' => $store, 'storeUrl' => $storeUrl]);
+        return redirect()->route('vendor.subscription.plan', ['vendor' => $vendor])
+            ->with('success', 'Store created successfully! Please complete your subscription to activate your account.');
     }
 
     private function adminRecipients(): array

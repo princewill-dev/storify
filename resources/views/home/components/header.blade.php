@@ -40,10 +40,12 @@
                         
                         <li class="nl-simple" aria-haspopup="true"><a href="./#features" class="h-link">Support</a></li>
 
+                        <li class="nl-simple" aria-haspopup="true"><a href="{{ route('vendor.auth.login') }}" class="h-link">Login</a></li>
+
 
                         <!-- SIGN UP BUTTON -->
                         <li class="nl-simple" aria-haspopup="true">
-                            <a href="contact-us.html" class="btn r-04 btn--theme hover--theme last-link">Create Store</a>
+                            <a href="{{ route('vendor.auth.register') }}" class="btn r-04 btn--theme hover--theme last-link">Create Store</a>
                         </li> 
 
                     </ul>

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Category;
 use App\Models\Vendor;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
@@ -65,10 +66,13 @@ class VendorCategoryController extends Controller
         ]);
     }
 
-    public function store(Request $request, Vendor $routeVendor): RedirectResponse
+    public function store(Request $request, Vendor $routeVendor): RedirectResponse|JsonResponse
     {
         $vendor = $this->resolveVendor($request, $routeVendor);
         if (!$vendor) {
+            if ($request->wantsJson() || $request->expectsJson()) {
+                return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
+            }
             return redirect()->route('vendor.auth.login');
         }
 
@@ -80,6 +84,9 @@ class VendorCategoryController extends Controller
 
         $storeIds = $this->vendorStoreIds($vendor);
         if (!in_array((int)$data['store_id'], $storeIds, true)) {
+            if ($request->wantsJson() || $request->expectsJson()) {
+                return response()->json(['success' => false, 'message' => 'Invalid store selection.'], 422);
+            }
             return back()->with('error', 'Invalid store selection.')->withInput();
         }
 
@@ -88,6 +95,19 @@ class VendorCategoryController extends Controller
         $category = Category::create($data);
 
         Log::info('vendor.category.created', ['vendor_id' => $vendor->id, 'category_id' => $category->id]);
+
+        if ($request->wantsJson() || $request->expectsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => 'Category created successfully.',
+                'category' => [
+                    'id' => $category->id,
+                    'name' => $category->name,
+                    'slug' => $category->slug,
+                    'status' => $category->status,
+                ]
+            ], 201);
+        }
 
         return redirect()->route('vendor.categories.index', ['vendor' => $vendor])->with('success', 'Category created.');
     }

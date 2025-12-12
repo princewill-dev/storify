@@ -101,6 +101,24 @@ class Vendor extends Authenticatable implements MustVerifyEmail
         return $this->hasOne(VendorKycApplication::class)->latestOfMany();
     }
 
+    public function subscriptions(): HasMany
+    {
+        return $this->hasMany(VendorSubscription::class);
+    }
+
+    public function activeSubscription(): HasOne
+    {
+        return $this->hasOne(VendorSubscription::class)
+            ->where('status', VendorSubscription::STATUS_ACTIVE)
+            ->where('expires_at', '>', now())
+            ->latestOfMany();
+    }
+
+    public function payments(): HasMany
+    {
+        return $this->hasMany(Payment::class);
+    }
+
     public static function statusBadgeData(): array
     {
         return VendorStatus::badgeData();
@@ -121,19 +139,28 @@ class Vendor extends Authenticatable implements MustVerifyEmail
         return in_array($status, [VendorKycApplication::STATUS_SUBMITTED, VendorKycApplication::STATUS_APPROVED], true);
     }
 
+    public function hasActiveSubscription(): bool
+    {
+        return $this->activeSubscription()->exists();
+    }
+
+    public function needsSubscription(): bool
+    {
+        return !$this->hasActiveSubscription();
+    }
+
     public function onboardingStep(): string
     {
         if (!$this->is_verified) {
             return 'verify_email';
         }
 
-        $status = $this->kycApplication?->status ?? VendorKycApplication::STATUS_DRAFT;
-        if ($status !== VendorKycApplication::STATUS_APPROVED) {
-            return 'submit_kyc';
-        }
-
         if (!$this->stores()->exists()) {
             return 'create_store';
+        }
+
+        if ($this->needsSubscription()) {
+            return 'subscribe';
         }
 
         return 'completed';

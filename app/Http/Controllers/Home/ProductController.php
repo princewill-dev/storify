@@ -131,7 +131,7 @@ class ProductController extends Controller
             \Log::warning('activity_log_failed', ['context' => 'view_store_products', 'error' => $e->getMessage()]);
         }
 
-        return view('home.pages.products.store_products', compact('store','products','q','status'));
+        return view('storefront.pages.index', compact('store','products','q','status'));
     }
     public function show(Request $request, string $store_slug, string $slug, string $code)
     {
@@ -297,8 +297,11 @@ class ProductController extends Controller
         // Get page styling
         $pageStyling = PageStyling::getPageStyling('product_details');
 
-        return view('home.pages.products.details', compact(
+        $store = $product->store;
+
+        return view('storefront.pages.product-details', compact(
             'product',
+            'store',
             'gallery',
             'placeholder',
             'galleryItems',

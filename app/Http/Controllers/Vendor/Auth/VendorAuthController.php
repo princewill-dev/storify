@@ -196,8 +196,8 @@ class VendorAuthController extends Controller
         $context = session('otp_context', 'vendor_email_verification');
 
         if ($vendor->is_verified && $context !== 'vendor_login') {
-            return redirect()->route('vendor.kyc.show', ['vendor' => $vendor])
-                ->with('status', 'Email already verified. Continue with your KYC.');
+            return redirect()->route('vendor.dashboard')
+                ->with('status', 'Email already verified.');
         }
 
         return view('vendors.auth.verify-otp', [
@@ -236,8 +236,8 @@ class VendorAuthController extends Controller
             $vendor->forceFill(['last_login' => now()])->save();
         }
 
-        return redirect()->route('vendor.kyc.show', ['vendor' => $vendor])
-            ->with('success', 'Email verified! Please complete your KYC to continue onboarding.');
+        return redirect()->route('vendor.dashboard')
+            ->with('success', 'Email verified successfully. Welcome!');
     }
 
     public function resendOtp(Request $request, Vendor $vendor): RedirectResponse
