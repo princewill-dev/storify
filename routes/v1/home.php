@@ -13,6 +13,16 @@ use App\Http\Controllers\Home\InternationalSupplyController;
 use App\Http\Controllers\Home\SearchController;
 use App\Http\Controllers\Home\LiveFirstController;
 
+// Handle www subdomain redirect to main domain
+Route::domain('www.' . config('app.main_domain', parse_url(config('app.url'), PHP_URL_HOST)))->group(function () {
+    Route::get('{any}', function () {
+        $mainDomain = config('app.main_domain', parse_url(config('app.url'), PHP_URL_HOST));
+        $scheme = request()->secure() ? 'https' : 'http';
+        $path = request()->path() !== '/' ? '/' . request()->path() : '';
+        return redirect("{$scheme}://{$mainDomain}{$path}", 301);
+    })->where('any', '.*');
+});
+
 // Main domain routes (non-subdomain)
 Route::domain(config('app.main_domain', parse_url(config('app.url'), PHP_URL_HOST)))->group(function () {
     //homepage routes
@@ -40,9 +50,9 @@ Route::domain(config('app.main_domain', parse_url(config('app.url'), PHP_URL_HOS
     })->where('code', 'prd_[A-Za-z0-9]{8}');
 });
 
-// Subdomain routes for stores
+// Subdomain routes for stores (excluding www)
 Route::domain('{store_subdomain}.' . config('app.main_domain', parse_url(config('app.url'), PHP_URL_HOST)))
-    ->where(['store_subdomain' => '[A-Za-z0-9_\-]+'])
+    ->where(['store_subdomain' => '(?!www)[A-Za-z0-9_\-]+'])
     ->group(function () {
         
     // Store homepage (products listing)
