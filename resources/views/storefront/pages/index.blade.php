@@ -19,7 +19,7 @@
                <div class="product__item white-bg mb-30 wow fadeInUp" data-wow-delay=".3s">
                   <div class="product__thumb">
                      <div class="product__thumb-inner fix w-img">
-                        <a href="{{ route('home.products.show', ['store_slug' => $store->slug, 'slug' => $product->slug, 'code' => $product->product_code]) }}">
+                        <a href="{{ store_url($store->slug, 'products/' . $product->slug . '-' . $product->product_code) }}">
                            @if($product->images && $product->images->count() > 0)
                               <img src="{{ asset('storage/' . $product->images->first()->path) }}" alt="{{ $product->name }}">
                            @else
@@ -30,7 +30,7 @@
                   </div>
                   <div class="product__content">
                      <h3 class="product__title product__title2">
-                        <a href="{{ route('home.products.show', ['store_slug' => $store->slug, 'slug' => $product->slug, 'code' => $product->product_code]) }}">{{ $product->name }}</a>
+                        <a href="{{ store_url($store->slug, 'products/' . $product->slug . '-' . $product->product_code) }}">{{ $product->name }}</a>
                      </h3>
                      <p class="product__author">by <a href="#">{{ $store->name }}</a> in <a href="#">{{ $product->category->name ?? 'Products' }}</a></p>
                      <div class="product__ratings">
@@ -50,7 +50,7 @@
                            @endif
                         </div>
                         <div class="pricing__buy mb-20">
-                           <a href="{{ route('home.products.show', ['store_slug' => $store->slug, 'slug' => $product->slug, 'code' => $product->product_code]) }}" class="m-btn m-btn-border m-btn-border-5 w-100">
+                           <a href="{{ store_url($store->slug, 'products/' . $product->slug . '-' . $product->product_code) }}" class="m-btn m-btn-border m-btn-border-5 w-100">
                               <span></span> View Details
                            </a>
                         </div>

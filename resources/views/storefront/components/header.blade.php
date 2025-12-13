@@ -4,7 +4,7 @@
                <div class="row align-items-center">
                   <div class="col-xxl-2 col-xl-2 col-lg-2 col-md-4 col-6">
                      <div class="logo">
-                        <a href="{{ route('home.store.products.index', ['store_slug' => $store->slug]) }}">
+                        <a href="{{ store_url($store->slug) }}">
                            @if($store->logo_path)
                               <img src="{{ asset('storage/' . $store->logo_path) }}" alt="{{ $store->name }}" style="max-height: 50px;">
                            @else
@@ -17,7 +17,7 @@
                      <div class="main-menu d-flex justify-content-end">
                         <nav id="mobile-menu">
                            <ul>
-                              <li class="active"><a href="{{ route('home.store.products.index', ['store_slug' => $store->slug]) }}">Home</a></li>
+                              <li class="active"><a href="{{ store_url($store->slug) }}">Home</a></li>
 
                               <li><a href="support.html">Support</a></li>
 

@@ -12,10 +12,11 @@ use Illuminate\View\View;
 
 class ProductController extends Controller
 {
-    public function indexByStore(Request $request, string $store_slug): View
+    public function indexByStore(Request $request, string $store_subdomain = null)
     {
-        // Find store by slug and ensure it's not deleted
-        $store = Store::where('slug', $store_slug)
+        // Get store from subdomain if present, otherwise from parameter (backward compatibility)
+        $storeSlug = $store_subdomain ?? $request->route('store_slug');
+        $store = Store::where('slug', $storeSlug)
             ->whereNotIn('status', ['deleted'])
             ->firstOrFail();
 
@@ -133,8 +134,11 @@ class ProductController extends Controller
 
         return view('storefront.pages.index', compact('store','products','q','status'));
     }
-    public function show(Request $request, string $store_slug, string $slug, string $code)
+    public function show(Request $request, string $slug, string $code, string $store_subdomain = null)
     {
+        // Get store from subdomain if present, otherwise from parameter (backward compatibility)
+        $storeSlug = $store_subdomain ?? $request->route('store_slug');
+        
         $query = Product::with(['images','store','variants']);
         $product = $query->where('product_code', $code)->first();
 
@@ -146,12 +150,13 @@ class ProductController extends Controller
             $product = $query->where('slug', $slug)->firstOrFail();
         }
 
-        if ($product->slug !== $slug || $product->product_code !== $code || ($product->store && $product->store->slug !== $store_slug)) {
-            return redirect()->route('home.products.show', [
-                'store_slug' => $product->store?->slug ?? $store_slug,
-                'slug' => $product->slug,
-                'code' => $product->product_code,
-            ]);
+        // Redirect to canonical URL if mismatch (using subdomain)
+        if ($product->slug !== $slug || $product->product_code !== $code || ($product->store && $product->store->slug !== $storeSlug)) {
+            $scheme = $request->secure() ? 'https' : 'http';
+            $baseDomain = config('app.main_domain', parse_url(config('app.url'), PHP_URL_HOST));
+            $canonicalUrl = "{$scheme}://{$product->store->slug}.{$baseDomain}/products/{$product->slug}-{$product->product_code}";
+            
+            return redirect($canonicalUrl);
         }
 
         // Increment views counter (atomic)

@@ -59,7 +59,7 @@
 
 <section class="product-detail-page">
    <div class="container">
-      <a href="{{ route('home.store.products.index', ['store_slug' => $product->store->slug ?? 'store']) }}" class="back-link">
+      <a href="{{ store_url($product->store->slug ?? 'store') }}" class="back-link">
          <i class="fas fa-arrow-left"></i> Back to {{ $product->store->name ?? 'Store' }}
       </a>
 
