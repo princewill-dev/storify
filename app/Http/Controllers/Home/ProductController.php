@@ -12,7 +12,7 @@ use Illuminate\View\View;
 
 class ProductController extends Controller
 {
-    public function indexByStore(Request $request, string $store_subdomain = null)
+    public function indexByStore(Request $request, ?string $store_subdomain = null)
     {
         // Get store from subdomain if present, otherwise from parameter (backward compatibility)
         $storeSlug = $store_subdomain ?? $request->route('store_slug');
