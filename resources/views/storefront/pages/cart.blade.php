@@ -345,7 +345,7 @@
 
         if (cart.items && cart.items.length > 0) {
             cart.items.forEach(function(item) {
-                let imageSrc = item.image ? `/storage/${item.image}` : `{{ asset('Storefront/assets/img/product/product-1.jpg') }}`;
+                let imageSrc = item.image ? `/storage/${item.image}` : `{{ asset('storefront/assets/img/product/product-1.jpg') }}`;
                 
                 // Url logic
                 let productUrl = '#';

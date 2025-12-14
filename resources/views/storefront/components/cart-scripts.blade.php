@@ -153,7 +153,7 @@
                         @php
                             $assetBaseUrl = "https://storify.ng";
                         @endphp
-                        imageHtml = `<img src="{{ $assetBaseUrl }}/Storefront/assets/img/product/product-1.jpg" alt="${item.name}">`;
+                        imageHtml = `<img src="{{ $assetBaseUrl }}/storefront/assets/img/product/product-1.jpg" alt="${item.name}">`;
                     }
 
                     const html = `

@@ -76,7 +76,7 @@
                      @endforeach
                   @else
                      <div class="gallery-thumb active">
-                        <img src="{{ asset('Storefront/assets/img/product/product-1.jpg') }}" alt="{{ $product->name }}">
+                        <img src="{{ asset('storefront/assets/img/product/product-1.jpg') }}" alt="{{ $product->name }}">
                      </div>
                   @endif
                </div>
@@ -84,7 +84,7 @@
                   @if($product->images && $product->images->count() > 0)
                      <img src="{{ asset('storage/' . $product->images->first()->path) }}" alt="{{ $product->name }}" id="mainImage">
                   @else
-                     <img src="{{ asset('Storefront/assets/img/product/product-1.jpg') }}" alt="{{ $product->name }}" id="mainImage">
+                     <img src="{{ asset('storefront/assets/img/product/product-1.jpg') }}" alt="{{ $product->name }}" id="mainImage">
                   @endif
                </div>
             </div>

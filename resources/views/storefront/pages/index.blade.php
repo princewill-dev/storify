@@ -43,7 +43,7 @@
                            @if($product->images && $product->images->count() > 0)
                               <img src="{{ asset('storage/' . $product->images->first()->path) }}" alt="{{ $product->name }}">
                            @else
-                              <img src="{{ asset('Storefront/assets/img/product/product-1.jpg') }}" alt="{{ $product->name }}">
+                              <img src="{{ asset('storefront/assets/img/product/product-1.jpg') }}" alt="{{ $product->name }}">
                            @endif
                         </a>
                      </div>
@@ -93,7 +93,7 @@
                            @if($service->images && $service->images->count() > 0)
                               <img src="{{ asset('storage/' . $service->images->first()->path) }}" alt="{{ $service->name }}">
                            @else
-                              <img src="{{ asset('Storefront/assets/img/product/product-1.jpg') }}" alt="{{ $service->name }}">
+                              <img src="{{ asset('storefront/assets/img/product/product-1.jpg') }}" alt="{{ $service->name }}">
                            @endif
                         </a>
                         <div class="product__action-2">

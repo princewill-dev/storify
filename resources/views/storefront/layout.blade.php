@@ -10,21 +10,21 @@
       @php
           $assetBaseUrl = "https://storify.ng";
       @endphp
-      <link rel="shortcut icon" type="image/x-icon" href="{{ $assetBaseUrl }}/Storefront/assets/img/favicon.png">
+      <link rel="shortcut icon" type="image/x-icon" href="{{ $assetBaseUrl }}/storefront/assets/img/favicon.png">
       <!-- CSS here -->
-      <link rel="stylesheet" href="{{ $assetBaseUrl }}/Storefront/assets/css/preloader.css">
-      <link rel="stylesheet" href="{{ $assetBaseUrl }}/Storefront/assets/css/bootstrap.min.css">
-      <link rel="stylesheet" href="{{ $assetBaseUrl }}/Storefront/assets/css/slick.css">
-      <link rel="stylesheet" href="{{ $assetBaseUrl }}/Storefront/assets/css/meanmenu.css">
-      <link rel="stylesheet" href="{{ $assetBaseUrl }}/Storefront/assets/css/owl.carousel.min.css">
-      <link rel="stylesheet" href="{{ $assetBaseUrl }}/Storefront/assets/css/animate.min.css">
-      <link rel="stylesheet" href="{{ $assetBaseUrl }}/Storefront/assets/css/backToTop.css">
-      <link rel="stylesheet" href="{{ $assetBaseUrl }}/Storefront/assets/css/jquery.fancybox.min.css">
-      <link rel="stylesheet" href="{{ $assetBaseUrl }}/Storefront/assets/css/fontAwesome5Pro.css">
-      <link rel="stylesheet" href="{{ $assetBaseUrl }}/Storefront/assets/css/elegantFont.css">
-      <link rel="stylesheet" href="{{ $assetBaseUrl }}/Storefront/assets/css/imagetooltip.min.css">
-      <link rel="stylesheet" href="{{ $assetBaseUrl }}/Storefront/assets/css/default.css">
-      <link rel="stylesheet" href="{{ $assetBaseUrl }}/Storefront/assets/css/style.css">
+      <link rel="stylesheet" href="{{ $assetBaseUrl }}/storefront/assets/css/preloader.css">
+      <link rel="stylesheet" href="{{ $assetBaseUrl }}/storefront/assets/css/bootstrap.min.css">
+      <link rel="stylesheet" href="{{ $assetBaseUrl }}/storefront/assets/css/slick.css">
+      <link rel="stylesheet" href="{{ $assetBaseUrl }}/storefront/assets/css/meanmenu.css">
+      <link rel="stylesheet" href="{{ $assetBaseUrl }}/storefront/assets/css/owl.carousel.min.css">
+      <link rel="stylesheet" href="{{ $assetBaseUrl }}/storefront/assets/css/animate.min.css">
+      <link rel="stylesheet" href="{{ $assetBaseUrl }}/storefront/assets/css/backToTop.css">
+      <link rel="stylesheet" href="{{ $assetBaseUrl }}/storefront/assets/css/jquery.fancybox.min.css">
+      <link rel="stylesheet" href="{{ $assetBaseUrl }}/storefront/assets/css/fontAwesome5Pro.css">
+      <link rel="stylesheet" href="{{ $assetBaseUrl }}/storefront/assets/css/elegantFont.css">
+      <link rel="stylesheet" href="{{ $assetBaseUrl }}/storefront/assets/css/imagetooltip.min.css">
+      <link rel="stylesheet" href="{{ $assetBaseUrl }}/storefront/assets/css/default.css">
+      <link rel="stylesheet" href="{{ $assetBaseUrl }}/storefront/assets/css/style.css">
    </head>
    <body>
       <!--[if lte IE 9]>
@@ -83,22 +83,22 @@
 
       <!-- JS here -->
       <!-- JS here -->
-      <script src="{{ $assetBaseUrl }}/Storefront/assets/js/vendor/jquery-3.5.1.min.js"></script>
-      <script src="{{ $assetBaseUrl }}/Storefront/assets/js/vendor/waypoints.min.js"></script>
-      <script src="{{ $assetBaseUrl }}/Storefront/assets/js/bootstrap.bundle.min.js"></script>
-      <script src="{{ $assetBaseUrl }}/Storefront/assets/js/jquery.meanmenu.js"></script>
-      <script src="{{ $assetBaseUrl }}/Storefront/assets/js/slick.min.js"></script>
-      <script src="{{ $assetBaseUrl }}/Storefront/assets/js/jquery.fancybox.min.js"></script>
-      <script src="{{ $assetBaseUrl }}/Storefront/assets/js/isotope.pkgd.min.js"></script>
-      <script src="{{ $assetBaseUrl }}/Storefront/assets/js/parallax.min.js"></script>
-      <script src="{{ $assetBaseUrl }}/Storefront/assets/js/owl.carousel.min.js"></script>
-      <script src="{{ $assetBaseUrl }}/Storefront/assets/js/backToTop.js"></script>
-      <script src="{{ $assetBaseUrl }}/Storefront/assets/js/jquery.counterup.min.js"></script>
-      <script src="{{ $assetBaseUrl }}/Storefront/assets/js/ajax-form.js"></script>
-      <script src="{{ $assetBaseUrl }}/Storefront/assets/js/wow.min.js"></script>
-      <script src="{{ $assetBaseUrl }}/Storefront/assets/js/imagetooltip.min.js"></script>
-      <script src="{{ $assetBaseUrl }}/Storefront/assets/js/imagesloaded.pkgd.min.js"></script>
-      <script src="{{ $assetBaseUrl }}/Storefront/assets/js/main.js"></script>
+      <script src="{{ $assetBaseUrl }}/storefront/assets/js/vendor/jquery-3.5.1.min.js"></script>
+      <script src="{{ $assetBaseUrl }}/storefront/assets/js/vendor/waypoints.min.js"></script>
+      <script src="{{ $assetBaseUrl }}/storefront/assets/js/bootstrap.bundle.min.js"></script>
+      <script src="{{ $assetBaseUrl }}/storefront/assets/js/jquery.meanmenu.js"></script>
+      <script src="{{ $assetBaseUrl }}/storefront/assets/js/slick.min.js"></script>
+      <script src="{{ $assetBaseUrl }}/storefront/assets/js/jquery.fancybox.min.js"></script>
+      <script src="{{ $assetBaseUrl }}/storefront/assets/js/isotope.pkgd.min.js"></script>
+      <script src="{{ $assetBaseUrl }}/storefront/assets/js/parallax.min.js"></script>
+      <script src="{{ $assetBaseUrl }}/storefront/assets/js/owl.carousel.min.js"></script>
+      <script src="{{ $assetBaseUrl }}/storefront/assets/js/backToTop.js"></script>
+      <script src="{{ $assetBaseUrl }}/storefront/assets/js/jquery.counterup.min.js"></script>
+      <script src="{{ $assetBaseUrl }}/storefront/assets/js/ajax-form.js"></script>
+      <script src="{{ $assetBaseUrl }}/storefront/assets/js/wow.min.js"></script>
+      <script src="{{ $assetBaseUrl }}/storefront/assets/js/imagetooltip.min.js"></script>
+      <script src="{{ $assetBaseUrl }}/storefront/assets/js/imagesloaded.pkgd.min.js"></script>
+      <script src="{{ $assetBaseUrl }}/storefront/assets/js/main.js"></script>
       @include('storefront.components.cart-scripts')
    </body>
 </html>
