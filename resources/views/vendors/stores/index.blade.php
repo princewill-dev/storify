@@ -56,7 +56,7 @@
                 @foreach($stores as $store)
                   @php(
                     $storeUrl = ($store->slug && app('router')->has('home.store.products.index'))
-                      ? route('home.store.products.index', ['store_slug' => $store->slug])
+                      ? route('home.store.products.index', ['store_subdomain' => $store->slug])
                       : null
                   )
                   <tr>
