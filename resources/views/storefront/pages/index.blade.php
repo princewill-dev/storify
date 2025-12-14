@@ -68,12 +68,15 @@
                            @else
                               <p style="visibility: hidden;">Sale</p>
                            @endif
-                        </div>
-                        <div class="pricing__buy mb-20">
-                           <a href="{{ store_url($store->slug, 'products/' . $product->slug . '-' . $product->product_code) }}" class="m-btn m-btn-border m-btn-border-5 w-100">
-                              <span></span> View Details
-                           </a>
-                        </div>
+                        </div>                        
+                     </div>
+                     <div class="pricing__buy mb-20 d-flex justify-content-between">
+                        <a href="{{ store_url($store->slug, 'products/' . $product->slug . '-' . $product->product_code) }}" class="m-btn m-btn-border m-btn-border-5 flex-grow-1 me-2">
+                           <span style="font-size: 12px;">View Details</span> 
+                        </a>
+                        <a href="javascript:void(0);" class="m-btn m-btn-border m-btn-border-5 flex-grow-1 ms-2 add-to-cart-btn-index" data-product-id="{{ $product->id }}">
+                           <span style="font-size: 12px;">Add to cart</span> 
+                        </a>
                      </div>
                   </div>
                </div>

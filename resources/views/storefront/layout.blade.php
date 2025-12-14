@@ -56,7 +56,9 @@
       @include('storefront.components.header')
       <!-- header area end -->
 
-
+      <!-- sidebar area start -->
+      @include('storefront.components.cart')
+      <!-- sidebar area end -->
 
       <!-- sidebar area start -->
       @include('storefront.components.sidebar')
@@ -93,6 +95,7 @@
       <script src="{{ asset('Storefront/assets/js/imagetooltip.min.js') }}"></script>
       <script src="{{ asset('Storefront/assets/js/imagesloaded.pkgd.min.js') }}"></script>
       <script src="{{ asset('Storefront/assets/js/main.js') }}"></script>
+      @include('storefront.components.cart-scripts')
    </body>
 </html>
 

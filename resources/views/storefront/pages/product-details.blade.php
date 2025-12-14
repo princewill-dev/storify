@@ -154,10 +154,8 @@
                      <input type="number" class="qty-input" id="quantity" value="1" min="1" readonly>
                      <button class="qty-btn" onclick="incrementQty()">+</button>
                   </div>
-                  <button class="add-to-cart-btn">Add to Cart</button>
-                  <button class="wishlist-btn">
-                     <i class="far fa-heart" style="font-size: 20px;"></i>
-                  </button>
+                  <button id="addToCartDetails" class="add-to-cart-btn" data-product-id="{{ $product->id }}">Add to Cart</button>
+                  <button class="add-to-cart-btn">Buy</button>
                </div>
 
                <div class="shipping-info">

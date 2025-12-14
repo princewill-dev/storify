@@ -39,7 +39,7 @@ class CartController extends Controller
             ?? optional(Vat::current())->percentage
             ?? 0;
 
-        return view('home.pages.cart.cart', [
+        return view('storefront.pages.cart', [
             'store_slug' => $store_slug,
             'store' => $store,
             'states' => $states,

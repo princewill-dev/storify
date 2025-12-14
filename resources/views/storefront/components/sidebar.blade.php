@@ -8,8 +8,12 @@
     </div>
     <div class="sidebar__content">
         <div class="logo mb-40">
-            <a href="index.html">
-            <img src="assets/img/logo/logo-white.png" alt="logo">
+            <a href="{{ store_url($store->slug) }}">
+                @if($store->logo_path)
+                    <img src="{{ asset('storage/' . $store->logo_path) }}" alt="{{ $store->name }}" style="max-height: 50px;">
+                @else
+                    <img src="{{ asset('Storefront/assets/img/logo/logo-white.png') }}" alt="{{ $store->name ?? 'Store' }}">
+                @endif
             </a>
         </div>
         <div class="mobile-menu"></div>
