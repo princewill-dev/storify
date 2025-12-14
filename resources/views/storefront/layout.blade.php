@@ -8,9 +8,7 @@
       <meta name="viewport" content="width=device-width, initial-scale=1">
       <!-- Place favicon.ico in the root directory -->
       @php
-          $mainDomain = config('app.main_domain', 'storify.ng');
-          $scheme = request()->secure() ? 'https' : 'http';
-          $assetBaseUrl = "{$scheme}://{$mainDomain}";
+          $assetBaseUrl = "https://storify.ng";
       @endphp
       <link rel="shortcut icon" type="image/x-icon" href="{{ $assetBaseUrl }}/Storefront/assets/img/favicon.png">
       <!-- CSS here -->
