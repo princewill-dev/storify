@@ -31,6 +31,15 @@
             </li>
 
             <li>
+                <a href="{{ route('vendor.services.index', ['vendor' => auth('vendor')->user()]) }}" aria-expanded="false">
+                    <div class="menu-icon">
+                        <i class="fa-solid fa-hand-holding-heart"></i>
+                    </div>
+                    <span class="nav-text">Services</span>
+                </a>
+            </li>
+
+            <li>
                 <a href="{{ route('vendor.categories.index', ['vendor' => auth('vendor')->user()]) }}" aria-expanded="false">
                     <div class="menu-icon">
                         <i class="fa-solid fa-list"></i>

@@ -12,6 +12,7 @@ use App\Http\Controllers\Vendor\VendorOrderController;
 use App\Http\Controllers\Vendor\VendorCustomerController;
 use App\Http\Controllers\Vendor\VendorTransactionController;
 use App\Http\Controllers\Vendor\VendorSubscriptionController;
+use App\Http\Controllers\Vendor\VendorServicesController;
 
 Route::prefix('vendor')->name('vendor.')->group(function () {
     Route::get('/register', [VendorAuthController::class, 'showRegister'])->name('auth.register');
@@ -59,6 +60,13 @@ Route::prefix('vendor')->name('vendor.')->group(function () {
             Route::put('/{vendor}/products/{product}', [VendorProductsController::class, 'update'])->name('products.update');
             Route::put('/{vendor}/products/{product}/status', [VendorProductsController::class, 'updateStatus'])->name('products.status');
             Route::delete('/{vendor}/products/{product}', [VendorProductsController::class, 'destroy'])->name('products.destroy');
+
+            Route::get('/{vendor}/services', [VendorServicesController::class, 'index'])->name('services.index');
+            Route::get('/{vendor}/services/create', [VendorServicesController::class, 'create'])->name('services.create');
+            Route::post('/{vendor}/services', [VendorServicesController::class, 'store'])->name('services.store');
+            Route::get('/{vendor}/services/{service}/edit', [VendorServicesController::class, 'edit'])->name('services.edit');
+            Route::put('/{vendor}/services/{service}', [VendorServicesController::class, 'update'])->name('services.update');
+            Route::delete('/{vendor}/services/{service}', [VendorServicesController::class, 'destroy'])->name('services.destroy');
             Route::get('/{vendor}/categories', [VendorCategoryController::class, 'index'])->name('categories.index');
             Route::get('/{vendor}/categories/create', [VendorCategoryController::class, 'create'])->name('categories.create');
             Route::post('/{vendor}/categories', [VendorCategoryController::class, 'store'])->name('categories.store');

@@ -58,7 +58,22 @@ class ProductController extends Controller
             $productsQuery->where('status', '!=', 'deleted');
         }
 
-        $products = $productsQuery->latest()->paginate(24)->withQueryString();
+        $products = $productsQuery->latest()->paginate(12, ['*'], 'p_page')->withQueryString();
+
+        // Fetch Services
+        $servicesQuery = \App\Models\Service::query()
+            ->with(['images', 'currency'])
+            ->where('store_id', $store->id)
+            ->where('status', 'active');
+            
+        if ($q !== '') {
+            $servicesQuery->where(function($x) use ($q) {
+                $x->where('name', 'like', "%$q%")
+                  ->orWhere('service_code', 'like', "%$q%");
+            });
+        }
+        
+        $services = $servicesQuery->latest()->paginate(12, ['*'], 's_page')->withQueryString();
 
         // Currency symbols map
         $currencySymbols = [];
@@ -132,7 +147,7 @@ class ProductController extends Controller
             \Log::warning('activity_log_failed', ['context' => 'view_store_products', 'error' => $e->getMessage()]);
         }
 
-        return view('storefront.pages.index', compact('store','products','q','status'));
+        return view('storefront.pages.index', compact('store','products','services','q','status'));
     }
     public function show(Request $request, string $slug, string $code, string $store_subdomain = null)
     {
@@ -330,5 +345,43 @@ class ProductController extends Controller
             'vatPercentage',
             'pageStyling'
         ));
+    }
+
+    public function showService(Request $request, string $slug, string $code, string $store_subdomain = null)
+    {
+        // Get store from subdomain if present, otherwise from parameter
+        $storeSlug = $store_subdomain ?? $request->route('store_slug');
+        
+        $query = \App\Models\Service::with(['images','store']);
+        // Use clone to prevent $query mutation or just fresh instances
+        $service = (clone $query)->where('service_code', $code)->first();
+
+        if (!$service) {
+            $service = (clone $query)->where('slug', $slug)->firstOrFail();
+        }
+
+        // Canonical redirect
+        if ($service->slug !== $slug || $service->service_code !== $code || ($service->store && $service->store->slug !== $storeSlug)) {
+            $scheme = $request->secure() ? 'https' : 'http';
+            $baseDomain = config('app.main_domain', parse_url(config('app.url'), PHP_URL_HOST));
+            $canonicalUrl = "{$scheme}://{$service->store->slug}.{$baseDomain}/services/{$service->slug}-{$service->service_code}";
+            
+            return redirect($canonicalUrl);
+        }
+
+        $store = $service->store;
+        
+        // Gallery
+        $gallery = $service->images ?? collect();
+        $placeholder = asset('home/images/no-image.jpg');
+        $galleryItems = $gallery->map(function($img) {
+            $src = asset('storage/' . $img->path);
+            return ['full' => $src, 'thumb' => $src];
+        });
+        
+        // Page styling
+        $pageStyling = PageStyling::getPageStyling('product_details'); 
+
+        return view('storefront.pages.service-details', compact('service', 'store', 'gallery', 'placeholder', 'galleryItems', 'pageStyling'));
     }
 }

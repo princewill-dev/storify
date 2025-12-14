@@ -80,6 +80,13 @@ Route::domain('{store_subdomain}.' . config('app.main_domain', parse_url(config(
             'code' => 'prd_[A-Za-z0-9]{8}',
             'slug' => '.+',
         ])->name('home.products.show');
+        
+    // Service details
+    Route::get('/services/{slug}-{code}', [ProductController::class, 'showService'])
+        ->where([
+            'code' => 'svc_[A-Za-z0-9]{8}',
+            'slug' => '.+',
+        ])->name('home.services.show');
     
     // SHOP4ME landing page
     Route::get('/shop4me', [Shop4meController::class, 'page'])->name('home.store.shop4me');
