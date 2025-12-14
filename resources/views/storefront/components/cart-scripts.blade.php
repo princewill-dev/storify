@@ -150,7 +150,12 @@
                     if (item.image) {
                         imageHtml = `<img src="/storage/${item.image}" alt="${item.name}">`;
                     } else {
-                        imageHtml = `<img src="{{ asset('Storefront/assets/img/product/product-1.jpg') }}" alt="${item.name}">`;
+                        @php
+                            $mainDomain = config('app.main_domain', 'storify.ng');
+                            $scheme = request()->secure() ? 'https' : 'http';
+                            $assetBaseUrl = "{$scheme}://{$mainDomain}";
+                        @endphp
+                        imageHtml = `<img src="{{ $assetBaseUrl }}/Storefront/assets/img/product/product-1.jpg" alt="${item.name}">`;
                     }
 
                     const html = `
