@@ -3,8 +3,8 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>@yield('title', 'Vendor Portal')</title>
-    <link rel="shortcut icon" href="{{ asset('favicon.ico') }}" type="image/x-icon">
+    <title>{{ $company->name }} - @yield('subtitle')</title>
+    <link rel="shortcut icon" type="image/png" href="{{ $company->favicon }}">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
     <style>
         body {
@@ -80,7 +80,53 @@
             color: #94a3b8;
             font-size: .9rem;
         }
+
+        /* ===== Mobile Responsive Fixes ===== */
+        @media (max-width: 767.98px) {
+            .auth-card {
+                width: 100%;
+                max-width: 480px;
+                padding: 1.5rem 1rem;
+                border-radius: 18px;
+            }
+
+            .form-control-lg,
+            .form-select-lg {
+                font-size: 0.95rem;
+                padding: 0.7rem 0.875rem;
+                border-radius: 10px;
+            }
+
+            .btn-lg {
+                font-size: 0.95rem;
+                padding: 0.7rem 1rem;
+                border-radius: 10px;
+            }
+
+            .form-label {
+                font-size: 0.875rem;
+            }
+
+            h1, .auth-heading h1 {
+                font-size: 1.35rem;
+            }
+
+            h2, h3 {
+                font-size: 1.25rem;
+            }
+
+            .auth-heading p {
+                font-size: 0.9rem;
+            }
+        }
+
+        @media (min-width: 768px) and (max-width: 991.98px) {
+            .auth-card {
+                max-width: 720px;
+            }
+        }
     </style>
+    @stack('scripts')
 </head>
 <body>
     <main class="auth-card">

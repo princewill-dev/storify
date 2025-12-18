@@ -18,9 +18,6 @@
 	<!-- MOBILE SPECIFIC -->
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	
-	<!-- Canonical URL -->
-	<link rel="canonical" href="https://hexabox.dexignlab.com/xhtml/index.html">
-	
 	<!-- Plugins Stylesheet -->
 	<link href="{{ asset('vendor_files/assets/vendor/@yaireo/tagify/dist/tagify.css') }}" rel="stylesheet">
 	<link href="{{ asset('vendor_files/assets/vendor/metismenu/dist/metisMenu.min.css') }}" rel="stylesheet">

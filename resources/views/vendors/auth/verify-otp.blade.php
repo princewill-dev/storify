@@ -1,7 +1,6 @@
 @extends('vendors.auth.layout')
 
-@section('title', 'Verify your email')
-@section('subtitle', 'Enter the 6-digit code we sent to your inbox')
+@section('subtitle', 'Verify your email')
 
 @section('content')
     <form method="POST" action="{{ route('vendor.auth.verify-otp.store', ['vendor' => $vendor]) }}" class="vstack gap-2">

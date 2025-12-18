@@ -1,7 +1,6 @@
 @extends('vendors.auth.layout')
 
-@section('title', 'Vendor Portal')
-@section('subtitle', 'Access your vendor dashboard')
+@section('subtitle', 'Vendor Portal')
 
 @section('content')
 

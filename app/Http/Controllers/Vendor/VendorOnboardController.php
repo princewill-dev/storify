@@ -10,6 +10,7 @@ use App\Models\BusinessType;
 use App\Models\OwnershipType;
 use App\Models\Store;
 use App\Models\Vendor;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -20,6 +21,71 @@ use Illuminate\View\View;
 
 class VendorOnboardController extends Controller
 {
+    /**
+     * Check if a store slug is available.
+     */
+    public function checkSlugAvailability(Request $request): JsonResponse
+    {
+        $rawInput = $request->input('slug', '');
+        
+        Log::info('vendor.slug.check_request', [
+            'raw_input' => $rawInput,
+            'ip' => $request->ip(),
+        ]);
+        
+        // Sanitize: convert to lowercase, replace spaces with hyphens, remove invalid chars
+        $slug = Str::slug($rawInput);
+        
+        if (strlen($slug) < 2) {
+            $response = [
+                'available' => false,
+                'slug' => $slug,
+                'message' => 'Store link must be at least 2 characters',
+            ];
+            Log::info('vendor.slug.check_response', ['result' => 'too_short', 'response' => $response]);
+            return response()->json($response);
+        }
+        
+        if (strlen($slug) > 60) {
+            $response = [
+                'available' => false,
+                'slug' => $slug,
+                'message' => 'Store link is too long',
+            ];
+            Log::info('vendor.slug.check_response', ['result' => 'too_long', 'response' => $response]);
+            return response()->json($response);
+        }
+        
+        // Check if slug exists
+        $exists = Store::where('slug', $slug)->exists();
+        
+        if ($exists) {
+            // Suggest an alternative
+            $counter = 1;
+            $suggestedSlug = $slug;
+            while (Store::where('slug', $suggestedSlug)->exists()) {
+                $suggestedSlug = $slug . '-' . $counter++;
+            }
+            
+            $response = [
+                'available' => false,
+                'slug' => $slug,
+                'suggested' => $suggestedSlug,
+                'message' => 'This store link is already taken',
+            ];
+            Log::info('vendor.slug.check_response', ['result' => 'taken', 'response' => $response]);
+            return response()->json($response);
+        }
+        
+        $response = [
+            'available' => true,
+            'slug' => $slug,
+            'message' => 'Store link is available!',
+        ];
+        Log::info('vendor.slug.check_response', ['result' => 'available', 'response' => $response]);
+        return response()->json($response);
+    }
+
     public function showStoreCreationForm(Request $request, Vendor $routeVendor): View|RedirectResponse
     {
         /** @var Vendor|null $vendor */
@@ -64,18 +130,23 @@ class VendorOnboardController extends Controller
             'data' => ['name' => $data['name']],
         ]);
 
-        $baseSlug = Str::slug($data['name']);
-        if ($baseSlug === '') {
-            $baseSlug = Str::random(8);
-        }
+        // Use pre-validated slug from form if provided, otherwise generate
+        if (!empty($request->input('slug')) && !Store::where('slug', $request->input('slug'))->exists()) {
+            $data['slug'] = Str::slug($request->input('slug'));
+        } else {
+            // Fallback: generate slug from name
+            $baseSlug = Str::slug($data['name']);
+            if ($baseSlug === '') {
+                $baseSlug = Str::random(8);
+            }
 
-        $slug = $baseSlug;
-        $counter = 1;
-        while (Store::where('slug', $slug)->exists()) {
-            $slug = $baseSlug . '-' . $counter++;
+            $slug = $baseSlug;
+            $counter = 1;
+            while (Store::where('slug', $slug)->exists()) {
+                $slug = $baseSlug . '-' . $counter++;
+            }
+            $data['slug'] = $slug;
         }
-
-        $data['slug'] = $slug;
 
         if ($request->hasFile('logo')) {
             $data['logo_path'] = $request->file('logo')->store('stores/logos', 'public');
@@ -159,6 +230,25 @@ class VendorOnboardController extends Controller
         }
 
         session()->forget('onboarding_store_id');
+
+        // If vendor already has active subscription (e.g. via early pass), show success page
+        if ($vendor->hasActiveSubscription()) {
+            Log::info('vendor.onboarding.store_success_shown', [
+                'vendor_id' => $vendor->id,
+                'store_id' => $store->id,
+            ]);
+
+            // Generate store URL
+            $storeUrl = null;
+            if ($store->slug) {
+                $storeUrl = 'https://' . $store->slug . '.' . config('app.main_domain');
+            }
+
+            return view('vendors.auth.success', [
+                'store' => $store,
+                'storeUrl' => $storeUrl,
+            ]);
+        }
 
         Log::info('vendor.onboarding.store_success_redirect_to_subscription', [
             'vendor_id' => $vendor->id,

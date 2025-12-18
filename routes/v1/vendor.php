@@ -37,9 +37,11 @@ Route::prefix('vendor')->name('vendor.')->group(function () {
         Route::get('/{vendor}/subscription/plan', [VendorSubscriptionController::class, 'showSubscriptionPlan'])->name('subscription.plan');
         Route::post('/{vendor}/subscription/initialize', [VendorSubscriptionController::class, 'initializePayment'])->name('subscription.initialize');
         Route::get('/{vendor}/subscription/callback', [VendorSubscriptionController::class, 'handleCallback'])->name('subscription.callback');
+        Route::post('/{vendor}/subscription/check-early-pass', [VendorSubscriptionController::class, 'checkEarlyPass'])->name('subscription.check-early-pass');
         
         Route::get('/{vendor}/store/create', [VendorOnboardController::class, 'showStoreCreationForm'])->name('kyc.store.create');
         Route::post('/{vendor}/store/create', [VendorOnboardController::class, 'submitOnboardingStore'])->name('kyc.store.submit');
+        Route::post('/{vendor}/store/check-slug', [VendorOnboardController::class, 'checkSlugAvailability'])->name('kyc.store.check-slug');
         Route::get('/{vendor}/store/success', [VendorOnboardController::class, 'showStoreSuccess'])->name('kyc.store.success');
         
         Route::middleware('vendor.subscription')->group(function () {

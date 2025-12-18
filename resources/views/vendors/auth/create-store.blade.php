@@ -1,6 +1,6 @@
 @extends('vendors.auth.layout')
 
-@section('title', 'Create your store')
+@section('subtitle', 'Create your store')
 
 @section('content')
     <div class="mb-4 text-center">
@@ -22,6 +22,12 @@
                         @error('name')
                             <div class="invalid-feedback">{{ $message }}</div>
                         @enderror
+                        
+                        <!-- Slug availability feedback -->
+                        <div id="slugFeedback" class="mt-2" style="display: none;">
+                            <small id="slugStatus" class="d-flex align-items-center gap-2"></small>
+                        </div>
+                        <input type="hidden" id="slug" name="slug" value="{{ old('slug') }}">
                     </div>
 
                     <div class="col-12">
@@ -49,7 +55,7 @@
                         <label for="support_phone" class="form-label fw-semibold">Support phone</label>
                         <input type="text" id="support_phone" name="support_phone"
                                class="form-control form-control-lg @error('support_phone') is-invalid @enderror"
-                               value="{{ old('support_phone') }}" placeholder="+1 800 000 0000">
+                               value="{{ old('support_phone') }}" placeholder="0800 000 0000">
                         @error('support_phone')
                             <div class="invalid-feedback">{{ $message }}</div>
                         @enderror
@@ -155,7 +161,9 @@
                 </div>
 
                 <div class="text-end">
-                    <button type="submit" class="btn btn-dark btn-lg px-4">Save &amp; continue</button>
+                    <button type="submit" id="submitBtn" class="btn btn-dark btn-lg px-4" disabled>
+                        <span id="submitBtnText">Save &amp; continue</span>
+                    </button>
                 </div>
             </form>
         </div>
@@ -163,25 +171,169 @@
 
     <script>
         document.addEventListener('DOMContentLoaded', function () {
+            // Logo preview
             const logoInput = document.getElementById('logo');
             const preview = document.getElementById('logoPreview');
-            if (!logoInput || !preview) return;
+            if (logoInput && preview) {
+                logoInput.addEventListener('change', function (event) {
+                    const file = event.target.files?.[0];
+                    if (!file) {
+                        preview.style.display = 'none';
+                        preview.src = '#';
+                        return;
+                    }
+                    const reader = new FileReader();
+                    reader.onload = function (e) {
+                        preview.src = e.target?.result ?? '#';
+                        preview.style.display = 'block';
+                    };
+                    reader.readAsDataURL(file);
+                });
+            }
 
-            logoInput.addEventListener('change', function (event) {
-                const file = event.target.files?.[0];
-                if (!file) {
-                    preview.style.display = 'none';
-                    preview.src = '#';
+            // Slug availability checker
+            const nameInput = document.getElementById('name');
+            const slugInput = document.getElementById('slug');
+            const slugFeedback = document.getElementById('slugFeedback');
+            const slugStatus = document.getElementById('slugStatus');
+            const submitBtn = document.getElementById('submitBtn');
+            const checkSlugUrl = '{{ route("vendor.kyc.store.check-slug", ["vendor" => $vendor]) }}';
+            const csrfToken = '{{ csrf_token() }}';
+            
+            let debounceTimer = null;
+            let isSlugValid = false;
+            let currentAbortController = null;
+
+            function setButtonState(enabled) {
+                submitBtn.disabled = !enabled;
+                submitBtn.classList.toggle('btn-dark', enabled);
+                submitBtn.classList.toggle('btn-secondary', !enabled);
+            }
+
+            function showFeedback(type, message, suggestedSlug = null) {
+                slugFeedback.style.display = 'block';
+                
+                let icon = '';
+                let colorClass = '';
+                let extraHtml = '';
+                
+                switch (type) {
+                    case 'checking':
+                        icon = '<span class="spinner-border spinner-border-sm" role="status"></span>';
+                        colorClass = 'text-muted';
+                        break;
+                    case 'available':
+                        icon = '<svg width="16" height="16" fill="currentColor" class="text-success" viewBox="0 0 16 16"><path d="M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0zm-3.97-3.03a.75.75 0 0 0-1.08.022L7.477 9.417 5.384 7.323a.75.75 0 0 0-1.06 1.06L6.97 11.03a.75.75 0 0 0 1.079-.02l3.992-4.99a.75.75 0 0 0-.01-1.05z"/></svg>';
+                        colorClass = 'text-success';
+                        break;
+                    case 'taken':
+                        icon = '<svg width="16" height="16" fill="currentColor" class="text-danger" viewBox="0 0 16 16"><path d="M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0zM5.354 4.646a.5.5 0 1 0-.708.708L7.293 8l-2.647 2.646a.5.5 0 0 0 .708.708L8 8.707l2.646 2.647a.5.5 0 0 0 .708-.708L8.707 8l2.647-2.646a.5.5 0 0 0-.708-.708L8 7.293 5.354 4.646z"/></svg>';
+                        colorClass = 'text-danger';
+                        if (suggestedSlug) {
+                            extraHtml = ` <button type="button" class="btn btn-link btn-sm p-0 ms-1" id="useSuggested" data-slug="${suggestedSlug}">Use "${suggestedSlug}" instead</button>`;
+                        }
+                        break;
+                    case 'error':
+                        icon = '<svg width="16" height="16" fill="currentColor" class="text-warning" viewBox="0 0 16 16"><path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm.93-9.412-1 4.705c-.07.34.029.533.304.533.194 0 .487-.07.686-.246l-.088.416c-.287.346-.92.598-1.465.598-.703 0-1.002-.422-.808-1.319l.738-3.468c.064-.293.006-.399-.287-.47l-.451-.081.082-.381 2.29-.287zM8 5.5a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/></svg>';
+                        colorClass = 'text-warning';
+                        break;
+                }
+                
+                slugStatus.className = 'd-flex align-items-center gap-2 ' + colorClass;
+                slugStatus.innerHTML = icon + ' <span>' + message + '</span>' + extraHtml;
+                
+                // Attach event listener for suggestion button
+                const useSuggestedBtn = document.getElementById('useSuggested');
+                if (useSuggestedBtn) {
+                    useSuggestedBtn.addEventListener('click', function() {
+                        const suggested = this.getAttribute('data-slug');
+                        slugInput.value = suggested;
+                        isSlugValid = true;
+                        setButtonState(true);
+                        showFeedback('available', `Your store link: <strong>${suggested}.{{ config('app.main_domain') }}</strong>`);
+                    });
+                }
+            }
+
+            function checkSlug(storeName) {
+                // Cancel any pending request
+                if (currentAbortController) {
+                    currentAbortController.abort();
+                }
+                
+                // Convert to slug format for preview
+                const previewSlug = storeName.trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+                
+                if (previewSlug.length < 2) {
+                    slugFeedback.style.display = 'none';
+                    slugInput.value = '';
+                    isSlugValid = false;
+                    setButtonState(false);
                     return;
                 }
+                
+                showFeedback('checking', 'Checking store link availability...');
+                
+                currentAbortController = new AbortController();
+                
+                fetch(checkSlugUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': csrfToken,
+                        'Accept': 'application/json'
+                    },
+                    body: JSON.stringify({ slug: storeName }),
+                    signal: currentAbortController.signal
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.available) {
+                        slugInput.value = data.slug;
+                        isSlugValid = true;
+                        setButtonState(true);
+                        showFeedback('available', `Your store link: <strong>${data.slug}.{{ config('app.main_domain') }}</strong>`);
+                    } else {
+                        slugInput.value = '';
+                        isSlugValid = false;
+                        setButtonState(false);
+                        showFeedback('taken', data.message, data.suggested);
+                    }
+                })
+                .catch(error => {
+                    if (error.name === 'AbortError') return;
+                    console.error('Slug check error:', error);
+                    slugInput.value = '';
+                    isSlugValid = false;
+                    setButtonState(false);
+                    showFeedback('error', 'Unable to check availability. Please try again.');
+                });
+            }
 
-                const reader = new FileReader();
-                reader.onload = function (e) {
-                    preview.src = e.target?.result ?? '#';
-                    preview.style.display = 'block';
-                };
-                reader.readAsDataURL(file);
-            });
+            if (nameInput) {
+                nameInput.addEventListener('input', function() {
+                    clearTimeout(debounceTimer);
+                    const value = this.value.trim();
+                    
+                    if (value.length < 2) {
+                        slugFeedback.style.display = 'none';
+                        slugInput.value = '';
+                        isSlugValid = false;
+                        setButtonState(false);
+                        return;
+                    }
+                    
+                    // Show checking state after brief delay
+                    debounceTimer = setTimeout(() => {
+                        checkSlug(value);
+                    }, 500);
+                });
+                
+                // Check on page load if there's a value
+                if (nameInput.value.trim().length >= 2) {
+                    checkSlug(nameInput.value.trim());
+                }
+            }
         });
     </script>
 @endsection

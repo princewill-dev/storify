@@ -1,6 +1,5 @@
 @extends('vendors.auth.layout')
-@section('title', 'Create vendor account')
-@section('subtitle', 'Join the marketplace and start onboarding')
+@section('subtitle', 'Create vendor account')
 
 @section('content')
     <style>
@@ -139,6 +138,22 @@
         @media (max-width: 991.98px) {
             .vendor-onboard .onboard-card {
                 border-radius: 18px;
+            }
+        }
+
+        @media (max-width: 767.98px) {
+            .vendor-onboard .onboard-card {
+                padding: 1.25rem;
+            }
+
+            .vendor-onboard .form-control-lg,
+            .vendor-onboard .form-select-lg {
+                font-size: 0.95rem;
+                padding: 0.65rem 0.75rem;
+            }
+
+            .vendor-onboard h2 {
+                font-size: 1.25rem;
             }
         }
     </style>

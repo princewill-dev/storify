@@ -1,6 +1,6 @@
 @extends('vendors.auth.layout')
 
-@section('title', 'Store created successfully')
+@section('subtitle', 'Store created successfully')
 
 @section('content')
     <div class="text-center mb-5">
@@ -29,7 +29,7 @@
             </div>
         @endif
 
-        <p class="text-muted mb-5">We're reviewing your KYC submission. Once approved, your storefront will go live for shoppers. We'll notify you via email.</p>
+        <p class="text-muted mb-5">Yay! Your store is ready to go. You can now start adding products and managing your store.</p>
 
         <a href="{{ route('vendor.dashboard') }}" class="btn btn-dark btn-lg px-5">Go to dashboard</a>
     </div>

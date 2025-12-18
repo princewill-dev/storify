@@ -1,7 +1,6 @@
 @extends('vendors.auth.layout')
 
-@section('title', 'Reset your password')
-@section('subtitle', 'We will email you a verification code')
+@section('subtitle', 'Reset your password')
 
 @section('content')
     <form method="POST" action="{{ route('vendor.auth.forgot-password.send') }}" class="vstack gap-4">

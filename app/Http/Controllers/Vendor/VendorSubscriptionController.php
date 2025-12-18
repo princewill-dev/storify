@@ -3,11 +3,14 @@
 namespace App\Http\Controllers\Vendor;
 
 use App\Http\Controllers\Controller;
+use App\Models\EarlyPass;
 use App\Models\Payment;
+use App\Models\Store;
 use App\Models\SubscriptionPlan;
 use App\Models\Vendor;
 use App\Models\VendorSubscription;
 use App\Services\PaystackService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -363,6 +366,144 @@ class VendorSubscriptionController extends Controller
             ]);
             return redirect()->route('vendor.subscription.plan', ['vendor' => $vendor])
                 ->with('error', 'An error occurred while processing your payment.');
+        }
+    }
+
+    /**
+     * Check and apply an early pass code to skip payment.
+     */
+    public function checkEarlyPass(Request $request, Vendor $vendor): JsonResponse
+    {
+        $code = trim($request->input('code', ''));
+        
+        Log::info('vendor.early_pass.check_request', [
+            'vendor_id' => $vendor->id,
+            'code' => $code,
+            'ip' => $request->ip(),
+        ]);
+
+        if (empty($code)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Please enter a code',
+            ]);
+        }
+
+        // Find the early pass
+        $earlyPass = EarlyPass::where('code', $code)->first();
+
+        if (!$earlyPass) {
+            Log::info('vendor.early_pass.not_found', [
+                'vendor_id' => $vendor->id,
+                'code' => $code,
+            ]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid code. Please check and try again.',
+            ]);
+        }
+
+        if (!$earlyPass->isAvailable()) {
+            Log::info('vendor.early_pass.already_used', [
+                'vendor_id' => $vendor->id,
+                'code' => $code,
+                'used_by' => $earlyPass->used_by_vendor_id,
+            ]);
+            return response()->json([
+                'success' => false,
+                'message' => 'This code has already been used.',
+            ]);
+        }
+
+        // Check if vendor already has active subscription
+        if ($vendor->hasActiveSubscription()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'You already have an active subscription.',
+            ]);
+        }
+
+        // Get the default plan
+        $plan = SubscriptionPlan::active()->default()->first();
+
+        if (!$plan) {
+            Log::error('vendor.early_pass.no_plan', [
+                'vendor_id' => $vendor->id,
+            ]);
+            return response()->json([
+                'success' => false,
+                'message' => 'No subscription plan available.',
+            ]);
+        }
+
+        DB::beginTransaction();
+        try {
+            // Create subscription (free via early pass)
+            $subscription = VendorSubscription::create([
+                'vendor_id' => $vendor->id,
+                'subscription_plan_id' => $plan->id,
+                'status' => VendorSubscription::STATUS_ACTIVE,
+                'starts_at' => now(),
+                'expires_at' => now()->addYear(),
+                'metadata' => [
+                    'early_pass_id' => $earlyPass->id,
+                    'early_pass_code' => $earlyPass->code,
+                    'activated_at' => now()->toDateTimeString(),
+                    'payment_skipped' => true,
+                ],
+            ]);
+
+            // Mark early pass as used
+            $earlyPass->markAsUsed($vendor->id);
+
+            // Activate vendor
+            if ($vendor->status !== Vendor::STATUS_ACTIVE) {
+                $vendor->update(['status' => Vendor::STATUS_ACTIVE]);
+            }
+
+            // Activate all pending/suspended stores
+            $stores = $vendor->stores()->whereIn('status', [
+                Store::STATUS_PENDING,
+                Store::STATUS_SUSPENDED,
+            ])->get();
+
+            foreach ($stores as $store) {
+                $store->update(['status' => Store::STATUS_ACTIVE]);
+            }
+
+            // Get the first store for the success redirect
+            $store = $vendor->stores()->first();
+
+            DB::commit();
+
+            Log::info('vendor.early_pass.applied_successfully', [
+                'vendor_id' => $vendor->id,
+                'early_pass_id' => $earlyPass->id,
+                'subscription_id' => $subscription->id,
+                'stores_activated' => $stores->count(),
+            ]);
+
+            // Store the store ID in session for success page
+            session(['onboarding_store_id' => $store?->id]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Early access activated! Redirecting...',
+                'redirect_url' => route('vendor.kyc.store.success', ['vendor' => $vendor]),
+            ]);
+
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            Log::error('vendor.early_pass.apply_failed', [
+                'vendor_id' => $vendor->id,
+                'code' => $code,
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'An error occurred. Please try again.',
+            ]);
         }
     }
 }

@@ -14,16 +14,15 @@
 				<div class="hero-19-txt">
 			
 					<!-- Title -->
-					<h2 class="s-56 w-700">We Transform Businesses for the Digital World</h2>	
+					<h2 class="s-56 w-700">Go global with a cool storefront</h2>
 
 					<!-- Text -->
-					<p class="p-xl">We Help Traditional Businesses Thrive in the Digital Age Through Customized Web Solutions
-					</p>
+					<p class="p-xl">Transform your vision into a high-performance online store.</p>
 
 					<!-- Buttons -->	
 					<div class="btns-group">
-						<a href="contact-us.html" class="btn r-04 btn--theme hover--theme">Get a Free Consultation</a>
-						<a href="projects.html" class="btn r-04 btn--tra-black hover--theme ico-20 ico-right">See our works</a>
+						<a href="{{ route('vendor.auth.register') }}" class="btn r-04 btn--theme hover--theme" style="display: inline-flex; align-items: center; min-height: 52px;">Get started</a>
+						<a href="#" class="btn r-04 btn--tra-black hover--theme" style="display: inline-flex; align-items: center; min-height: 52px;">See stores</a>
 					</div>
 					
 				</div>
@@ -121,7 +120,7 @@
 
 					<!-- Text -->	
 					<p>
-						Whether you need a simple informational website, full-fledged e-commerce store, or just help improving your online presence - we're here to take your business to the next level. We make it easy to get started online and handle all the technical work for you.
+						Transform your vision into a high-converting digital storefront that captivates customers and drives sales. We handle all the technical heavy lifting—from seamless user interfaces to secure payment processing—so you can focus on growing your brand and reaching new markets.
 					</p>
 
 					<!-- CONTENT BOX #1 -->
@@ -132,7 +131,7 @@
 						</div>
 
 						<div class="cbox-1-txt">
-							<p>Free Consultation</p>
+							<p>High-Converting Storefront Design</p>
 						</div>
 
 					</div>
@@ -145,7 +144,7 @@
 						</div>
 
 						<div class="cbox-1-txt">
-							<p>Professional Services</p>
+							<p>Secure & Integrated Payment Gateways</p>
 						</div>
 
 					</div>
@@ -158,7 +157,7 @@
 						</div>
 
 						<div class="cbox-1-txt">
-							<p class="mb-0">Fast Project Delivery Window</p>
+							<p class="mb-0">Mobile-First Responsive Experience</p>
 						</div>
 
 					</div>
@@ -193,10 +192,10 @@
 				<div class="section-title mb-80">	
 
 					<!-- Title -->	
-					<h2 class="s-50 w-700">Everything in One Place</h2>	
+					<h2 class="s-50 w-700">Everything Your Store Needs</h2>	
 
 					<!-- Text -->	
-					<p class="s-21 color--grey">We Digitize and Modernize Your Business from start to finish.</p>
+					<p class="s-21 color--grey">Launch, manage, and scale your online store with powerful built-in features.</p>
 						
 				</div>	
 			</div>
@@ -219,8 +218,8 @@
 
 						<!-- Text -->
 						<div class="fbox-txt">
-							<h6 class="s-22 w-700">Website Development</h6>
-							<p>We build modern, mobile-friendly websites tailored to your brand and business needs, from informational sites to full e-commerce stores.</p>
+							<h6 class="s-22 w-700">Custom Branded Storefront</h6>
+							<p>Get your own stunning online store with a custom subdomain, personalized branding, and a professional look that builds customer trust.</p>
 						</div>
 
 					</div>
@@ -238,8 +237,8 @@
 
 						<!-- Text -->
 						<div class="fbox-txt">
-							<h6 class="s-22 w-700">Automation & Integration</h6>
-							<p>Save time and money by automating manual processes and integrating new tech tools into your existing systems. We customize workflows to optimize operations.</p>
+							<h6 class="s-22 w-700">Smart Inventory Management</h6>
+							<p>Easily add products, track stock levels, and manage orders from a powerful dashboard. Automated alerts keep you informed when it's time to restock.</p>
 						</div>
 
 					</div>
@@ -257,8 +256,8 @@
 
 						<!-- Text -->
 						<div class="fbox-txt">
-							<h6 class="s-22 w-700">Intuitive Designs</h6>
-							<p>Our focus is always on delivering truly world-class projects and top-notch services.</p>
+							<h6 class="s-22 w-700">Global Payment Solutions</h6>
+							<p>Accept payments worldwide with integrated support for cards, bank transfers, and mobile wallets. Secure checkout builds customer confidence.</p>
 						</div>
 
 					</div>
@@ -292,15 +291,16 @@
 				<div class="txt-block left-column wow fadeInRight">
 
 					<!-- Section ID -->	
-					<span class="section-id">Quick Integration</span>
+					<span class="section-id">Business Intelligence</span>
 
 					<!-- Title -->	
-					<h2 class="s-46 w-700">Integrated Payments, Optimized Processes</h2>
+					<h2 class="s-46 w-700">Deep Insights That Drive Growth</h2>
 
-					<p>Streamlining the technology behind payments improves cash flow, reduces headaches, and creates seamless experiences. Plus we handle security and compliance concerns so you can focus on your business. </p>
+					<p>Understand what's working and what's not with powerful analytics built into your Storify dashboard. Track sales performance, monitor customer behavior, and identify your best-selling products—all in real-time. Make data-driven decisions that boost revenue and keep your store ahead of the competition.</p>
 
 				</div>
-			</div>	<!-- END TEXT BLOCK -->	
+			</div>
+			<!-- END TEXT BLOCK -->	
 
 
 			<!-- IMAGE BLOCK -->

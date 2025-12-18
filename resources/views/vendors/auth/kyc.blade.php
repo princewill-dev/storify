@@ -1,7 +1,6 @@
 @extends('vendors.auth.layout')
 
-@section('title', 'Submit KYC Information')
-@section('subtitle', 'Tell us about your business so we can verify your account')
+@section('subtitle', 'Submit KYC Information')
 
 @section('content')
     <div class="mb-4">

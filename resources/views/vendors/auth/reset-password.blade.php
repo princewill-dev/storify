@@ -1,7 +1,6 @@
 @extends('vendors.auth.layout')
 
-@section('title', 'Set a new password')
-@section('subtitle', 'Enter the code from your email and choose a secure password')
+@section('subtitle', 'Set a new password')
 
 @section('content')
     <form method="POST" action="{{ route('vendor.auth.reset-password.update') }}" class="vstack gap-3">
