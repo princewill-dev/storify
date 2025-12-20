@@ -13,14 +13,51 @@ use App\Models\Vendor;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\View\View;
 
+use App\Services\PaystackService;
+
 class VendorOnboardController extends Controller
 {
+    protected PaystackService $paystackService;
+
+    public function __construct(PaystackService $paystackService)
+    {
+        $this->paystackService = $paystackService;
+    }
+
+    /**
+     * Get list of supported banks
+     */
+    public function getBanks(): JsonResponse
+    {
+        $result = $this->paystackService->getBanks();
+        
+        return response()->json($result);
+    }
+
+    /**
+     * Resolve bank account details
+     */
+    public function validateBank(Request $request): JsonResponse
+    {
+        $request->validate([
+            'account_number' => 'required|string',
+            'bank_code' => 'required|string',
+        ]);
+
+        $result = $this->paystackService->resolveAccountNumber(
+            $request->account_number,
+            $request->bank_code
+        );
+
+        return response()->json($result);
+    }
     /**
      * Check if a store slug is available.
      */
@@ -163,13 +200,29 @@ class VendorOnboardController extends Controller
         $data['status'] = Store::STATUS_PENDING;
 
         try {
+            DB::beginTransaction();
+
             $store = Store::create($data);
+
+            // Create store bank account
+            $store->banks()->create([
+                'bank_name' => $request->input('bank_name'),
+                'bank_code' => $request->input('bank_code'),
+                'account_number' => $request->input('account_number'),
+                'account_name' => $request->input('account_name'),
+                'is_primary' => true,
+                'is_verified' => true, // Already verified via API before submission
+            ]);
+
+            DB::commit();
+
             Log::info('vendor.kyc.onboarding_store_created', [
                 'vendor_id' => $vendor->id,
                 'store_id' => $store->id,
                 'store_public_id' => $store->store_id,
             ]);
         } catch (\Throwable $e) {
+            DB::rollBack();
             if (!empty($data['logo_path'])) {
                 try {
                     Storage::disk('public')->delete($data['logo_path']);

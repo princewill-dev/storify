@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use App\Enums\StoreStatus;
 
 class Store extends Model
@@ -82,6 +83,16 @@ class Store extends Model
     public function businessType(): BelongsTo
     {
         return $this->belongsTo(BusinessType::class);
+    }
+
+    public function banks(): HasMany
+    {
+        return $this->hasMany(StoreBank::class);
+    }
+
+    public function primaryBank()
+    {
+        return $this->hasOne(StoreBank::class)->where('is_primary', true);
     }
 
     public static function statusBadgeData(): array

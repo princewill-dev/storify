@@ -44,6 +44,10 @@ Route::prefix('vendor')->name('vendor.')->group(function () {
         Route::post('/{vendor}/store/check-slug', [VendorOnboardController::class, 'checkSlugAvailability'])->name('kyc.store.check-slug');
         Route::get('/{vendor}/store/success', [VendorOnboardController::class, 'showStoreSuccess'])->name('kyc.store.success');
         
+        // Bank Validation Routes
+        Route::get('/{vendor}/store/get-banks', [VendorOnboardController::class, 'getBanks'])->name('kyc.store.get-banks');
+        Route::post('/{vendor}/store/validate-bank', [VendorOnboardController::class, 'validateBank'])->name('kyc.store.validate-bank');
+        
         Route::middleware('vendor.subscription')->group(function () {
             Route::get('/dashboard', [VendorDashboardController::class, 'index'])->name('dashboard');
             Route::get('/{vendor}/kyc', [VendorKycController::class, 'show'])->name('kyc.show');

@@ -261,4 +261,56 @@ class PaystackService
     {
         return $this->publicKey;
     }
+
+    /**
+     * Resolve/validate a bank account number
+     */
+    public function resolveAccountNumber(string $accountNumber, string $bankCode): array
+    {
+        try {
+            $response = Http::withToken($this->secretKey)
+                ->get("{$this->baseUrl}/bank/resolve", [
+                    'account_number' => $accountNumber,
+                    'bank_code' => $bankCode,
+                ]);
+
+            $result = $response->json();
+
+            Log::info('paystack.resolve_account', [
+                'account_number' => substr($accountNumber, 0, 4) . '****' . substr($accountNumber, -2),
+                'bank_code' => $bankCode,
+                'status' => $response->status(),
+                'success' => $result['status'] ?? false,
+            ]);
+
+            if (!$response->successful() || !($result['status'] ?? false)) {
+                return [
+                    'success' => false,
+                    'message' => $result['message'] ?? 'Could not verify account number',
+                    'data' => null,
+                ];
+            }
+
+            return [
+                'success' => true,
+                'message' => 'Account verified successfully',
+                'data' => [
+                    'account_number' => $result['data']['account_number'] ?? $accountNumber,
+                    'account_name' => $result['data']['account_name'] ?? null,
+                ],
+            ];
+        } catch (\Throwable $e) {
+            Log::error('paystack.resolve_account.error', [
+                'account_number' => substr($accountNumber, 0, 4) . '****',
+                'bank_code' => $bankCode,
+                'error' => $e->getMessage(),
+            ]);
+
+            return [
+                'success' => false,
+                'message' => 'An error occurred while verifying account',
+                'data' => null,
+            ];
+        }
+    }
 }
