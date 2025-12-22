@@ -26,12 +26,12 @@
 						@endphp
 						@if($storeCount === 1)
 							@php $store = $vendorStores->first(); @endphp
-							<a href="{{ config('app.env') === 'local' ? route('local.store.products.index', ['store_subdomain' => $store->slug]) : route('home.store.products.index', ['store_subdomain' => $store->slug]) }}" target="_blank" class="btn btn-primary btn-sm d-sm-inline-block d-none">
+							<a href="{{ config('app.env') === 'local' ? route('local.store.products.index', ['store_subdomain' => $store->slug]) : route('home.store.products.index', ['store_subdomain' => $store->slug]) }}" target="_blank" class="btn btn-primary btn-sm">
 								Visit Store
 							</a>
 						@elseif($storeCount > 1)
 							<div class="dropdown">
-								<button class="btn btn-primary btn-sm dropdown-toggle d-sm-inline-block d-none" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+								<button class="btn btn-primary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
 									Visit Store
 								</button>
 								<ul class="dropdown-menu">

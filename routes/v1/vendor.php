@@ -50,6 +50,7 @@ Route::prefix('vendor')->name('vendor.')->group(function () {
         
         Route::middleware('vendor.subscription')->group(function () {
             Route::get('/dashboard', [VendorDashboardController::class, 'index'])->name('dashboard');
+            Route::post('/dashboard/switch-store', [VendorDashboardController::class, 'switchStore'])->name('stores.switch');
             
             // Profile
             Route::get('/dashboard/profile', [\App\Http\Controllers\Vendor\VendorProfileController::class, 'index'])->name('profile.index');

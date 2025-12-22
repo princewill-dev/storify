@@ -37,9 +37,21 @@ class VendorDashboardController extends Controller
         $lastMonthEnd = $now->copy()->subMonth()->endOfMonth();
         $recentActivityThreshold = $now->copy()->subDays(30);
 
-        $storeIds = $vendor->stores()->pluck('id');
+        // Store Selection Logic
+        $activeStoreId = session('active_store_id');
+        if (!$activeStoreId) {
+            $firstStore = $vendor->stores()->first();
+            $activeStoreId = $firstStore?->id;
+            session(['active_store_id' => $activeStoreId]);
+        }
 
         $ordersQuery = Order::query()->where('vendor_id', $vendor->id);
+        
+        // If we have an active store, filter accordingly
+        if ($activeStoreId) {
+            $ordersQuery->where('store_id', $activeStoreId);
+        }
+
         $totalOrders = (clone $ordersQuery)->count();
         $pendingOrders = (clone $ordersQuery)->where('status', 'pending')->count();
         $ordersThisMonth = (clone $ordersQuery)
@@ -49,8 +61,11 @@ class VendorDashboardController extends Controller
             ->whereBetween('created_at', [$lastMonthStart, $lastMonthEnd])
             ->count();
 
-        $transactionsQuery = Transaction::query()->whereHas('order', function ($query) use ($vendor) {
+        $transactionsQuery = Transaction::query()->whereHas('order', function ($query) use ($vendor, $activeStoreId) {
             $query->where('vendor_id', $vendor->id);
+            if ($activeStoreId) {
+                $query->where('store_id', $activeStoreId);
+            }
         });
 
         $completedStatuses = ['completed', 'success'];
@@ -73,15 +88,21 @@ class VendorDashboardController extends Controller
             ->get();
 
         $totalCustomers = Customer::query()
-            ->whereHas('orders', function ($query) use ($vendor) {
+            ->whereHas('orders', function ($query) use ($vendor, $activeStoreId) {
                 $query->where('vendor_id', $vendor->id);
+                if ($activeStoreId) {
+                    $query->where('store_id', $activeStoreId);
+                }
             })
             ->count();
 
         $activeCustomers = Customer::query()
-            ->whereHas('orders', function ($query) use ($vendor, $recentActivityThreshold) {
+            ->whereHas('orders', function ($query) use ($vendor, $activeStoreId, $recentActivityThreshold) {
                 $query->where('vendor_id', $vendor->id)
                     ->where('created_at', '>=', $recentActivityThreshold);
+                if ($activeStoreId) {
+                    $query->where('store_id', $activeStoreId);
+                }
             })
             ->count();
 
@@ -89,11 +110,27 @@ class VendorDashboardController extends Controller
         $totalStores = (clone $storeQuery)->count();
         $activeStores = (clone $storeQuery)->where('status', 'active')->count();
 
-        $productsQuery = Product::query()->whereIn('store_id', $storeIds);
+        $productsQuery = Product::query();
+        if ($activeStoreId) {
+            $productsQuery->where('store_id', $activeStoreId);
+        } else {
+            $productsQuery->whereIn('store_id', $vendor->stores()->pluck('id'));
+        }
+
         $totalProducts = (clone $productsQuery)->count();
         $activeProducts = (clone $productsQuery)->where('status', 'active')->count();
         $totalStock = (clone $productsQuery)->sum('quantity');
         $lowStockProducts = (clone $productsQuery)->where('quantity', '<=', 10)->count();
+
+        // Active Items (Products + Services)
+        $activeServicesCount = \App\Models\Service::query()
+            ->where('status', 'active');
+        if ($activeStoreId) {
+            $activeServicesCount->where('store_id', $activeStoreId);
+        } else {
+            $activeServicesCount->whereIn('store_id', $vendor->stores()->pluck('id'));
+        }
+        $totalItems = $activeProducts + $activeServicesCount->count();
 
         $stats = [
             'total_revenue' => (float) $totalRevenue,
@@ -119,8 +156,28 @@ class VendorDashboardController extends Controller
             'active_products' => $activeProducts,
             'total_stock' => (int) $totalStock,
             'low_stock_products' => $lowStockProducts,
+            'total_items' => $totalItems,
         ];
 
-        return view('vendors.dashboard', compact('vendor', 'stats'));
+        return view('vendors.dashboard', compact('vendor', 'stats', 'activeStoreId'));
+    }
+
+    public function switchStore(Request $request): RedirectResponse
+    {
+        $request->validate([
+            'store_id' => 'required|exists:stores,id'
+        ]);
+
+        /** @var Vendor $vendor */
+        $vendor = $request->user('vendor');
+
+        // Verify the store belongs to the vendor
+        if (!$vendor->stores()->where('id', $request->store_id)->exists()) {
+            return back()->with('error', 'Unauthorized store access.');
+        }
+
+        session(['active_store_id' => $request->store_id]);
+
+        return back()->with('success', 'Store switched successfully.');
     }
 }
