@@ -101,6 +101,16 @@
 
                             <div class="row align-items-center mb-4">
                                 <div class="col-md-3">
+                                    <label class="form-label mb-md-0">Store Creation Limit</label>
+                                </div>
+                                <div class="col-md-9">
+                                    <input type="number" name="store_creation_limit" class="form-control" value="{{ old('store_creation_limit', $settings->store_creation_limit ?? 5) }}" min="1">
+                                    <small class="text-muted">Maximum number of stores a vendor can create.</small>
+                                </div>
+                            </div>
+
+                            <div class="row align-items-center mb-4">
+                                <div class="col-md-3">
                                     <label class="form-label mb-md-0">Homepage Store</label>
                                 </div>
                                 <div class="col-md-9">

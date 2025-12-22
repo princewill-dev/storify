@@ -268,19 +268,34 @@ class PaystackService
     public function resolveAccountNumber(string $accountNumber, string $bankCode): array
     {
         try {
-            $response = Http::withToken($this->secretKey)
-                ->get("{$this->baseUrl}/bank/resolve", [
-                    'account_number' => $accountNumber,
+            // In debug mode, force bank code to 001 to avoid Paystack test limit
+            if (config('app.debug')) {
+                $bankCode = '001';
+            }
+
+            $url = "{$this->baseUrl}/bank/resolve";
+            $params = [
+                'account_number' => $accountNumber,
+                'bank_code' => $bankCode,
+            ];
+
+            Log::info('paystack.resolve_account.request', [
+                'url' => $url,
+                'params' => [
+                    'account_number' => substr($accountNumber, 0, 4) . '****' . substr($accountNumber, -2),
                     'bank_code' => $bankCode,
-                ]);
+                ],
+            ]);
+
+            $response = Http::withToken($this->secretKey)->get($url, $params);
 
             $result = $response->json();
 
-            Log::info('paystack.resolve_account', [
-                'account_number' => substr($accountNumber, 0, 4) . '****' . substr($accountNumber, -2),
-                'bank_code' => $bankCode,
+            Log::info('paystack.resolve_account.response', [
                 'status' => $response->status(),
-                'success' => $result['status'] ?? false,
+                'headers' => $response->headers(),
+                'body' => $response->body(),
+                'result' => $result
             ]);
 
             if (!$response->successful() || !($result['status'] ?? false)) {

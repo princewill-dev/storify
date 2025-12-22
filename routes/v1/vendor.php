@@ -50,6 +50,11 @@ Route::prefix('vendor')->name('vendor.')->group(function () {
         
         Route::middleware('vendor.subscription')->group(function () {
             Route::get('/dashboard', [VendorDashboardController::class, 'index'])->name('dashboard');
+            
+            // Profile
+            Route::get('/dashboard/profile', [\App\Http\Controllers\Vendor\VendorProfileController::class, 'index'])->name('profile.index');
+            Route::put('/dashboard/profile/password', [\App\Http\Controllers\Vendor\VendorProfileController::class, 'updatePassword'])->name('profile.password');
+
             Route::get('/{vendor}/kyc', [VendorKycController::class, 'show'])->name('kyc.show');
             Route::post('/{vendor}/kyc', [VendorKycController::class, 'submit'])->name('kyc.submit');
             Route::get('/{vendor}/stores/create', [VendorStoreController::class, 'create'])->name('stores.create');

@@ -8,6 +8,7 @@ use App\Models\Payment;
 use App\Models\Store;
 use App\Models\SubscriptionPlan;
 use App\Models\Vendor;
+use App\Models\VendorKycApplication;
 use App\Models\VendorSubscription;
 use App\Services\PaystackService;
 use Illuminate\Http\JsonResponse;
@@ -38,20 +39,19 @@ class VendorSubscriptionController extends Controller
             return redirect()->route('vendor.auth.login');
         }
 
-        if (!$vendor->is_verified) {
-            Log::info('vendor.subscription.unverified_vendor', [
-                'vendor_id' => $vendor->id,
-            ]);
-            return redirect()->route('vendor.auth.verify-otp', ['vendor' => $vendor])
-                ->with('warning', 'Please verify your email to continue.');
-        }
+        // if (!$vendor->is_verified) {
+        //     Log::info('vendor.subscription.unverified_vendor', [
+        //         'vendor_id' => $vendor->id,
+        //     ]);
+        //     return redirect()->route('vendor.auth.verify-otp', ['vendor' => $vendor])
+        //         ->with('warning', 'Please verify your email to continue.');
+        // }
 
         if (!$vendor->stores()->exists()) {
             Log::info('vendor.subscription.no_store', [
                 'vendor_id' => $vendor->id,
             ]);
-            return redirect()->route('vendor.kyc.store.create', ['vendor' => $vendor])
-                ->with('warning', 'Please create your store first.');
+            return redirect()->route('vendor.kyc.store.create', ['vendor' => $vendor]);
         }
 
         if ($vendor->hasActiveSubscription()) {
@@ -299,11 +299,26 @@ class VendorSubscriptionController extends Controller
                         'expires_at' => $expiresAt,
                     ]);
 
-                    if ($vendor->status !== Vendor::STATUS_ACTIVE) {
+                    if ($vendor->status !== Vendor::STATUS_ACTIVE || !$vendor->is_verified) {
                         $oldVendorStatus = $vendor->status;
-                        $vendor->update(['status' => Vendor::STATUS_ACTIVE]);
+                        $vendor->update([
+                            'status' => Vendor::STATUS_ACTIVE,
+                            'is_verified' => true,
+                        ]);
                         
-                        Log::info('vendor.account.auto_activated', [
+                        // Auto-approve KYC to allow store creation
+                        VendorKycApplication::updateOrCreate(
+                            ['vendor_id' => $vendor->id],
+                            [
+                                'status' => VendorKycApplication::STATUS_APPROVED,
+                                'approved_at' => now(),
+                                'legal_name' => $vendor->name,
+                                'phone_number' => $vendor->phone,
+                                'payload' => ['auto_approved_via_subscription' => true],
+                            ]
+                        );
+
+                        Log::info('vendor.account.auto_activated_and_verified', [
                             'vendor_id' => $vendor->id,
                             'old_status' => $oldVendorStatus,
                             'new_status' => Vendor::STATUS_ACTIVE,
@@ -335,7 +350,11 @@ class VendorSubscriptionController extends Controller
 
                 session()->forget('pending_subscription_payment');
 
-                return redirect()->route('vendor.dashboard')
+                // Store the first store ID in session for success page
+                $firstStore = $vendor->stores()->first();
+                session(['onboarding_store_id' => $firstStore?->id]);
+
+                return redirect()->route('vendor.kyc.store.success', ['vendor' => $vendor])
                     ->with('success', 'Subscription payment successful! Your account and store have been activated.');
             } else {
                 $payment->update([
@@ -404,15 +423,21 @@ class VendorSubscriptionController extends Controller
         }
 
         if (!$earlyPass->isAvailable()) {
-            Log::info('vendor.early_pass.already_used', [
+            Log::info('vendor.early_pass.not_active', [
                 'vendor_id' => $vendor->id,
                 'code' => $code,
-                'used_by' => $earlyPass->used_by_vendor_id,
             ]);
             return response()->json([
                 'success' => false,
-                'message' => 'This code has already been used.',
+                'message' => 'This code is not valid or expired.',
             ]);
+        }
+
+        if ($earlyPass->usages()->where('vendor_id', $vendor->id)->exists()) {
+             return response()->json([
+                 'success' => false,
+                 'message' => 'You have already used this code.',
+             ]);
         }
 
         // Check if vendor already has active subscription
@@ -453,12 +478,26 @@ class VendorSubscriptionController extends Controller
                 ],
             ]);
 
-            // Mark early pass as used
-            $earlyPass->markAsUsed($vendor->id);
+
 
             // Activate vendor
-            if ($vendor->status !== Vendor::STATUS_ACTIVE) {
-                $vendor->update(['status' => Vendor::STATUS_ACTIVE]);
+            if ($vendor->status !== Vendor::STATUS_ACTIVE || !$vendor->is_verified) {
+                $vendor->update([
+                    'status' => Vendor::STATUS_ACTIVE,
+                    'is_verified' => true,
+                ]);
+
+                // Auto-approve KYC to allow store creation
+                VendorKycApplication::updateOrCreate(
+                    ['vendor_id' => $vendor->id],
+                    [
+                        'status' => VendorKycApplication::STATUS_APPROVED,
+                        'approved_at' => now(),
+                        'legal_name' => $vendor->name,
+                        'phone_number' => $vendor->phone,
+                        'payload' => ['auto_approved_via_early_pass' => true],
+                    ]
+                );
             }
 
             // Activate all pending/suspended stores
@@ -470,6 +509,10 @@ class VendorSubscriptionController extends Controller
             foreach ($stores as $store) {
                 $store->update(['status' => Store::STATUS_ACTIVE]);
             }
+
+            // Mark early pass as used
+            $activeStore = $stores->first();
+            $earlyPass->markAsUsed($vendor->id, $activeStore?->id);
 
             // Get the first store for the success redirect
             $store = $vendor->stores()->first();

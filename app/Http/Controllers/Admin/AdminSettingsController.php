@@ -75,8 +75,10 @@ class AdminSettingsController extends Controller
             'support_phone' => $request->support_phone,
             'company_address' => $request->company_address,
             'branch_address' => $request->branch_address,
+            'branch_address' => $request->branch_address,
             'api_keys' => $apiKeys,
             'main_store_id' => $request->main_store_id,
+            'store_creation_limit' => $request->store_creation_limit ?? 5,
             // SEO
             'og_title' => $request->og_title,
             'og_description' => $request->og_description,

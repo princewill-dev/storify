@@ -19,6 +19,7 @@ class Setting extends Model
         'support_phone',
         'company_address',
         'branch_address',
+        'store_creation_limit',
         'api_keys',
         'main_store_id',
         // SEO
@@ -36,5 +37,6 @@ class Setting extends Model
         'api_keys' => 'array',
         'main_store_id' => 'integer',
         'greeting_modal_enabled' => 'boolean',
+        'store_creation_limit' => 'integer',
     ];
 }

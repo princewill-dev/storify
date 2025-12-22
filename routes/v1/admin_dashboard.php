@@ -165,5 +165,11 @@ Route::middleware(['auth'])->group(function () {
         Route::get('support-messages', [\App\Http\Controllers\Admin\SupportMessageController::class, 'index'])->name('support-messages.index');
         Route::post('support-messages/{supportMessage}/reply', [\App\Http\Controllers\Admin\SupportMessageController::class, 'reply'])->name('support-messages.reply');
         Route::delete('support-messages/{supportMessage}', [\App\Http\Controllers\Admin\SupportMessageController::class, 'destroy'])->name('support-messages.destroy');
+
+        // Early Access Codes
+        Route::resource('early-access', \App\Http\Controllers\Admin\AdminEarlyPassController::class)
+            ->parameters(['early-access' => 'earlyPass'])
+            ->except(['create', 'edit']);
+        Route::post('early-access/{earlyPass}/toggle-status', [\App\Http\Controllers\Admin\AdminEarlyPassController::class, 'toggleStatus'])->name('early-access.toggle-status');
     });
 });

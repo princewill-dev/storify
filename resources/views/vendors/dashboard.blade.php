@@ -67,7 +67,7 @@
             <div class="card-header pb-0 border-0 align-items-start">
                 <h4 class="card-title">Platform Statistics</h4>
                 <div class="clearfix">
-                    <a href="{{ route('admin.orders.index') }}" class="btn btn-primary light"><i class="fi fi-rr-eye"></i> View Orders</a>
+                    <a href="{{ route('vendor.orders.index', ['vendor' => auth('vendor')->user()]) }}" class="btn btn-primary light"><i class="fi fi-rr-eye"></i> View Orders</a>
                 </div>
             </div>
             <div class="card-body py-0">
@@ -151,7 +151,7 @@
                 </div>
 
                 <div class="mt-4">
-                    <a href="{{ route('admin.products.index') }}" class="btn btn-primary btn-sm w-100">
+                    <a href="{{ route('vendor.products.index', ['vendor' => auth('vendor')->user()]) }}" class="btn btn-primary btn-sm w-100">
                         <i class="fi fi-rr-box"></i> Manage Products
                     </a>
                 </div>

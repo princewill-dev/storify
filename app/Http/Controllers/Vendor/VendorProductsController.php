@@ -172,11 +172,7 @@ class VendorProductsController extends Controller
         $defaultCurrencyId = Currency::where('is_default', true)->value('id');
 
         $storeIds = $this->vendorStoreIds($vendor);
-        $categoryCount = Category::whereIn('store_id', $storeIds)->count();
-        if ($categoryCount === 0) {
-            return redirect()->route('vendor.categories.create', ['vendor' => $vendor])
-                ->with('warning', 'please set your product categories first');
-        }
+
 
         $categories = Category::whereIn('store_id', $storeIds)->orderBy('name')->get();
 

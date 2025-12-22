@@ -58,6 +58,7 @@ class VendorOnboardController extends Controller
 
         return response()->json($result);
     }
+    
     /**
      * Check if a store slug is available.
      */

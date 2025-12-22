@@ -21,10 +21,17 @@
               <span class="ms-1">Add Store</span>
             </button>
           @else
-            <button class="btn btn-primary btn-sm" type="button" disabled title="Complete verification/KYC to add more stores">
-              <i class="fi fi-rr-lock"></i>
-              <span class="ms-1">Cannot add store yet</span>
-            </button>
+            @if(!$vendor->is_verified || !in_array($vendor->kycApplication?->status, ['submitted', 'approved']))
+                <button class="btn btn-secondary btn-sm" type="button" disabled title="Complete verification/KYC to add more stores">
+                  <i class="fi fi-rr-lock"></i>
+                  <span class="ms-1">Verification Required</span>
+                </button>
+            @else
+                <button class="btn btn-secondary btn-sm" type="button" disabled title="You have reached the maximum number of stores allowed.">
+                  <i class="fi fi-rr-ban"></i>
+                  <span class="ms-1">Store Limit Reached</span>
+                </button>
+            @endif
           @endif
         </div>
       </div>
@@ -37,6 +44,10 @@
             <p class="text-muted mb-3">You don't have any stores yet. Click "Add Store" to create your storefront.</p>
             @if($canCreate)
               <a href="{{ route('vendor.stores.create', ['vendor' => $vendor]) }}" class="btn btn-primary">Create Store</a>
+            @elseif(!$vendor->is_verified || !in_array($vendor->kycApplication?->status, ['submitted', 'approved']))
+              <button class="btn btn-secondary" disabled>Verification Required</button>
+            @else
+               <button class="btn btn-secondary" disabled>Store Limit Reached</button>
             @endif
           </div>
         @else

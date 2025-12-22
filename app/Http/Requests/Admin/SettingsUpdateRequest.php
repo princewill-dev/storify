@@ -25,6 +25,7 @@ class SettingsUpdateRequest extends FormRequest
             'api_keys.*' => ['nullable', 'string', 'max:500'],
             'main_store_id' => ['nullable', 'integer', 'exists:stores,id'],
             'default_currency_id' => ['nullable', 'integer', 'exists:currencies,id'],
+            'store_creation_limit' => ['nullable', 'integer', 'min:1'],
         ];
     }
 }

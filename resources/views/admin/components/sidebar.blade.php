@@ -52,12 +52,16 @@
             </li>
 
             <li>
-                <a href="{{ route('admin.customers.index') }}" aria-expanded="false">
+                <a class="has-arrow" href="javascript:void(0);" aria-expanded="false">
                     <div class="menu-icon">
-                        <i class="fi fi-rr-users-alt"></i>
-                    </div>
-                    <span class="nav-text">Customers</span>
+                        <i class="fas fa-users"></i>
+                    </div>	
+                    <span class="nav-text" data-i18n="Customers">Customers</span>
                 </a>
+                <ul aria-expanded="false">
+                    <li><a href="{{ route('admin.customers.index') }}" data-i18n="Customers">Customers</a></li>
+                    <li><a href="{{ route('admin.early-access.index') }}" data-i18n="Access code">Access code</a></li>
+                </ul>
             </li>
 
             <li>
