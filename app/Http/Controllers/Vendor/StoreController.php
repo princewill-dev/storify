@@ -166,7 +166,7 @@ class StoreController extends Controller
         $storeUrl = null;
         if (!empty($store->slug) && app('router')->has('home.store.products.index')) {
             try {
-                $storeUrl = route('home.store.products.index', ['store_slug' => $store->slug]);
+                $storeUrl = route('home.store.products.index', ['store_subdomain' => $store->slug]);
             } catch (\Throwable $e) {
                 Log::warning('vendor.store.success_url_generation_failed', [
                     'store_id' => $store->id,

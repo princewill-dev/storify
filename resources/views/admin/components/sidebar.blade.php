@@ -12,7 +12,7 @@
                 </a>
             </li>
 
-            @if(!empty($adminMainStore))
+            <!-- @if(!empty($adminMainStore))
             <li>
                 <a class="has-arrow" href="javascript:void(0);" aria-expanded="false">
                     <div class="menu-icon">
@@ -27,7 +27,7 @@
                     <li><a href="{{ route('admin.stores.categories.index', $adminMainStore) }}" data-i18n="Manage Categories">Manage Categories</a></li>
                 </ul>
             </li>
-            @endif
+            @endif -->
 
             <li>
                 <a class="has-arrow" href="javascript:void(0);" aria-expanded="false">
@@ -39,6 +39,7 @@
                 <ul aria-expanded="false">
                     <li><a href="{{ route('admin.vendors.index') }}" data-i18n="All">All</a></li>
                     <li><a href="{{ route('admin.vendor-kyc.index') }}" data-i18n="KYC submissions">KYC submissions</a></li>
+                    <li><a href="{{ route('admin.early-access.index') }}" data-i18n="Access code">Access code</a></li>
                 </ul>
             </li>
 
@@ -60,11 +61,10 @@
                 </a>
                 <ul aria-expanded="false">
                     <li><a href="{{ route('admin.customers.index') }}" data-i18n="Customers">Customers</a></li>
-                    <li><a href="{{ route('admin.early-access.index') }}" data-i18n="Access code">Access code</a></li>
                 </ul>
             </li>
 
-            <li>
+            <!-- <li>
                 <a href="{{ route('admin.live-first.index') }}" aria-expanded="false">
                     <div class="menu-icon">
                         <i class="fi fi-rr-badge-check"></i>
@@ -89,9 +89,9 @@
                     </div>
                     <span class="nav-text">Family Packs Requests</span>
                 </a>
-            </li>
+            </li> -->
 
-            <li>
+            <!-- <li>
                 <a class="has-arrow" href="javascript:void(0);" aria-expanded="false">
                     <div class="menu-icon">
                         <i class="fi fi-rr-box"></i>
@@ -105,7 +105,7 @@
                     <li><a href="{{ route('admin.familypack.orders.index') }}" data-i18n="Family Packs">Family Packs</a></li>
                     <li><a href="{{ route('admin.livefirst.orders.index') }}" data-i18n="Live First">Live First</a></li>
                 </ul>
-            </li>
+            </li> -->
 
             <li>
                 <a href="{{ route('admin.transactions.index') }}" aria-expanded="false">
@@ -169,6 +169,7 @@
                     <li><a href="{{ route('admin.ownership-types.index') }}" data-i18n="Ownership types">Ownership types</a></li>
                     <li><a href="{{ route('admin.vats.index') }}" data-i18n="VAT Settings">VAT Settings</a></li>
                     <li><a href="{{ route('admin.bank-accounts.index') }}" data-i18n="Bank Accounts">Bank Accounts</a></li>
+                    <li><a href="{{ route('admin.subscription-plans.index') }}" data-i18n="Subscriptions Fee">Subscriptions Fee</a></li>
                 </ul>
             </li>
 

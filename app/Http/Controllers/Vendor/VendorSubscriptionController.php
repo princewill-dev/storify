@@ -10,6 +10,9 @@ use App\Models\SubscriptionPlan;
 use App\Models\Vendor;
 use App\Models\VendorKycApplication;
 use App\Models\VendorSubscription;
+use App\Models\Transaction;
+use App\Models\PaymentMethod;
+use App\Enums\TransactionStatus;
 use App\Services\PaystackService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -135,6 +138,22 @@ class VendorSubscriptionController extends Controller
                     'plan_name' => $plan->name,
                     'plan_id' => $plan->id,
                     'vendor_email' => $vendor->email,
+                ],
+            ]);
+
+            // Create Transaction record
+            $paystackMethod = PaymentMethod::where('code', 'paystack')->first();
+            Transaction::create([
+                'reference' => $payment->reference,
+                'payment_method_id' => $paystackMethod?->id,
+                'amount' => $payment->amount,
+                'currency' => $payment->currency,
+                'status' => TransactionStatus::PENDING,
+                'metadata' => [
+                    'payment_id' => $payment->id,
+                    'payment_type' => 'subscription',
+                    'plan_id' => $plan->id,
+                    'plan_name' => $plan->name,
                 ],
             ]);
 
@@ -275,6 +294,17 @@ class VendorSubscriptionController extends Controller
                     'paid_at' => now(),
                 ]);
 
+                // Update Transaction record
+                $transaction = Transaction::where('reference', $payment->reference)->first();
+                if ($transaction) {
+                    $transaction->update([
+                        'status' => TransactionStatus::PAID,
+                        'gateway_reference' => $txnData['id'] ?? null,
+                        'gateway_response' => $txnData,
+                        'paid_at' => now(),
+                    ]);
+                }
+
                 if ($payment->vendorSubscription) {
                     $startsAt = now();
                     $expiresAt = now()->addYear();
@@ -363,6 +393,15 @@ class VendorSubscriptionController extends Controller
                     'gateway_response' => $txnData,
                     'failure_reason' => $txnData['gateway_response'] ?? 'Payment was not successful',
                 ]);
+
+                // Update Transaction record
+                $transaction = Transaction::where('reference', $payment->reference)->first();
+                if ($transaction) {
+                    $transaction->update([
+                        'status' => TransactionStatus::CANCELED,
+                        'gateway_response' => $txnData,
+                    ]);
+                }
 
                 DB::commit();
 

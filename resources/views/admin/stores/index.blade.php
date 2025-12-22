@@ -51,7 +51,7 @@
                                     </td>
                                     <td>
                                         @if(!empty($store->slug))
-                                            <a href="{{ route('home.store.products.index', ['store_slug' => $store->slug]) }}" target="_blank">
+                                            <a href="{{ route('home.store.products.index', ['store_subdomain' => $store->slug]) }}" target="_blank">
                                                 view shop
                                             </a>
                                         @else

@@ -27,6 +27,7 @@ use App\Http\Controllers\Admin\DeliveryRouteController;
 use App\Http\Controllers\Admin\OrderController;
 use App\Http\Controllers\Admin\CustomerController;
 use App\Http\Controllers\Admin\TransactionController;
+use App\Http\Controllers\Admin\SubscriptionPlanController;
 
 // Admin Dashboard Routes (protected by auth middleware)
 Route::middleware(['auth'])->group(function () {
@@ -171,5 +172,8 @@ Route::middleware(['auth'])->group(function () {
             ->parameters(['early-access' => 'earlyPass'])
             ->except(['create', 'edit']);
         Route::post('early-access/{earlyPass}/toggle-status', [\App\Http\Controllers\Admin\AdminEarlyPassController::class, 'toggleStatus'])->name('early-access.toggle-status');
+
+        // Subscription Plans
+        Route::resource('subscription-plans', SubscriptionPlanController::class)->only(['index', 'update']);
     });
 });
