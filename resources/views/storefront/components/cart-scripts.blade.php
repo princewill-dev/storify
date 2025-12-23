@@ -151,9 +151,9 @@
                         imageHtml = `<img src="/storage/${item.image}" alt="${item.name}">`;
                     } else {
                         @php
-                            $assetBaseUrl = "https://storify.ng";
+                            $assetBaseUrl = "";
                         @endphp
-                        imageHtml = `<img src="{{ $assetBaseUrl }}/storefront/assets/img/product/product-1.jpg" alt="${item.name}">`;
+                        imageHtml = `<img src="{{ asset('storefront/assets/img/product/product-1.jpg') }}" alt="${item.name}">`;
                     }
 
                     const html = `

@@ -46,7 +46,7 @@
 
                         <li>
                            <a href="javascript:void(0);" class="cart-toggle-btn">
-                           <i class="far fa-shopping-cart"></i>
+                           <i class="far fa-shopping-cart">Cart</i>
                            <span>0</span>
                            </a>
                         </li>
@@ -56,12 +56,6 @@
             </div>
             <div class="col-xxl-3 col-xl-3 col-lg-2 col-md-8 col-6">
                <div class="header__action d-flex align-items-center justify-content-end">
-                  <!-- <div class="header__login header__login-2 d-none d-sm-block">
-                     <a href="sign-in.html"><i class="far fa-unlock"></i> Log In</a>
-                  </div>
-                  <div class="header__btn d-none d-xl-block">
-                     <a href="contact.html" class="m-btn m-btn-2">get started</a>
-                  </div> -->
                   <div class="sidebar__menu d-lg-none">
                      <div class="sidebar-toggle-btn" id="sidebar-toggle">
                            <span class="line"></span>
