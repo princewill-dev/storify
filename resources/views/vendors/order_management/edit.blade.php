@@ -8,7 +8,7 @@
         <div class="col-12">
             <div class="d-flex justify-content-between align-items-center">
                 <h1 class="h3 mb-0">Edit Order #{{ $order->order_number }}</h1>
-                <a href="{{ route('admin.orders.show', $order) }}" class="btn btn-secondary">
+                <a href="{{ route('vendor.orders.show', ['vendor' => $vendor, 'order' => $order, 'store_id' => request('store_id')]) }}" class="btn btn-secondary">
                     <i class="fa fa-arrow-left"></i> Back to Order
                 </a>
             </div>
@@ -26,7 +26,7 @@
     </div>
     @endif
 
-    <form action="{{ route('admin.orders.update', $order) }}" method="POST">
+    <form action="{{ route('vendor.orders.update', ['vendor' => $vendor, 'order' => $order]) }}" method="POST">
         @csrf
         @method('PUT')
 
@@ -174,7 +174,7 @@
                         <button type="submit" class="btn btn-primary w-100 mb-2">
                             <i class="fa fa-save"></i> Save Changes
                         </button>
-                        <a href="{{ route('admin.orders.show', $order) }}" class="btn btn-secondary w-100">
+                        <a href="{{ route('vendor.orders.show', ['vendor' => $vendor, 'order' => $order, 'store_id' => request('store_id')]) }}" class="btn btn-secondary w-100">
                             Cancel
                         </a>
                     </div>

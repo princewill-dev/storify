@@ -5,7 +5,7 @@
 <div class="container-fluid">
   <div class="d-flex justify-content-between align-items-center mb-3">
     <h4 class="mb-0">Create product</h4>
-    <a href="{{ route('vendor.products.index', ['vendor' => $vendor]) }}" class="btn btn-light">Back</a>
+    <a href="{{ route('vendor.products.index', ['vendor' => $vendor, 'store_id' => request('store_id')]) }}" class="btn btn-light">Back</a>
   </div>
 
   <div class="card">

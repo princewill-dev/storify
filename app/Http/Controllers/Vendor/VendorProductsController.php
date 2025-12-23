@@ -50,10 +50,28 @@ class VendorProductsController extends Controller
         $to = $request->query('to');
 
         $storeIds = $this->vendorStoreIds($vendor);
+        $selectedPublicStoreId = $request->query('store_id');
+        $selectedStoreId = null;
+        $selectedStore = null;
+
+        if ($selectedPublicStoreId) {
+            $selectedStore = $vendor->stores()
+                ->where('store_id', $selectedPublicStoreId)
+                ->first();
+            
+            if ($selectedStore) {
+                $selectedStoreId = $selectedStore->id;
+            }
+        }
 
         $query = Product::query()
-            ->whereIn('store_id', $storeIds)
-            ->with(['category', 'store', 'images'])
+            ->whereIn('store_id', $storeIds);
+
+        if ($selectedStoreId) {
+            $query->where('store_id', $selectedStoreId);
+        }
+
+        $query->with(['category', 'store', 'images'])
             ->withMin('variants', 'amount')
             ->withMax('variants', 'amount')
             ->addSelect([
@@ -171,12 +189,19 @@ class VendorProductsController extends Controller
         $currencies = Currency::orderBy('name')->get();
         $defaultCurrencyId = Currency::where('is_default', true)->value('id');
 
-        $storeIds = $this->vendorStoreIds($vendor);
+        $selectedStoreIdString = $request->query('store_id');
+        $selectedStoreId = null;
+        if ($selectedStoreIdString) {
+            $selectedStoreId = $vendor->stores()
+                ->where('store_id', $selectedStoreIdString)
+                ->value('id');
+        }
 
+        $storeIds = $this->vendorStoreIds($vendor);
 
         $categories = Category::whereIn('store_id', $storeIds)->orderBy('name')->get();
 
-        return view('vendors.products.create', compact('vendor', 'stores', 'categories', 'sizeUnits', 'weightUnits', 'currencies', 'defaultCurrencyId'));
+        return view('vendors.products.create', compact('vendor', 'stores', 'categories', 'sizeUnits', 'weightUnits', 'currencies', 'defaultCurrencyId', 'selectedStoreId'));
     }
 
     public function store(ProductRequest $request, Vendor $routeVendor): RedirectResponse
@@ -261,7 +286,7 @@ class VendorProductsController extends Controller
                 ],
             ]);
 
-            return redirect()->route('vendor.products.index', ['vendor' => $vendor])->with('success', 'Product created successfully.');
+            return redirect()->route('vendor.products.index', ['vendor' => $vendor, 'store_id' => $store->store_id])->with('success', 'Product created successfully.');
         } catch (QueryException $e) {
             Log::error('vendor.product.create_failed', ['error' => $e->getMessage()]);
             return back()->withInput()->with('error', 'Unable to create product. Please try again.');
@@ -405,7 +430,7 @@ class VendorProductsController extends Controller
                 'metadata' => ['product_id' => $product->id, 'has_variants' => (bool)$product->has_variants],
             ]);
 
-            return redirect()->route('vendor.products.index', ['vendor' => $vendor])->with('success', 'Product updated.');
+            return redirect()->route('vendor.products.index', ['vendor' => $vendor, 'store_id' => $product->store->store_id])->with('success', 'Product updated.');
         } catch (\Throwable $e) {
             Log::error('vendor.product.update_failed', ['error' => $e->getMessage(), 'product_id' => $product->id]);
             return back()->with('error', 'Unable to update product.')->withInput();
@@ -450,7 +475,7 @@ class VendorProductsController extends Controller
         $data = $request->validate(['status' => 'required|in:active,inactive']);
         $product->update(['status' => $data['status']]);
         $message = $data['status'] === 'active' ? 'Product activated' : 'Product deactivated';
-        return redirect()->route('vendor.products.index', ['vendor' => $vendor])->with('success', $message);
+        return redirect()->route('vendor.products.index', ['vendor' => $vendor, 'store_id' => $product->store->store_id])->with('success', $message);
     }
 
     public function destroy(Request $request, Vendor $routeVendor, Product $product): RedirectResponse
@@ -464,7 +489,7 @@ class VendorProductsController extends Controller
             try { Storage::disk('public')->delete($img->path); } catch (\Throwable $e) {}
         }
         $product->delete();
-        return redirect()->route('vendor.products.index', ['vendor' => $vendor])->with('success', 'Product deleted.');
+        return redirect()->route('vendor.products.index', ['vendor' => $vendor, 'store_id' => $product->store->store_id])->with('success', 'Product deleted.');
     }
 
     private function ownsProduct(Product $product, Vendor $vendor): bool

@@ -14,9 +14,12 @@ use App\Http\Requests\Vendor\Store\CreateStoreRequest;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\View\View;
+use App\Mail\VendorStoreSuspended;
+use App\Mail\VendorStoreReactivated;
 
 class StoreController extends Controller
 {
@@ -344,5 +347,75 @@ class StoreController extends Controller
         return $redirectTarget
             ? redirect($redirectTarget)->with('success', 'Store updated successfully.')
             : redirect()->route('vendor.stores.show', $store)->with('success', 'Store updated successfully.');
+    }
+
+    public function suspend(Request $request, Store $store): RedirectResponse
+    {
+        /** @var Vendor $vendor */
+        $vendor = $request->user('vendor');
+
+        if ((int) $store->vendor_id !== (int) $vendor->id) {
+            return back()->with('error', 'Unauthorized action.');
+        }
+
+        $request->validate([
+            'reason' => 'required|string|max:2000',
+        ]);
+
+        Log::info('vendor.store.suspend_requested', [
+            'vendor_id' => $vendor->id,
+            'store_id' => $store->id,
+            'reason' => $request->reason
+        ]);
+
+        $store->update(['status' => 'suspended']);
+
+        try {
+            if ($vendor->email) {
+                Mail::to($vendor->email)->queue(new VendorStoreSuspended($store, $request->reason));
+            }
+        } catch (\Throwable $e) {
+            Log::error('vendor.store.suspended_mail_failed', [
+                'store_id' => $store->id,
+                'error' => $e->getMessage()
+            ]);
+        }
+
+        return back()->with('success', 'Store suspended successfully.');
+    }
+
+    public function activate(Request $request, Store $store): RedirectResponse
+    {
+        /** @var Vendor $vendor */
+        $vendor = $request->user('vendor');
+
+        if ((int) $store->vendor_id !== (int) $vendor->id) {
+            return back()->with('error', 'Unauthorized action.');
+        }
+
+        $request->validate([
+            'reason' => 'required|string|max:2000',
+        ]);
+
+        Log::info('vendor.store.activate_requested', [
+            'vendor_id' => $vendor->id,
+            'store_id' => $store->id,
+            'reason' => $request->reason
+        ]);
+
+        $store->update(['status' => 'active']);
+
+        try {
+            if ($vendor->email) {
+                Mail::to($vendor->email)->queue(new VendorStoreReactivated($store, $request->reason));
+            }
+        } catch (\Throwable $e) {
+            Log::error('vendor.store.activated_mail_failed', [
+                'store_id' => $store->id,
+                'error' => $e->getMessage()
+            ]);
+        }
+
+        return back()->with('success', 'Store activated successfully.');
     }
 }

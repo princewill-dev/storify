@@ -12,7 +12,48 @@
                 <div class="card-header pb-0 border-0 align-items-start pt-4">
                     <h4 class="card-title">Revenue</h4>
                     <div class="clearfix">
-                        <span class="badge badge-light">All Time</span>
+                        <div class="ms-3 dropdown">
+                            @php
+                                $vendor = auth('vendor')->user();
+                                $activeStore = $vendor->stores->find(session('active_store_id')) ?? $vendor->stores->first();
+                            @endphp
+                            <button class="btn btn-light btn-sm dropdown-toggle fw-bold py-1 px-3 rounded-pill shadow-sm" type="button" data-bs-toggle="dropdown" aria-expanded="false" style="font-size: 0.85rem; border: 1px solid #e0e0e0;">
+                                <i class="fi fi-rr-shop me-2 text-primary"></i>
+                                {{ $activeStore->name ?? 'Select Store' }}
+                            </button>
+                            <ul class="dropdown-menu dropdown-menu-end shadow-lg border-0 mt-2" style="border-radius: 12px; min-width: 220px;">
+                                <li class="dropdown-header text-uppercase fs-xs fw-black px-3 mt-1" style="color: #1a1a1a; letter-spacing: 0.5px;">My Stores</li>
+                                @foreach($vendor->stores as $store)
+                                <li>
+                                    <a class="dropdown-item d-flex align-items-center py-2 px-3 {{ session('active_store_id') == $store->id ? 'bg-primary-light' : '' }}" href="javascript:void(0)" onclick="event.preventDefault(); document.getElementById('switch-store-{{ $store->id }}').submit();">
+                                        <div class="avatar avatar-xs bg-light rounded-circle me-3 d-flex align-items-center justify-content-center" style="width: 28px; height: 28px; border: 1px solid #eee;">
+                                            <i class="fi fi-rr-shop fs-xs text-dark"></i>
+                                        </div>
+                                        <span class="fw-bold text-dark fs-base">{{ $store->name }}</span>
+                                        @if(session('active_store_id') == $store->id)
+                                            <i class="fi fi-rr-check-circle ms-auto text-primary fs-sm"></i>
+                                        @endif
+                                    </a>
+                                    <form id="switch-store-{{ $store->id }}" action="{{ route('vendor.stores.switch') }}" method="POST" style="display: none;">
+                                        @csrf
+                                        <input type="hidden" name="store_id" value="{{ $store->id }}">
+                                    </form>
+                                </li>
+                                @endforeach
+                                
+                                @if($vendor->canCreateMoreStores())
+                                <li><hr class="dropdown-divider mx-2"></li>
+                                <li>
+                                    <a class="dropdown-item d-flex align-items-center py-2 px-3" href="{{ route('vendor.stores.create', ['vendor' => $vendor]) }}">
+                                        <div class="avatar avatar-xs bg-primary-light text-primary rounded-circle me-3 d-flex align-items-center justify-content-center" style="width: 28px; height: 28px;">
+                                            <i class="fi fi-rr-plus fs-xs"></i>
+                                        </div>
+                                        <span class="fw-bold text-primary fs-base">Add New Store</span>
+                                    </a>
+                                </li>
+                                @endif
+                            </ul>
+                        </div>
                     </div>
                 </div>
                 <div class="card-body pt-1">

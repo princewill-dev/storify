@@ -5,7 +5,7 @@
 <div class="container-fluid">
   <div class="d-flex justify-content-between align-items-center mb-3">
     <h4 class="mb-0">Create category</h4>
-    <a href="{{ route('vendor.categories.index', ['vendor' => $vendor]) }}" class="btn btn-light">Back</a>
+    <a href="{{ route('vendor.categories.index', ['vendor' => $vendor, 'store_id' => request('store_id')]) }}" class="btn btn-light">Back</a>
   </div>
 
   <div class="card">
@@ -18,7 +18,7 @@
             <select name="store_id" class="form-select" required>
               <option value="">Select store</option>
               @foreach($stores as $s)
-                <option value="{{ $s->id }}" @selected(old('store_id')==$s->id)>{{ $s->name }}</option>
+                <option value="{{ $s->id }}" @selected(old('store_id', $selectedStoreId ?? null)==$s->id)>{{ $s->name }}</option>
               @endforeach
             </select>
           </div>

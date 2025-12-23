@@ -44,10 +44,27 @@ class VendorServicesController extends Controller
         $q = trim((string)$request->query('q', ''));
 
         $storeIds = $this->vendorStoreIds($vendor);
+        $selectedPublicStoreId = $request->query('store_id');
+        $selectedStoreId = null;
+        $selectedStore = null;
+
+        if ($selectedPublicStoreId) {
+            $selectedStore = $vendor->stores()
+                ->where('store_id', $selectedPublicStoreId)
+                ->first();
+            
+            if ($selectedStore) {
+                $selectedStoreId = $selectedStore->id;
+            }
+        }
 
         $query = Service::query()
             ->whereIn('store_id', $storeIds)
             ->with(['store', 'images', 'currency']);
+
+        if ($selectedStoreId) {
+            $query->where('store_id', $selectedStoreId);
+        }
 
         if (in_array($status, ['active', 'inactive'], true)) {
             $query->where('status', $status);
@@ -91,7 +108,16 @@ class VendorServicesController extends Controller
         $currencies = Currency::orderBy('name')->get();
         $defaultCurrencyId = Currency::where('is_default', true)->value('id');
 
-        return view('vendors.services.create', compact('vendor', 'stores', 'currencies', 'defaultCurrencyId'));
+        $selectedPublicStoreId = $request->query('store_id');
+        $selectedStoreId = null;
+
+        if ($selectedPublicStoreId) {
+            $selectedStoreId = $vendor->stores()
+                ->where('store_id', $selectedPublicStoreId)
+                ->value('id');
+        }
+
+        return view('vendors.services.create', compact('vendor', 'stores', 'currencies', 'defaultCurrencyId', 'selectedStoreId'));
     }
 
     public function store(Request $request, Vendor $routeVendor): RedirectResponse
@@ -149,7 +175,7 @@ class VendorServicesController extends Controller
                 ],
             ]);
 
-            return redirect()->route('vendor.services.index', ['vendor' => $vendor])->with('success', 'Service created successfully.');
+            return redirect()->route('vendor.services.index', ['vendor' => $vendor, 'store_id' => $store->store_id])->with('success', 'Service created successfully.');
         } catch (QueryException $e) {
             Log::error('vendor.service.create_failed', ['error' => $e->getMessage()]);
             return back()->withInput()->with('error', 'Unable to create service. Please try again.');
@@ -166,9 +192,10 @@ class VendorServicesController extends Controller
         $stores = $vendor->stores()->orderBy('name')->get();
         $currencies = Currency::orderBy('name')->get();
         $defaultCurrencyId = Currency::where('is_default', true)->value('id');
-        $service->load('images');
+        $service->load('images', 'store'); // Eager load 'store' relationship
+        $store = $service->store; // Resolve the store object
 
-        return view('vendors.services.edit', compact('vendor', 'service', 'stores', 'currencies', 'defaultCurrencyId'));
+        return view('vendors.services.edit', compact('vendor', 'service', 'stores', 'currencies', 'defaultCurrencyId', 'store'));
     }
 
     public function update(Request $request, Vendor $routeVendor, Service $service): RedirectResponse
@@ -224,7 +251,7 @@ class VendorServicesController extends Controller
                 ]);
             });
 
-            return redirect()->route('vendor.services.index', ['vendor' => $vendor])->with('success', 'Service updated.');
+            return redirect()->route('vendor.services.index', ['vendor' => $vendor, 'store_id' => $service->store->store_id])->with('success', 'Service updated.');
         } catch (\Throwable $e) {
             Log::error('vendor.service.update_failed', ['error' => $e->getMessage()]);
             return back()->with('error', 'Unable to update service.')->withInput();

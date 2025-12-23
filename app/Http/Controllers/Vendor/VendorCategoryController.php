@@ -37,10 +37,28 @@ class VendorCategoryController extends Controller
         }
 
         $storeIds = $this->vendorStoreIds($vendor);
+        $selectedPublicStoreId = $request->query('store_id');
+        $selectedStoreId = null;
+        $selectedStore = null;
 
-        $categories = Category::with('store')
-            ->whereIn('store_id', $storeIds)
-            ->orderBy('name')
+        if ($selectedPublicStoreId) {
+            $selectedStore = $vendor->stores()
+                ->where('store_id', $selectedPublicStoreId)
+                ->first();
+            
+            if ($selectedStore) {
+                $selectedStoreId = $selectedStore->id;
+            }
+        }
+
+        $query = Category::with('store')
+            ->whereIn('store_id', $storeIds);
+
+        if ($selectedStoreId) {
+            $query->where('store_id', $selectedStoreId);
+        }
+
+        $categories = $query->orderBy('name')
             ->paginate(20)
             ->withQueryString();
 
@@ -48,6 +66,7 @@ class VendorCategoryController extends Controller
             'vendor' => $vendor,
             'categories' => $categories,
             'stores' => $vendor->stores()->orderBy('name')->get(),
+            'selectedStore' => $selectedStore,
         ]);
     }
 
@@ -59,10 +78,19 @@ class VendorCategoryController extends Controller
         }
 
         $stores = $vendor->stores()->orderBy('name')->get();
+        $selectedPublicStoreId = $request->query('store_id');
+        $selectedStoreId = null;
+
+        if ($selectedPublicStoreId) {
+            $selectedStoreId = $vendor->stores()
+                ->where('store_id', $selectedPublicStoreId)
+                ->value('id');
+        }
 
         return view('vendors.categories.create', [
             'vendor' => $vendor,
             'stores' => $stores,
+            'selectedStoreId' => $selectedStoreId,
         ]);
     }
 
@@ -90,6 +118,7 @@ class VendorCategoryController extends Controller
             return back()->with('error', 'Invalid store selection.')->withInput();
         }
 
+        $store = Store::find($data['store_id']);
         $data['slug'] = Str::slug($data['name']) . '-' . substr((string)Str::uuid(), 0, 6);
 
         $category = Category::create($data);
@@ -109,7 +138,7 @@ class VendorCategoryController extends Controller
             ], 201);
         }
 
-        return redirect()->route('vendor.categories.index', ['vendor' => $vendor])->with('success', 'Category created.');
+        return redirect()->route('vendor.categories.index', ['vendor' => $vendor, 'store_id' => $store->store_id])->with('success', 'Category created.');
     }
 
     public function edit(Request $request, Vendor $routeVendor, Category $category): View|RedirectResponse
@@ -154,7 +183,7 @@ class VendorCategoryController extends Controller
 
         Log::info('vendor.category.updated', ['vendor_id' => $vendor->id, 'category_id' => $category->id]);
 
-        return redirect()->route('vendor.categories.index', ['vendor' => $vendor])->with('success', 'Category updated.');
+        return redirect()->route('vendor.categories.index', ['vendor' => $vendor, 'store_id' => $category->store->store_id])->with('success', 'Category updated.');
     }
 
     public function destroy(Request $request, Vendor $routeVendor, Category $category): RedirectResponse

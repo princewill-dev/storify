@@ -4,38 +4,78 @@
 @section('content')
 <div class="container-fluid">
   <div class="d-flex justify-content-between align-items-center mb-3">
-    <h4 class="mb-0">Store: {{ $store->name }}</h4>
-    <div class="d-flex gap-2">
-      <button type="button" class="btn btn-primary btn-sm"
-              data-bs-toggle="modal" data-bs-target="#editStoreModal"
-              data-action="{{ route('admin.stores.update', $store) }}"
-              data-vendor-id="{{ $store->vendor_id }}"
-              data-name="{{ $store->name }}"
-              data-slug="{{ $store->slug }}"
-              data-description="{{ $store->description }}"
-              data-support-email="{{ $store->support_email }}"
-              data-support-phone="{{ $store->support_phone }}"
-              data-address="{{ $store->address }}"
-              data-instagram-url="{{ $store->instagram_url }}"
-              data-facebook-url="{{ $store->facebook_url }}"
-              data-twitter-url="{{ $store->twitter_url }}"
-              data-tiktok-url="{{ $store->tiktok_url }}"
-              data-ownership-type-id="{{ $store->ownership_type_id }}"
-              data-business-type-id="{{ $store->business_type_id }}"
-              data-status="{{ $store->status }}"
-              data-logo-url="{{ $store->logo_path ? asset('storage/'.$store->logo_path) : '' }}">
-        Edit Store
+    <h6 class="mb-0">Store: {{ $store->name }}</h6>
+    <div class="dropdown">
+      <button class="btn btn-primary btn-sm dropdown-toggle fw-bold px-3 rounded-pill shadow-sm" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+        <i class="fi fi-rr-settings me-1"></i> Actions
       </button>
-      @if(strtolower($store->status) === 'suspended')
-        <button type="button" class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#activateStoreModal" data-action="{{ route('admin.stores.activate', $store) }}" data-store-name="{{ $store->name }}">Activate</button>
-      @else
-        <button type="button" class="btn btn-warning btn-sm" data-bs-toggle="modal" data-bs-target="#suspendStoreModal" data-action="{{ route('admin.stores.suspend', $store) }}" data-store-name="{{ $store->name }}">Suspend</button>
-      @endif
-      <a href="{{ route('admin.stores.product.create', $store) }}" class="btn btn-outline-secondary btn-sm">Add Product</a>
-      <a href="{{ route('admin.stores.categories.create', $store) }}" class="btn btn-outline-secondary btn-sm">Add Category</a>
-      <a href="{{ route('admin.stores.products.index', $store) }}" class="btn btn-outline-secondary btn-sm">Manage Products</a>
-      <a href="{{ route('admin.stores.categories.index', $store) }}" class="btn btn-outline-secondary btn-sm">Manage Categories</a>
-      <a href="{{ route('admin.storefront-slides.index', $store) }}" class="btn btn-outline-primary btn-sm">Edit slides</a>
+      <ul class="dropdown-menu dropdown-menu-end shadow-lg border-0 mt-2" style="border-radius: 12px; min-width: 200px;">
+        <li><h6 class="dropdown-header text-uppercase fs-xs fw-black px-3" style="color: #666; letter-spacing: 0.5px;">Store Management</h6></li>
+        <li>
+          <a class="dropdown-item d-flex align-items-center py-2 px-3" href="javascript:void(0)" 
+             data-bs-toggle="modal" data-bs-target="#editStoreModal"
+             data-action="{{ route('vendor.stores.update', $store) }}"
+             data-vendor-id="{{ $store->vendor_id }}"
+             data-name="{{ $store->name }}"
+             data-slug="{{ $store->slug }}"
+             data-description="{{ $store->description }}"
+             data-support-email="{{ $store->support_email }}"
+             data-support-phone="{{ $store->support_phone }}"
+             data-address="{{ $store->address }}"
+             data-instagram-url="{{ $store->instagram_url }}"
+             data-facebook-url="{{ $store->facebook_url }}"
+             data-twitter-url="{{ $store->twitter_url }}"
+             data-tiktok-url="{{ $store->tiktok_url }}"
+             data-ownership-type-id="{{ $store->ownership_type_id }}"
+             data-business-type-id="{{ $store->business_type_id }}"
+             data-status="{{ $store->status }}"
+             data-logo-url="{{ $store->logo_path ? asset('storage/'.$store->logo_path) : '' }}">
+            <i class="fi fi-rr-edit me-2 text-primary"></i> <span>Edit Store</span>
+          </a>
+        </li>
+        @if(strtolower($store->status) === 'suspended')
+          <li>
+            <a class="dropdown-item d-flex align-items-center py-2 px-3 text-success" href="javascript:void(0)" 
+               data-bs-toggle="modal" data-bs-target="#activateStoreModal" 
+               data-action="{{ route('vendor.stores.activate', $store) }}" 
+               data-store-name="{{ $store->name }}">
+              <i class="fi fi-rr-play me-2"></i> <span>Activate Store</span>
+            </a>
+          </li>
+        @else
+          <li>
+            <a class="dropdown-item d-flex align-items-center py-2 px-3 text-warning" href="javascript:void(0)" 
+               data-bs-toggle="modal" data-bs-target="#suspendStoreModal" 
+               data-action="{{ route('vendor.stores.suspend', $store) }}" 
+               data-store-name="{{ $store->name }}">
+              <i class="fi fi-rr-pause me-2"></i> <span>Suspend Store</span>
+            </a>
+          </li>
+        @endif
+        
+        <li><hr class="dropdown-divider mx-2"></li>
+        <li><h6 class="dropdown-header text-uppercase fs-xs fw-black px-3" style="color: #666; letter-spacing: 0.5px;">Quick Links</h6></li>
+        <li>
+          <a class="dropdown-item d-flex align-items-center py-2 px-3" href="{{ route('vendor.products.create', ['vendor' => $vendor]) }}?store_id={{ $store->store_id }}">
+            <i class="fi fi-rr-plus me-2 text-info"></i> <span>Add Product</span>
+          </a>
+        </li>
+        <li>
+          <a class="dropdown-item d-flex align-items-center py-2 px-3" href="{{ route('vendor.categories.create', ['vendor' => $vendor]) }}?store_id={{ $store->store_id }}">
+            <i class="fi fi-rr-apps-add me-2 text-info"></i> <span>Add Category</span>
+          </a>
+        </li>
+        <li>
+          <a class="dropdown-item d-flex align-items-center py-2 px-3" href="{{ route('vendor.products.index', ['vendor' => $vendor, 'store_id' => $store->store_id]) }}">
+            <i class="fi fi-rr-boxes me-2 text-secondary"></i> <span>Manage Products</span>
+          </a>
+        </li>
+        <li>
+          <a class="dropdown-item d-flex align-items-center py-2 px-3" href="{{ route('vendor.categories.index', ['vendor' => $vendor, 'store_id' => $store->store_id]) }}">
+            <i class="fi fi-rr-list me-2 text-secondary"></i> <span>Manage Categories</span>
+          </a>
+        </li>
+      </ul>
     </div>
   </div>
 
@@ -166,12 +206,12 @@
               @foreach($recentProducts as $p)
                 <li class="d-flex justify-content-between align-items-center py-1 border-bottom small">
                   <span>{{ $p->name }}</span>
-                  <a href="{{ route('admin.products.edit', $p) }}" class="btn btn-xs btn-outline-primary">Edit</a>
+                  <a href="{{ route('vendor.products.edit', ['vendor' => $vendor, 'product' => $p]) }}" class="btn btn-xs btn-outline-primary">Edit</a>
                 </li>
               @endforeach
             </ul>
           @endif
-          <div class="mt-2"><a href="{{ route('admin.stores.products.index', $store) }}" class="small">View all products</a></div>
+          <div class="mt-2"><a href="{{ route('vendor.products.index', ['vendor' => $vendor, 'store_id' => $store->store_id]) }}" class="small">View all products</a></div>
         </div>
       </div>
     </div>
@@ -189,7 +229,7 @@
               @endforeach
             </ul>
           @endif
-          <div class="mt-2"><a href="{{ route('admin.stores.categories.index', $store) }}" class="small">Manage categories</a></div>
+          <div class="mt-2"><a href="{{ route('vendor.categories.index', ['vendor' => $vendor, 'store_id' => $store->store_id]) }}" class="small">Manage categories</a></div>
         </div>
       </div>
     </div>
@@ -221,19 +261,15 @@
         <h5 class="modal-title" id="editStoreLabel">Edit Store</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
-      <form id="editStoreForm" action="{{ route('admin.stores.update', $store) }}" method="POST" enctype="multipart/form-data">
+      <form id="editStoreForm" action="{{ route('vendor.stores.update', $store) }}" method="POST" enctype="multipart/form-data">
         @csrf
         @method('PUT')
-        <input type="hidden" name="redirect_to" value="{{ route('admin.stores.show', $store) }}">
+        <input type="hidden" name="redirect_to" value="{{ route('vendor.stores.show', ['vendor' => $vendor, 'store' => $store]) }}">
         <div class="modal-body">
-          <div class="row mb-3 align-items-center">
+          <div class="row mb-3 align-items-center d-none">
             <div class="col-md-3"><label class="form-label mb-md-0">Vendor</label></div>
             <div class="col-md-9">
-              <select name="vendor_id" id="editStoreVendor" class="form-select" required>
-                @foreach(($vendors ?? []) as $v)
-                  <option value="{{ $v->id }}" {{ (int)($store->vendor_id) === (int)($v->id) ? 'selected' : '' }}>{{ $v->name }}</option>
-                @endforeach
-              </select>
+              <input type="hidden" name="vendor_id" id="editStoreVendor" value="{{ $vendor->id }}">
             </div>
           </div>
           <div class="row mb-3 align-items-center">
@@ -315,12 +351,13 @@
           <div class="row mb-3 align-items-center">
             <div class="col-md-3"><label class="form-label mb-md-0">Status</label></div>
             <div class="col-md-9">
-              <select name="status" id="editStoreStatus" class="form-select">
+              <select name="status" id="editStoreStatus" class="form-select" disabled>
                 <option value="active" {{ $store->status==='active' ? 'selected' : '' }}>active</option>
                 <option value="inactive" {{ $store->status==='inactive' ? 'selected' : '' }}>inactive</option>
                 <option value="suspended" {{ $store->status==='suspended' ? 'selected' : '' }}>suspended</option>
                 <option value="deleted" {{ $store->status==='deleted' ? 'selected' : '' }}>deleted</option>
               </select>
+              <small class="text-muted">Status can only be changed via the Actions menu.</small>
             </div>
           </div>
         </div>

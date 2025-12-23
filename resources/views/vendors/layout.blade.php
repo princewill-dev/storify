@@ -72,48 +72,6 @@
 						</li>
 						<li class="breadcrumb-item active d-flex align-items-center" aria-current="page">
 							@yield('subtitle')
-							<div class="ms-3 dropdown">
-								@php
-									$vendor = auth('vendor')->user();
-									$activeStore = $vendor->stores->find(session('active_store_id')) ?? $vendor->stores->first();
-								@endphp
-								<button class="btn btn-light btn-sm dropdown-toggle fw-bold py-1 px-3 rounded-pill shadow-sm" type="button" data-bs-toggle="dropdown" aria-expanded="false" style="font-size: 0.85rem; border: 1px solid #e0e0e0;">
-									<i class="fi fi-rr-shop me-2 text-primary"></i>
-									{{ $activeStore->name ?? 'Select Store' }}
-								</button>
-								<ul class="dropdown-menu dropdown-menu-end shadow-lg border-0 mt-2" style="border-radius: 12px; min-width: 200px;">
-									<li class="dropdown-header text-uppercase fs-xs fw-bold text-muted px-3 mt-1">My Stores</li>
-									@foreach($vendor->stores as $store)
-									<li>
-										<a class="dropdown-item d-flex align-items-center py-2 px-3 {{ session('active_store_id') == $store->id ? 'bg-primary-light text-primary' : '' }}" href="javascript:void(0)" onclick="event.preventDefault(); document.getElementById('switch-store-{{ $store->id }}').submit();">
-											<div class="avatar avatar-xs bg-light text-muted rounded-circle me-2 d-flex align-items-center justify-content-center" style="width: 24px; height: 24px;">
-												<i class="fi fi-rr-shop fs-xs"></i>
-											</div>
-											<span class="fw-medium">{{ $store->name }}</span>
-											@if(session('active_store_id') == $store->id)
-												<i class="fi fi-rr-check-circle ms-auto fs-sm"></i>
-											@endif
-										</a>
-										<form id="switch-store-{{ $store->id }}" action="{{ route('vendor.stores.switch') }}" method="POST" style="display: none;">
-											@csrf
-											<input type="hidden" name="store_id" value="{{ $store->id }}">
-										</form>
-									</li>
-									@endforeach
-									
-									@if($vendor->canCreateMoreStores())
-									<li><hr class="dropdown-divider mx-2"></li>
-									<li>
-										<a class="dropdown-item d-flex align-items-center py-2 px-3 text-primary" href="{{ route('vendor.stores.create', ['vendor' => $vendor]) }}">
-											<div class="avatar avatar-xs bg-primary-light text-primary rounded-circle me-2 d-flex align-items-center justify-content-center" style="width: 24px; height: 24px;">
-												<i class="fi fi-rr-plus fs-xs"></i>
-											</div>
-											<span class="fw-bold">Add New Store</span>
-										</a>
-									</li>
-									@endif
-								</ul>
-							</div>
 						</li>
 					</ol>
 				</nav>

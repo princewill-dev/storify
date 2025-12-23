@@ -61,6 +61,18 @@ class VendorOrderController extends Controller
             });
         }
 
+        $selectedPublicStoreId = $request->query('store_id');
+        $selectedStore = null;
+        if ($selectedPublicStoreId) {
+            $selectedStore = $vendor->stores()
+                ->where('store_id', $selectedPublicStoreId)
+                ->first();
+            
+            if ($selectedStore) {
+                $query->where('store_id', $selectedStore->id);
+            }
+        }
+
         $orders = $query->latest()->paginate(20)->withQueryString();
 
         $stats = [
@@ -77,7 +89,7 @@ class VendorOrderController extends Controller
 
         $stores = $vendor->stores()->orderBy('name')->get();
 
-        return view('vendors.order_management.index', compact('orders', 'stats', 'vendor', 'stores'));
+        return view('vendors.order_management.index', compact('orders', 'stats', 'vendor', 'stores', 'selectedStore'));
     }
 
     public function show(Request $request, Vendor $routeVendor, Order $order): View|RedirectResponse

@@ -19,10 +19,10 @@
                     <p class="text-muted mb-0">Created {{ $order->created_at->format('F d, Y \a\t H:i') }}</p>
                 </div>
                 <div>
-                    <a href="{{ route('admin.orders.index') }}" class="btn btn-secondary">
+                    <a href="{{ route('vendor.orders.index', ['vendor' => $vendor, 'store_id' => request('store_id')]) }}" class="btn btn-secondary">
                         <i class="fa fa-arrow-left"></i> Back to Orders
                     </a>
-                    <a href="{{ route('admin.orders.edit', $order) }}" class="btn btn-primary">
+                    <a href="{{ route('vendor.orders.edit', ['vendor' => $vendor, 'order' => $order, 'store_id' => request('store_id')]) }}" class="btn btn-primary">
                         <i class="fa fa-edit"></i> Edit Order
                     </a>
                 </div>

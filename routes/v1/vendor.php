@@ -64,6 +64,8 @@ Route::prefix('vendor')->name('vendor.')->group(function () {
             Route::get('/{vendor}/stores/{store}/finalize', [VendorStoreController::class, 'success'])->name('stores.success');
             Route::get('/{vendor}/stores/{store}', [VendorStoreController::class, 'show'])->name('stores.show');
             Route::put('/stores/{store}', [VendorStoreController::class, 'update'])->name('stores.update');
+            Route::post('/stores/{store}/suspend', [VendorStoreController::class, 'suspend'])->name('stores.suspend');
+            Route::post('/stores/{store}/activate', [VendorStoreController::class, 'activate'])->name('stores.activate');
             Route::get('/{vendor}/products', [VendorProductsController::class, 'index'])->name('products.index');
             Route::get('/{vendor}/products/create', [VendorProductsController::class, 'create'])->name('products.create');
             Route::post('/{vendor}/products', [VendorProductsController::class, 'store'])->name('products.store');

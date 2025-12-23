@@ -6,8 +6,8 @@
   <div class="d-flex justify-content-between align-items-center mb-3">
     <h4 class="mb-0">Product: {{ $product->name }}</h4>
     <div class="d-flex gap-2">
-      <a href="{{ route('vendor.products.edit', ['vendor' => $vendor, 'product' => $product]) }}" class="btn btn-primary btn-sm">Edit</a>
-      <a href="{{ $backUrl ?? route('vendor.products.index', ['vendor' => $vendor]) }}" class="btn btn-light btn-sm">Back</a>
+      <a href="{{ route('vendor.products.edit', ['vendor' => $vendor, 'product' => $product, 'store_id' => request('store_id')]) }}" class="btn btn-primary btn-sm">Edit</a>
+      <a href="{{ $backUrl ?? route('vendor.products.index', ['vendor' => $vendor, 'store_id' => request('store_id')]) }}" class="btn btn-light btn-sm">Back</a>
     </div>
   </div>
 

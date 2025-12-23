@@ -7,7 +7,12 @@
     <div class="row mb-4">
         <div class="col-12">
             <div class="d-flex justify-content-between align-items-center">
-                <h1 class="h3 mb-0">Order Management</h1>
+                <h1 class="h3 mb-0">
+                    Order Management
+                    @if(isset($selectedStore))
+                        <span class="text-primary small ms-1" style="font-size: 0.6em;">for {{ $selectedStore->name }}</span>
+                    @endif
+                </h1>
             </div>
         </div>
     </div>

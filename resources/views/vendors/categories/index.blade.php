@@ -4,9 +4,14 @@
 @section('content')
 <div class="container-fluid">
   <div class="d-flex justify-content-between align-items-center mb-3">
-    <h4 class="mb-0">Categories</h4>
+    <h4 class="mb-0">
+      Categories
+      @if(isset($selectedStore))
+        <span class="text-primary small ms-1" style="font-size: 0.7em;">for {{ $selectedStore->name }}</span>
+      @endif
+    </h4>
     <div class="d-flex gap-2">
-      <a href="{{ route('vendor.categories.create', ['vendor' => $vendor]) }}" class="btn btn-primary">New category</a>
+      <a href="{{ route('vendor.categories.create', ['vendor' => $vendor, 'store_id' => request('store_id')]) }}" class="btn btn-primary">New category</a>
       <a href="{{ route('vendor.dashboard') }}" class="btn btn-light">Back</a>
     </div>
   </div>

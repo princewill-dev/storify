@@ -7,11 +7,16 @@
 <div class="container-fluid">
   <div class="d-flex justify-content-between align-items-center mb-3">
     <div class="d-flex align-items-center">
-      <h5 class="mb-0 me-3">Services</h5>
+      <h5 class="mb-0 me-3">
+        Services
+        @if(isset($selectedStore))
+          <span class="text-primary small ms-1">for {{ $selectedStore->name }}</span>
+        @endif
+      </h5>
       <button type="button" class="btn btn-light btn-sm" data-bs-toggle="modal" data-bs-target="#filterServicesModal">Filter</button>
     </div>
     <div class="d-flex gap-2">
-      <a href="{{ route('vendor.services.create', ['vendor' => $vendor]) }}" class="btn btn-primary me-2">New service</a>
+      <a href="{{ route('vendor.services.create', ['vendor' => $vendor, 'store_id' => request('store_id')]) }}" class="btn btn-primary me-2">New service</a>
       <a href="{{ route('vendor.dashboard') }}" class="btn btn-light">Back</a>
     </div>
   </div>
