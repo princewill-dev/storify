@@ -15,6 +15,7 @@
       </div>
 
       <!-- Tab Navigation -->
+      @if($products->isNotEmpty() || $services->isNotEmpty())
       <div class="row mb-40">
         <div class="col-12 d-flex justify-content-center">
             <ul class="nav nav-pills" id="store-tabs" role="tablist">
@@ -30,6 +31,7 @@
             </ul>
         </div>
       </div>
+      @endif
 
       <div class="row" id="main-content-area">
         

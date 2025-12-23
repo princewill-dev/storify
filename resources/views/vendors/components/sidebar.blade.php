@@ -27,6 +27,11 @@
                         <span class="nav-text" data-i18n="My Stores">My Stores</span>
                     </a>
                     <ul aria-expanded="false">
+                        <li>
+                            <a href="{{ route('vendor.stores.index', ['vendor' => $sidebarVendor]) }}" data-i18n="All">
+                                All
+                            </a>
+                        </li>
                         @foreach($sidebarStores as $sS)
                             <li>
                                 <a href="{{ route('vendor.stores.show', ['vendor' => $sidebarVendor, 'store' => $sS->store_id]) }}" data-i18n="{{ $sS->name }}">

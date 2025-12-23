@@ -18,7 +18,7 @@
           @if($canCreate)
             <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#createStoreModal">
               <i class="fi fi-rr-add"></i>
-              <span class="ms-1">Add Store</span>
+              <span class="ms-1">Create new store</span>
             </button>
           @else
             @if(!$vendor->is_verified || !in_array($vendor->kycApplication?->status, ['submitted', 'approved']))
@@ -308,13 +308,15 @@
         @csrf
         <div class="modal-body">
           <div class="row g-3">
-            <div class="col-md-6">
+            <div class="col-md-12">
               <label class="form-label">Store name <span class="text-danger">*</span></label>
-              <input type="text" name="name" class="form-control" required>
-            </div>
-            <div class="col-md-6">
-              <label class="form-label">Slug</label>
-              <input type="text" name="slug" class="form-control" placeholder="Auto-generated if left blank">
+              <input type="text" id="createStoreName" name="name" class="form-control" placeholder="eg: Swift Essentials" required>
+              
+              <!-- Slug availability feedback -->
+              <div id="createStoreSlugFeedback" class="mt-2" style="display: none;">
+                  <small id="createStoreSlugStatus" class="d-flex align-items-center gap-2"></small>
+              </div>
+              <input type="hidden" id="createStoreSlug" name="slug" value="{{ old('slug') }}">
             </div>
             <div class="col-12">
               <label class="form-label">Description</label>
@@ -382,7 +384,7 @@
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
-          <button type="submit" class="btn btn-primary">Create Store</button>
+          <button type="submit" id="createStoreSubmitBtn" class="btn btn-primary" disabled>Create Store</button>
         </div>
       </form>
     </div>
@@ -450,6 +452,134 @@
         logoPreview.src = button.getAttribute('data-logo-url') || '';
       }
     });
+
+    // Slug availability checker for creation
+    const createNameInput = document.getElementById('createStoreName');
+    const createSlugInput = document.getElementById('createStoreSlug');
+    const createSlugFeedback = document.getElementById('createStoreSlugFeedback');
+    const createSlugStatus = document.getElementById('createStoreSlugStatus');
+    const createSubmitBtn = document.getElementById('createStoreSubmitBtn');
+    const checkSlugUrl = '{{ route("vendor.kyc.store.check-slug", ["vendor" => $vendor]) }}';
+    const csrfToken = '{{ csrf_token() }}';
+    
+    let debounceTimer = null;
+    let currentAbortController = null;
+
+    function setCreateSubmitState(enabled) {
+        if (!createSubmitBtn) return;
+        createSubmitBtn.disabled = !enabled;
+    }
+
+    function showCreateFeedback(type, message, suggestedSlug = null) {
+        if (!createSlugFeedback || !createSlugStatus) return;
+        createSlugFeedback.style.display = 'block';
+        
+        let icon = '';
+        let colorClass = '';
+        let extraHtml = '';
+        
+        switch (type) {
+            case 'checking':
+                icon = '<span class="spinner-border spinner-border-sm" role="status"></span>';
+                colorClass = 'text-muted';
+                break;
+            case 'available':
+                icon = '<i class="fi fi-rr-check-circle text-success"></i>';
+                colorClass = 'text-success';
+                break;
+            case 'taken':
+                icon = '<i class="fi fi-rr-cross-circle text-danger"></i>';
+                colorClass = 'text-danger';
+                if (suggestedSlug) {
+                    extraHtml = ` <button type="button" class="btn btn-link btn-sm p-0 ms-1" id="useSuggestedCreate" data-slug="${suggestedSlug}">Use "${suggestedSlug}" instead</button>`;
+                }
+                break;
+            case 'error':
+                icon = '<i class="fi fi-rr-warning text-warning"></i>';
+                colorClass = 'text-warning';
+                break;
+        }
+        
+        createSlugStatus.className = 'd-flex align-items-center gap-2 ' + colorClass;
+        createSlugStatus.innerHTML = icon + ' <span>' + message + '</span>' + extraHtml;
+        
+        const useSuggestedBtn = document.getElementById('useSuggestedCreate');
+        if (useSuggestedBtn) {
+            useSuggestedBtn.addEventListener('click', function() {
+                const suggested = this.getAttribute('data-slug');
+                createSlugInput.value = suggested;
+                setCreateSubmitState(true);
+                showCreateFeedback('available', `Your store link: <strong>${suggested}.{{ config('app.main_domain') }}</strong>`);
+            });
+        }
+    }
+
+    function checkCreateSlug(storeName) {
+        if (currentAbortController) {
+            currentAbortController.abort();
+        }
+        
+        const previewSlug = storeName.trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+        
+        if (previewSlug.length < 2) {
+            createSlugFeedback.style.display = 'none';
+            createSlugInput.value = '';
+            setCreateSubmitState(false);
+            return;
+        }
+        
+        showCreateFeedback('checking', 'Checking store link availability...');
+        
+        currentAbortController = new AbortController();
+        
+        fetch(checkSlugUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': csrfToken,
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify({ slug: storeName }),
+            signal: currentAbortController.signal
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.available) {
+                createSlugInput.value = data.slug;
+                setCreateSubmitState(true);
+                showCreateFeedback('available', `Your store link: <strong>${data.slug}.{{ config('app.main_domain') }}</strong>`);
+            } else {
+                createSlugInput.value = '';
+                setCreateSubmitState(false);
+                showCreateFeedback('taken', data.message, data.suggested);
+            }
+        })
+        .catch(error => {
+            if (error.name === 'AbortError') return;
+            console.error('Slug check error:', error);
+            createSlugInput.value = '';
+            setCreateSubmitState(false);
+            showCreateFeedback('error', 'Unable to check availability. Please try again.');
+        });
+    }
+
+    if (createNameInput) {
+        createNameInput.addEventListener('input', function() {
+            clearTimeout(debounceTimer);
+            const value = this.value.trim();
+            
+            if (value.length < 2) {
+                createSlugFeedback.style.display = 'none';
+                createSlugInput.value = '';
+                setCreateSubmitState(false);
+                return;
+            }
+            
+            debounceTimer = setTimeout(() => {
+                checkCreateSlug(value);
+            }, 500);
+        });
+    }
   });
 </script>
 @endpush

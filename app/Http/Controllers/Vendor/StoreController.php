@@ -10,6 +10,7 @@ use App\Models\Pack;
 use App\Models\Product;
 use App\Models\Store;
 use App\Models\Vendor;
+use App\Models\VendorKycApplication;
 use App\Http\Requests\Vendor\Store\CreateStoreRequest;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -37,10 +38,6 @@ class StoreController extends Controller
                 ->with('warning', 'Please verify your email to continue.');
         }
 
-        if (!in_array($vendor->kyc_status, [Vendor::KYC_STATUS_SUBMITTED, Vendor::KYC_STATUS_APPROVED], true)) {
-            return redirect()->route('vendor.kyc.show', $vendor)
-                ->with('warning', 'Submit your KYC details before creating your store.');
-        }
 
         $ownershipTypes = OwnershipType::orderBy('name')->get(['id', 'name']);
         $businessTypes = BusinessType::orderBy('name')->get(['id', 'name']);
@@ -74,10 +71,6 @@ class StoreController extends Controller
                 ->with('warning', 'Please verify your email to continue.');
         }
 
-        if (!in_array($vendor->kyc_status, [Vendor::KYC_STATUS_SUBMITTED, Vendor::KYC_STATUS_APPROVED], true)) {
-            return redirect()->route('vendor.kyc.show', $vendor)
-                ->with('warning', 'Submit your KYC details before creating your store.');
-        }
 
         $pendingDefaults = session('pending_store_defaults', []);
         $hadStores = $vendor->stores()->exists();
@@ -109,7 +102,7 @@ class StoreController extends Controller
         unset($data['logo']);
 
         $data['vendor_id'] = $vendor->id;
-        $data['status'] = 'inactive';
+        $data['status'] = $vendor->hasActiveSubscription() ? 'active' : 'inactive';
 
         try {
             $store = Store::create($data);

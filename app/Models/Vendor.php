@@ -135,10 +135,6 @@ class Vendor extends Authenticatable implements MustVerifyEmail
             return false;
         }
 
-        $kycStatus = $this->kycApplication?->status;
-        if (!in_array($kycStatus, [VendorKycApplication::STATUS_SUBMITTED, VendorKycApplication::STATUS_APPROVED], true)) {
-            return false;
-        }
 
         $limit = \App\Models\Setting::value('store_creation_limit') ?? 5;
         return $this->stores()->count() < $limit;

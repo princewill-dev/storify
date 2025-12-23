@@ -53,7 +53,7 @@ Route::domain(config('app.main_domain', parse_url(config('app.url'), PHP_URL_HOS
 // Local dev bypass: access stores via path instead of subdomain
 if (config('app.env') === 'local') {
     Route::prefix('{store_subdomain}')
-        ->where(['store_subdomain' => '(?!api|admin|vendor|storage|livewire)[A-Za-z0-9_\-]+'])
+        ->where(['store_subdomain' => '(?!api|admin|vendor|storage|livewire|cart|checkout|products|services|search|support|bulk_buy|international-supply|live-first)[A-Za-z0-9_\-]+'])
         ->group(function () {
             // Store homepage (products listing)
             Route::get('/', [ProductController::class, 'indexByStore'])->name('local.store.products.index');
