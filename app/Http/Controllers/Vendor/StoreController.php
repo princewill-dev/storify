@@ -14,6 +14,7 @@ use App\Models\VendorKycApplication;
 use App\Http\Requests\Vendor\Store\CreateStoreRequest;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
@@ -105,13 +106,28 @@ class StoreController extends Controller
         $data['status'] = $vendor->hasActiveSubscription() ? 'active' : 'inactive';
 
         try {
+            DB::beginTransaction();
             $store = Store::create($data);
+            
+            // Create bank account
+            $store->banks()->create([
+                'bank_code' => $request->bank_code,
+                'bank_name' => $request->bank_name,
+                'account_number' => $request->account_number,
+                'account_name' => $request->account_name,
+                'is_primary' => true,
+                'is_verified' => true,
+            ]);
+
+            DB::commit();
+
             Log::info('vendor.store.created', [
                 'vendor_id' => $vendor->id,
                 'store_id' => $store->id,
                 'store_public_id' => $store->store_id,
             ]);
         } catch (\Throwable $e) {
+            DB::rollBack();
             if (!empty($data['logo_path'] ?? null)) {
                 try {
                     Storage::disk('public')->delete($data['logo_path']);
@@ -126,6 +142,7 @@ class StoreController extends Controller
             Log::error('vendor.store.create_failed', [
                 'vendor_id' => $vendor->id,
                 'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
             ]);
 
             return back()->withInput()->with('error', 'We could not create your store right now. Please try again.');
@@ -133,9 +150,6 @@ class StoreController extends Controller
 
         if (!$hadStores) {
             session()->forget('pending_store_defaults');
-
-            return redirect()->route('vendor.stores.success', ['vendor' => $vendor, 'store' => $store])
-                ->with('success', 'Store profile created! Our team will review and notify you when it is ready.');
         }
 
         return redirect()->route('vendor.stores.success', ['vendor' => $vendor, 'store' => $store])
@@ -247,7 +261,7 @@ class StoreController extends Controller
             return redirect()->route('vendor.stores.index', ['vendor' => $vendor])->with('error', 'You do not have access to that store.');
         }
 
-        $store->load(['ownershipType', 'businessType', 'vendor']);
+        $store->load(['ownershipType', 'businessType', 'vendor', 'banks']);
         $productCount = Product::where('store_id', $store->id)->count();
         $recentProducts = Product::where('store_id', $store->id)->latest()->take(10)->get();
         $categories = Category::where('store_id', $store->id)->orderBy('name')->get();

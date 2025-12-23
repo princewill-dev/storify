@@ -180,16 +180,83 @@
       </div>
     </div>
 
+    <!-- Bank Accounts Section -->
     <div class="col-lg-6">
       <div class="card h-100">
-        <div class="card-header"><strong>Vendor</strong></div>
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <strong>Bank Accounts</strong>
+            <button class="btn btn-xs btn-primary rounded-pill px-3" data-bs-toggle="modal" data-bs-target="#addBankModal">
+                <i class="fi fi-rr-plus me-1"></i> Add Bank
+            </button>
+        </div>
         <div class="card-body">
-          @if($store->vendor)
-            <div class="fw-semibold">{{ $store->vendor->name }}</div>
-            <div class="text-muted">Email: {{ $store->vendor->email ?? '—' }}</div>
-            <div class="text-muted">Phone: {{ $store->vendor->phone ?? '—' }}</div>
+          @if($store->banks->isEmpty())
+            <div class="text-muted text-center py-3">
+                <i class="fi fi-rr-bank fs-2 d-block mb-2 opacity-25"></i>
+                No bank accounts added yet.
+            </div>
           @else
-            <div class="text-muted">No vendor assigned.</div>
+            <div class="table-responsive">
+                <table class="table table-sm table-nowrap mb-0">
+                    <thead class="bg-light">
+                        <tr>
+                            <th class="ps-3">Bank</th>
+                            <th>Account Details</th>
+                            <th class="text-center">Primary</th>
+                            <th class="text-end pe-3">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach($store->banks as $bank)
+                            <tr>
+                                <td class="ps-3">
+                                    <div class="fw-semibold">{{ $bank->bank_name }}</div>
+                                    <div class="text-muted small">Code: {{ $bank->bank_code }}</div>
+                                </td>
+                                <td>
+                                    <div class="fw-medium">{{ $bank->account_name }}</div>
+                                    <div class="text-muted small"><code>{{ $bank->masked_account_number }}</code></div>
+                                </td>
+                                <td class="text-center">
+                                    @if($bank->is_primary)
+                                        <span class="badge bg-success-subtle text-success border border-success-subtle px-2">Primary</span>
+                                    @else
+                                        <form action="{{ route('vendor.stores.banks.primary', ['vendor' => $vendor, 'store' => $store, 'bank' => $bank]) }}" method="POST" style="display:inline;">
+                                            @csrf
+                                            @method('PATCH')
+                                            <button type="submit" class="btn btn-link p-0 text-muted small" title="Set as Primary">Make Primary</button>
+                                        </form>
+                                    @endif
+                                </td>
+                                <td class="text-end pe-3">
+                                    <div class="btn-group">
+                                        <button class="btn btn-sm btn-icon btn-light border" 
+                                                data-bs-toggle="modal" 
+                                                data-bs-target="#editBankModal"
+                                                data-bank-id="{{ $bank->id }}"
+                                                data-bank-name="{{ $bank->bank_name }}"
+                                                data-bank-code="{{ $bank->bank_code }}"
+                                                data-account-number="{{ $bank->account_number }}"
+                                                data-account-name="{{ $bank->account_name }}"
+                                                data-is-primary="{{ $bank->is_primary ? '1' : '0' }}">
+                                            <i class="fi fi-rr-edit"></i>
+                                        </button>
+                                        @if(!$bank->is_primary)
+                                            <button class="btn btn-sm btn-icon btn-light border text-danger ms-1" 
+                                                    data-bs-toggle="modal" 
+                                                    data-bs-target="#deleteBankModal"
+                                                    data-bank-id="{{ $bank->id }}"
+                                                    data-bank-name="{{ $bank->bank_name }}">
+                                                <i class="fi fi-rr-trash"></i>
+                                            </button>
+                                        @endif
+                                    </div>
+                                </td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
           @endif
         </div>
       </div>
@@ -368,7 +435,7 @@
       </form>
     </div>
   </div>
-  </div>
+</div>
 
 <!-- Suspend Store Modal -->
 <div class="modal fade" id="suspendStoreModal" tabindex="-1" aria-labelledby="suspendStoreLabel" aria-hidden="true">
@@ -426,10 +493,122 @@
       </form>
     </div>
   </div>
+</div>
+
+<!-- Add Bank Modal -->
+<div class="modal fade" id="addBankModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Add Bank Account</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form action="{{ route('vendor.stores.banks.store', ['vendor' => $vendor, 'store' => $store]) }}" method="POST" id="addBankForm">
+        @csrf
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">Bank Name</label>
+            <select name="bank_code" class="form-select bank-selector" required>
+              <option value="">Loading banks...</option>
+            </select>
+            <input type="hidden" name="bank_name" class="bank-name-hidden">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Account Number</label>
+            <div class="input-group">
+                <input type="text" name="account_number" class="form-control" maxlength="10" required>
+                <button type="button" class="btn btn-outline-secondary btn-validate-bank">Verify</button>
+            </div>
+            <div class="bank-validation-feedback mt-1 small"></div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Account Name</label>
+            <input type="text" name="account_name" class="form-control" readonly required>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="is_primary" id="addBankPrimary">
+            <label class="form-check-label" for="addBankPrimary">Set as Primary</label>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="addBankSubmit" disabled>Add Account</button>
+        </div>
+      </form>
+    </div>
   </div>
+</div>
+
+<!-- Edit Bank Modal -->
+<div class="modal fade" id="editBankModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Edit Bank Account</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST" id="editBankForm">
+        @csrf
+        @method('PUT')
+        <div class="modal-body">
+          <div class="mb-3 text-muted small">
+            <i class="fi fi-rr-info me-1"></i> Bank and account number cannot be changed for security. Delete and re-add if incorrect.
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Bank Name</label>
+            <input type="text" id="editBankName" class="form-control bg-light" readonly>
+            <input type="hidden" name="bank_name" id="editBankNameHidden">
+            <input type="hidden" name="bank_code" id="editBankCode">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Account Number</label>
+            <input type="text" name="account_number" id="editAccountNumber" class="form-control bg-light" readonly>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Account Name</label>
+            <input type="text" name="account_name" id="editAccountName" class="form-control bg-light" readonly>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="is_primary" id="editBankPrimary">
+            <label class="form-check-label" for="editBankPrimary">Set as Primary</label>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary">Update</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Delete Bank Modal -->
+<div class="modal fade" id="deleteBankModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Delete Bank Account</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST" id="deleteBankForm">
+        @csrf
+        @method('DELETE')
+        <div class="modal-body">
+          <p>Are you sure you want to delete the bank account for <strong id="deleteBankDisplay"></strong>?</p>
+          <p class="text-danger small"><i class="fi fi-rr-exclamation me-1"></i> This action cannot be undone.</p>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-danger">Delete</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
 
 </div>
 @endsection
+
 <script>
 document.addEventListener('DOMContentLoaded', function() {
   var modal = document.getElementById('suspendStoreModal');
@@ -488,23 +667,173 @@ document.addEventListener('DOMContentLoaded', function() {
     var status = (button.getAttribute('data-status') || '').toLowerCase();
     var logoUrl = button.getAttribute('data-logo-url') || '';
 
-    document.getElementById('editStoreVendor').value = vendorId;
-    document.getElementById('editStoreName').value = name;
-    document.getElementById('editStoreSlug').value = slug;
-    document.getElementById('editStoreDescription').value = description;
-    document.getElementById('editStoreSupportEmail').value = supportEmail;
-    document.getElementById('editStoreSupportPhone').value = supportPhone;
-    document.getElementById('editStoreAddress').value = address;
-    document.getElementById('editStoreInstagramUrl').value = instagramUrl;
-    document.getElementById('editStoreFacebookUrl').value = facebookUrl;
-    document.getElementById('editStoreTwitterUrl').value = twitterUrl;
-    document.getElementById('editStoreTiktokUrl').value = tiktokUrl;
-    document.getElementById('editStoreOwnershipType').value = ownershipTypeId;
-    document.getElementById('editStoreBusinessType').value = businessTypeId;
+    // Safeguard elements
+    const vIdEl = document.getElementById('editStoreVendor');
+    if(vIdEl) vIdEl.value = vendorId;
+    
+    const nameEl = document.getElementById('editStoreName');
+    if(nameEl) nameEl.value = name;
+    
+    const slugEl = document.getElementById('editStoreSlug');
+    if(slugEl) slugEl.value = slug;
+    
+    const descEl = document.getElementById('editStoreDescription');
+    if(descEl) descEl.value = description;
+    
+    const sEmailEl = document.getElementById('editStoreSupportEmail');
+    if(sEmailEl) sEmailEl.value = supportEmail;
+    
+    const sPhoneEl = document.getElementById('editStoreSupportPhone');
+    if(sPhoneEl) sPhoneEl.value = supportPhone;
+    
+    const addrEl = document.getElementById('editStoreAddress');
+    if(addrEl) addrEl.value = address;
+    
+    const instaEl = document.getElementById('editStoreInstagramUrl');
+    if(instaEl) instaEl.value = instagramUrl;
+    
+    const fbEl = document.getElementById('editStoreFacebookUrl');
+    if(fbEl) fbEl.value = facebookUrl;
+    
+    const twEl = document.getElementById('editStoreTwitterUrl');
+    if(twEl) twEl.value = twitterUrl;
+    
+    const tkEl = document.getElementById('editStoreTiktokUrl');
+    if(tkEl) tkEl.value = tiktokUrl;
+    
+    const ownEl = document.getElementById('editStoreOwnershipType');
+    if(ownEl) ownEl.value = ownershipTypeId;
+    
+    const bizEl = document.getElementById('editStoreBusinessType');
+    if(bizEl) bizEl.value = businessTypeId;
+    
     var statusSelect = document.getElementById('editStoreStatus');
     if (statusSelect) Array.from(statusSelect.options).forEach(function(opt){ opt.selected = (opt.value.toLowerCase() === status); });
     var logoPreview = document.getElementById('editStoreLogoPreview');
     if (logoPreview) logoPreview.src = logoUrl;
   });
+});
+
+// Bank Management Scripts
+document.addEventListener('DOMContentLoaded', function() {
+    // 1. Fetch Banks
+    fetch("{{ route('vendor.kyc.store.get-banks', ['vendor' => $vendor]) }}")
+        .then(response => response.json())
+        .then(data => {
+            const selectors = document.querySelectorAll('.bank-selector');
+            selectors.forEach(select => {
+                select.innerHTML = '<option value="">Select Bank</option>';
+                if (data.status && data.data) {
+                    data.data.forEach(bank => {
+                        const option = document.createElement('option');
+                        option.value = bank.code;
+                        option.textContent = bank.name;
+                        select.appendChild(option);
+                    });
+                }
+            });
+        });
+
+    // Handle Bank Name synchronization
+    document.querySelectorAll('.bank-selector').forEach(select => {
+        select.addEventListener('change', function() {
+            const nameHidden = this.closest('form').querySelector('.bank-name-hidden');
+            if (nameHidden) {
+                nameHidden.value = this.options[this.selectedIndex].text;
+            }
+        });
+    });
+
+    // Bank Account Validation Logic
+    document.querySelectorAll('.btn-validate-bank').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const form = this.closest('form');
+            const accountNumber = form.querySelector('input[name="account_number"]').value;
+            const bankCode = form.querySelector('select[name="bank_code"]').value;
+            const feedback = form.querySelector('.bank-validation-feedback');
+            const accountNameInput = form.querySelector('input[name="account_name"]');
+            const submitBtn = form.querySelector('button[type="submit"]');
+
+            if (accountNumber.length !== 10 || !bankCode) {
+                alert('Please enter a valid 10-digit account number and select a bank.');
+                return;
+            }
+
+            this.disabled = true;
+            this.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+            feedback.innerHTML = '<span class="text-muted">Verifying...</span>';
+
+            fetch("{{ route('vendor.kyc.store.validate-bank', ['vendor' => $vendor]) }}", {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': '{{ csrf_token() }}'
+                },
+                body: JSON.stringify({ account_number: accountNumber, bank_code: bankCode })
+            })
+            .then(response => response.json())
+            .then(data => {
+                this.disabled = false;
+                this.innerHTML = 'Verify';
+                
+                if (data.status && data.data) {
+                    accountNameInput.value = data.data.account_name;
+                    feedback.innerHTML = '<span class="text-success"><i class="fi fi-rr-check"></i> Account verified</span>';
+                    submitBtn.disabled = false;
+                } else {
+                    accountNameInput.value = '';
+                    feedback.innerHTML = '<span class="text-danger"><i class="fi fi-rr-cross"></i> ' + (data.message || 'Verification failed') + '</span>';
+                    submitBtn.disabled = true;
+                }
+            })
+            .catch(err => {
+                this.disabled = false;
+                this.innerHTML = 'Verify';
+                feedback.innerHTML = '<span class="text-danger">Error during verification.</span>';
+                submitBtn.disabled = true;
+            });
+        });
+    });
+
+    // 2. Edit Modal Population
+    var editModal = document.getElementById('editBankModal');
+    if (editModal) {
+        editModal.addEventListener('show.bs.modal', function (event) {
+            var button = event.relatedTarget;
+            var id = button.getAttribute('data-bank-id');
+            var bankName = button.getAttribute('data-bank-name');
+            var bankCode = button.getAttribute('data-bank-code');
+            var accountNumber = button.getAttribute('data-account-number');
+            var accountName = button.getAttribute('data-account-name');
+            var isPrimary = button.getAttribute('data-is-primary') === '1';
+
+            var form = document.getElementById('editBankForm');
+            var url = "{{ route('vendor.stores.banks.update', ['vendor' => $vendor, 'store' => $store, 'bank' => ':id']) }}".replace(':id', id);
+            form.action = url;
+
+            document.getElementById('editBankName').value = bankName;
+            document.getElementById('editBankNameHidden').value = bankName;
+            document.getElementById('editBankCode').value = bankCode;
+            document.getElementById('editAccountNumber').value = accountNumber;
+            document.getElementById('editAccountName').value = accountName;
+            document.getElementById('editBankPrimary').checked = isPrimary;
+        });
+    }
+
+    // 3. Delete Modal Population
+    var deleteModal = document.getElementById('deleteBankModal');
+    if (deleteModal) {
+        deleteModal.addEventListener('show.bs.modal', function (event) {
+            var button = event.relatedTarget;
+            var id = button.getAttribute('data-bank-id');
+            var bankName = button.getAttribute('data-bank-name');
+
+            var form = document.getElementById('deleteBankForm');
+            var url = "{{ route('vendor.stores.banks.destroy', ['vendor' => $vendor, 'store' => $store, 'bank' => ':id']) }}".replace(':id', id);
+            form.action = url;
+
+            document.getElementById('deleteBankDisplay').textContent = bankName;
+        });
+    }
 });
 </script>

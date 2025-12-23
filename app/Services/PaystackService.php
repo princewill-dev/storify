@@ -4,6 +4,7 @@ namespace App\Services;
 
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Cache;
 
 class PaystackService
 {
@@ -213,28 +214,42 @@ class PaystackService
      */
     public function getBanks(string $country = 'nigeria'): array
     {
-        try {
-            $response = Http::withToken($this->secretKey)
-                ->get("{$this->baseUrl}/bank", [
-                    'country' => $country,
+        return Cache::remember('paystack_banks_' . $country, now()->addDay(), function () use ($country) {
+            try {
+                $response = Http::withToken($this->secretKey)
+                    ->timeout(20) // Set a reasonable timeout
+                    ->get("{$this->baseUrl}/bank", [
+                        'country' => $country,
+                    ]);
+
+                $result = $response->json();
+
+                if (!$response->successful() || !($result['status'] ?? false)) {
+                     Log::warning('paystack.get_banks.failed', [
+                        'status' => $response->status(),
+                        'result' => $result
+                    ]);
+                    return [
+                        'success' => false,
+                        'data' => [],
+                    ];
+                }
+
+                return [
+                    'success' => true,
+                    'data' => $result['data'] ?? [],
+                ];
+            } catch (\Throwable $e) {
+                Log::error('paystack.get_banks.error', [
+                    'error' => $e->getMessage(),
                 ]);
 
-            $result = $response->json();
-
-            return [
-                'success' => $result['status'] ?? false,
-                'data' => $result['data'] ?? [],
-            ];
-        } catch (\Throwable $e) {
-            Log::error('paystack.get_banks.error', [
-                'error' => $e->getMessage(),
-            ]);
-
-            return [
-                'success' => false,
-                'data' => [],
-            ];
-        }
+                return [
+                    'success' => false,
+                    'data' => [],
+                ];
+            }
+        });
     }
 
     /**

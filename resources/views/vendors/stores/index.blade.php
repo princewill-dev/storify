@@ -380,6 +380,38 @@
                 @endforeach
               </select>
             </div>
+
+            <!-- Bank Details Section -->
+            <div class="col-12 mt-4">
+              <hr>
+              <div class="d-flex align-items-center gap-2 mb-3">
+                  <i class="fi fi-rr-bank text-primary"></i>
+                  <h6 class="mb-0">Bank Account Details</h6>
+              </div>
+              <div class="row g-3">
+                  <div class="col-md-6">
+                      <label class="form-label">Bank Name <span class="text-danger">*</span></label>
+                      <select id="createStoreBankCode" name="bank_code" class="form-select" required>
+                          <option value="">Loading banks...</option>
+                      </select>
+                      <input type="hidden" id="createStoreBankName" name="bank_name">
+                  </div>
+                  <div class="col-md-6">
+                      <label class="form-label">Account Number <span class="text-danger">*</span></label>
+                      <div class="position-relative">
+                          <input type="text" id="createStoreAccountNumber" name="account_number" class="form-control" maxlength="10" placeholder="10-digit account number" required>
+                          <div id="accountCheckingSpinner" class="position-absolute top-50 end-0 translate-middle-y me-3" style="display: none;">
+                              <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
+                          </div>
+                      </div>
+                      <div id="bankValidationFeedback" class="mt-1 small fw-bold"></div>
+                  </div>
+                  <div class="col-12 mt-2">
+                      <label class="form-label">Account Name</label>
+                      <input type="text" id="createStoreAccountName" name="account_name" class="form-control bg-light" placeholder="Account name will appear here" readonly required>
+                  </div>
+              </div>
+            </div>
           </div>
         </div>
         <div class="modal-footer">
@@ -460,14 +492,18 @@
     const createSlugStatus = document.getElementById('createStoreSlugStatus');
     const createSubmitBtn = document.getElementById('createStoreSubmitBtn');
     const checkSlugUrl = '{{ route("vendor.kyc.store.check-slug", ["vendor" => $vendor]) }}';
+    const getBanksUrl = '{{ route("vendor.kyc.store.get-banks", ["vendor" => $vendor]) }}';
+    const validateBankUrl = '{{ route("vendor.kyc.store.validate-bank", ["vendor" => $vendor]) }}';
     const csrfToken = '{{ csrf_token() }}';
     
     let debounceTimer = null;
     let currentAbortController = null;
+    let slugAvailable = false;
+    let bankVerified = false;
 
-    function setCreateSubmitState(enabled) {
+    function updateCreateSubmitState() {
         if (!createSubmitBtn) return;
-        createSubmitBtn.disabled = !enabled;
+        createSubmitBtn.disabled = !(slugAvailable && bankVerified);
     }
 
     function showCreateFeedback(type, message, suggestedSlug = null) {
@@ -508,7 +544,8 @@
             useSuggestedBtn.addEventListener('click', function() {
                 const suggested = this.getAttribute('data-slug');
                 createSlugInput.value = suggested;
-                setCreateSubmitState(true);
+                slugAvailable = true;
+                updateCreateSubmitState();
                 showCreateFeedback('available', `Your store link: <strong>${suggested}.{{ config('app.main_domain') }}</strong>`);
             });
         }
@@ -524,7 +561,8 @@
         if (previewSlug.length < 2) {
             createSlugFeedback.style.display = 'none';
             createSlugInput.value = '';
-            setCreateSubmitState(false);
+            slugAvailable = false;
+            updateCreateSubmitState();
             return;
         }
         
@@ -546,23 +584,24 @@
         .then(data => {
             if (data.available) {
                 createSlugInput.value = data.slug;
-                setCreateSubmitState(true);
+                slugAvailable = true;
                 showCreateFeedback('available', `Your store link: <strong>${data.slug}.{{ config('app.main_domain') }}</strong>`);
             } else {
                 createSlugInput.value = '';
-                setCreateSubmitState(false);
+                slugAvailable = false;
                 showCreateFeedback('taken', data.message, data.suggested);
             }
+            updateCreateSubmitState();
         })
         .catch(error => {
             if (error.name === 'AbortError') return;
             console.error('Slug check error:', error);
             createSlugInput.value = '';
-            setCreateSubmitState(false);
+            slugAvailable = false;
+            updateCreateSubmitState();
             showCreateFeedback('error', 'Unable to check availability. Please try again.');
         });
     }
-
     if (createNameInput) {
         createNameInput.addEventListener('input', function() {
             clearTimeout(debounceTimer);
@@ -571,13 +610,132 @@
             if (value.length < 2) {
                 createSlugFeedback.style.display = 'none';
                 createSlugInput.value = '';
-                setCreateSubmitState(false);
+                slugAvailable = false;
+                updateCreateSubmitState();
                 return;
             }
             
             debounceTimer = setTimeout(() => {
                 checkCreateSlug(value);
             }, 500);
+        });
+    }
+
+    // --- Bank Fetching & Validation Logic ---
+    const bankSelector = document.getElementById('createStoreBankCode');
+    const bankNameHidden = document.getElementById('createStoreBankName');
+    const accountNumberInput = document.getElementById('createStoreAccountNumber');
+    const accountNameInput = document.getElementById('createStoreAccountName');
+    const bankFeedback = document.getElementById('bankValidationFeedback');
+    const accountCheckingSpinner = document.getElementById('accountCheckingSpinner');
+
+    // Fetch Banks
+    fetch(getBanksUrl)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && Array.isArray(data.data)) {
+                bankSelector.innerHTML = '<option value="">Select Bank</option>';
+                // Sort banks alphabetically
+                data.data.sort((a, b) => a.name.localeCompare(b.name));
+                
+                data.data.forEach(bank => {
+                    const option = document.createElement('option');
+                    option.value = bank.code;
+                    option.textContent = bank.name;
+                    bankSelector.appendChild(option);
+                });
+            } else {
+                bankSelector.innerHTML = '<option value="">Error loading banks</option>';
+            }
+        })
+        .catch(err => {
+            console.error('Error fetching banks:', err);
+            bankSelector.innerHTML = '<option value="">Error loading banks</option>';
+        });
+
+    bankSelector.addEventListener('change', function() {
+        const selectedOption = this.options[this.selectedIndex];
+        bankNameHidden.value = selectedOption ? selectedOption.textContent : '';
+        if (accountNumberInput.value.length === 10) {
+            validateBankAccount();
+        }
+    });
+
+    accountNumberInput.addEventListener('input', function() {
+        // Only allow numbers
+        this.value = this.value.replace(/[^0-9]/g, '');
+        
+        if (this.value.length === 10) {
+            validateBankAccount();
+        } else {
+            resetBankValidation();
+        }
+    });
+
+    function resetBankValidation() {
+        bankVerified = false;
+        accountNameInput.value = '';
+        bankFeedback.innerHTML = '';
+        updateCreateSubmitState();
+    }
+
+    function validateBankAccount() {
+        const bankCode = bankSelector.value;
+        const accountNumber = accountNumberInput.value;
+
+        if (!bankCode) {
+            bankFeedback.className = 'mt-1 small fw-bold text-danger';
+            bankFeedback.innerHTML = 'Please select a bank';
+            return;
+        }
+
+        if (accountNumber.length !== 10) {
+            bankFeedback.className = 'mt-1 small fw-bold text-danger';
+            bankFeedback.innerHTML = 'Account number must be 10 digits';
+            return;
+        }
+
+        if (accountCheckingSpinner) accountCheckingSpinner.style.display = 'block';
+        bankFeedback.className = 'mt-1 small fw-bold text-muted';
+        bankFeedback.innerHTML = 'Verifying account...';
+        bankVerified = false;
+        updateCreateSubmitState();
+
+        fetch(validateBankUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': csrfToken,
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify({
+                bank_code: bankCode,
+                account_number: accountNumber
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (accountCheckingSpinner) accountCheckingSpinner.style.display = 'none';
+            if (data.success && data.data && data.data.account_name) {
+                accountNameInput.value = data.data.account_name;
+                bankFeedback.className = 'mt-1 small fw-bold text-success';
+                bankFeedback.innerHTML = '<i class="fi fi-rr-check-circle"></i> Account verified';
+                bankVerified = true;
+            } else {
+                accountNameInput.value = '';
+                bankFeedback.className = 'mt-1 small fw-bold text-danger';
+                bankFeedback.innerHTML = `<i class="fi fi-rr-cross-circle"></i> ${data.message || 'Validation failed'}`;
+                bankVerified = false;
+            }
+            updateCreateSubmitState();
+        })
+        .catch(err => {
+            if (accountCheckingSpinner) accountCheckingSpinner.style.display = 'none';
+            console.error('Bank validation error:', err);
+            bankFeedback.className = 'mt-1 small fw-bold text-danger';
+            bankFeedback.innerHTML = 'Error verifying account';
+            bankVerified = false;
+            updateCreateSubmitState();
         });
     }
   });
