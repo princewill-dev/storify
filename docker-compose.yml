@@ -10,7 +10,7 @@ services:
     networks:
       - web_network
     env_file:
-      - .env.production
+      - .env
 
 networks:
   web_network:
