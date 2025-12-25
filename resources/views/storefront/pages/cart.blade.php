@@ -307,7 +307,7 @@
                     </div>
 
                     <div class="mt-4">
-                        <a href="#" class="checkout-btn">Check Out.</a>
+                        <a href="{{ route('checkout.index', ['store_slug' => $store->slug]) }}" class="checkout-btn">Check Out.</a>
                     </div>
                 </div>
             </div>

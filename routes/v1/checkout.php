@@ -4,24 +4,21 @@ use App\Http\Controllers\Checkout\CheckoutController;
 use App\Http\Controllers\Payment\PaystackController;
 use Illuminate\Support\Facades\Route;
 
-// Checkout routes require customer authentication
-Route::middleware('auth:customer')->group(function () {
-    Route::get('/{store_slug}/checkout', [CheckoutController::class, 'index'])
-        ->where(['store_slug' => '[A-Za-z0-9_\-]+'])
-        ->name('checkout.index');
+Route::get('/{store_slug}/checkout', [CheckoutController::class, 'index'])
+    ->where(['store_slug' => '[A-Za-z0-9_\-]+'])
+    ->name('checkout.index');
 
-    Route::post('/{store_slug}/checkout/save-address', [CheckoutController::class, 'saveAddress'])
-        ->where(['store_slug' => '[A-Za-z0-9_\-]+'])
-        ->name('checkout.save-address');
+Route::post('/{store_slug}/checkout/save-address', [CheckoutController::class, 'saveAddress'])
+    ->where(['store_slug' => '[A-Za-z0-9_\-]+'])
+    ->name('checkout.save-address');
 
-    Route::post('/{store_slug}/checkout/process', [CheckoutController::class, 'process'])
-        ->where(['store_slug' => '[A-Za-z0-9_\-]+'])
-        ->name('checkout.process');
+Route::post('/{store_slug}/checkout/process', [CheckoutController::class, 'process'])
+    ->where(['store_slug' => '[A-Za-z0-9_\-]+'])
+    ->name('checkout.process');
 
-    Route::post('/{store_slug}/checkout/live-first', [CheckoutController::class, 'processLiveFirst'])
-        ->where(['store_slug' => '[A-Za-z0-9_\-]+'])
-        ->name('checkout.live-first');
-});
+Route::post('/{store_slug}/checkout/live-first', [CheckoutController::class, 'processLiveFirst'])
+    ->where(['store_slug' => '[A-Za-z0-9_\-]+'])
+    ->name('checkout.live-first');
 
 // Payment Method Selection
 Route::get('/{store_slug}/checkout/{order}/payment-methods', [CheckoutController::class, 'showPaymentMethods'])

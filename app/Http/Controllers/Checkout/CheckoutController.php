@@ -30,15 +30,6 @@ class CheckoutController extends Controller
 {
     public function index(Request $request, $store_slug)
     {
-        // Ensure customer is authenticated
-        if (!auth()->guard('customer')->check()) {
-            // Store checkout context for post-login redirect
-            session(['checkout_redirect' => true, 'checkout_store_slug' => $store_slug]);
-            
-            return redirect()->route('account.login')
-                ->with('error', 'Please login to continue');
-        }
-
         $customer = auth()->guard('customer')->user();
 
         // Get store by slug
@@ -49,7 +40,7 @@ class CheckoutController extends Controller
         
         // Log cart resolution for debugging
         Log::info('checkout_cart_resolution', [
-            'customer_id' => $customer->id,
+            'customer_id' => $customer?->id,
             'store_id' => $store->id,
             'cart_found' => $cart ? true : false,
             'cart_items_count' => $cart ? $cart->items->count() : 0,
@@ -57,11 +48,6 @@ class CheckoutController extends Controller
         ]);
         
         if (!$cart || $cart->items->isEmpty()) {
-            Log::warning('checkout_empty_cart_redirect', [
-                'customer_id' => auth()->guard('customer')->id(),
-                'store_slug' => $store_slug,
-            ]);
-            
             return redirect()->route('home.store.products.index', ['store_slug' => $store_slug])
                 ->with('error', 'Your cart is empty. Please add items to cart before checkout.');
         }
@@ -69,7 +55,7 @@ class CheckoutController extends Controller
         // Load cart items with product details
         $cart->load(['items.product.images']);
 
-        // Hydrate summary items for the view to avoid heavy Blade logic
+        // Hydrate summary items for the view
         $cartSummaryItems = $cart->items->map(function ($item) {
             $product = $item->product;
             $primaryImage = $product ? $product->primaryImage() : null;
@@ -100,140 +86,14 @@ class CheckoutController extends Controller
         // Get payment methods
         $paymentMethods = PaymentMethod::active()->get();
 
-        // Get delivery routes
-        $routes = DeliveryRoute::query()
-            ->where('active', true)
-            ->orderBy('state')
-            ->orderBy('area')
-            ->get(['id','state','area','fee','delivery_days']);
-
-        $states = $routes->pluck('state')->unique()->values()->all();
-        $areasByState = $routes->groupBy('state')->map(function($items){
-            return $items->map(function($r){
-                return [
-                    'id' => $r->id,
-                    'area' => $r->area,
-                    'fee' => (int) $r->fee,
-                    'days' => $r->delivery_days,
-                ];
-            })->values()->all();
-        })->toArray();
-
         // VAT percentage
-        $vatPercentage = optional(Vat::active()->orderByDesc('effective_at')->orderByDesc('id')->first())->percentage
-            ?? optional(Vat::current())->percentage
-            ?? 0;
-
-        $customerAddresses = $customer->deliveryAddresses()
-            ->with('deliveryRoute')
-            ->orderByDesc('is_default')
-            ->orderByDesc('created_at')
-            ->get();
-
-        $defaultAddressId = optional($customerAddresses->firstWhere('is_default', true))->id;
-
-        $prefillAddress = [];
-        if ($customerAddresses->isNotEmpty()) {
-            $firstAddress = $customerAddresses->first();
-            $route = $firstAddress->deliveryRoute;
-
-            $prefillAddress = [
-                'label' => $firstAddress->label,
-                'recipient_name' => $firstAddress->recipient_name,
-                'recipient_phone' => $firstAddress->recipient_phone,
-                'company_name' => $firstAddress->company_name,
-                'street_address' => $firstAddress->street_address,
-                'apartment' => $firstAddress->apartment,
-                'zip_code' => $firstAddress->zip_code,
-                'map_link' => $firstAddress->map_link,
-                'delivery_route_id' => optional($route)->id ?? $firstAddress->delivery_route_id,
-                'delivery_state' => optional($route)->state,
-                'delivery_area' => optional($route)->area,
-                'delivery_fee' => optional($route)->fee,
-                'delivery_days' => optional($route)->delivery_days,
-                'is_default' => (bool) $firstAddress->is_default,
-            ];
-        }
-
-        $addressDataset = $customerAddresses->mapWithKeys(function ($address) {
-            $route = $address->deliveryRoute;
-
-            return [
-                $address->id => [
-                    'id' => $address->id,
-                    'label' => $address->label,
-                    'recipient_name' => $address->recipient_name,
-                    'recipient_phone' => $address->recipient_phone,
-                    'company_name' => $address->company_name,
-                    'street_address' => $address->street_address,
-                    'apartment' => $address->apartment,
-                    'zip_code' => $address->zip_code,
-                    'map_link' => $address->map_link,
-                    'delivery_route_id' => optional($route)->id ?? $address->delivery_route_id,
-                    'delivery_state' => optional($route)->state,
-                    'delivery_area' => optional($route)->area,
-                    'delivery_fee' => optional($route)->fee,
-                    'delivery_days' => optional($route)->delivery_days,
-                    'is_default' => (bool) $address->is_default,
-                ],
-            ];
-        })->toArray();
-
-        $oldSelectedAddress = $request->old('selected_address_id');
-        if (is_null($oldSelectedAddress)) {
-            if ($defaultAddressId) {
-                $oldSelectedAddress = (string) $defaultAddressId;
-            } elseif ($customerAddresses->isNotEmpty()) {
-                $oldSelectedAddress = (string) $customerAddresses->first()->id;
-            } else {
-                $oldSelectedAddress = 'new';
-            }
-        }
-        $hasOldInput = !is_null($oldSelectedAddress)
-            || !is_null($request->old('delivery_route_id'))
-            || !is_null($request->old('recipient_name'));
-
-        $newAddressDefaults = [
-            'label' => '',
-            'recipient_name' => trim(sprintf('%s %s', $customer->first_name ?? '', $customer->last_name ?? '')),
-            'recipient_phone' => $customer->phone ?? '',
-            'company_name' => '',
-            'street_address' => '',
-            'apartment' => '',
-            'zip_code' => '',
-            'map_link' => '',
-            'delivery_route_id' => null,
-            'delivery_state' => null,
-            'delivery_area' => null,
-            'delivery_fee' => null,
-            'delivery_days' => null,
-            'is_default' => false,
-        ];
-
-        // Get Live First status and application
-        $liveFirstStatus = $customer->live_first_status ?? \App\Enums\LiveFirstStatus::NOT_ENROLLED;
-        $liveFirstApplication = $customer->liveFirstApplication;
-        $canUseLiveFirst = in_array($liveFirstStatus->value, ['verified', 'testing', 'tested', 'approved']);
-
-        return view('home.pages.checkout.checkout', [
+        return view('storefront.pages.checkout', [
             'store' => $store,
             'cart' => $cart,
             'cartSummaryItems' => $cartSummaryItems,
             'paymentMethods' => $paymentMethods,
-            'states' => $states,
-            'areasByState' => $areasByState,
-            'vatPercentage' => $vatPercentage,
+            'vatPercentage' => 0, // VAT removed from flow
             'customer' => $customer,
-            'customerAddresses' => $customerAddresses,
-            'prefillAddress' => $prefillAddress,
-            'addressDataset' => $addressDataset,
-            'oldSelectedAddress' => $oldSelectedAddress,
-            'hasOldInput' => $hasOldInput,
-            'newAddressDefaults' => $newAddressDefaults,
-            'defaultAddressId' => $defaultAddressId,
-            'liveFirstStatus' => $liveFirstStatus,
-            'liveFirstApplication' => $liveFirstApplication,
-            'canUseLiveFirst' => $canUseLiveFirst,
         ]);
     }
 
@@ -258,9 +118,12 @@ class CheckoutController extends Controller
                 'company_name' => 'nullable|string|max:255',
                 'street_address' => 'required|string',
                 'apartment' => 'nullable|string|max:255',
+                'city' => 'required|string|max:255',
+                'state' => 'required|string|max:255',
+                'country' => 'required|string|max:255',
+                'landmark' => 'nullable|string|max:255',
                 'zip_code' => 'nullable|string|max:20',
                 'map_link' => 'nullable|url|max:500',
-                'delivery_route_id' => 'required|exists:delivery_routes,id',
                 'set_default' => 'nullable|boolean',
             ]);
         } catch (\Illuminate\Validation\ValidationException $e) {
@@ -278,8 +141,6 @@ class CheckoutController extends Controller
 
         try {
 
-            $deliveryRoute = DeliveryRoute::findOrFail($validated['delivery_route_id']);
-
             $deliveryAddress = $customer->deliveryAddresses()->create([
                 'label' => $validated['label'] ?? 'Home',
                 'recipient_name' => $validated['recipient_name'],
@@ -287,9 +148,12 @@ class CheckoutController extends Controller
                 'company_name' => $validated['company_name'] ?? null,
                 'street_address' => $validated['street_address'],
                 'apartment' => $validated['apartment'] ?? null,
+                'city' => $validated['city'],
+                'state' => $validated['state'],
+                'country' => $validated['country'],
+                'landmark' => $validated['landmark'] ?? null,
                 'zip_code' => $validated['zip_code'] ?? null,
                 'map_link' => $validated['map_link'] ?? null,
-                'delivery_route_id' => $deliveryRoute->id,
                 'is_default' => $request->boolean('set_default'),
             ]);
 
@@ -308,7 +172,7 @@ class CheckoutController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Address saved successfully',
-                'address' => $deliveryAddress->load('deliveryRoute'),
+                'address' => $deliveryAddress,
             ]);
 
         } catch (\Exception $e) {
@@ -379,47 +243,56 @@ class CheckoutController extends Controller
 
     public function process(Request $request, $store_slug)
     {
-        // Ensure customer is authenticated
         $customer = auth()->guard('customer')->user();
-        if (!$customer) {
-            return redirect()->route('account.login')->with('error', 'Please login to continue');
-        }
-
+        
         Log::info('checkout_process_attempt', [
-            'customer_id' => $customer->id,
+            'customer_id' => $customer?->id,
             'store_slug' => $store_slug,
             'request_data' => $request->except(['_token'])
         ]);
 
         try {
-            $validated = $request->validate([
-                'label' => 'nullable|string|max:255',
-                'recipient_name' => 'required|string|max:255',
-                'recipient_phone' => 'required|string|max:20',
-                'company_name' => 'nullable|string|max:255',
+            $rules = [
+                'first_name' => 'required_if:is_guest,true|string|max:255',
+                'last_name' => 'required_if:is_guest,true|string|max:255',
+                'email' => 'required_if:is_guest,true|email|max:255',
+                'phone' => 'required_if:is_guest,true|string|max:20',
                 'street_address' => 'required|string',
                 'apartment' => 'nullable|string|max:255',
-                'zip_code' => 'nullable|string|max:20',
-                'map_link' => 'nullable|url|max:500',
-                'delivery_route_id' => 'nullable|exists:delivery_routes,id',
-                'selected_address_id' => 'nullable',
+                'country' => 'nullable|string|max:255',
+                'state' => 'required|string|max:255',
+                'city' => 'required|string|max:255',
+                'landmark' => 'nullable|string|max:255',
                 'notes' => 'nullable|string',
-                'make_default' => 'nullable|boolean',
-            ]);
+            ];
 
-            $selectedAddressId = $request->input('selected_address_id');
-            $useExistingAddress = $selectedAddressId && $selectedAddressId !== 'new';
-
-            $makeDefault = $request->boolean('make_default');
-
-            if (!$useExistingAddress && empty($validated['delivery_route_id'])) {
-                throw ValidationException::withMessages([
-                    'delivery_route_id' => 'Please select your delivery location.',
-                ]);
+            // If not logged in, these are required
+            if (!$customer) {
+                $rules['first_name'] = 'required|string|max:255';
+                $rules['last_name'] = 'required|string|max:255';
+                $rules['email'] = 'required|email|max:255';
+                $rules['phone'] = 'required|string|max:20';
             }
+
+            $validated = $request->validate($rules);
 
             // Get store by slug
             $store = Store::where('slug', $store_slug)->where('status', 'active')->firstOrFail();
+
+            // Resolve/Create Customer if guest
+            if (!$customer) {
+                $customer = Customer::where('email', $validated['email'])->first();
+                if (!$customer) {
+                    $customer = Customer::create([
+                        'first_name' => $validated['first_name'],
+                        'last_name' => $validated['last_name'],
+                        'email' => $validated['email'],
+                        'phone' => $validated['phone'],
+                        'ip_address' => $request->ip(),
+                        'password' => bcrypt(str()->random(16)), // Dummy password for technical requirement
+                    ]);
+                }
+            }
 
             // Get cart from database
             $cart = $this->resolveCart($request, $store);
@@ -433,89 +306,27 @@ class CheckoutController extends Controller
 
             $cartSource = data_get($cart->meta, 'source', 'checkout');
 
-            $vatPercentage = optional(Vat::active()->orderByDesc('effective_at')->orderByDesc('id')->first())->percentage
-                ?? optional(Vat::current())->percentage
-                ?? 0;
+            $vatPercentage = 0; // VAT removed from flow
 
             // Start database transaction
             DB::beginTransaction();
 
-            $deliveryRoute = null;
-            $deliveryAddress = null;
+            $deliveryAddress = $customer->deliveryAddresses()->create([
+                'recipient_name' => $customer->full_name,
+                'recipient_phone' => $customer->phone,
+                'street_address' => $validated['street_address'],
+                'apartment' => $validated['apartment'] ?? null,
+                'country' => $validated['country'] ?? 'Nigeria',
+                'state' => $validated['state'],
+                'city' => $validated['city'],
+                'landmark' => $validated['landmark'] ?? null,
+            ]);
+
             $shippingFeeRaw = 0;
-            $deliveryState = null;
-            $deliveryArea = null;
+            $deliveryState = $validated['state'];
+            $deliveryArea = $validated['city'];
             $deliveryDays = null;
             $resolvedRoute = null;
-
-            if ($useExistingAddress) {
-                $deliveryAddress = $customer->deliveryAddresses()
-                    ->with('deliveryRoute')
-                    ->findOrFail($selectedAddressId);
-
-                $deliveryRouteId = $validated['delivery_route_id'] ?? $deliveryAddress->delivery_route_id;
-                if ($deliveryRouteId) {
-                    $deliveryRoute = DeliveryRoute::find($deliveryRouteId);
-                }
-
-                $resolvedRoute = $deliveryRoute ?? $deliveryAddress->deliveryRoute;
-                if (!$resolvedRoute) {
-                    throw ValidationException::withMessages([
-                        'delivery_route_id' => 'Please select a valid delivery route for this address.',
-                    ]);
-                }
-
-                $deliveryAddress->fill([
-                    'label' => $validated['label'] ?: ($deliveryAddress->label ?? 'Delivery Address'),
-                    'recipient_name' => $validated['recipient_name'],
-                    'recipient_phone' => $validated['recipient_phone'],
-                    'company_name' => $validated['company_name'] ?? null,
-                    'street_address' => $validated['street_address'],
-                    'apartment' => $validated['apartment'] ?? null,
-                    'zip_code' => $validated['zip_code'] ?? null,
-                    'map_link' => $validated['map_link'] ?? null,
-                ]);
-
-                if ($deliveryRoute) {
-                    $deliveryAddress->delivery_route_id = $deliveryRoute->id;
-                }
-
-                $deliveryAddress->save();
-
-                $shippingFeeRaw = (int) ($resolvedRoute->fee ?? 0);
-                $deliveryState = $resolvedRoute->state;
-                $deliveryArea = $resolvedRoute->area;
-                $deliveryDays = $resolvedRoute->delivery_days;
-
-                if ($makeDefault) {
-                    $deliveryAddress->setAsDefault();
-                }
-            } else {
-                $deliveryRoute = DeliveryRoute::findOrFail($validated['delivery_route_id']);
-
-                $deliveryAddress = $customer->deliveryAddresses()->create([
-                    'label' => $validated['label'] ?: 'Delivery Address',
-                    'recipient_name' => $validated['recipient_name'],
-                    'recipient_phone' => $validated['recipient_phone'],
-                    'company_name' => $validated['company_name'] ?? null,
-                    'street_address' => $validated['street_address'],
-                    'apartment' => $validated['apartment'] ?? null,
-                    'zip_code' => $validated['zip_code'] ?? null,
-                    'map_link' => $validated['map_link'] ?? null,
-                    'delivery_route_id' => $deliveryRoute->id,
-                    'is_default' => false,
-                ]);
-
-                $shippingFeeRaw = (int) $deliveryRoute->fee;
-                $deliveryState = $deliveryRoute->state;
-                $deliveryArea = $deliveryRoute->area;
-                $deliveryDays = $deliveryRoute->delivery_days;
-                $resolvedRoute = $deliveryRoute;
-
-                if ($makeDefault) {
-                    $deliveryAddress->setAsDefault();
-                }
-            }
 
             // Calculate totals from cart
             $subtotalKobo = 0;
@@ -556,16 +367,20 @@ class CheckoutController extends Controller
             $subtotal = round($subtotalKobo / 100, 2);
             $shippingFee = $shippingFeeRaw / 100;
 
-            $cartTaxKobo = (int) ($cart->tax_total ?? 0);
-            if ($cartTaxKobo <= 0 && $vatPercentage > 0) {
-                $cartTaxKobo = (int) round($subtotalKobo * ($vatPercentage / 100));
-            }
+            $cartTaxKobo = 0; // Tax removed from flow
             $taxAmount = round($cartTaxKobo / 100, 2);
             $total = round($subtotal + $shippingFee + $taxAmount, 2);
 
+            // Verify vendor exists to avoid foreign key constraint violation
+            $vendorId = null;
+            if ($store->vendor_id) {
+                $vendorExists = \App\Models\User::where('id', $store->vendor_id)->exists();
+                $vendorId = $vendorExists ? $store->vendor_id : null;
+            }
+
             $order = Order::create([
                 'store_id' => $store->id,
-                'vendor_id' => $store->vendor_id,
+                'vendor_id' => $vendorId,
                 'customer_id' => $customer->id,
                 'cart_id' => $cart->id,
                 'source' => $cartSource,
@@ -574,10 +389,8 @@ class CheckoutController extends Controller
                 'tax' => $taxAmount,
                 'total' => $total,
                 'status' => \App\Enums\OrderStatus::PENDING->value,
-                'delivery_route_id' => $resolvedRoute?->id,
                 'delivery_state' => $deliveryState,
                 'delivery_area' => $deliveryArea,
-                'delivery_days' => $deliveryDays,
                 'payment_method_id' => null,
                 'notes' => $validated['notes'] ?? null,
                 'delivery_address_id' => $deliveryAddress->id,
@@ -670,7 +483,7 @@ class CheckoutController extends Controller
             $paymentAmount = $order->transactions->first()->amount;
         }
 
-        return view('home.pages.checkout.select-payment-method', compact('store', 'order', 'paymentMethods', 'paymentAmount'));
+        return view('storefront.pages.select-payment-method', compact('store', 'order', 'paymentMethods', 'paymentAmount'));
     }
 
     public function selectPaymentMethod(Request $request, $store_slug, Order $order)
@@ -751,10 +564,10 @@ class CheckoutController extends Controller
      */
     protected function initializePaystackPayment(Request $request, Order $order, Store $store)
     {
-        $customer = auth()->guard('customer')->user();
+        $customer = $order->customer;
         
         if (!$customer) {
-            return redirect()->back()->with('error', 'Please login to continue');
+            return redirect()->back()->with('error', 'Customer information missing');
         }
 
         // Validate customer email
@@ -782,14 +595,14 @@ class CheckoutController extends Controller
                 'callback_url' => route('payment.paystack.callback'),
                 'metadata' => [
                     'order_id' => $order->id,
-                    'order_code' => $order->order_code,
+                    'order_number' => $order->order_number,
                     'customer_name' => $customer->name,
                     'store_slug' => $store->slug,
                     'custom_fields' => [
                         [
-                            'display_name' => 'Order Code',
-                            'variable_name' => 'order_code',
-                            'value' => $order->order_code,
+                            'display_name' => 'Order Number',
+                            'variable_name' => 'order_number',
+                            'value' => $order->order_number,
                         ],
                         [
                             'display_name' => 'Store',

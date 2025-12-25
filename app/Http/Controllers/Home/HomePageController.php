@@ -45,7 +45,12 @@ class HomePageController extends Controller
      */
     public function stores()
     {
-        return view('home.pages.our-stores');
+        $stores = \App\Models\Store::where('status', 'active')
+            ->with('vendor')
+            ->latest()
+            ->get();
+            
+        return view('home.pages.our-stores', compact('stores'));
     }
 
     /**

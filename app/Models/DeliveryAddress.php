@@ -9,13 +9,16 @@ class DeliveryAddress extends Model
 {
     protected $fillable = [
         'customer_id',
-        'delivery_route_id',
         'label',
         'recipient_name',
         'recipient_phone',
         'company_name',
         'street_address',
         'apartment',
+        'city',
+        'state',
+        'country',
+        'landmark',
         'zip_code',
         'map_link',
         'is_default',
@@ -33,11 +36,6 @@ class DeliveryAddress extends Model
         return $this->belongsTo(Customer::class);
     }
 
-    public function deliveryRoute(): BelongsTo
-    {
-        return $this->belongsTo(DeliveryRoute::class);
-    }
-
     /**
      * Get full address as string
      */
@@ -46,10 +44,11 @@ class DeliveryAddress extends Model
         $parts = array_filter([
             $this->street_address,
             $this->apartment,
-            optional($this->deliveryRoute)->area,
-            optional($this->deliveryRoute)->state,
+            $this->landmark ? "Landmark: {$this->landmark}" : null,
+            $this->city,
+            $this->state,
             $this->zip_code,
-            optional($this->deliveryRoute)->country,
+            $this->country,
         ]);
         return implode(', ', $parts);
     }

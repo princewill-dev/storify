@@ -55,6 +55,9 @@
 		<!-- RESPONSIVE CSS -->
 		<link href="{{ asset('home/css/responsive.css') }}" rel="stylesheet">
 
+		@stack('styles')
+		@stack('scripts')
+
 	</head>
 
 	<body class="theme--dark">

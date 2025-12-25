@@ -25,11 +25,11 @@ class BankTransferController extends Controller
             abort(404);
         }
 
-        // Get active bank accounts
-        $bankAccounts = BankAccount::active()->get();
+        // Get store bank accounts
+        $bankAccounts = $store->banks;
 
         if ($bankAccounts->isEmpty()) {
-            return redirect()->back()->with('error', 'No active bank accounts available. Please contact support.');
+            return redirect()->back()->with('error', 'This store has no bank details configured. Please contact support.');
         }
 
         // Get transaction
@@ -91,10 +91,18 @@ class BankTransferController extends Controller
             'payment_slip' => $paymentSlipPath ? 'uploaded' : 'not_provided',
         ]);
 
-        // Redirect to payment confirmation page
-        return redirect()->route('checkout.payment', [
-            'store_slug' => $store_slug,
-            'order' => $order->order_number
-        ])->with('success', 'Payment confirmed successfully! Your order is being processed.');
+        // Return JSON response for AJAX requests
+        if ($request->wantsJson() || $request->ajax()) {
+            return response()->json([
+                'success' => true,
+                'message' => 'Payment confirmed successfully!',
+                'order_number' => $order->order_number,
+                'tracking_url' => route('tracking.show', ['order' => $order->order_number])
+            ]);
+        }
+
+        // Redirect to tracking page for regular requests
+        return redirect()->route('tracking.show', ['order' => $order->order_number])
+            ->with('success', 'Payment confirmed successfully! Your order is being processed.');
     }
 }

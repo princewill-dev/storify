@@ -22,14 +22,13 @@
 					<!-- Buttons -->	
 					<div class="btns-group">
 						<a href="{{ route('vendor.auth.register') }}" class="btn r-04 btn--theme hover--theme" style="display: inline-flex; align-items: center; min-height: 52px;">Get started</a>
-						<a href="#" class="btn r-04 btn--tra-black hover--theme" style="display: inline-flex; align-items: center; min-height: 52px;">See stores</a>
+						<a href="{{ route('home.stores') }}" class="btn r-04 btn--tra-black hover--theme" style="display: inline-flex; align-items: center; min-height: 52px;">See stores</a>
 					</div>
 					
 				</div>
 			</div>
 		</div>
 		<!-- END HERO TEXT -->	
-
 
 		<!-- BRANDS CAROUSEL -->
 		<div id="brands-1" class="py-90">			

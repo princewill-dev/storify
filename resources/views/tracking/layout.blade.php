@@ -59,16 +59,8 @@
       <!-- back to top end -->
 
       <!-- header area start -->
-      @include('storefront.components.header')
+      @include('tracking.components.header')
       <!-- header area end -->
-
-      <!-- sidebar area start -->
-      @include('storefront.components.cart')
-      <!-- sidebar area end -->
-
-      <!-- sidebar area start -->
-      @include('storefront.components.sidebar')
-      <!-- sidebar area end -->
 
       <div class="body-overlay"></div>
       <!-- sidebar area end -->
@@ -81,7 +73,7 @@
       </main>
 
       <!-- footer area start -->
-      @include('storefront.components.footer')
+      @include('tracking.components.footer')
       <!-- footer area end -->
 
       <!-- JS here -->

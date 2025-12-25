@@ -14,6 +14,7 @@ class TrackingController extends Controller
     {
         $prefill = trim((string) $request->get('order')) ?: null;
         $error = null;
+        $order = null;
 
         if ($prefill) {
             $order = Order::where('order_number', $prefill)->first();
@@ -25,8 +26,9 @@ class TrackingController extends Controller
             $error = 'We could not find an order with that tracking number. Please check and try again.';
         }
 
-        return view('home.pages.tracking.index', [
+        return view('tracking.index', [
             'prefillReference' => $prefill,
+            'store' => null, // Tracking index is not store-specific
             'error' => $error,
         ]);
     }
@@ -39,8 +41,7 @@ class TrackingController extends Controller
             'vendor',
             'items.product',
             'transactions.paymentMethod',
-            'deliveryAddress.deliveryRoute',
-            'deliveryRoute',
+            'deliveryAddress',
         ]);
 
         $timeline = ActivityLog::with('user')
@@ -85,8 +86,9 @@ class TrackingController extends Controller
                 ];
             });
 
-        return view('home.pages.tracking.show', [
+        return view('tracking.show', [
             'order' => $order,
+            'store' => $order->store,
             'timeline' => $timeline,
             'milestones' => $milestones,
         ]);
