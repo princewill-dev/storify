@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    container_name: storify_app
+    restart: always
+    volumes:
+      - ./:/var/www/html
+    networks:
+      - web_network
+    env_file:
+      - .env.production
+
+networks:
+  web_network:
+    external: true
