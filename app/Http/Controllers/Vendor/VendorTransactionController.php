@@ -64,4 +64,25 @@ class VendorTransactionController extends Controller
             'statusOptions' => TransactionStatus::cases(),
         ]);
     }
+
+    public function update(Request $request, Vendor $routeVendor, Transaction $transaction): RedirectResponse
+    {
+        $vendor = $this->resolveVendor($request, $routeVendor);
+        if (!$vendor || !$transaction->order || $transaction->order->vendor_id !== $vendor->id) {
+            return redirect()->route('vendor.auth.login');
+        }
+
+        $validated = $request->validate([
+            'status' => ['required', 'in:' . implode(',', array_column(TransactionStatus::cases(), 'value'))],
+        ]);
+        
+        $transaction->update(['status' => $validated['status']]);
+        
+        $message = "Transaction status updated to {$validated['status']}.";
+        if ($validated['status'] === TransactionStatus::PAID->value) {
+            $message = "Payment confirmed! The order status reflects this change.";
+        }
+
+        return back()->with('success', $message);
+    }
 }

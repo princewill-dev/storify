@@ -32,6 +32,9 @@
 	<link class="main-plugins" href="{{ asset('vendor_files/assets/css/plugins.css') }}" rel="stylesheet">
 	<link class="main-css" href="{{ asset('vendor_files/assets/css/style.css') }}" rel="stylesheet">
 	<!-- End - Style CSS -->
+
+	@stack('styles')
+	@stack('scripts')
 	
 </head>
 <body>

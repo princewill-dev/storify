@@ -7,11 +7,13 @@
         <div class="col-12">
             <div class="d-flex justify-content-between align-items-center">
                 <div>
-                    <h1 class="h3 mb-0">Transaction {{ $transaction->reference }}</h1>
-                    <p class="text-muted">View full details for this payment event.</p>
+                    <h1 class="h3 mb-0">ID: {{ $transaction->reference }}</h1>
+                    <p class="text-muted">Date: {{ $transaction->created_at->format('d M Y h:i A') }}</p>
                 </div>
                 <div class="d-flex gap-2">
-                    <a href="{{ route('vendor.transactions.index', ['vendor' => $vendor]) }}" class="btn btn-outline-secondary">Back to list</a>
+                    <a href="{{ route('vendor.transactions.index', ['vendor' => $vendor]) }}" class="btn btn-outline-secondary">
+                        <i class="fa fa-arrow-left"></i>
+                    </a>
                 </div>
             </div>
         </div>
@@ -22,7 +24,7 @@
     @endif
 
     <div class="row g-4">
-        <div class="col-lg-6">
+        <div class="col-md-6">
             <div class="card">
                 <div class="card-header">
                     <h5 class="mb-0">Summary</h5>
@@ -49,8 +51,8 @@
                             <p class="mb-0">{{ $transaction->paymentMethod->name ?? 'N/A' }}</p>
                         </div>
                         <div class="col-6">
-                            <p class="text-muted mb-1">Gateway Ref.</p>
-                            <p class="mb-0">{{ $transaction->gateway_reference ?? 'N/A' }}</p>
+                            <p class="text-muted mb-1">Account:</p>
+                            <p class="mb-0">{{ $transaction->storeBank->bank_name ?? 'N/A' }}</p>
                         </div>
                         <div class="col-6">
                             <p class="text-muted mb-1">Created</p>
@@ -58,15 +60,65 @@
                         </div>
                         <div class="col-6">
                             <p class="text-muted mb-1">Paid at</p>
-                            <p class="mb-0">{{ optional($transaction->paid_at)?->format('d M Y h:i A') ?? 'Pending' }}</p>
+                            <p class="mb-0">{{ optional($transaction->paid_at)->format('d M Y h:i A') ?? 'Pending' }}</p>
                         </div>
                     </div>
+
+                    @if($transaction->payment_slip || $transaction->status->value === 'pending')
+                    <hr>
+                    <div class="d-flex gap-2 mt-3">
+                        @if($transaction->payment_slip)
+                        <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#paymentProofModal">
+                            <i class="fa fa-file-image-o me-1"></i> View Payment Proof
+                        </button>
+                        @endif
+                    </div>
+                    @endif
+
+                    <form action="{{ route('vendor.transactions.update', ['vendor' => $vendor, 'transaction' => $transaction]) }}" method="POST">
+                        @csrf
+                        @method('PUT')
+                        
+                        <div class="mb-3">
+                            <label class="form-label small text-muted">Current Status</label>
+                            <select name="status" class="form-select" required>
+                                @php
+                                    $currentStatus = $transaction->status;
+                                    $statuses = \App\Enums\TransactionStatus::cases();
+                                @endphp
+
+                                {{-- Render current status first --}}
+                                @if($currentStatus instanceof \App\Enums\TransactionStatus)
+                                    <option value="{{ $currentStatus->value }}" selected>{{ $currentStatus->label() }}</option>
+                                @endif
+                                
+                                {{-- Render other statuses --}}
+                                @foreach($statuses as $status)
+                                    @if($currentStatus instanceof \App\Enums\TransactionStatus && $status === $currentStatus)
+                                        @continue
+                                    @endif
+                                    <option value="{{ $status->value }}" {{ !$currentStatus instanceof \App\Enums\TransactionStatus && $currentStatus == $status->value ? 'selected' : '' }}>
+                                        {{ $status->label() }}
+                                    </option>
+                                @endforeach
+                            </select>
+                        </div>
+                        
+                        <div class="alert alert-info small">
+                            <i class="fa fa-info-circle me-1"></i> Changing this status will automatically update the order payment status.
+                        </div>
+
+                        <button type="submit" class="btn btn-dark btn-sm w-100">
+                            <i class="fa fa-save"></i> Update Status
+                        </button>
+                    </form>
+
                 </div>
             </div>
         </div>
 
-        <div class="col-lg-6">
-            <div class="card">
+        <div class="col-md-6">
+            <div class="card mb-4">
                 <div class="card-header">
                     <h5 class="mb-0">Order & Customer</h5>
                 </div>
@@ -96,16 +148,47 @@
             </div>
         </div>
 
-        <div class="col-12">
-            <div class="card">
-                <div class="card-header">
-                    <h5 class="mb-0">Gateway Response</h5>
+    </div>
+</div>
+
+
+
+@if($transaction->payment_slip)
+    <div class="modal fade" id="paymentProofModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Payment Proof</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
-                <div class="card-body">
-                    <pre class="mb-0 text-sm text-muted" style="white-space: pre-wrap; word-break: break-word;">{{ $transaction->gateway_response ?? 'No response captured.' }}</pre>
+                <div class="modal-body text-center p-0">
+                    @php
+                        $extension = pathinfo($transaction->payment_slip, PATHINFO_EXTENSION);
+                    @endphp
+                    
+                    @if(in_array(strtolower($extension), ['jpg', 'jpeg', 'png', 'heic', 'webp']))
+                        <img src="{{ Storage::url($transaction->payment_slip) }}" alt="Payment Slip" class="img-fluid">
+                    @elseif(strtolower($extension) === 'pdf')
+                        <iframe src="{{ Storage::url($transaction->payment_slip) }}" style="width:100%; height:500px;" frameborder="0"></iframe>
+                    @else
+                        <div class="p-5">
+                            <p class="mb-3">File type not previewable directly.</p>
+                            <a href="{{ Storage::url($transaction->payment_slip) }}" target="_blank" class="btn btn-primary">
+                                Download File
+                            </a>
+                        </div>
+                    @endif
+                </div>
+                <div class="modal-footer">
+                    <a href="{{ Storage::url($transaction->payment_slip) }}" download class="btn btn-outline-secondary">
+                        <i class="fa fa-download"></i> Download
+                    </a>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
                 </div>
             </div>
         </div>
     </div>
-</div>
+    @endif
+
+
 @endsection

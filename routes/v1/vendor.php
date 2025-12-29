@@ -108,6 +108,7 @@ Route::prefix('vendor')->name('vendor.')->group(function () {
             Route::post('/{vendor}/customers/{customer}/activate', [VendorCustomerController::class, 'activate'])->name('customers.activate');
             Route::get('/{vendor}/transactions', [VendorTransactionController::class, 'index'])->name('transactions.index');
             Route::get('/{vendor}/transactions/{transaction:reference}', [VendorTransactionController::class, 'show'])->name('transactions.show');
+            Route::put('/{vendor}/transactions/{transaction:reference}', [VendorTransactionController::class, 'update'])->name('transactions.update');
             
             // Support Messages
             Route::get('/{vendor}/support-messages', [\App\Http\Controllers\Vendor\SupportMessageController::class, 'index'])->name('support-messages.index');

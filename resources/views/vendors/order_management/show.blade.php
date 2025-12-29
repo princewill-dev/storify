@@ -9,21 +9,16 @@
             <div class="d-flex justify-content-between align-items-center">
                 <div>
                     <div class="d-flex align-items-center gap-2">
-                        <h1 class="h3 mb-0">Order #{{ $order->order_number }}</h1>
-                        @if($order->isShop4me())
-                            <span class="badge bg-dark">Shop4Me</span>
-                        @else
-                            <span class="badge bg-secondary">Standard</span>
-                        @endif
+                        <h1 class="h3 mb-0">ID: #{{ $order->order_number }}</h1>
                     </div>
-                    <p class="text-muted mb-0">Created {{ $order->created_at->format('F d, Y \a\t H:i') }}</p>
+                    <p class="text-muted mb-0">Date {{ $order->created_at->format('F d, Y \a\t H:i') }}</p>
                 </div>
                 <div>
                     <a href="{{ route('vendor.orders.index', ['vendor' => $vendor, 'store_id' => request('store_id')]) }}" class="btn btn-secondary">
-                        <i class="fa fa-arrow-left"></i> Back to Orders
+                        <i class="fa fa-arrow-left"></i>
                     </a>
                     <a href="{{ route('vendor.orders.edit', ['vendor' => $vendor, 'order' => $order, 'store_id' => request('store_id')]) }}" class="btn btn-primary">
-                        <i class="fa fa-edit"></i> Edit Order
+                        <i class="fa fa-edit"></i>
                     </a>
                 </div>
             </div>
@@ -236,7 +231,7 @@
                     <h6 class="mb-0 fw-semibold">Order Status</h6>
                 </div>
                 <div class="card-body">
-                    <form action="{{ route('admin.orders.update-status', $order) }}" method="POST">
+                    <form action="{{ route('vendor.orders.update-status', ['vendor' => $vendor, 'order' => $order]) }}" method="POST">
                         @csrf
                         @method('PATCH')
                         
@@ -272,7 +267,7 @@
                     <h6 class="mb-0 fw-semibold">Payment Status</h6>
                 </div>
                 <div class="card-body">
-                    <form action="{{ route('admin.orders.update-payment-status', $order) }}" method="POST">
+                    <form action="{{ route('vendor.orders.update-payment-status', ['vendor' => $vendor, 'order' => $order]) }}" method="POST">
                         @csrf
                         @method('PATCH')
                         
