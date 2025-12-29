@@ -21,6 +21,7 @@ class Transaction extends Model
         'metadata',
         'paid_at',
         'payment_slip',
+        'store_bank_id',
     ];
 
     protected $casts = [
@@ -49,6 +50,11 @@ class Transaction extends Model
     public function paymentMethod(): BelongsTo
     {
         return $this->belongsTo(PaymentMethod::class);
+    }
+
+    public function storeBank(): BelongsTo
+    {
+        return $this->belongsTo(StoreBank::class);
     }
 
     public function getRouteKeyName(): string

@@ -105,6 +105,11 @@ class Order extends Model
         return $this->hasMany(Transaction::class);
     }
 
+    public function transaction(): HasOne
+    {
+        return $this->hasOne(Transaction::class)->latestOfMany();
+    }
+
     public function deliveryAddress(): BelongsTo
     {
         return $this->belongsTo(DeliveryAddress::class);
@@ -113,5 +118,15 @@ class Order extends Model
     public function deliveryRoute(): BelongsTo
     {
         return $this->belongsTo(DeliveryRoute::class);
+    }
+
+    public function getStatusLabelAttribute(): string
+    {
+        return $this->status instanceof \App\Enums\OrderStatus ? $this->status->label() : ucfirst($this->status);
+    }
+
+    public function getStatusBadgeClassAttribute(): string
+    {
+        return $this->status instanceof \App\Enums\OrderStatus ? $this->status->badgeClass() : 'bg-secondary';
     }
 }

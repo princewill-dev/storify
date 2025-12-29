@@ -43,7 +43,7 @@
         <div class="row">
             @forelse($stores as $store)
             <div class="col-md-6 col-lg-4 col-xl-3">
-                <a href="{{ store_url($store->slug) }}" class="store-card">
+                <a href="{{ store_url($store->slug) }}" class="store-card" target="_blank">
                     <div class="store-1 r-12 mb-40">
                         <!-- Store Logo -->
                         <div class="store-logo">

@@ -36,7 +36,7 @@
                         
                         <li class="nl-simple" aria-haspopup="true"><a href="./#features" class="h-link">Our Services</a></li>
 
-                        <li class="nl-simple" aria-haspopup="true"><a href="projects.html" class="h-link">Checkout Stores</a></li>
+                        <li class="nl-simple" aria-haspopup="true"><a href="{{ route('home.stores') }}" class="h-link">Checkout Stores</a></li>
                         
                         <li class="nl-simple" aria-haspopup="true"><a href="./#features" class="h-link">Support</a></li>
 

@@ -117,30 +117,13 @@
                             </td>
                             <td class="fw-bold">₦{{ number_format($order->total, 2) }}</td>
                             <td>
-                                @php
-                                    $statusColors = [
-                                        'pending' => 'secondary',
-                                        'accepted' => 'info',
-                                        'processing' => 'primary',
-                                        'dispatched' => 'secondary',
-                                        'delivered' => 'success',
-                                        'completed' => 'success',
-                                        'cancelled' => 'danger',
-                                        'returned' => 'dark',
-                                    ];
-                                    $color = $statusColors[$order->status] ?? 'secondary';
-                                @endphp
-                                <span class="badge bg-{{ $color }} text-white-50 text-uppercase fw-semibold" style="font-size: 0.75rem;">{{ ucfirst($order->status) }}</span>
+                                <span class="badge {{ $order->status_badge_class }}">{{ $order->status_label }}</span>
                             </td>
                             <td>
-                                @if($order->payment_status === 'paid')
-                                <span class="badge bg-success-subtle text-success">Paid</span>
-                                @elseif($order->payment_status === 'unpaid')
-                                <span class="badge bg-warning-subtle text-warning">Unpaid</span>
-                                @elseif($order->payment_status === 'refunded')
-                                <span class="badge bg-info-subtle text-info">Refunded</span>
+                                @if($order->transaction)
+                                    <span class="badge {{ $order->transaction->status_badge_class }}">{{ $order->transaction->status_label }}</span>
                                 @else
-                                <span class="badge bg-danger-subtle text-danger">Failed</span>
+                                    <span class="badge bg-light text-muted border">No Payment</span>
                                 @endif
                             </td>
                             <td>{{ $order->created_at->format('M d, Y') }}</td>

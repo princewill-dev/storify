@@ -39,7 +39,7 @@
                     <h4 class="card-title">Items</h4>
                     <div class="clearfix">
                         <button type="button" class="btn btn-primary btn-xxs" data-bs-toggle="modal" data-bs-target="#addItemModal">
-                            <i class="fi fi-rr-plus me-1"></i> Add to store
+                            <i class="fi fi-rr-plus me-1"></i> Add
                         </button>
                     </div>
                 </div>
@@ -302,10 +302,13 @@
                                         @endif
                                     </td>
                                     <td>
-                                        @if($transaction->paymentMethod)
-                                        <span class="badge badge-light">{{ $transaction->paymentMethod->name }}</span>
+                                        @if($transaction->storeBank)
+                                            <div>
+                                                <span class="text-dark">{{ $transaction->storeBank->bank_name }}</span>
+                                                <!-- <div class="small text-muted mt-1">{{ $transaction->storeBank->masked_account_number }}</div> -->
+                                            </div>
                                         @else
-                                        <span class="text-muted">N/A</span>
+                                            <span class="text-muted">N/A</span>
                                         @endif
                                     </td>
                                     <td>
@@ -319,7 +322,7 @@
                                         @elseif($transaction->status === 'failed')
                                             <span class="badge badge-danger light">Failed</span>
                                         @else
-                                            <span class="badge badge-secondary light">{{ ucfirst($transaction->status) }}</span>
+                                            <span class="badge {{ $transaction->status_badge_class }}">{{ $transaction->status_label }}</span>
                                         @endif
                                     </td>
                                     <td>

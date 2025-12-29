@@ -66,3 +66,6 @@ Route::get('/payment/{reference}/failed', function($reference) {
     $order = $transaction->order;
     return view('payment.failed', compact('order', 'transaction'));
 })->name('order.failed');
+
+Route::get('/{store_slug}/checkout/{order}/payment-pending', [\App\Http\Controllers\Payment\BankTransferController::class, 'pending'])
+    ->name('payment.pending');

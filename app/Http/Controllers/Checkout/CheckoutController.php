@@ -413,35 +413,11 @@ class CheckoutController extends Controller
                 'cart_id' => $cart->id
             ]);
 
-            // Send email notifications
-            try {
-                // Send order confirmation to customer
-                Mail::to($customer->email)->send(new OrderReceivedMail($order));
-                
-                // Send new order notification to admin
-                $adminEmail = config('mail.admin_email', env('ADMIN_EMAIL', 'admin@example.com'));
-                if ($adminEmail && $adminEmail !== 'admin@example.com') {
-                    Mail::to($adminEmail)->send(new NewOrderAdminMail($order));
-                }
-
-                $vendorEmail = $order->vendor?->email;
-                if ($vendorEmail) {
-                    Mail::to($vendorEmail)->send(new VendorOrderNotificationMail($order));
-                }
-                
-                Log::info('checkout_emails_sent', [
-                    'order_id' => $order->id,
-                    'customer_email' => $customer->email,
-                    'admin_email' => $adminEmail,
-                    'vendor_email' => $vendorEmail,
-                ]);
-            } catch (\Exception $e) {
-                Log::error('checkout_email_failed', [
-                    'order_id' => $order->id,
-                    'error' => $e->getMessage()
-                ]);
-                // Don't fail the checkout if email fails
-            }
+            // Emails are now sent after payment confirmation (see BankTransferController@confirmPayment)
+            Log::info('checkout_completed_waiting_payment', [
+                'order_id' => $order->id,
+                'customer_id' => $customer->id
+            ]);
 
             // Redirect directly to payment method selection
             return redirect()->route('checkout.payment-methods', [

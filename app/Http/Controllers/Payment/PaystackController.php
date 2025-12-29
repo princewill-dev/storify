@@ -11,6 +11,10 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Mail;
+use App\Mail\NewOrderAdminMail;
+use App\Mail\OrderReceivedMail;
+use App\Mail\VendorOrderNotificationMail;
 
 class PaystackController extends Controller
 {
@@ -266,6 +270,33 @@ class PaystackController extends Controller
                     'amount' => $transaction->amount,
                 ]);
 
+                // Send email notifications
+                try {
+                    // Send order confirmation to customer
+                    Mail::to($order->customer->email)->send(new OrderReceivedMail($order));
+                    
+                    // Send new order notification to admin
+                    $adminEmail = config('mail.admin_email', env('ADMIN_EMAIL', 'admin@example.com'));
+                    if ($adminEmail && $adminEmail !== 'admin@example.com') {
+                        Mail::to($adminEmail)->send(new NewOrderAdminMail($order));
+                    }
+
+                    $vendorEmail = $order->vendor?->email;
+                    if ($vendorEmail) {
+                        Mail::to($vendorEmail)->send(new VendorOrderNotificationMail($order));
+                    }
+                    
+                    Log::info('paystack.callback.emails_sent', [
+                        'order_id' => $order->id,
+                        'customer_email' => $order->customer->email,
+                    ]);
+                } catch (\Exception $e) {
+                    Log::error('paystack.callback.email_failed', [
+                        'order_id' => $order->id,
+                        'error' => $e->getMessage()
+                    ]);
+                }
+
                 DB::commit();
 
                 return redirect()->route('order.success', ['reference' => $reference])
@@ -380,6 +411,33 @@ class PaystackController extends Controller
                     'reference' => $transaction->reference,
                     'transaction_id' => $transaction->id,
                 ]);
+
+                // Send email notifications
+                try {
+                    // Send order confirmation to customer
+                    Mail::to($transaction->order->customer->email)->send(new OrderReceivedMail($transaction->order));
+                    
+                    // Send new order notification to admin
+                    $adminEmail = config('mail.admin_email', env('ADMIN_EMAIL', 'admin@example.com'));
+                    if ($adminEmail && $adminEmail !== 'admin@example.com') {
+                        Mail::to($adminEmail)->send(new NewOrderAdminMail($transaction->order));
+                    }
+
+                    $vendorEmail = $transaction->order->vendor?->email;
+                    if ($vendorEmail) {
+                        Mail::to($vendorEmail)->send(new VendorOrderNotificationMail($transaction->order));
+                    }
+                    
+                    Log::info('paystack.webhook.emails_sent', [
+                        'order_id' => $transaction->order->id,
+                        'customer_email' => $transaction->order->customer->email,
+                    ]);
+                } catch (\Exception $e) {
+                    Log::error('paystack.webhook.email_failed', [
+                        'order_id' => $transaction->order->id,
+                        'error' => $e->getMessage()
+                    ]);
+                }
             });
         }
     }

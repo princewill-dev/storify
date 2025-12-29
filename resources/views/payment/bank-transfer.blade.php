@@ -71,6 +71,7 @@
                         <!-- Payment Form -->
                         <form method="POST" action="{{ route('payment.bank-transfer.confirm', ['store_slug' => $store->slug, 'order' => $order]) }}" enctype="multipart/form-data" id="paymentForm">
                             @csrf
+                            <input type="hidden" name="store_bank_id" id="store_bank_id" value="">
 
                             <div class="mb-4">
                                 <label for="payment_slip" class="form-label text-muted small mb-2">
@@ -105,29 +106,6 @@
     </div>
 </div>
 
-<!-- Success Modal -->
-<div class="modal fade" id="successModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content border-0" style="border-radius: 12px;">
-            <div class="modal-body text-center p-5">
-                <div class="mb-4">
-                    <div style="width: 64px; height: 64px; background: #ecfdf5; border-radius: 50%; margin: 0 auto; display: flex; align-items: center; justify-content: center;">
-                        <i class="fa fa-check" style="font-size: 32px; color: #10b981;"></i>
-                    </div>
-                </div>
-                <h5 class="mb-2" style="color: #1a1a1a;">Payment submitted successfully</h5>
-                <p class="text-muted mb-4">Your order has been received and is being processed</p>
-                <div class="mb-4">
-                    <a href="{{ route('tracking.show', ['order' => $order->order_number]) }}" class="text-decoration-none" style="color: #3b82f6; font-weight: 500;">
-                        Track order {{ $order->order_number }} →
-                    </a>
-                </div>
-                <button type="button" class="btn btn-light" data-bs-dismiss="modal" style="border: 1px solid #e6ebf1; padding: 10px 24px;">Close</button>
-            </div>
-        </div>
-    </div>
-</div>
-
 @push('styles')
 <style>
 .bank-card.selected .bank-card-header {
@@ -152,58 +130,6 @@
 button[type="submit"]:hover {
     background: #2d2d2d !important;
 }
-
-/* Modal styles */
-.modal {
-    display: none;
-    position: fixed;
-    z-index: 1050;
-    left: 0;
-    top: 0;
-    width: 100%;
-    height: 100%;
-    overflow: hidden;
-}
-.modal.show {
-    display: block !important;
-}
-.modal-backdrop {
-    position: fixed;
-    top: 0;
-    left: 0;
-    z-index: 1040;
-    width: 100vw;
-    height: 100vh;
-    background-color: rgba(0, 0, 0, 0.5);
-}
-.modal-backdrop.fade {
-    opacity: 0;
-}
-.modal-backdrop.show {
-    opacity: 0.5;
-}
-.modal-dialog {
-    position: relative;
-    width: auto;
-    margin: 1.75rem auto;
-    pointer-events: none;
-    max-width: 500px;
-}
-.modal-dialog-centered {
-    display: flex;
-    align-items: center;
-    min-height: calc(100% - 1.75rem * 2);
-}
-.modal-content {
-    pointer-events: auto;
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    width: 100%;
-    background-color: #fff;
-    background-clip: padding-box;
-    outline: 0;
-}
 </style>
 @endpush
 
@@ -227,6 +153,10 @@ document.addEventListener('DOMContentLoaded', function() {
             // Add selected class to clicked card
             card.classList.add('selected', 'expanded');
             body.style.maxHeight = body.scrollHeight + 'px';
+            
+            // Update hidden input
+            const bankId = card.getAttribute('data-bank-id');
+            document.getElementById('store_bank_id').value = bankId;
         });
     });
     
@@ -280,27 +210,7 @@ document.getElementById('paymentForm').addEventListener('submit', function(e) {
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            // Show modal
-            const modal = document.getElementById('successModal');
-            modal.style.display = 'block';
-            modal.classList.add('show');
-            document.body.style.overflow = 'hidden';
-            
-            // Add backdrop
-            const backdrop = document.createElement('div');
-            backdrop.className = 'modal-backdrop fade show';
-            document.body.appendChild(backdrop);
-            
-            // Handle close button
-            const closeBtn = modal.querySelector('[data-bs-dismiss="modal"]');
-            closeBtn.addEventListener('click', function() {
-                window.location.href = data.tracking_url;
-            });
-            
-            // Auto-redirect after 5 seconds
-            setTimeout(() => {
-                window.location.href = data.tracking_url;
-            }, 5000);
+            window.location.href = data.redirect_url;
         } else {
             alert('An error occurred. Please try again.');
             submitBtn.disabled = false;

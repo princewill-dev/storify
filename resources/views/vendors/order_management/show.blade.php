@@ -177,7 +177,7 @@
                                     <p class="mb-2 small"><span class="text-muted">Payment Method:</span><br><strong>{{ $transaction->paymentMethod->name ?? 'N/A' }}</strong></p>
                                     <p class="mb-2 small"><span class="text-muted">Amount:</span><br><strong>₦{{ number_format($transaction->amount, 2) }}</strong></p>
                                     <p class="mb-0 small"><span class="text-muted">Status:</span><br>
-                                        <span class="badge bg-{{ $transaction->status === 'completed' ? 'dark' : 'secondary' }}">{{ ucfirst($transaction->status) }}</span>
+                                        <span class="badge {{ $transaction->status_badge_class }}">{{ $transaction->status_label }}</span>
                                     </p>
                                 </div>
                                 @endforeach
@@ -279,10 +279,25 @@
                         <div class="mb-3">
                             <label class="form-label small text-muted">Current Payment Status</label>
                             <select name="payment_status" class="form-select" required>
-                                <option value="unpaid" {{ $order->payment_status === 'unpaid' ? 'selected' : '' }}>Unpaid</option>
-                                <option value="paid" {{ $order->payment_status === 'paid' ? 'selected' : '' }}>Paid</option>
-                                <option value="refunded" {{ $order->payment_status === 'refunded' ? 'selected' : '' }}>Refunded</option>
-                                <option value="failed" {{ $order->payment_status === 'failed' ? 'selected' : '' }}>Failed</option>
+                                @php
+                                    $currentStatus = $order->payment_status;
+                                    $statuses = \App\Enums\PaymentStatus::cases();
+                                @endphp
+
+                                {{-- Render current status first --}}
+                                @if($currentStatus instanceof \App\Enums\PaymentStatus)
+                                    <option value="{{ $currentStatus->value }}" selected>{{ $currentStatus->label() }}</option>
+                                @endif
+                                
+                                {{-- Render other statuses --}}
+                                @foreach($statuses as $status)
+                                    @if($currentStatus instanceof \App\Enums\PaymentStatus && $status === $currentStatus)
+                                        @continue
+                                    @endif
+                                    <option value="{{ $status->value }}" {{ !$currentStatus instanceof \App\Enums\PaymentStatus && $currentStatus == $status->value ? 'selected' : '' }}>
+                                        {{ $status->label() }}
+                                    </option>
+                                @endforeach
                             </select>
                         </div>
 
