@@ -87,9 +87,12 @@ class BankTransferController extends Controller
         ]);
 
         // Update order payment status
+        // Order payment status is now derived from transaction status
+        /*
         $order->update([
-            'payment_status' => 'paid',
+            'payment_status' => 'pending',
         ]);
+        */
 
         Log::info('bank_transfer.payment_confirmed', [
             'transaction_id' => $transaction->id,

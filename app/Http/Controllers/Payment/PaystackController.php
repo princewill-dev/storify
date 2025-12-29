@@ -259,7 +259,7 @@ class PaystackController extends Controller
                 // Update order
                 $order = $transaction->order;
                 $order->update([
-                    'payment_status' => 'paid',
+                    // 'payment_status' => 'paid', // Derived from transaction
                     'payment_method' => 'Paystack',
                 ]);
 
@@ -403,7 +403,7 @@ class PaystackController extends Controller
                 ]);
 
                 $transaction->order->update([
-                    'payment_status' => 'paid',
+                    // 'payment_status' => 'paid', // Derived from transaction
                     'payment_method' => 'Paystack',
                 ]);
 

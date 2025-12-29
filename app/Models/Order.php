@@ -26,7 +26,7 @@ class Order extends Model
         'tax',
         'total',
         'status',
-        'payment_status',
+        'status',
         'notes',
         'meta',
     ];
@@ -37,7 +37,7 @@ class Order extends Model
         'tax' => 'decimal:2',
         'total' => 'decimal:2',
         'status' => \App\Enums\OrderStatus::class,
-        'payment_status' => \App\Enums\PaymentStatus::class,
+        'status' => \App\Enums\OrderStatus::class,
         'meta' => 'array',
     ];
 
@@ -128,5 +128,24 @@ class Order extends Model
     public function getStatusBadgeClassAttribute(): string
     {
         return $this->status instanceof \App\Enums\OrderStatus ? $this->status->badgeClass() : 'bg-secondary';
+    }
+
+    public function getPaymentStatusAttribute()
+    {
+        $transaction = $this->transaction; // Uses the HasOne latestOfMany relationship
+
+        if (!$transaction) {
+            return \App\Enums\PaymentStatus::UNPAID;
+        }
+
+        // Map TransactionStatus to PaymentStatus
+        return match($transaction->status) {
+            \App\Enums\TransactionStatus::PENDING => \App\Enums\PaymentStatus::PENDING,
+            \App\Enums\TransactionStatus::PAID => \App\Enums\PaymentStatus::PAID,
+            \App\Enums\TransactionStatus::COMPLETED => \App\Enums\PaymentStatus::PAID, // Treat completed as paid
+            \App\Enums\TransactionStatus::REFUNDED => \App\Enums\PaymentStatus::REFUNDED,
+            \App\Enums\TransactionStatus::CANCELED => \App\Enums\PaymentStatus::FAILED,
+            default => \App\Enums\PaymentStatus::UNPAID,
+        };
     }
 }

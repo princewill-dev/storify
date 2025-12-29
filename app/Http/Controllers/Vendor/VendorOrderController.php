@@ -38,7 +38,24 @@ class VendorOrderController extends Controller
         }
 
         if ($request->filled('payment_status')) {
-            $query->where('payment_status', $request->payment_status);
+            $status = $request->payment_status;
+            // Map generic payment statuses to transaction statuses
+            $transactionStatus = match($status) {
+                'unpaid' => null, // Special case
+                'pending' => \App\Enums\TransactionStatus::PENDING->value,
+                'paid' => \App\Enums\TransactionStatus::PAID->value,
+                'refunded' => \App\Enums\TransactionStatus::REFUNDED->value,
+                'failed' => \App\Enums\TransactionStatus::CANCELED->value, // Failed maps to canceled
+                default => $status,
+            };
+
+            if ($status === 'unpaid') {
+                $query->whereDoesntHave('transactions');
+            } else {
+                $query->whereHas('transactions', function ($q) use ($transactionStatus) {
+                    $q->where('status', $transactionStatus);
+                });
+            }
         }
 
         if ($request->filled('date_from')) {
@@ -84,7 +101,9 @@ class VendorOrderController extends Controller
             'completed' => Order::where('vendor_id', $vendor->id)->where('status', 'completed')->count(),
             'cancelled' => Order::where('vendor_id', $vendor->id)->where('status', 'cancelled')->count(),
             'returned' => Order::where('vendor_id', $vendor->id)->where('status', 'returned')->count(),
-            'total_revenue' => Order::where('vendor_id', $vendor->id)->where('payment_status', 'paid')->sum('total'),
+            'total_revenue' => Order::where('vendor_id', $vendor->id)
+                ->whereHas('transactions', fn($q) => $q->where('status', \App\Enums\TransactionStatus::PAID))
+                ->sum('total'),
         ];
 
         $stores = $vendor->stores()->orderBy('name')->get();
@@ -163,9 +182,46 @@ class VendorOrderController extends Controller
             return redirect()->route('vendor.auth.login');
         }
 
-        $data = $request->validate(['payment_status' => ['required', 'in:unpaid,paid,refunded,failed']]);
-        $order->payment_status = $data['payment_status'];
-        $order->save();
+        $data = $request->validate(['payment_status' => ['required', 'string']]);
+        
+        // Find existing transaction or create new one
+        $transaction = $order->transaction()->first(); // Check accessor logic, but here direct relation
+        
+        // Map selected payment status to TransactionStatus
+        $newStatus = match($data['payment_status']) {
+            'pending' => \App\Enums\TransactionStatus::PENDING,
+            'paid' => \App\Enums\TransactionStatus::PAID,
+            'refunded' => \App\Enums\TransactionStatus::REFUNDED,
+            'failed' => \App\Enums\TransactionStatus::CANCELED,
+            'unpaid' => null, // Special handling
+            default => \App\Enums\TransactionStatus::PENDING,
+        };
+
+        if ($data['payment_status'] === 'unpaid') {
+            // Option 1: Delete transaction? 
+            // Option 2: Set to pending?
+            // Decision: If manually marking unpaid, maybe we delete the transaction or set to pending. 
+            // For now, let's just set it to pending if it exists, or do nothing.
+             if ($transaction) {
+                 $transaction->delete(); // Or set to pending
+             }
+        } elseif ($newStatus) {
+             if ($transaction) {
+                $transaction->update(['status' => $newStatus]);
+             } else {
+                // Create a catch-all transaction method (e.g. Cash/Manual)
+                $paymentMethod = \App\Models\PaymentMethod::where('code', 'cash')->first() 
+                    ?? \App\Models\PaymentMethod::first();
+                
+                $order->transactions()->create([
+                    'payment_method_id' => $paymentMethod?->id,
+                    'amount' => $order->total,
+                    'currency' => 'NGN', // Default
+                    'status' => $newStatus,
+                    'reference' => 'MAN-' . strtoupper(\Illuminate\Support\Str::random(10)),
+                ]);
+             }
+        }
 
         return back()->with('success', 'Payment status updated.');
     }

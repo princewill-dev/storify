@@ -32,8 +32,26 @@ class OrderController extends Controller
         }
 
         // Filter by payment status
+        // Filter by payment status
         if ($request->filled('payment_status')) {
-            $query->where('payment_status', $request->payment_status);
+            $status = $request->payment_status;
+            // Map generic payment statuses to transaction statuses
+            $transactionStatus = match($status) {
+                'unpaid' => null, // Special case
+                'pending' => \App\Enums\TransactionStatus::PENDING->value,
+                'paid' => \App\Enums\TransactionStatus::PAID->value,
+                'refunded' => \App\Enums\TransactionStatus::REFUNDED->value,
+                'failed' => \App\Enums\TransactionStatus::CANCELED->value, // Failed maps to canceled
+                default => $status,
+            };
+
+            if ($status === 'unpaid') {
+                $query->whereDoesntHave('transactions');
+            } else {
+                $query->whereHas('transactions', function ($q) use ($transactionStatus) {
+                    $q->where('status', $transactionStatus);
+                });
+            }
         }
 
         // Filter by store
@@ -81,11 +99,26 @@ class OrderController extends Controller
             $stats[strtolower($status->name)] = Order::where('status', $status->value)->count();
         }
         
+        
         foreach (PaymentStatus::cases() as $status) {
-            $stats[strtolower($status->name)] = Order::where('payment_status', $status->value)->count();
+            $statusValue = $status->value;
+            $transactionStatus = match($statusValue) {
+                'unpaid' => null,
+                'pending' => \App\Enums\TransactionStatus::PENDING->value,
+                'paid' => \App\Enums\TransactionStatus::PAID->value,
+                'refunded' => \App\Enums\TransactionStatus::REFUNDED->value,
+                'failed' => \App\Enums\TransactionStatus::CANCELED->value,
+                default => $statusValue,
+            };
+            
+            if ($statusValue === 'unpaid') {
+                $stats[strtolower($status->name)] = Order::doesntHave('transactions')->count();
+            } else {
+                $stats[strtolower($status->name)] = Order::whereHas('transactions', fn($q) => $q->where('status', $transactionStatus))->count();
+            }
         }
         
-        $stats['total_revenue'] = Order::where('payment_status', PaymentStatus::PAID->value)->sum('total');
+        $stats['total_revenue'] = Order::whereHas('transactions', fn($q) => $q->where('status', \App\Enums\TransactionStatus::PAID->value))->sum('total');
 
         return view('admin.order_management.index', compact('orders', 'stores', 'stats'))->with([
             'orderStatusBadges' => OrderStatus::badgeData(),
@@ -261,36 +294,65 @@ class OrderController extends Controller
     public function updatePaymentStatus(Request $request, Order $order)
     {
         $request->validate([
-            'payment_status' => 'required|in:unpaid,paid,refunded,failed',
+            'payment_status' => 'required|string',
         ]);
 
         try {
             DB::beginTransaction();
 
-            $oldPaymentStatus = $order->payment_status;
             $newPaymentStatus = $request->payment_status;
+            
+             // Find existing transaction or create new one
+            $transaction = $order->transaction()->first(); // Check accessor logic, but here direct relation
+            
+            // Map selected payment status to TransactionStatus
+            $newStatus = match($newPaymentStatus) {
+                'pending' => \App\Enums\TransactionStatus::PENDING,
+                'paid' => \App\Enums\TransactionStatus::PAID,
+                'refunded' => \App\Enums\TransactionStatus::REFUNDED,
+                'failed' => \App\Enums\TransactionStatus::CANCELED,
+                'unpaid' => null, // Special handling
+                default => \App\Enums\TransactionStatus::PENDING,
+            };
 
-            $order->update([
-                'payment_status' => $newPaymentStatus,
-            ]);
-
-            // Log activity
-            ActivityLog::create([
+            // Log activity (simplified for transaction update)
+             ActivityLog::create([
                 'user_id' => Auth::id(),
                 'action' => 'payment_status_updated',
                 'subject_type' => Order::class,
                 'subject_id' => $order->id,
-                'description' => "Changed payment status from {$oldPaymentStatus} to {$newPaymentStatus}",
-                'old_values' => json_encode(['payment_status' => $oldPaymentStatus]),
+                'description' => "Changed payment status to {$newPaymentStatus}",
+                'old_values' => null,
                 'new_values' => json_encode(['payment_status' => $newPaymentStatus]),
                 'ip_address' => request()->ip(),
             ]);
+
+            if ($newPaymentStatus === 'unpaid') {
+                 if ($transaction) {
+                     $transaction->delete(); // Or set to pending
+                 }
+            } elseif ($newStatus) {
+                 if ($transaction) {
+                    $transaction->update(['status' => $newStatus]);
+                 } else {
+                    // Create a catch-all transaction method (e.g. Cash/Manual)
+                    $paymentMethod = \App\Models\PaymentMethod::where('code', 'cash')->first() 
+                        ?? \App\Models\PaymentMethod::first();
+                    
+                    $order->transactions()->create([
+                        'payment_method_id' => $paymentMethod?->id,
+                        'amount' => $order->total,
+                        'currency' => 'NGN', // Default
+                        'status' => $newStatus,
+                        'reference' => 'MAN-' . strtoupper(\Illuminate\Support\Str::random(10)),
+                    ]);
+                 }
+            }
 
             DB::commit();
 
             Log::info('order_payment_status_updated', [
                 'order_id' => $order->id,
-                'old_payment_status' => $oldPaymentStatus,
                 'new_payment_status' => $newPaymentStatus,
                 'admin_id' => Auth::id()
             ]);

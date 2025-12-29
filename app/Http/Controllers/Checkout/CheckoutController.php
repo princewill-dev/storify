@@ -658,9 +658,12 @@ class CheckoutController extends Controller
         }
 
         // Mark order as paid
+        // Order payment status is now derived from transaction status
+        /*
         $order->update([
             'payment_status' => PaymentStatus::PAID,
         ]);
+        */
 
         // Update transaction status
         $transaction = $order->transactions()->first();
