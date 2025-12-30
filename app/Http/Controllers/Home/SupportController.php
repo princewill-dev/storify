@@ -7,16 +7,74 @@ use App\Mail\AdminNewSupportMessageMail;
 use App\Mail\SupportMessageReceivedMail;
 use App\Models\Store;
 use App\Models\SupportMessage;
-use App\Models\User;
+use App\Models\Setting;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Validator;
+use App\Mail\SupportMessageAdmin;
+use App\Mail\SupportMessageReceipt;
 
 class SupportController extends Controller
 {
     /**
-     * Display the support page
+     * Display the main platform support page
+     */
+    public function platformIndex()
+    {
+        return view('home.pages.support');
+    }
+
+    /**
+     * Handle main platform support form submission
+     */
+    public function platformSend(Request $request)
+    {
+        $validated = $request->validate([
+            'name' => 'required|string|max:255',
+            'email' => 'required|email|max:255',
+            'phone' => 'required|string|max:20',
+            'subject' => 'required|string|max:255',
+            'message' => 'required|string',
+        ]);
+
+        try {
+            // Get Company Email
+            $setting = Setting::first();
+            $adminEmail = $setting?->support_email ?? config('mail.from.address');
+
+            // Send to Admin
+            if ($adminEmail) {
+                Mail::to($adminEmail)->send(new SupportMessageAdmin($validated));
+            } else {
+                Log::warning('Support email not configured. Message logged but not sent to admin.', $validated);
+            }
+
+            // Send Receipt to User
+            Mail::to($validated['email'])->send(new SupportMessageReceipt($validated));
+
+            Log::info('Support message sent successfully', ['email' => $validated['email'], 'subject' => $validated['subject']]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Your message has been received. We will get back to you shortly.'
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to send support message', [
+                'error' => $e->getMessage(),
+                'data' => $validated
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'An error occurred while sending your message. Please try again later.'
+            ], 500);
+        }
+    }
+
+    /**
+     * Display the store support page (Original Logic)
      */
     public function index(string $store_slug)
     {
@@ -48,7 +106,7 @@ class SupportController extends Controller
     }
 
     /**
-     * Store a new support message
+     * Store a new support message for a store (Original Logic)
      */
     public function store(Request $request, string $store_slug)
     {

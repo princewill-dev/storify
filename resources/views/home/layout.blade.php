@@ -56,7 +56,8 @@
 		<link href="{{ asset('home/css/responsive.css') }}" rel="stylesheet">
 
 		@stack('styles')
-		@stack('scripts')
+		@stack('styles')
+
 
 	</head>
 
@@ -109,6 +110,8 @@
 				
 		<!-- Custom Script -->		
 		<script src="{{ asset('home/js/custom.js') }}"></script>
+
+		@stack('scripts')
 
 	</body>
 </html>

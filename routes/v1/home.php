@@ -12,6 +12,7 @@ use App\Http\Controllers\BulkCartController;
 use App\Http\Controllers\Home\InternationalSupplyController;
 use App\Http\Controllers\Home\SearchController;
 use App\Http\Controllers\Home\LiveFirstController;
+use App\Http\Controllers\Home\SupportController;
 
 // Handle www subdomain redirect to main domain
 Route::domain('www.' . config('app.main_domain', parse_url(config('app.url'), PHP_URL_HOST)))->group(function () {
@@ -33,7 +34,8 @@ Route::domain(config('app.main_domain', parse_url(config('app.url'), PHP_URL_HOS
     Route::get('/track-order/{order}', [TrackingController::class, 'show'])->name('tracking.show');
     
     Route::get('/about-us', [HomePageController::class, 'about'])->name('home.about');
-    Route::get('/support', [HomePageController::class, 'support'])->name('home.support');
+    Route::get('/support', [SupportController::class, 'platformIndex'])->name('home.support');
+    Route::post('/support/send', [SupportController::class, 'platformSend'])->name('home.support.send');
     Route::get('/stores', [HomePageController::class, 'stores'])->name('home.stores');
     Route::get('/services', [HomePageController::class, 'services'])->name('home.services');
     

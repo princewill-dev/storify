@@ -32,16 +32,17 @@
 
 
                         <!-- SIMPLE NAVIGATION LINK -->
-                        <li class="nl-simple" aria-haspopup="true"><a href="about-us.html" class="h-link">About</a></li>
-                        
-                        <li class="nl-simple" aria-haspopup="true"><a href="./#features" class="h-link">Our Services</a></li>
+                        <li class="nl-simple" aria-haspopup="true"><a href="{{ route('home.index') }}" class="h-link">Home</a></li>
 
-                        <li class="nl-simple" aria-haspopup="true"><a href="{{ route('home.stores') }}" class="h-link">Checkout Stores</a></li>
+                        <li class="nl-simple" aria-haspopup="true"><a href="{{ route('home.about') }}" class="h-link">About</a></li>
                         
-                        <li class="nl-simple" aria-haspopup="true"><a href="./#features" class="h-link">Support</a></li>
+                        <li class="nl-simple" aria-haspopup="true"><a href="./#features" class="h-link">Features</a></li>
+
+                        <li class="nl-simple" aria-haspopup="true"><a href="{{ route('home.stores') }}" class="h-link">Stores</a></li>
+                        
+                        <li class="nl-simple" aria-haspopup="true"><a href="{{ route('home.support') }}" class="h-link">Support</a></li>
 
                         <li class="nl-simple" aria-haspopup="true"><a href="{{ route('vendor.auth.login') }}" class="h-link">Login</a></li>
-
 
                         <!-- SIGN UP BUTTON -->
                         <li class="nl-simple" aria-haspopup="true">

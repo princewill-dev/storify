@@ -47,25 +47,10 @@
             <div>
                 <div class="divider"></div>
                 <div class="cta" style="display:flex;gap:12px;flex-wrap:wrap;">
-                    <a href="{{ ($store?->slug ?? false) ? route('home.store.products.index', ['store_slug' => $store->slug]) : route('home.index') }}" class="btn">Back to Store</a>
+                    <a href="{{route('home.index') }}" class="btn">Back to home</a>
                     <a href="mailto:{{ config('mail.from.address') }}" class="btn secondary">Contact Us</a>
                 </div>
                 <footer>© {{ date('Y') }} {{ $store->name ?? config('app.name', 'Zimozi Swift') }}. All rights reserved.</footer>
-            </div>
-            <div>
-                @if($services->isNotEmpty())
-                    <div class="brand" style="margin-bottom:8px;color:var(--text);text-transform:none;letter-spacing:0;font-size:13px;">Explore our services</div>
-                    <div class="links">
-                        @foreach($services as $service)
-                            @if(!empty($service->page_link))
-                                <a class="link-item" href="{{ $service->page_link }}">
-                                    <span>{{ $service->title }}</span>
-                                    <span class="arrow">→</span>
-                                </a>
-                            @endif
-                        @endforeach
-                    </div>
-                @endif
             </div>
         </div>
     </section>

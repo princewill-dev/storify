@@ -22,7 +22,7 @@
 					<!-- Buttons -->	
 					<div class="btns-group">
 						<a href="{{ route('vendor.auth.register') }}" class="btn r-04 btn--theme hover--theme" style="display: inline-flex; align-items: center; min-height: 52px;">Get started</a>
-						<a href="{{ route('home.stores') }}" class="btn r-04 btn--tra-black hover--theme" style="display: inline-flex; align-items: center; min-height: 52px;">See stores</a>
+						<a href="{{ route('home.stores') }}" class="btn r-04 btn--tra-black hover--theme" style="display: inline-flex; align-items: center; min-height: 52px;">View stores</a>
 					</div>
 					
 				</div>
