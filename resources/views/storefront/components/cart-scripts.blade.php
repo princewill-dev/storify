@@ -23,43 +23,42 @@
                 const productId = btn.data('product-id');
                 const qty = $('#quantity').val() || 1;
                 
-                // Construct variant key if variants exist
                 let variantKey = null;
                 const sizeBtn = $('.size-btn.active');
-                const colorBtn = $('.color-btn.active'); // Assuming there might be color buttons later or currently
-                // Based on PHP: size|weight|color
-                // Currently only size selector is visible in blade snippet
                 let size = sizeBtn.length ? sizeBtn.text().trim() : '';
                 
-                // For now, we only have size selector visible in the snippet provided. 
-                // We'll construct the key as best we can. 
-                // If the product has variants, we might need a more robust way to gather all attributes.
-                // But for now, let's pass the size if selected.
-                
-                // Actually, let's try to pass null if no intricate selection to avoid breaking 'index' logic
-                // But for details page, if size selected, we use it.
                 if (size) {
-                    // Start of key logic matching controller/view:
-                    // key = ($sizeKey ?? '') . '|' . ($weightKey ?? '') . '|' . ($colorKey ?? '');
-                    // The view renders the OPTIONS which are the formatted keys.
-                    // So we can just use the text.
-                    // But we need to be careful about the | separators.
-                    // We don't have weight/color selectors in the snippet (only size).
-                    // We'll assume just size for now or adapt if we see more.
-                    // Update: The snippet shows size-selector.
-                    variantKey = size + '||'; // Assuming weight and color are empty for now if not selected
+                    variantKey = size + '||'; 
                 }
                 
                 StorefrontCart.addToCart(productId, qty, variantKey, btn);
             });
+
+            // Buy Now Button
+            $('#buyNowBtn').on('click', function(e) {
+                e.preventDefault();
+                const btn = $(this);
+                const productId = btn.data('product-id');
+                const qty = $('#quantity').val() || 1;
+                
+                let variantKey = null;
+                const sizeBtn = $('.size-btn.active');
+                let size = sizeBtn.length ? sizeBtn.text().trim() : '';
+                
+                if (size) {
+                    variantKey = size + '||'; 
+                }
+                
+                StorefrontCart.addToCart(productId, qty, variantKey, btn, function() {
+                    window.location.href = "{{ route('checkout.index', ['store_slug' => $store->slug]) }}";
+                });
+            });
         },
 
-        addToCart: function(productId, qty, variantKey, btn) {
-            const originalText = btn.data('original-text') || btn.html(); // Use html to preserve icons/styles
+        addToCart: function(productId, qty, variantKey, btn, successCallback) {
+            const originalText = btn.data('original-text') || btn.html(); 
             if (!btn.data('original-text')) btn.data('original-text', originalText);
             
-            // Set loading state
-            // Check if it's the index button (anchor) or details button (button) to format "Adding..."
             const isIconBtn = btn.hasClass('m-btn');
             
             if (isIconBtn) {
@@ -77,7 +76,7 @@
                     product_id: productId,
                     qty: qty,
                     variant_key: variantKey,
-                    store_slug: this.storeSlug // Pass store slug just in case, though route handles it via subdomain usually
+                    store_slug: this.storeSlug 
                 },
                 success: function(response) {
                     if (isIconBtn) {
@@ -89,6 +88,11 @@
                     StorefrontCart.updateCartCount(response.item_count);
                     StorefrontCart.renderCart(response);
                     
+                    if (successCallback) {
+                        successCallback(response);
+                        return; // Skip reverting button if redirecting
+                    }
+
                     // Revert button after delay
                     setTimeout(function() {
                         if (isIconBtn) {

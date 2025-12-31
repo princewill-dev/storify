@@ -84,7 +84,7 @@
                             <th>Customer</th>
                             <th>Store</th>
                             <th>Items</th>
-                            <th>Type</th>
+                            <!-- <th>Type</th> -->
                             <th>Total</th>
                             <th>Status</th>
                             <th>Payment</th>
@@ -108,13 +108,13 @@
                             </td>
                             <td>{{ $order->store->name }}</td>
                             <td>{{ $order->items->count() }}</td>
-                            <td>
+                            <!-- <td>
                                 @if($order->isShop4me())
                                     <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle">Shop4Me</span>
                                 @else
                                     <span class="badge bg-light text-muted border">Standard</span>
                                 @endif
-                            </td>
+                            </td> -->
                             <td class="fw-bold">₦{{ number_format($order->total, 2) }}</td>
                             <td>
                                 <span class="badge {{ $order->status_badge_class }}">{{ $order->status_label }}</span>
