@@ -52,6 +52,11 @@
               </select>
             </div>
           </div>
+          <div class="col-md-4">
+            <label class="form-label">Discount (%)</label>
+            <input type="number" name="discount_percentage" step="0.01" min="0" max="100" class="form-control" value="{{ old('discount_percentage') }}" placeholder="e.g. 10">
+            <small class="text-muted">Optional. Final price = Amount × (1 − discount/100).</small>
+          </div>
 
           <div class="col-md-4">
             <label class="form-label">Category</label>
@@ -68,11 +73,6 @@
             </div>
           </div>
           
-          <div class="col-md-4">
-            <label class="form-label">Discount (%)</label>
-            <input type="number" name="discount_percentage" step="0.01" min="0" max="100" class="form-control" value="{{ old('discount_percentage') }}" placeholder="e.g. 10">
-            <small class="text-muted">Optional. Final price = Amount × (1 − discount/100).</small>
-          </div>
           <div class="col-md-4">
             <label class="form-label">Size</label>
             <div class="input-group">
@@ -194,7 +194,7 @@
           </div>
           <div class="col-12">
             <div class="form-check">
-              <input class="form-check-input" type="checkbox" name="cod_available" id="cod_available" value="1" {{ old('cod_available', true) ? 'checked' : '' }}>
+              <input class="form-check-input" type="checkbox" name="cod_available" id="cod_available" value="1" {{ old('cod_available') ? 'checked' : '' }}>
               <label class="form-check-label" for="cod_available">Can be paid on delivery</label>
             </div>
           </div>
@@ -214,12 +214,93 @@
           <div class="col-12">
             <label class="form-label">Images</label>
             <input type="file" name="images[]" class="form-control" accept="image/*" multiple id="images-input">
+            <small class="text-muted">First selected image will be primary by default. Click on an image to change primary.</small>
             <input type="hidden" name="primary_image" id="primary-image-index" value="0">
-            <div class="mt-2" id="primary-picker" style="display:none;">
-              <div class="fw-bold">Choose primary image</div>
-              <div id="primary-options" class="d-flex flex-wrap gap-3"></div>
-            </div>
+            
+            <div class="mt-3 row g-3" id="image-previews"></div>
           </div>
+          
+          <script>
+          (function(){
+            const input = document.getElementById('images-input');
+            const container = document.getElementById('image-previews');
+            const hidden = document.getElementById('primary-image-index');
+            
+            if(!input || !container) return;
+            
+            let selectedFiles = [];
+            
+            input.addEventListener('change', function(e){
+               container.innerHTML = '';
+               selectedFiles = Array.from(input.files || []);
+               
+               if(selectedFiles.length === 0) {
+                   hidden.value = '0';
+                   return;
+               }
+               
+               // Reset primary to 0 on new selection
+               hidden.value = '0';
+               
+               selectedFiles.forEach((file, index) => {
+                   const reader = new FileReader();
+                   
+                   const col = document.createElement('div');
+                   col.className = 'col-6 col-md-4 col-lg-3';
+                   
+                   const card = document.createElement('div');
+                   card.className = 'card h-100 position-relative border cursor-pointer preview-card';
+                   card.style.cursor = 'pointer';
+                   // Add selected class to first one by default
+                   if(index === 0) card.classList.add('border-primary', 'border-3');
+                   
+                   card.onclick = function() {
+                       // Update hidden input
+                       hidden.value = String(index);
+                       
+                       // Visual update
+                       document.querySelectorAll('.preview-card').forEach(c => {
+                           c.classList.remove('border-primary', 'border-3');
+                           const badge = c.querySelector('.primary-badge');
+                           if(badge) badge.remove();
+                       });
+                       
+                       card.classList.add('border-primary', 'border-3');
+                       addPrimaryBadge(card);
+                   };
+                   
+                   reader.onload = function(e) {
+                       const img = document.createElement('img');
+                       img.src = e.target.result;
+                       img.className = 'card-img-top';
+                       img.style.height = '150px';
+                       img.style.objectFit = 'cover';
+                       card.appendChild(img);
+                       
+                       const body = document.createElement('div');
+                       body.className = 'card-body p-2 text-center';
+                       body.innerHTML = `<small class="text-truncate d-block" title="${file.name}">${file.name}</small>`;
+                       card.appendChild(body);
+                       
+                       if(index === 0) {
+                           addPrimaryBadge(card);
+                       }
+                   };
+                   
+                   reader.readAsDataURL(file);
+                   col.appendChild(card);
+                   container.appendChild(col);
+               });
+            });
+            
+            function addPrimaryBadge(card) {
+                const badge = document.createElement('span');
+                badge.className = 'position-absolute top-0 start-0 badge bg-primary primary-badge m-2';
+                badge.textContent = 'Primary';
+                card.appendChild(badge);
+            }
+          })();
+          </script>
 
           <div class="col-md-4">
             <label class="form-label">Visibility</label>
@@ -292,28 +373,7 @@
 <script src="https://cdn.jsdelivr.net/npm/trix@2.0.8/dist/trix.umd.min.js"></script>
 
 <script>
-(function(){
-  const input = document.getElementById('images-input');
-  const picker = document.getElementById('primary-picker');
-  const options = document.getElementById('primary-options');
-  const hidden = document.getElementById('primary-image-index');
-  if(!input) return;
-  input.addEventListener('change', function(){
-    options.innerHTML='';
-    const files = Array.from(input.files || []);
-    if(files.length===0){ picker.style.display='none'; return; }
-    picker.style.display='block';
-    files.forEach((f, idx)=>{
-      const id = 'prim-'+idx;
-      const wrapper = document.createElement('label');
-      wrapper.className = 'd-inline-flex align-items-center gap-2 border rounded p-2';
-      wrapper.innerHTML = `<input type="radio" name="_primary_pick" ${idx===0?'checked':''} value="${idx}" id="${id}"><span>${f.name}</span>`;
-      wrapper.querySelector('input').addEventListener('change', ()=>{ hidden.value = String(idx); });
-      options.appendChild(wrapper);
-    });
-    hidden.value = '0';
-  });
-})();
+  // Variants UI logic
 
   // Variants UI logic
   (function(){

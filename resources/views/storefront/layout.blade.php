@@ -3,14 +3,16 @@
    <head>
       <meta charset="utf-8">
       <meta http-equiv="x-ua-compatible" content="ie=edge">
-      <title>{{ $company->name ?? 'Storify' }} | @yield('title')</title>
+      <title>@yield('title') | {{ $company->name ?? 'Storify' }}</title>
       <meta name="description" content="">
       <meta name="viewport" content="width=device-width, initial-scale=1">
       <!-- Place favicon.ico in the root directory -->
-      @php
-          $assetBaseUrl = ""; // Use relative paths to avoid CORS issues on subdomains
-      @endphp
-      <link rel="shortcut icon" type="image/x-icon" href="{{ $assetBaseUrl }}/storefront/assets/img/favicon.png">
+     
+      @if($store && $store->logo_path)
+         <link rel="shortcut icon" type="image/x-icon" href="{{ asset('storage/' . $store->logo_path) }}">
+      @else
+         <link rel="shortcut icon" type="image/x-icon" href="{{ asset('storefront/assets/img/favicon.png') }}">
+      @endif
       <!-- CSS here -->
       <link rel="stylesheet" href="{{ asset('storefront/assets/css/preloader.css') }}">
       <link rel="stylesheet" href="{{ asset('storefront/assets/css/bootstrap.min.css') }}">
