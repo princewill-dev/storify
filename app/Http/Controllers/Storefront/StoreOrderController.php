@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Order;
 use App\Models\Store;
 use Illuminate\Http\Request;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\View\View;
 
 class StoreOrderController extends Controller
@@ -16,7 +17,7 @@ class StoreOrderController extends Controller
         return view('storefront.pages.track-order', compact('store'));
     }
 
-    public function findOrder(Request $request, string $store_subdomain): View
+    public function findOrder(Request $request, string $store_subdomain): View|RedirectResponse
     {
         $store = Store::where('slug', $store_subdomain)->firstOrFail();
         

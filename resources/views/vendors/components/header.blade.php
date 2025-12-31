@@ -1,20 +1,21 @@
 <div class="nav-header">
-    <a href="{{ route('admin.dashboard') }}" class="brand-logo" aria-label="Brand Logo">
-        <img src="{{ $company->favicon }}" alt="{{ $company->name }}" style="width: 40px; height: 40px; object-fit: contain;">
-    </a>
     <div class="nav-control">
         <div class="hamburger">
             <span class="line"></span>
             <span class="line"></span>
         </div>
     </div>
+
+	<a href="{{ route('vendor.dashboard') }}" class="brand-logo d-none d-md-flex" aria-label="Brand Logo">
+        <img src="{{ $company->favicon }}" alt="{{ $company->name }}" style="width: 40px; height: 40px; object-fit: contain;">
+    </a>
 </div>
 
 <div class="header">
 	<div class="header-content">
 		<nav class="navbar navbar-expand">
 			<div class="collapse navbar-collapse justify-content-between">
-				<a href="{{ route('admin.dashboard') }}" class="brand-logo" aria-label="Brand Logo">
+				<a href="{{ route('vendor.dashboard') }}" class="brand-logo" aria-label="Brand Logo">
 					<img src="{{ $company->favicon }}" alt="{{ $company->name }}" style="width: 50px">
 				</a>
 				<ul class="navbar-nav header-right">

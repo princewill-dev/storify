@@ -37,19 +37,18 @@
                         <li><a href="{{ route('home.store.services', ['store_subdomain' => $store->slug]) }}">Services</a></li>
 
                         <li><a href="{{ route('home.store.order.track', ['store_subdomain' => $store->slug]) }}">Track Order</a></li>
-
-                        <li>
-                           <a href="javascript:void(0);" class="cart-toggle-btn">
-                           <i class="far fa-shopping-cart"></i>
-                           <span>0</span>
-                           </a>
-                        </li>
                      </ul>
                   </nav>
                </div>
             </div>
             <div class="col-xxl-3 col-xl-3 col-lg-2 col-md-8 col-6">
                <div class="header__action d-flex align-items-center justify-content-end">
+                  
+                  <a href="javascript:void(0);" class="cart-toggle-btn" style="position: relative; display: inline-flex; padding: 8px; color: #333; margin-right: 15px;">
+                     <i class="fas fa-shopping-cart" style="font-size: 24px;"></i>
+                     <span style="position: absolute; top: -5px; right: -5px; background: #7c5cfc; color: #fff; font-size: 12px; font-weight: 600; width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center;">0</span>
+                  </a>
+
                   <div class="sidebar__menu d-lg-none">
                      <div class="sidebar-toggle-btn" id="sidebar-toggle">
                            <span class="line"></span>
