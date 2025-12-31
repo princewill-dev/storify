@@ -6,8 +6,8 @@
 @push('styles')
    <style>
       .product-detail-page { background: #fff; padding: 60px 0; }
-      .product-gallery { display: flex; gap: 20px; }
-      .gallery-thumbnails { display: flex; flex-direction: column; gap: 12px; }
+      .product-gallery { display: flex; flex-direction: column; gap: 20px; }
+      .gallery-thumbnails { display: flex; flex-direction: row; gap: 12px; flex-wrap: wrap; }
       .gallery-thumb { width: 80px; height: 80px; border: 2px solid #e5e5e5; border-radius: 8px; overflow: hidden; cursor: pointer; transition: border-color 0.3s; }
       .gallery-thumb:hover, .gallery-thumb.active { border-color: #333; }
       .gallery-thumb img { width: 100%; height: 100%; object-fit: cover; }
@@ -69,6 +69,13 @@
          <!-- Product Gallery -->
          <div class="col-lg-6">
             <div class="product-gallery">
+               <div class="gallery-main" id="mainGallery">
+                  @if($product->images && $product->images->count() > 0)
+                     <img src="{{ asset('storage/' . $product->images->first()->path) }}" alt="{{ $product->name }}" id="mainImage">
+                  @else
+                     <img src="{{ asset('storefront/assets/img/product/product-1.jpg') }}" alt="{{ $product->name }}" id="mainImage">
+                  @endif
+               </div>
                <div class="gallery-thumbnails">
                   @if($product->images && $product->images->count() > 0)
                      @foreach($product->images as $index => $image)
@@ -80,13 +87,6 @@
                      <div class="gallery-thumb active">
                         <img src="{{ asset('storefront/assets/img/product/product-1.jpg') }}" alt="{{ $product->name }}">
                      </div>
-                  @endif
-               </div>
-               <div class="gallery-main" id="mainGallery">
-                  @if($product->images && $product->images->count() > 0)
-                     <img src="{{ asset('storage/' . $product->images->first()->path) }}" alt="{{ $product->name }}" id="mainImage">
-                  @else
-                     <img src="{{ asset('storefront/assets/img/product/product-1.jpg') }}" alt="{{ $product->name }}" id="mainImage">
                   @endif
                </div>
             </div>
@@ -117,7 +117,7 @@
                      @if($hasDiscount && $displayDiscountedAmount)
                         <span class="current-price">{{ $displayDiscountedAmount }}</span>
                         <span class="original-price">{{ $displayBaseAmount }}</span>
-                        <span class="discount-badge">{{ $displayDiscountPct ?? '' }}</span>
+                        <span class="discount-badge"> -{{ $displayDiscountPct ?? '' }}%</span>
                      @else
                         <span class="current-price">{{ $displayBaseAmount }}</span>
                      @endif
@@ -156,8 +156,8 @@
                      <input type="number" class="qty-input" id="quantity" value="1" min="1" readonly>
                      <button class="qty-btn" onclick="incrementQty()">+</button>
                   </div>
-                  <button id="addToCartDetails" class="add-to-cart-btn" data-product-id="{{ $product->id }}">Add to Cart</button>
-                  <button id="buyNowBtn" class="add-to-cart-btn" data-product-id="{{ $product->id }}">Buy Now</button>
+                  <button style="font-size: 12px;" id="addToCartDetails" class="add-to-cart-btn" data-product-id="{{ $product->id }}">Add to <i class="far fa-shopping-cart"></i></button>
+                  <button style="font-size: 12px;" id="buyNowBtn" class="add-to-cart-btn" data-product-id="{{ $product->id }}">Buy Now</button>
                </div>
 
                <div class="shipping-info">
@@ -210,7 +210,9 @@
                   </div>
                   <div class="details-content">
                      @if($product->description)
-                        <p>{!! nl2br(e($product->description)) !!}</p>
+                        <div class="description-content">
+                           {!! $product->description !!}
+                        </div>
                      @endif
                      
                      <ul style="list-style: none; padding: 0; margin-top: 20px;">

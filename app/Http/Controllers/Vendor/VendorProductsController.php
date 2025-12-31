@@ -332,7 +332,7 @@ class VendorProductsController extends Controller
         }
 
         $stores = $vendor->stores()->pluck('id')->all();
-        if (!in_array($request->input('store_id'), $stores, true)) {
+        if (!in_array((int)$request->input('store_id'), $stores, true)) {
             return back()->with('error', 'Invalid store selection.')->withInput();
         }
 
