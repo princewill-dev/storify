@@ -294,5 +294,28 @@ class AppServiceProvider extends ServiceProvider
                 'vendorBrandVendor' => $vendor,
             ]);
         });
+        // Share categories for storefront header
+        View::composer('storefront.components.header', function ($view) {
+            $data = $view->getData();
+            $store = $data['store'] ?? null;
+
+            if ($store) {
+                 try {
+                     // Cache key per store to avoid DB hits on every page load
+                     $categories = Cache::remember('store_categories_' . $store->id, 300, function () use ($store) {
+                        return \App\Models\Category::where('store_id', $store->id)
+                            ->where('status', 'active')
+                            ->orderBy('name')
+                            ->take(10)
+                            ->get();
+                     });
+                 } catch (\Throwable $e) {
+                     $categories = collect();
+                 }
+                 $view->with('headerCategories', $categories);
+            } else {
+                 $view->with('headerCategories', collect());
+            }
+        });
     }
 }

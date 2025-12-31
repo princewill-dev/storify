@@ -19,34 +19,26 @@
                      <ul>
                         <li class="active"><a href="{{ $store ? store_url($store->slug) : route('home.index') }}">Home</a></li>
 
-                        <li><a href="support.html">Support</a></li>
+                         @if(isset($headerCategories) && $headerCategories->count() > 0)
+                            <li class="has-dropdown">
+                               <a href="javascript:void(0)">Categories</a>
+                               <ul class="submenu">
+                                  @foreach($headerCategories as $cat)
+                                    <li><a href="{{ route('home.store.category', ['store_subdomain' => $store->slug, 'category' => $cat->slug]) }}">{{ $cat->name }}</a></li>
+                                  @endforeach
+                               </ul>
+                            </li>
+                         @endif
 
-                        <li  class="has-dropdown">
-                           <a href="product.html">pages</a>
+                        <li><a href="{{ route('home.support.index', ['store_subdomain' => $store->slug]) }}">Support</a></li>
 
-                           <ul class="submenu">
-                              <li><a href="about.html">About</a></li>
-                              <li><a href="documentation.html">Documentation</a></li>
-                              <li><a href="pricing.html">Pricing</a></li>
-                              <li><a href="sign-up.html">Sign Up</a></li>
-                              <li><a href="sign-in.html">Log In</a></li>
-                           </ul>
-                        </li>
+                        <li><a href="{{ route('home.store.products', ['store_subdomain' => $store->slug]) }}">Products</a></li>
 
-                        <li class="has-dropdown">
-                           <a href="blog.html">Blog</a>
-
-                           <ul class="submenu">
-                              <li><a href="blog.html">Blog</a></li>
-                              <li><a href="blog-details.html">Blog Details</a></li>
-                           </ul>
-                        </li>
-                        
-                        <li><a href="contact.html">Contact</a></li>
+                        <li><a href="{{ route('home.store.services', ['store_subdomain' => $store->slug]) }}">Services</a></li>
 
                         <li>
                            <a href="javascript:void(0);" class="cart-toggle-btn">
-                           <i class="far fa-shopping-cart">Cart</i>
+                           <i class="far fa-shopping-cart"></i>
                            <span>0</span>
                            </a>
                         </li>

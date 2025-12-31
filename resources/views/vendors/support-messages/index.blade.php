@@ -14,7 +14,7 @@
                     </div>
                 </div>
                 <div class="card-body">
-                    @if(session('success'))
+                    <!-- @if(session('success'))
                         <div class="alert alert-success alert-dismissible fade show">
                             <i class="fa fa-check-circle me-2"></i>{{ session('success') }}
                             <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
@@ -26,7 +26,7 @@
                             <i class="fa fa-exclamation-circle me-2"></i>{{ session('error') }}
                             <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
                         </div>
-                    @endif
+                    @endif -->
 
                     <div class="table-responsive">
                         <table class="table table-hover table-bordered">

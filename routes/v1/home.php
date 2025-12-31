@@ -166,9 +166,16 @@ Route::domain('{store_subdomain}.' . config('app.main_domain', parse_url(config(
     });
     
     // Support page routes
-    Route::get('/support', [\App\Http\Controllers\Home\SupportController::class, 'index'])->name('home.support.index');
-    Route::post('/support', [\App\Http\Controllers\Home\SupportController::class, 'store'])->name('home.support.store');
-    
+    Route::get('/support', [\App\Http\Controllers\Storefront\StoreSupportController::class, 'index'])->name('home.support.index');
+    Route::post('/support', [\App\Http\Controllers\Storefront\StoreSupportController::class, 'store'])->name('home.support.store');
+
+    // Category page
+    Route::get('/category/{category}', [\App\Http\Controllers\Storefront\StoreCategoryController::class, 'index'])->name('home.store.category');
+
+    // Products & Services Pages
+    Route::get('/products', [\App\Http\Controllers\Storefront\StoreProductController::class, 'index'])->name('home.store.products');
+    Route::get('/services', [\App\Http\Controllers\Storefront\StoreServiceController::class, 'index'])->name('home.store.services');
+
     // Product details
     Route::get('/products/{slug}-{code}', [ProductController::class, 'show'])
         ->where([

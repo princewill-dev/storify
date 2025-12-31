@@ -13,7 +13,7 @@
       <form method="post" action="{{ route('vendor.products.store', ['vendor' => $vendor]) }}" enctype="multipart/form-data">
         @csrf
         <div class="row g-3">
-          <div class="col-md-4">
+          <div class="col-md-3">
             <label class="form-label">Store</label>
             @if(isset($stores) && $stores->count() === 1)
               @php($only = $stores->first())
@@ -28,27 +28,7 @@
               </select>
             @endif
           </div>
-          <div class="col-md-4">
-            <label class="form-label">Category</label>
-            <div class="input-group">
-              <select name="category_id" id="category-select" class="form-select">
-                <option value="">—</option>
-                @foreach($categories as $c)
-                  <option value="{{ $c->id }}" @selected(old('category_id')==$c->id)>{{ $c->name }}</option>
-                @endforeach
-              </select>
-              <button type="button" class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#newCategoryModal">
-                <i class="bi bi-plus-lg"></i> Add New
-              </button>
-            </div>
-          </div>
-          <div class="col-md-4">
-            <label class="form-label">Status</label>
-            <select name="status" class="form-select" required>
-              <option value="active" @selected(old('status','active')=='active')>active</option>
-              <option value="inactive" @selected(old('status')=='inactive')>inactive</option>
-            </select>
-          </div>
+          
           <div class="col-md-6">
             <label class="form-label">Name</label>
             <input type="text" name="name" class="form-control" value="{{ old('name') }}" required>
@@ -72,6 +52,22 @@
               </select>
             </div>
           </div>
+
+          <div class="col-md-4">
+            <label class="form-label">Category</label>
+            <div class="input-group">
+              <select name="category_id" id="category-select" class="form-select">
+                <option value="">select category</option>
+                @foreach($categories as $c)
+                  <option value="{{ $c->id }}" @selected(old('category_id')==$c->id)>{{ $c->name }}</option>
+                @endforeach
+              </select>
+              <button type="button" class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#newCategoryModal">
+                <i class="bi bi-plus-lg"></i> Add New
+              </button>
+            </div>
+          </div>
+          
           <div class="col-md-4">
             <label class="form-label">Discount (%)</label>
             <input type="number" name="discount_percentage" step="0.01" min="0" max="100" class="form-control" value="{{ old('discount_percentage') }}" placeholder="e.g. 10">
@@ -224,6 +220,15 @@
               <div id="primary-options" class="d-flex flex-wrap gap-3"></div>
             </div>
           </div>
+
+          <div class="col-md-4">
+            <label class="form-label">Visibility</label>
+            <select name="status" class="form-select" required>
+              <option value="active" @selected(old('status','active')=='active')>visible</option>
+              <option value="inactive" @selected(old('status')=='inactive')>hidden</option>
+            </select>
+          </div>
+
         </div>
 
         <div class="mt-4 d-flex gap-2">
