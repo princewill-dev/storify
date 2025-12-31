@@ -36,6 +36,8 @@
 
                         <li><a href="{{ route('home.store.services', ['store_subdomain' => $store->slug]) }}">Services</a></li>
 
+                        <li><a href="{{ route('home.store.order.track', ['store_subdomain' => $store->slug]) }}">Track Order</a></li>
+
                         <li>
                            <a href="javascript:void(0);" class="cart-toggle-btn">
                            <i class="far fa-shopping-cart"></i>
