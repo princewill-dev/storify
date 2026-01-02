@@ -212,9 +212,9 @@
           </div>
 
           <div class="col-12">
-            <label class="form-label">Images</label>
-            <input type="file" name="images[]" class="form-control" accept="image/*" multiple id="images-input">
-            <small class="text-muted">First selected image will be primary by default. Click on an image to change primary.</small>
+            <label class="form-label">Product Media (Images/Videos)</label>
+            <input type="file" name="images[]" class="form-control" accept="image/*,video/*" multiple id="images-input">
+            <small class="text-muted">Upload up to 5 media files (max 300MB each). First selected media will be primary by default. Click on any media to change primary.</small>
             <input type="hidden" name="primary_image" id="primary-image-index" value="0">
             
             <div class="mt-3 row g-3" id="image-previews"></div>
@@ -229,10 +229,32 @@
             if(!input || !container) return;
             
             let selectedFiles = [];
+            const MAX_FILES = 5;
+            const MAX_FILE_SIZE = 300 * 1024 * 1024; // 300MB in bytes
             
             input.addEventListener('change', function(e){
                container.innerHTML = '';
                selectedFiles = Array.from(input.files || []);
+               
+               // Validate max files
+               if(selectedFiles.length > MAX_FILES) {
+                   alert(`You can only upload up to ${MAX_FILES} media files.`);
+                   input.value = '';
+                   selectedFiles = [];
+                   hidden.value = '0';
+                   return;
+               }
+               
+               // Validate file sizes
+               for(let i = 0; i < selectedFiles.length; i++) {
+                   if(selectedFiles[i].size > MAX_FILE_SIZE) {
+                       alert(`File "${selectedFiles[i].name}" exceeds 300MB limit.`);
+                       input.value = '';
+                       selectedFiles = [];
+                       hidden.value = '0';
+                       return;
+                   }
+               }
                
                if(selectedFiles.length === 0) {
                    hidden.value = '0';
@@ -243,8 +265,6 @@
                hidden.value = '0';
                
                selectedFiles.forEach((file, index) => {
-                   const reader = new FileReader();
-                   
                    const col = document.createElement('div');
                    col.className = 'col-6 col-md-4 col-lg-3';
                    
@@ -269,25 +289,60 @@
                        addPrimaryBadge(card);
                    };
                    
-                   reader.onload = function(e) {
-                       const img = document.createElement('img');
-                       img.src = e.target.result;
-                       img.className = 'card-img-top';
-                       img.style.height = '150px';
-                       img.style.objectFit = 'cover';
-                       card.appendChild(img);
-                       
-                       const body = document.createElement('div');
-                       body.className = 'card-body p-2 text-center';
-                       body.innerHTML = `<small class="text-truncate d-block" title="${file.name}">${file.name}</small>`;
-                       card.appendChild(body);
-                       
-                       if(index === 0) {
-                           addPrimaryBadge(card);
-                       }
-                   };
+                   const isVideo = file.type.startsWith('video/');
                    
-                   reader.readAsDataURL(file);
+                   if(isVideo) {
+                       // Handle video preview
+                       const video = document.createElement('video');
+                       video.className = 'card-img-top';
+                       video.style.height = '150px';
+                       video.style.objectFit = 'cover';
+                       video.style.backgroundColor = '#000';
+                       video.muted = true;
+                       
+                       const url = URL.createObjectURL(file);
+                       video.src = url;
+                       
+                       // Load video metadata to show first frame
+                       video.addEventListener('loadeddata', function() {
+                           video.currentTime = 0.1; // Show frame at 0.1s
+                       });
+                       
+                       card.appendChild(video);
+                       
+                       // Add video icon overlay
+                       const videoIcon = document.createElement('div');
+                       videoIcon.className = 'position-absolute top-50 start-50 translate-middle';
+                       videoIcon.innerHTML = '<i class="fas fa-play-circle text-white" style="font-size: 3rem; opacity: 0.8;"></i>';
+                       card.appendChild(videoIcon);
+                   } else {
+                       // Handle image preview
+                       const reader = new FileReader();
+                       reader.onload = function(e) {
+                           const img = document.createElement('img');
+                           img.src = e.target.result;
+                           img.className = 'card-img-top';
+                           img.style.height = '150px';
+                           img.style.objectFit = 'cover';
+                           card.appendChild(img);
+                       };
+                       reader.readAsDataURL(file);
+                   }
+                   
+                   // Add file info
+                   const body = document.createElement('div');
+                   body.className = 'card-body p-2 text-center';
+                   const fileSize = (file.size / (1024 * 1024)).toFixed(2);
+                   body.innerHTML = `
+                       <small class="text-truncate d-block" title="${file.name}">${file.name}</small>
+                       <small class="text-muted">${fileSize} MB</small>
+                   `;
+                   card.appendChild(body);
+                   
+                   if(index === 0) {
+                       addPrimaryBadge(card);
+                   }
+                   
                    col.appendChild(card);
                    container.appendChild(col);
                });
@@ -313,10 +368,34 @@
         </div>
 
         <div class="mt-4 d-flex gap-2">
-          <button class="btn btn-primary" type="submit">Create</button>
+          <button class="btn btn-primary" type="submit" id="submit-btn">
+            <span id="submit-text">Create</span>
+            <span id="submit-spinner" class="d-none">
+              <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+              Creating...
+            </span>
+          </button>
           <a class="btn btn-light" href="{{ route('admin.products.index') }}">Cancel</a>
         </div>
       </form>
+      
+      <script>
+      (function(){
+        const form = document.querySelector('form');
+        const submitBtn = document.getElementById('submit-btn');
+        const submitText = document.getElementById('submit-text');
+        const submitSpinner = document.getElementById('submit-spinner');
+        
+        if(form && submitBtn) {
+          form.addEventListener('submit', function(e) {
+            // Show spinner and disable button
+            submitText.classList.add('d-none');
+            submitSpinner.classList.remove('d-none');
+            submitBtn.disabled = true;
+          });
+        }
+      })();
+      </script>
     </div>
   </div>
 </div>

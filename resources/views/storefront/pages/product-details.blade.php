@@ -69,23 +69,56 @@
          <!-- Product Gallery -->
          <div class="col-lg-6">
             <div class="product-gallery">
-               <div class="gallery-main" id="mainGallery">
+               <div class="gallery-main position-relative" id="mainGallery">
                   @if($product->images && $product->images->count() > 0)
-                     <img src="{{ asset('storage/' . $product->images->first()->path) }}" alt="{{ $product->name }}" id="mainImage">
+                     @php
+                        $primaryMedia = $product->images->first();
+                        $mediaPath = asset('storage/' . $primaryMedia->path);
+                        $extension = strtolower(pathinfo($primaryMedia->path, PATHINFO_EXTENSION));
+                        $isVideo = in_array($extension, ['mp4', 'webm', 'mov', 'avi', 'mpeg']);
+                     @endphp
+                     
+                     @if($isVideo)
+                        <video id="mainVideo" class="detail-video" style="width: 100%; height: auto; max-height: 500px; object-fit: contain; cursor: pointer;" muted loop playsinline>
+                           <source src="{{ $mediaPath }}" type="video/{{ $extension === 'mov' ? 'quicktime' : $extension }}">
+                           Your browser does not support the video tag.
+                        </video>
+                        <div class="video-play-btn position-absolute top-50 start-50 translate-middle" style="cursor: pointer; z-index: 10;" id="mainPlayBtn">
+                           <i class="fas fa-play-circle text-white" style="font-size: 4rem; opacity: 0.9; filter: drop-shadow(0 2px 8px rgba(0,0,0,0.3));"></i>
+                        </div>
+                     @else
+                        <img src="{{ $mediaPath }}" alt="{{ $product->name }}" id="mainImage" style="width: 100%; height: auto;">
+                     @endif
                   @else
-                     <img src="{{ asset('storefront/assets/img/product/product-1.jpg') }}" alt="{{ $product->name }}" id="mainImage">
+                     <img src="{{ asset('storefront/assets/img/product/product-1.jpg') }}" alt="{{ $product->name }}" id="mainImage" style="width: 100%; height: auto;">
                   @endif
                </div>
                <div class="gallery-thumbnails">
                   @if($product->images && $product->images->count() > 0)
                      @foreach($product->images as $index => $image)
-                        <div class="gallery-thumb {{ $index === 0 ? 'active' : '' }}" onclick="changeMainImage('{{ asset('storage/' . $image->path) }}', this)">
-                           <img src="{{ asset('storage/' . $image->path) }}" alt="{{ $product->name }}">
+                        @php
+                           $thumbPath = asset('storage/' . $image->path);
+                           $thumbExt = strtolower(pathinfo($image->path, PATHINFO_EXTENSION));
+                           $thumbIsVideo = in_array($thumbExt, ['mp4', 'webm', 'mov', 'avi', 'mpeg']);
+                        @endphp
+                        <div class="gallery-thumb position-relative {{ $index === 0 ? 'active' : '' }}" 
+                             onclick="changeMainMedia('{{ $thumbPath }}', '{{ $thumbExt }}', {{ $thumbIsVideo ? 'true' : 'false' }}, this)"
+                             style="cursor: pointer;">
+                           @if($thumbIsVideo)
+                              <video style="width: 100%; height: 80px; object-fit: cover; pointer-events: none;" muted>
+                                 <source src="{{ $thumbPath }}" type="video/{{ $thumbExt === 'mov' ? 'quicktime' : $thumbExt }}">
+                              </video>
+                              <div class="position-absolute top-50 start-50 translate-middle" style="pointer-events: none;">
+                                 <i class="fas fa-play-circle text-white" style="font-size: 1.5rem; opacity: 0.9;"></i>
+                              </div>
+                           @else
+                              <img src="{{ $thumbPath }}" alt="{{ $product->name }}" style="width: 100%; height: 80px; object-fit: cover;">
+                           @endif
                         </div>
                      @endforeach
                   @else
                      <div class="gallery-thumb active">
-                        <img src="{{ asset('storefront/assets/img/product/product-1.jpg') }}" alt="{{ $product->name }}">
+                        <img src="{{ asset('storefront/assets/img/product/product-1.jpg') }}" alt="{{ $product->name }}" style="width: 100%; height: 80px; object-fit: cover;">
                      </div>
                   @endif
                </div>
@@ -263,27 +296,84 @@
 </section>
 
 <script>
-function changeMainImage(imageSrc, thumbElement) {
-   document.getElementById('mainImage').src = imageSrc;
-   document.querySelectorAll('.gallery-thumb').forEach(thumb => thumb.classList.remove('active'));
-   thumbElement.classList.add('active');
+function changeMainMedia(mediaSrc, extension, isVideo, thumbElement) {
+    const mainGallery = document.getElementById('mainGallery');
+    
+    // Remove active class from all thumbnails
+    document.querySelectorAll('.gallery-thumb').forEach(thumb => thumb.classList.remove('active'));
+    thumbElement.classList.add('active');
+    
+    if (isVideo) {
+        // Create video element
+        const mimeType = extension === 'mov' ? 'quicktime' : extension;
+        mainGallery.innerHTML = `
+            <video id="mainVideo" class="detail-video" style="width: 100%; height: auto; max-height: 500px; object-fit: contain; cursor: pointer;" muted loop playsinline>
+                <source src="${mediaSrc}" type="video/${mimeType}">
+                Your browser does not support the video tag.
+            </video>
+            <div class="video-play-btn position-absolute top-50 start-50 translate-middle" style="cursor: pointer; z-index: 10;" id="mainPlayBtn">
+                <i class="fas fa-play-circle text-white" style="font-size: 4rem; opacity: 0.9; filter: drop-shadow(0 2px 8px rgba(0,0,0,0.3));"></i>
+            </div>
+        `;
+        
+        // Attach video controls after creating the elements
+        attachVideoControls();
+    } else {
+        // Create image element
+        mainGallery.innerHTML = `<img src="${mediaSrc}" alt="Product" id="mainImage" style="width: 100%; height: auto;">`;
+    }
 }
 
+function attachVideoControls() {
+    const video = document.getElementById('mainVideo');
+    const playBtn = document.getElementById('mainPlayBtn');
+    
+    if (!video || !playBtn) return;
+    
+    // Play button click
+    playBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        video.play();
+        playBtn.style.display = 'none';
+    });
+    
+    // Video click to pause
+    video.addEventListener('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!this.paused) {
+            this.pause();
+            playBtn.style.display = 'block';
+        }
+    });
+    
+    // Show play button when video ends
+    video.addEventListener('ended', function() {
+        playBtn.style.display = 'block';
+    });
+}
+
+// Initialize video controls on page load if there's a video
+document.addEventListener('DOMContentLoaded', function() {
+    attachVideoControls();
+});
+
 function selectSize(btn) {
-   document.querySelectorAll('.size-btn').forEach(b => b.classList.remove('active'));
-   btn.classList.add('active');
+    document.querySelectorAll('.size-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
 }
 
 function incrementQty() {
-   const input = document.getElementById('quantity');
-   input.value = parseInt(input.value) + 1;
+    const input = document.getElementById('quantity');
+    input.value = parseInt(input.value) + 1;
 }
 
 function decrementQty() {
-   const input = document.getElementById('quantity');
-   if (parseInt(input.value) > 1) {
-      input.value = parseInt(input.value) - 1;
-   }
+    const input = document.getElementById('quantity');
+    if (parseInt(input.value) > 1) {
+       input.value = parseInt(input.value) - 1;
+    }
 }
 
 function toggleDetails(header) {

@@ -232,8 +232,36 @@ class VendorProductsController extends Controller
                 $product->save();
 
                 if ($request->hasFile('images')) {
+                    // Validate media files
+                    $mediaFiles = $request->file('images');
+                    
+                    // Check max 5 files
+                    if (count($mediaFiles) > 5) {
+                        throw new \Exception('You can only upload up to 5 media files.');
+                    }
+                    
+                    // Validate each file
+                    foreach ($mediaFiles as $file) {
+                        // Check file size (300MB = 307200 KB)
+                        if ($file->getSize() > 314572800) { // 300MB in bytes
+                            throw new \Exception('Each media file must not exceed 300MB.');
+                        }
+                        
+                        // Check mime type (images and videos)
+                        $mimeType = $file->getMimeType();
+                        $allowedMimes = [
+                            'image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp',
+                            'video/mp4', 'video/mpeg', 'video/quicktime', 'video/x-msvideo', 'video/webm'
+                        ];
+                        
+                        if (!in_array($mimeType, $allowedMimes, true)) {
+                            throw new \Exception('Invalid file type. Only images (JPEG, PNG, GIF, WebP) and videos (MP4, MPEG, MOV, AVI, WebM) are allowed.');
+                        }
+                    }
+                    
+                    // Process and store media files
                     $pos = 0;
-                    foreach ($request->file('images') as $idx => $file) {
+                    foreach ($mediaFiles as $idx => $file) {
                         $path = $file->store('products/images', 'public');
                         ProductImage::create([
                             'product_id' => $product->id,

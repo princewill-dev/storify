@@ -46,7 +46,8 @@
     }
     .cart-item-row:last-child { border-bottom: none; }
     
-    .cart-thumb img {
+    .cart-thumb img,
+    .cart-thumb video {
         width: 80px;
         height: 80px;
         object-fit: cover;
@@ -278,14 +279,14 @@
                     <div>
                         <h2 class="panel-title">Order Summary.</h2>
                         
-                        <div class="mb-4">
+                        <!-- <div class="mb-4">
                             <span class="d-block mb-2 text-muted" style="font-size:0.9rem;">Accepted Payment Methods:</span>
                             <div class="d-flex gap-2">
                                 <i class="fab fa-cc-mastercard fa-2x text-white-50"></i>
                                 <i class="fab fa-cc-visa fa-2x text-white-50"></i>
                                 <i class="fab fa-cc-paypal fa-2x text-white-50"></i>
                             </div>
-                        </div>
+                        </div> -->
 
                         <hr style="border-color: rgba(255,255,255,0.1);">
 
@@ -345,7 +346,32 @@
 
         if (cart.items && cart.items.length > 0) {
             cart.items.forEach(function(item) {
+                let mediaHtml = '';
                 let imageSrc = item.image ? `/storage/${item.image}` : `{{ asset('storefront/assets/img/product/product-1.jpg') }}`;
+                
+                // Check if it's a video
+                if (item.image) {
+                    const ext = item.image.split('.').pop().toLowerCase();
+                    const isVideo = ['mp4', 'webm', 'mov', 'avi', 'mpeg'].includes(ext);
+                    
+                    if (isVideo) {
+                        const mimeType = ext === 'mov' ? 'quicktime' : ext;
+                        mediaHtml = `
+                            <div style="position: relative; width: 80px; height: 80px;">
+                                <video style="width: 100%; height: 100%; object-fit: cover; border-radius: 8px;" muted>
+                                    <source src="${imageSrc}" type="video/${mimeType}">
+                                </video>
+                                <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); pointer-events: none;">
+                                    <i class="fas fa-play-circle text-white" style="font-size: 1.5rem; opacity: 0.9; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));"></i>
+                                </div>
+                            </div>
+                        `;
+                    } else {
+                        mediaHtml = `<img src="${imageSrc}" alt="${item.name}">`;
+                    }
+                } else {
+                    mediaHtml = `<img src="${imageSrc}" alt="${item.name}">`;
+                }
                 
                 // Url logic
                 let productUrl = '#';
@@ -363,7 +389,7 @@
                     <div class="cart-col-product">
                         <div class="cart-thumb">
                             <a href="${productUrl}">
-                                <img src="${imageSrc}" alt="${item.name}">
+                                ${mediaHtml}
                             </a>
                         </div>
                         <div class="cart-details">

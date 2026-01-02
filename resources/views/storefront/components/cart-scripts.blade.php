@@ -150,21 +150,40 @@
 
             if (cart.items && cart.items.length > 0) {
                 cart.items.forEach(function(item) {
-                    let imageHtml = '';
+                    let mediaHtml = '';
                     if (item.image) {
-                        imageHtml = `<img src="/storage/${item.image}" alt="${item.name}">`;
+                        // Check if it's a video by file extension
+                        const imagePath = `/storage/${item.image}`;
+                        const ext = item.image.split('.').pop().toLowerCase();
+                        const isVideo = ['mp4', 'webm', 'mov', 'avi', 'mpeg'].includes(ext);
+                        
+                        if (isVideo) {
+                            const mimeType = ext === 'mov' ? 'quicktime' : ext;
+                            mediaHtml = `
+                                <div style="position: relative;">
+                                    <video style="width: 100%; height: 70px; object-fit: cover;" muted>
+                                        <source src="${imagePath}" type="video/${mimeType}">
+                                    </video>
+                                    <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); pointer-events: none;">
+                                        <i class="fas fa-play-circle text-white" style="font-size: 1.5rem; opacity: 0.9;"></i>
+                                    </div>
+                                </div>
+                            `;
+                        } else {
+                            mediaHtml = `<img src="${imagePath}" alt="${item.name}">`;
+                        }
                     } else {
                         @php
                             $assetBaseUrl = "";
                         @endphp
-                        imageHtml = `<img src="{{ asset('storefront/assets/img/product/product-1.jpg') }}" alt="${item.name}">`;
+                        mediaHtml = `<img src="{{ asset('storefront/assets/img/product/product-1.jpg') }}" alt="${item.name}">`;
                     }
 
                     const html = `
                         <li>
                             <div class="cartmini__thumb">
                                 <a href="#">
-                                    ${imageHtml}
+                                    ${mediaHtml}
                                 </a>
                             </div>
                             <div class="cartmini__content">

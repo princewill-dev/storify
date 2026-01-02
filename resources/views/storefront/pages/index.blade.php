@@ -39,15 +39,34 @@
          @foreach($products as $product)
             <div class="col-xxl-4 col-xl-4 col-lg-4 col-md-6 item-card type-product">
                <div class="product__item white-bg mb-30 wow fadeInUp" data-wow-delay=".3s">
-                  <div class="product__thumb">
-                     <div class="product__thumb-inner fix w-img">
-                        <a href="{{ store_url($store->slug, 'products/' . $product->slug . '-' . $product->product_code) }}">
-                           @if($product->images && $product->images->count() > 0)
-                              <img src="{{ asset('storage/' . $product->images->first()->path) }}" alt="{{ $product->name }}">
+                  <div class="product__thumb {{ $product->images && $product->images->count() > 0 && in_array(strtolower(pathinfo($product->images->first()->path, PATHINFO_EXTENSION)), ['mp4', 'webm', 'mov', 'avi', 'mpeg']) ? 'has-video' : '' }}">
+                     <div class="product__thumb-inner fix w-img position-relative">
+                        @if($product->images && $product->images->count() > 0)
+                           @php
+                              $primaryMedia = $product->images->first();
+                              $mediaPath = asset('storage/' . $primaryMedia->path);
+                              $extension = strtolower(pathinfo($primaryMedia->path, PATHINFO_EXTENSION));
+                              $isVideo = in_array($extension, ['mp4', 'webm', 'mov', 'avi', 'mpeg']);
+                           @endphp
+                           
+                           @if($isVideo)
+                              <video class="product-video" style="width: 100%; height: 250px; object-fit: cover; cursor: pointer;" muted loop playsinline data-product-id="{{ $product->id }}">
+                                 <source src="{{ $mediaPath }}" type="video/{{ $extension === 'mov' ? 'quicktime' : $extension }}">
+                                 Your browser does not support the video tag.
+                              </video>
+                              <div class="video-play-overlay position-absolute top-50 start-50 translate-middle" style="cursor: pointer; z-index: 10;" data-video-id="{{ $product->id }}">
+                                 <i class="fas fa-play-circle text-white" style="font-size: 3.5rem; opacity: 0.9; filter: drop-shadow(0 2px 8px rgba(0,0,0,0.3));"></i>
+                              </div>
                            @else
-                              <img src="{{ asset('storefront/assets/img/product/product-1.jpg') }}" alt="{{ $product->name }}">
+                              <a href="{{ store_url($store->slug, 'products/' . $product->slug . '-' . $product->product_code) }}">
+                                 <img src="{{ $mediaPath }}" alt="{{ $product->name }}">
+                              </a>
                            @endif
-                        </a>
+                        @else
+                           <a href="{{ store_url($store->slug, 'products/' . $product->slug . '-' . $product->product_code) }}">
+                              <img src="{{ asset('storefront/assets/img/product/product-1.jpg') }}" alt="{{ $product->name }}">
+                           </a>
+                        @endif
                      </div>
                   </div>
                   <div class="product__content">
@@ -73,11 +92,11 @@
                         </div>                        
                      </div>
                      <div class="pricing__buy mb-20 d-flex justify-content-between">
-                        <a href="{{ store_url($store->slug, 'products/' . $product->slug . '-' . $product->product_code) }}" class="m-btn m-btn-border m-btn-border-5 flex-grow-1 me-2">
-                           <span style="font-size: 12px;">View Details</span> 
+                        <a style="color: #000000" href="{{ store_url($store->slug, 'products/' . $product->slug . '-' . $product->product_code) }}" class="m-btn m-btn-border m-btn-border-5 flex-grow-1 me-2">
+                           <span style="font-size: 12px;">View</span> 
                         </a>
-                        <a href="javascript:void(0);" class="m-btn m-btn-border m-btn-border-5 flex-grow-1 ms-2 add-to-cart-btn-index" data-product-id="{{ $product->id }}">
-                           <span style="font-size: 12px;">Add to cart</span> 
+                        <a style="color: #000000" href="javascript:void(0);" class="m-btn m-btn-border m-btn-border-5 flex-grow-1 ms-2 add-to-cart-btn-index" data-product-id="{{ $product->id }}">
+                           <span style="font-size: 12px;">Add to <i class="fas fa-shopping-cart" style="font-size: 12px;"></i></span> 
                         </a>
                      </div>
                   </div>
@@ -116,7 +135,7 @@
                         </div>
                         <div class="pricing__buy mb-20">
                            <a href="{{ store_url($store->slug, 'services/' . $service->slug . '-' . $service->service_code) }}" class="m-btn m-btn-border m-btn-border-5 w-100">
-                              <span></span> View Details
+                              <span></span> View
                            </a>
                         </div>
                      </div>
@@ -161,6 +180,16 @@
 .nav-pills .nav-link {
     color: #000;
 }
+
+/* Disable overlay for videos */
+.product__thumb.has-video::after {
+    display: none !important;
+}
+
+/* Hide play button when video is playing */
+.product-video.playing + .video-play-overlay {
+    display: none;
+}
 </style>
 
 <script>
@@ -187,6 +216,53 @@ function filterView(type) {
         if(servPag) servPag.style.display = 'flex';
     }
 }
+
+// Video play/pause functionality
+document.addEventListener('DOMContentLoaded', function() {
+    // Handle play button clicks
+    document.querySelectorAll('.video-play-overlay').forEach(overlay => {
+        overlay.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            const videoId = this.getAttribute('data-video-id');
+            const video = document.querySelector(`.product-video[data-product-id="${videoId}"]`);
+            
+            if (video) {
+                video.play();
+                video.classList.add('playing');
+                this.style.display = 'none';
+            }
+        });
+    });
+    
+    // Handle video clicks (pause when playing)
+    document.querySelectorAll('.product-video').forEach(video => {
+        video.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            
+            if (!this.paused) {
+                this.pause();
+                this.classList.remove('playing');
+                const videoId = this.getAttribute('data-product-id');
+                const overlay = document.querySelector(`.video-play-overlay[data-video-id="${videoId}"]`);
+                if (overlay) {
+                    overlay.style.display = 'block';
+                }
+            }
+        });
+        
+        // Show play button when video ends
+        video.addEventListener('ended', function() {
+            this.classList.remove('playing');
+            const videoId = this.getAttribute('data-product-id');
+            const overlay = document.querySelector(`.video-play-overlay[data-video-id="${videoId}"]`);
+            if (overlay) {
+                overlay.style.display = 'block';
+            }
+        });
+    });
+});
 </script>
 
 @endsection
