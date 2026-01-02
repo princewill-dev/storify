@@ -9,7 +9,7 @@
 						<!-- FOOTER LOGO -->
 						<div class="col-md-3">
 							<div class="footer-info">
-								<img class="footer-logo" src="images/ds-logo.png" alt="footer-logo">
+								<img class="footer-logo" src="{{ $company->logo }}" alt="footer-logo">
 							</div>	
 						</div>	
 			
@@ -23,8 +23,8 @@
 			
 								<!-- Links -->
 								<ul class="foo-links clearfix">
-									<li><p><a href="about-us.html">About Us</a></p></li>
-									<li><p><a href="#features">Our Services</a></p></li>
+									<li><p><a href="{{ route('home.about') }}">About Us</a></p></li>
+									<li><p><a href="{{ route('home.support') }}">Support </a></p></li>
 								</ul>
 			
 							</div>
@@ -40,7 +40,9 @@
 			
 								<!-- Links -->
 								<ul class="foo-links clearfix">
-									<li><p><a href="#projects">Our Works</a></p></li>		
+									<li><p><a href="{{ route('vendor.auth.register') }}">Create a store</a></p></li>
+									<li><p><a href="{{ route('vendor.auth.login') }}">Login </a></p></li>
+									<li><p><a href="{{ route('home.stores') }}">View Stores</a></p></li>		
 								</ul>
 			
 							</div>	

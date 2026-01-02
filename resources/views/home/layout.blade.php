@@ -1,31 +1,35 @@
 <!doctype html>
-<!-- Martex - Software, App, SaaS & Startup Landing Pages Pack design by DSAThemes (http://www.dsathemes.com) -->
-<!--[if lt IE 7 ]><html class="ie ie6" lang="en"> <![endif]-->
-<!--[if IE 7 ]><html class="ie ie7" lang="en"> <![endif]-->
-<!--[if IE 8 ]><html class="ie ie8" lang="en"> <![endif]-->
-<!--[if (gte IE 9)|!(IE)]><!-->
 <html lang="en">
 
 	<head>
 
 		<meta charset="utf-8">
 		<meta http-equiv="X-UA-Compatible" content="IE=edge">
-		<meta name="author" content="Digiswitch.tech">	
-		<meta name="description" content="We help traditional businesses thrive in the digital age through customized web solutions. Our experienced team provides website development, digital marketing, automation, and integrated payment solutions to digitize and modernize businesses">
-		<meta name="keywords" content="web development company, website development, web design, digital marketing, online marketing, SEO, social media marketing, conversion optimization, ecommerce website, online payments, POS integration, business digitization, automate business processes, modernize small business, traditional to digital business, bringing businesses online, lagos based web development company, Digiswitch, Digiswitch.tech">	
+
+		@include('home.components.seo', [
+			'seo' => [
+				'title' => $company->og_title,
+				'description' => $company->og_description,
+				'image' => $company->og_image,
+				'url' => $company->og_url,
+				'type' => $company->og_type,
+				'twitter_card' => 'summary_large_image',
+			]
+		])
+
 		<meta name="viewport" content="width=device-width, initial-scale=1">
 				
 		<!-- SITE TITLE -->
 		<title>{{ $company->name }} | @yield('title')</title>
 							
 		<!-- FAVICON AND TOUCH ICONS -->
-		<link rel="shortcut icon" href="{{ asset('home/images/favicon.ico') }}" type="image/x-icon">
-		<link rel="icon" href="{{ asset('home/images/favicon.ico') }}" type="image/x-icon">
-		<link rel="apple-touch-icon" sizes="152x152" href="{{ asset('home/images/apple-touch-icon-152x152.png') }}">
-		<link rel="apple-touch-icon" sizes="120x120" href="{{ asset('home/images/apple-touch-icon-120x120.png') }}">
-		<link rel="apple-touch-icon" sizes="76x76" href="{{ asset('home/images/apple-touch-icon-76x76.png') }}">
-		<link rel="apple-touch-icon" href="{{ asset('home/images/apple-touch-icon.png') }}">
-		<link rel="icon" href="{{ asset('home/images/apple-touch-icon.png') }}" type="image/x-icon">
+		<link rel="shortcut icon" href="{{ $company->favicon }}" type="image/x-icon">
+		<link rel="icon" href="{{ $company->favicon }}" type="image/x-icon">
+		<link rel="apple-touch-icon" sizes="152x152" href="{{ $company->favicon }}">
+		<link rel="apple-touch-icon" sizes="120x120" href="{{ $company->favicon }}">
+		<link rel="apple-touch-icon" sizes="76x76" href="{{ $company->favicon }}">
+		<link rel="apple-touch-icon" href="{{ $company->favicon }}">
+		<link rel="icon" href="{{ $company->favicon }}" type="image/x-icon">
 
 		<!-- GOOGLE FONTS -->
 		<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet">
@@ -58,7 +62,6 @@
 		@stack('styles')
 		@stack('styles')
 
-
 	</head>
 
 	<body class="theme--dark">
@@ -86,9 +89,7 @@
 			<!-- END FOOTER-3 -->
 
 		</div>
-		
-		<!-- END PAGE CONTENT -->	
-
+		<!-- END PAGE CONTENT -->
 
 		<!-- EXTERNAL SCRIPTS
 		============================================= -->	
