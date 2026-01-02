@@ -44,6 +44,10 @@ Route::prefix('vendor')->name('vendor.')->group(function () {
         Route::post('/{vendor}/store/check-slug', [VendorOnboardController::class, 'checkSlugAvailability'])->name('kyc.store.check-slug');
         Route::get('/{vendor}/store/success', [VendorOnboardController::class, 'showStoreSuccess'])->name('kyc.store.success');
         
+        // Delivery Routes Setup
+        Route::get('/{vendor}/store/set-delivery-routes', [VendorOnboardController::class, 'showDeliveryRoutesForm'])->name('kyc.delivery-routes.form');
+        Route::post('/{vendor}/store/set-delivery-routes', [VendorOnboardController::class, 'saveDeliveryRoutes'])->name('kyc.delivery-routes.save');
+        
         // Bank Validation Routes
         Route::get('/{vendor}/store/get-banks', [VendorOnboardController::class, 'getBanks'])->name('kyc.store.get-banks');
         Route::post('/{vendor}/store/validate-bank', [VendorOnboardController::class, 'validateBank'])->name('kyc.store.validate-bank');

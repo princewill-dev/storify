@@ -95,6 +95,11 @@ class Store extends Model
         return $this->hasOne(StoreBank::class)->where('is_primary', true);
     }
 
+    public function deliveryRoutes(): HasMany
+    {
+        return $this->hasMany(DeliveryRoute::class);
+    }
+
     public static function statusBadgeData(): array
     {
         return StoreStatus::badgeData();

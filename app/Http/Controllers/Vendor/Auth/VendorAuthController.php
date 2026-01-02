@@ -63,8 +63,14 @@ class VendorAuthController extends Controller
             ->with('success', 'We sent a verification code to your email. Enter it below to continue.');
     }
 
-    public function showLogin(): View
+    public function showLogin(): View|RedirectResponse
     {
+        // If vendor is already authenticated, redirect to dashboard
+        if (auth('vendor')->check()) {
+            $vendor = auth('vendor')->user();
+            return redirect()->route('vendor.dashboard', ['vendor' => $vendor]);
+        }
+
         return view('vendors.auth.login');
     }
 

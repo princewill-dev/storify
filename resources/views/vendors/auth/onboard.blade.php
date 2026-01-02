@@ -168,7 +168,7 @@
                     @csrf
 
                     <div class="col-12">
-                        <label for="full_name" class="form-label fw-semibold">Full name</label>
+                        <label for="full_name" class="form-label fw-semibold">Your full name</label>
                         <input
                             type="text"
                             id="full_name"

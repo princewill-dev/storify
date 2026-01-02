@@ -7,6 +7,7 @@ use App\Http\Requests\Vendor\Store\VendorOnboardRequest;
 use App\Mail\VendorStoreCreated;
 use App\Mail\AdminStoreCreated;
 use App\Models\BusinessType;
+use App\Models\DeliveryRoute;
 use App\Models\OwnershipType;
 use App\Models\Store;
 use App\Models\Vendor;
@@ -254,8 +255,8 @@ class VendorOnboardController extends Controller
 
         session(['onboarding_store_id' => $store->id]);
 
-        return redirect()->route('vendor.kyc.store.success', ['vendor' => $vendor])
-            ->with('success', 'Store profile created! Our team will review and notify you once it is active.');
+        return redirect()->route('vendor.kyc.delivery-routes.form', ['vendor' => $vendor])
+            ->with('success', 'Store profile created! Now set up your delivery routes.');
     }
 
     public function showStoreSuccess(Request $request, Vendor $routeVendor): View|RedirectResponse
@@ -311,6 +312,116 @@ class VendorOnboardController extends Controller
 
         return redirect()->route('vendor.subscription.plan', ['vendor' => $vendor])
             ->with('success', 'Store created successfully! Please complete your subscription to activate your account.');
+    }
+
+    public function showDeliveryRoutesForm(Request $request, Vendor $routeVendor): View|RedirectResponse
+    {
+        /** @var Vendor|null $vendor */
+        $vendor = $request->user('vendor');
+
+        if (!$vendor || $vendor->account_id !== $routeVendor->account_id) {
+            abort(503, 'Unable to verify your access to this page.');
+        }
+
+        $storeId = session('onboarding_store_id');
+        if (!$storeId) {
+            return redirect()->route('vendor.kyc.store.create', ['vendor' => $vendor])
+                ->with('error', 'Create your store first to set up delivery routes.');
+        }
+
+        $store = Store::where('id', $storeId)->where('vendor_id', $vendor->id)->first();
+        if (!$store) {
+            return redirect()->route('vendor.kyc.store.create', ['vendor' => $vendor])
+                ->with('error', 'Store not found.');
+        }
+
+        // Load existing delivery routes if any
+        $existingRoutes = $store->deliveryRoutes;
+
+        return view('vendors.auth.set-delivery-routes', [
+            'vendor' => $vendor,
+            'store' => $store,
+            'existingRoutes' => $existingRoutes,
+        ]);
+    }
+
+    public function saveDeliveryRoutes(Request $request, Vendor $routeVendor): RedirectResponse
+    {
+        /** @var Vendor|null $vendor */
+        $vendor = $request->user('vendor');
+
+        if (!$vendor || $vendor->account_id !== $routeVendor->account_id) {
+            abort(503, 'Unable to verify your access to submit delivery routes.');
+        }
+
+        $storeId = session('onboarding_store_id');
+        if (!$storeId) {
+            return redirect()->route('vendor.kyc.store.create', ['vendor' => $vendor])
+                ->with('error', 'Create your store first.');
+        }
+
+        $store = Store::where('id', $storeId)->where('vendor_id', $vendor->id)->first();
+        if (!$store) {
+            return redirect()->route('vendor.kyc.store.create', ['vendor' => $vendor])
+                ->with('error', 'Store not found.');
+        }
+
+        // Validate the routes
+        $validated = $request->validate([
+            'routes' => 'nullable|array',
+            'routes.*.country' => 'required|string|max:255',
+            'routes.*.state' => 'required|string|max:255',
+            'routes.*.area' => 'nullable|string|max:255',
+            'routes.*.fee' => 'required|numeric|min:0',
+            'routes.*.delivery_days' => 'required|integer|min:1',
+            'routes.*.active' => 'boolean',
+        ]);
+
+        try {
+            DB::beginTransaction();
+
+            // Delete existing routes for this store
+            $store->deliveryRoutes()->delete();
+
+            // Create new routes if provided
+            if (!empty($validated['routes'])) {
+                foreach ($validated['routes'] as $routeData) {
+                    $store->deliveryRoutes()->create([
+                        'country' => $routeData['country'],
+                        'state' => $routeData['state'],
+                        'area' => $routeData['area'] ?? null,
+                        'fee' => $routeData['fee'] * 100, // Convert to kobo
+                        'delivery_days' => $routeData['delivery_days'],
+                        'active' => $routeData['active'] ?? true,
+                    ]);
+                }
+            }
+
+            DB::commit();
+
+            Log::info('vendor.delivery_routes_saved', [
+                'vendor_id' => $vendor->id,
+                'store_id' => $store->id,
+                'routes_count' => count($validated['routes'] ?? []),
+            ]);
+
+            // Clear the onboarding session
+            session()->forget('onboarding_store_id');
+
+            // Redirect to subscription page
+            return redirect()->route('vendor.subscription.plan', ['vendor' => $vendor])
+                ->with('success', 'Delivery routes saved! Please complete your subscription to activate your account.');
+        } catch (\Throwable $e) {
+            DB::rollBack();
+
+            Log::error('vendor.delivery_routes_save_failed', [
+                'vendor_id' => $vendor->id,
+                'store_id' => $store->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return back()->withInput()->with('error', 'Could not save delivery routes. Please try again.');
+        }
     }
 
     private function adminRecipients(): array
