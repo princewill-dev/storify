@@ -76,6 +76,11 @@ Route::prefix('vendor')->name('vendor.')->group(function () {
             Route::put('/{vendor}/stores/{store}/banks/{bank}', [\App\Http\Controllers\Vendor\VendorStoreBankController::class, 'update'])->name('stores.banks.update');
             Route::delete('/{vendor}/stores/{store}/banks/{bank}', [\App\Http\Controllers\Vendor\VendorStoreBankController::class, 'destroy'])->name('stores.banks.destroy');
             Route::patch('/{vendor}/stores/{store}/banks/{bank}/primary', [\App\Http\Controllers\Vendor\VendorStoreBankController::class, 'setPrimary'])->name('stores.banks.primary');
+            
+            // Delivery Routes
+            Route::post('/{vendor}/stores/{store}/delivery-routes', [\App\Http\Controllers\Vendor\VendorStoreDeliveryRouteController::class, 'store'])->name('stores.delivery-routes.store');
+            Route::put('/{vendor}/stores/{store}/delivery-routes/{deliveryRoute}', [\App\Http\Controllers\Vendor\VendorStoreDeliveryRouteController::class, 'update'])->name('stores.delivery-routes.update');
+            Route::delete('/{vendor}/stores/{store}/delivery-routes/{deliveryRoute}', [\App\Http\Controllers\Vendor\VendorStoreDeliveryRouteController::class, 'destroy'])->name('stores.delivery-routes.destroy');
             Route::get('/{vendor}/products', [VendorProductsController::class, 'index'])->name('products.index');
             Route::get('/{vendor}/products/create', [VendorProductsController::class, 'create'])->name('products.create');
             Route::post('/{vendor}/products', [VendorProductsController::class, 'store'])->name('products.store');

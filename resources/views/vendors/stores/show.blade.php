@@ -303,16 +303,75 @@
 
     <div class="col-lg-4">
       <div class="card h-100">
-        <div class="card-header"><strong>Packs</strong> <span class="badge bg-light text-dark ms-2">{{ $packs->count() }}</span></div>
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <strong>Delivery Routes</strong> 
+          <span class="badge bg-light text-dark ms-2">{{ $packs->count() }}</span>
+          <button class="btn btn-xs btn-primary rounded-pill px-3 ms-auto" data-bs-toggle="modal" data-bs-target="#addDeliveryRouteModal">
+            <i class="fi fi-rr-plus me-1"></i> Add Route
+          </button>
+        </div>
         <div class="card-body">
           @if($packs->isEmpty())
-            <div class="text-muted">No packs yet.</div>
+            <div class="text-muted text-center py-3">
+              <i class="fi fi-rr-truck-side fs-2 d-block mb-2 opacity-25"></i>
+              No delivery routes configured yet.
+            </div>
           @else
-            <ul class="list-unstyled mb-0">
-              @foreach($packs as $pkg)
-                <li class="py-1 border-bottom small">{{ $pkg->name }} <span class="text-muted">({{ number_format($pkg->amount,2) }})</span></li>
-              @endforeach
-            </ul>
+            <div class="table-responsive">
+              <table class="table table-sm table-hover mb-0">
+                <thead class="bg-light">
+                  <tr>
+                    <th class="ps-3">Location</th>
+                    <th>Fee</th>
+                    <th class="text-center">Days</th>
+                    <th class="text-center">Status</th>
+                    <th class="text-end pe-3">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @foreach($packs as $route)
+                    <tr>
+                      <td class="ps-3">
+                        <div class="fw-semibold small">{{ $route->state }}</div>
+                        <div class="text-muted" style="font-size: 0.75rem;">{{ $route->area ?? '—' }}</div>
+                      </td>
+                      <td class="fw-medium">₦{{ number_format($route->fee / 100, 2) }}</td>
+                      <td class="text-center">{{ $route->delivery_days }}</td>
+                      <td class="text-center">
+                        @if($route->active)
+                          <span class="badge bg-success-subtle text-success border border-success-subtle px-2">Active</span>
+                        @else
+                          <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle px-2">Inactive</span>
+                        @endif
+                      </td>
+                      <td class="text-end pe-3">
+                        <div class="btn-group">
+                          <button class="btn btn-sm btn-icon btn-light border edit-route-btn" 
+                                  data-bs-toggle="modal" 
+                                  data-bs-target="#editDeliveryRouteModal"
+                                  data-route-id="{{ $route->id }}"
+                                  data-country="{{ $route->country }}"
+                                  data-state="{{ $route->state }}"
+                                  data-area="{{ $route->area }}"
+                                  data-fee="{{ $route->fee / 100 }}"
+                                  data-delivery-days="{{ $route->delivery_days }}"
+                                  data-active="{{ $route->active ? '1' : '0' }}">
+                            <i class="fi fi-rr-edit"></i>
+                          </button>
+                          <button class="btn btn-sm btn-icon btn-light border text-danger ms-1" 
+                                  data-bs-toggle="modal" 
+                                  data-bs-target="#deleteDeliveryRouteModal"
+                                  data-route-id="{{ $route->id }}"
+                                  data-location="{{ $route->state }}, {{ $route->area }}">
+                            <i class="fi fi-rr-trash"></i>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  @endforeach
+                </tbody>
+              </table>
+            </div>
           @endif
         </div>
       </div>
@@ -606,6 +665,121 @@
   </div>
 </div>
 
+<!-- Add Delivery Route Modal -->
+<div class="modal fade" id="addDeliveryRouteModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Add Delivery Route</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form action="{{ route('vendor.stores.delivery-routes.store', ['vendor' => $vendor, 'store' => $store]) }}" method="POST">
+        @csrf
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">Country <span class="text-danger">*</span></label>
+            <input type="text" name="country" class="form-control" value="Nigeria" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">State <span class="text-danger">*</span></label>
+            <input type="text" name="state" class="form-control" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Area</label>
+            <input type="text" name="area" class="form-control" placeholder="Optional">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Delivery Fee (₦) <span class="text-danger">*</span></label>
+            <input type="number" name="fee" class="form-control" step="0.01" min="0" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Delivery Days <span class="text-danger">*</span></label>
+            <input type="number" name="delivery_days" class="form-control" min="1" value="3" required>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="active" value="1" checked id="addRouteActive">
+            <label class="form-check-label" for="addRouteActive">Active</label>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary">Add Route</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Delivery Route Modal -->
+<div class="modal fade" id="editDeliveryRouteModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Edit Delivery Route</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST" id="editRouteForm">
+        @csrf
+        @method('PUT')
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">Country <span class="text-danger">*</span></label>
+            <input type="text" name="country" id="editRouteCountry" class="form-control" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">State <span class="text-danger">*</span></label>
+            <input type="text" name="state" id="editRouteState" class="form-control" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Area</label>
+            <input type="text" name="area" id="editRouteArea" class="form-control" placeholder="Optional">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Delivery Fee (₦) <span class="text-danger">*</span></label>
+            <input type="number" name="fee" id="editRouteFee" class="form-control" step="0.01" min="0" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Delivery Days <span class="text-danger">*</span></label>
+            <input type="number" name="delivery_days" id="editRouteDeliveryDays" class="form-control" min="1" required>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="active" value="1" id="editRouteActive">
+            <label class="form-check-label" for="editRouteActive">Active</label>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary">Update Route</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Delete Delivery Route Modal -->
+<div class="modal fade" id="deleteDeliveryRouteModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Delete Delivery Route</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST" id="deleteRouteForm">
+        @csrf
+        @method('DELETE')
+        <div class="modal-body">
+          <p>Are you sure you want to delete the delivery route for <strong id="deleteRouteLocation"></strong>?</p>
+          <p class="text-danger small"><i class="fi fi-rr-exclamation me-1"></i> This action cannot be undone.</p>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-danger">Delete</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
 </div>
 @endsection
 
@@ -833,6 +1007,51 @@ document.addEventListener('DOMContentLoaded', function() {
             form.action = url;
 
             document.getElementById('deleteBankDisplay').textContent = bankName;
+        });
+    }
+});
+
+// Delivery Route Modals
+document.addEventListener('DOMContentLoaded', function() {
+    // Edit Modal
+    var editRouteModal = document.getElementById('editDeliveryRouteModal');
+    if (editRouteModal) {
+        editRouteModal.addEventListener('show.bs.modal', function (event) {
+            var button = event.relatedTarget;
+            var id = button.getAttribute('data-route-id');
+            var country = button.getAttribute('data-country');
+            var state = button.getAttribute('data-state');
+            var area = button.getAttribute('data-area');
+            var fee = button.getAttribute('data-fee');
+            var deliveryDays = button.getAttribute('data-delivery-days');
+            var active = button.getAttribute('data-active') === '1';
+
+            var form = document.getElementById('editRouteForm');
+            var url = "{{ route('vendor.stores.delivery-routes.update', ['vendor' => $vendor, 'store' => $store, 'deliveryRoute' => ':id']) }}".replace(':id', id);
+            form.action = url;
+
+            document.getElementById('editRouteCountry').value = country || '';
+            document.getElementById('editRouteState').value = state || '';
+            document.getElementById('editRouteArea').value = area || '';
+            document.getElementById('editRouteFee').value = fee || '';
+            document.getElementById('editRouteDeliveryDays').value = deliveryDays || '';
+            document.getElementById('editRouteActive').checked = active;
+        });
+    }
+
+    // Delete Modal
+    var deleteRouteModal = document.getElementById('deleteDeliveryRouteModal');
+    if (deleteRouteModal) {
+        deleteRouteModal.addEventListener('show.bs.modal', function (event) {
+            var button = event.relatedTarget;
+            var id = button.getAttribute('data-route-id');
+            var location = button.getAttribute('data-location');
+
+            var form = document.getElementById('deleteRouteForm');
+            var url = "{{ route('vendor.stores.delivery-routes.destroy', ['vendor' => $vendor, 'store' => $store, 'deliveryRoute' => ':id']) }}".replace(':id', id);
+            form.action = url;
+
+            document.getElementById('deleteRouteLocation').textContent = location;
         });
     }
 });

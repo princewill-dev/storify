@@ -261,11 +261,11 @@ class StoreController extends Controller
             return redirect()->route('vendor.stores.index', ['vendor' => $vendor])->with('error', 'You do not have access to that store.');
         }
 
-        $store->load(['ownershipType', 'businessType', 'vendor', 'banks']);
+        $store->load(['ownershipType', 'businessType', 'vendor', 'banks', 'deliveryRoutes']);
         $productCount = Product::where('store_id', $store->id)->count();
         $recentProducts = Product::where('store_id', $store->id)->latest()->take(10)->get();
         $categories = Category::where('store_id', $store->id)->orderBy('name')->get();
-        $packs = Pack::where('store_id', $store->id)->latest()->take(10)->get();
+        $deliveryRoutes = $store->deliveryRoutes;
         $ownershipTypes = OwnershipType::orderBy('name')->get(['id', 'name']);
         $businessTypes = BusinessType::orderBy('name')->get(['id', 'name']);
 
@@ -274,7 +274,7 @@ class StoreController extends Controller
             'productCount' => $productCount,
             'recentProducts' => $recentProducts,
             'categories' => $categories,
-            'packs' => $packs,
+            'packs' => $deliveryRoutes,
             'ownershipTypes' => $ownershipTypes,
             'businessTypes' => $businessTypes,
             'vendor' => $vendor,
