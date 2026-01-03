@@ -28,7 +28,7 @@
                         </p>
                         
                         <div class="d-grid gap-3 col-lg-8 mx-auto">
-                            <a href="{{ route('tracking.show', ['order' => $order->order_number]) }}" class="btn btn-primary btn-lg" style="background: #1a1a1a; border: none; padding: 12px;">
+                            <a href="{{ route('home.store.order.track', ['store_subdomain' => $order->store->slug, 'orderNumber' => $order->order_number]) }}" class="btn btn-primary btn-lg" style="background: #1a1a1a; border: none; padding: 12px;">
                                 View Order Status
                             </a>
                             <a href="{{ route('home.store.products.index', ['store_subdomain' => $store->slug]) }}" class="btn btn-light" style="color: #64748b;">

@@ -11,9 +11,25 @@ use Illuminate\View\View;
 
 class StoreOrderController extends Controller
 {
-    public function track(Request $request, string $store_subdomain): View
+    public function track(Request $request, string $store_subdomain, ?string $orderNumber = null): View|RedirectResponse
     {
         $store = Store::where('slug', $store_subdomain)->firstOrFail();
+        
+        // If order number is provided in URL, fetch and display it
+        if ($orderNumber) {
+            $order = Order::where('store_id', $store->id)
+                ->where('order_number', strtoupper(trim($orderNumber)))
+                ->with(['items'])
+                ->first();
+            
+            if (!$order) {
+                return redirect()->route('home.store.order.track', ['store_subdomain' => $store_subdomain])
+                    ->with('error', 'Order not found. Please check the order number and try again.');
+            }
+            
+            return view('storefront.pages.track-order', compact('store', 'order'));
+        }
+        
         return view('storefront.pages.track-order', compact('store'));
     }
 

@@ -96,7 +96,7 @@ if (config('app.env') === 'local') {
             Route::delete('/cart/item/{item}', [CartApiController::class, 'removeItem'])->where(['item' => '[0-9]+']);
             Route::delete('/cart/clear', [CartApiController::class, 'clear']);
 
-            Route::get('/track', [StoreOrderController::class, 'track'])->name('home.store.order.track');
+            Route::get('/track/{orderNumber?}', [StoreOrderController::class, 'track'])->name('home.store.order.track');
             Route::post('/track', [StoreOrderController::class, 'findOrder'])->name('home.store.order.find');
         });
 }
@@ -110,7 +110,7 @@ Route::domain('{store_subdomain}.' . config('app.main_domain', parse_url(config(
     Route::get('/', [ProductController::class, 'indexByStore'])->name('home.store.products.index');
 
     // Order Tracking (Moved to top for priority)
-    Route::get('/track', [StoreOrderController::class, 'track'])->name('home.store.order.track');
+    Route::get('/track/{orderNumber?}', [StoreOrderController::class, 'track'])->name('home.store.order.track');
     Route::post('/track', [StoreOrderController::class, 'findOrder'])->name('home.store.order.find');
     
     // Live search

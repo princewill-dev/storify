@@ -13,7 +13,7 @@
                         @csrf
                         <div class="mb-3">
                             <label for="order_number" class="form-label">Order Number</label>
-                            <input type="text" class="form-control form-control-lg" id="order_number" name="order_number" placeholder="e.g. ORD-XXXXXXXXXX" required value="{{ old('order_number') }}">
+                            <input type="text" class="form-control form-control-lg" id="order_number" name="order_number" placeholder="e.g. ORD-XXXXXXXXXX" required value="{{ old('order_number', $order->order_number ?? '') }}">
                         </div>
                         <button type="submit" class="btn btn-dark w-100 btn-lg">Track Order</button>
                     </form>
