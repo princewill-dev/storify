@@ -15,7 +15,14 @@ return new class extends Migration
         DB::table('delivery_routes')->delete();
         
         Schema::table('delivery_routes', function (Blueprint $table) {
-            // Column already exists, just add the foreign key constraint
+            // Add the store_id column if it doesn't exist
+            if (!Schema::hasColumn('delivery_routes', 'store_id')) {
+                $table->unsignedBigInteger('store_id')->nullable()->after('id');
+            }
+        });
+        
+        // Add the foreign key constraint
+        Schema::table('delivery_routes', function (Blueprint $table) {
             $table->foreign('store_id')->references('id')->on('stores')->onDelete('cascade');
         });
     }
