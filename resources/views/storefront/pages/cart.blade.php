@@ -175,6 +175,12 @@
         background-color: #2563eb;
         color: #fff;
     }
+    .checkout-btn:disabled,
+    .checkout-btn:disabled:hover {
+        background-color: #3b82f6;
+        cursor: not-allowed !important;
+        pointer-events: auto;
+    }
 
     /* Mobile / Tablet Optimization */
     @media (max-width: 991px) {
@@ -238,7 +244,15 @@
         
         <div class="row">
             <div class="col-12 mb-4">
-                <!-- Header optional -->
+                @if(!$hasPaymentMethods)
+                    <div class="alert alert-warning d-flex align-items-center" role="alert">
+                        <i class="fas fa-exclamation-triangle me-3 fa-2x"></i>
+                        <div>
+                            <h5 class="alert-heading mb-1">Store Not Accepting Orders Yet</h5>
+                            <p class="mb-0">This store is currently not receiving orders. Please check back later!</p>
+                        </div>
+                    </div>
+                @endif
             </div>
         </div>
 
@@ -278,26 +292,39 @@
                 <div class="checkout-panel">
                     <div>
                         <h2 class="panel-title">Order Summary.</h2>
-                        
-                        <!-- <div class="mb-4">
-                            <span class="d-block mb-2 text-muted" style="font-size:0.9rem;">Accepted Payment Methods:</span>
-                            <div class="d-flex gap-2">
-                                <i class="fab fa-cc-mastercard fa-2x text-white-50"></i>
-                                <i class="fab fa-cc-visa fa-2x text-white-50"></i>
-                                <i class="fab fa-cc-paypal fa-2x text-white-50"></i>
-                            </div>
-                        </div> -->
 
                         <hr style="border-color: rgba(255,255,255,0.1);">
 
                         <div class="summary-body mt-4">
+                                                      
+                           <!-- Delivery Route Selector -->
+                           <div class="summary-row" style="flex-direction: column; gap: 10px; align-items: stretch; margin-bottom: 20px;">
+                                <div class="d-flex justify-content-between">
+                                    <span>Delivery:</span>
+                                    <span id="deliveryFeeDisplay">select delivery location</span>
+                                </div>
+                                
+                                <select id="deliveryState" class="form-select form-select-sm" style="background: #2b3948; color: #fff; border-color: rgba(255,255,255,0.1);">
+                                    <option value="">Select State</option>
+                                    @foreach($states as $state)
+                                        <option value="{{ $state }}">{{ $state }}</option>
+                                    @endforeach
+                                </select>
+                                
+                                <div id="areaSpinner" class="text-center py-2" style="display: none;">
+                                    <div class="spinner-border spinner-border-sm text-light" role="status">
+                                        <span class="visually-hidden">Loading...</span>
+                                    </div>
+                                </div>
+
+                                <select id="deliveryArea" class="form-select form-select-sm" style="background: #2b3948; color: #fff; border-color: rgba(255,255,255,0.1); display: none;">
+                                    <option value="">Select Area</option>
+                                </select>
+                           </div>
+
                            <div class="summary-row">
                                 <span>Subtotal:</span>
                                 <span id="cartPageSubtotal">0.00</span>
-                           </div>
-                           <div class="summary-row">
-                                <span>Shipping:</span>
-                                <span>Calculated at checkout</span>
                            </div>
                            
                            <div class="summary-row total">
@@ -307,8 +334,13 @@
                         </div>
                     </div>
 
-                    <div class="mt-4">
-                        <a href="{{ route('checkout.index', ['store_slug' => $store->slug]) }}" class="checkout-btn">Check Out.</a>
+                    <div class="mt-4" id="checkoutBtnContainer" style="display: none;">
+                        <button type="button" id="checkoutBtn" class="checkout-btn">
+                            Check Out.
+                        </button>
+                        <small id="checkoutHelp" class="text-success d-block mt-2 text-center">
+                            Ready to checkout
+                        </small>
                     </div>
                 </div>
             </div>
@@ -316,7 +348,210 @@
     </div>
 </section>
 
+<!-- Error Modal -->
+<div class="modal fade" id="cartErrorModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header border-0 pb-0">
+        <h5 class="modal-title fw-bold text-danger">Notice</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body text-center py-4">
+        <p id="cartErrorModalMsg" class="mb-0 fs-5 text-dark">Something went wrong.</p>
+      </div>
+      <div class="modal-footer border-0 justify-content-center pt-0">
+        <button type="button" class="btn btn-secondary px-4 rounded-pill" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
+
+    const cartAreasByState = @json($areasByState);
+    const proceedUrl = "{{ request()->routeIs('local.*') ? route('local.store.cart.proceed', ['store_subdomain' => $store->slug]) : route('home.store.cart.proceed', ['store_subdomain' => $store->slug]) }}";
+    const hasPaymentMethods = {{ $hasPaymentMethods ? 'true' : 'false' }};
+
+    document.addEventListener('DOMContentLoaded', function() {
+        // ... existing code ...
+        
+        const stateSelect = document.getElementById('deliveryState');
+        const areaSelect = document.getElementById('deliveryArea');
+        const feeDisplay = document.getElementById('deliveryFeeDisplay');
+        const totalEl = document.getElementById('cartPageTotal');
+        const checkoutBtn = document.getElementById('checkoutBtn');
+        const checkoutBtnContainer = document.getElementById('checkoutBtnContainer');
+        const checkoutHelp = document.getElementById('checkoutHelp');
+        const spinner = document.getElementById('areaSpinner');
+        
+        let currentSubtotal = 0;
+        let shippingFee = 0;
+        let deliveryRouteSelected = false;
+
+        // Helper to update button visibility
+        function updateCheckoutButton() {
+            if (!hasPaymentMethods || !deliveryRouteSelected) {
+                checkoutBtnContainer.style.display = 'none';
+            } else {
+                checkoutBtnContainer.style.display = 'block';
+            }
+        }
+
+        // Helper to update total
+        function updateCartTotal() {
+            const total = currentSubtotal + shippingFee;
+            const fmt = new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN' });
+            totalEl.innerText = fmt.format(total);
+        }
+        
+        // Helper to show error modal
+        function showModalError(msg) {
+            const el = document.getElementById('cartErrorModalMsg');
+            const modalEl = document.getElementById('cartErrorModal');
+            if(el && modalEl) {
+                el.innerText = msg;
+                const modal = new bootstrap.Modal(modalEl);
+                modal.show();
+            } else {
+                alert(msg); // Fallback
+            }
+        }
+
+        // Checkout button click handler
+        checkoutBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            
+            const routeId = areaSelect.value;
+            const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+            
+            // Show loading state
+            const originalText = this.innerText;
+            this.innerText = 'Processing...';
+            this.style.opacity = '0.7';
+            this.style.pointerEvents = 'none';
+
+            fetch(proceedUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': csrfToken
+                },
+                body: JSON.stringify({
+                    delivery_route_id: routeId || null
+                })
+            })
+            .then(async response => {
+                const isJson = response.headers.get('content-type')?.includes('application/json');
+                const data = isJson ? await response.json() : null;
+
+                if (!response.ok) {
+                    // Check for validation errors
+                    if (data && data.errors) {
+                         const firstField = Object.keys(data.errors)[0];
+                         const firstError = data.errors[firstField][0];
+                         throw new Error(firstError);
+                    }
+                    
+                    const error = (data && data.message) || response.statusText;
+                    throw new Error(error);
+                }
+                return data;
+            })
+            .then(data => {
+                if (data && data.redirect_url) {
+                    window.location.href = data.redirect_url;
+                } else if (data && data.error) {
+                    showModalError(data.error);
+                    // Reset button
+                    this.innerText = originalText;
+                    this.style.opacity = '1';
+                    this.style.pointerEvents = 'auto';
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                
+                // Fallback for generic "The given data was invalid" message without specific field errors showing up
+                let msg = error.message;
+                if (msg === 'The given data was invalid.') {
+                     msg = 'Please check your input selections.';
+                }
+                
+                showModalError(msg || 'Something went wrong. Please check your connection and try again.');
+                // Reset button
+                this.innerText = originalText;
+                this.style.opacity = '1';
+                this.style.pointerEvents = 'auto';
+            });
+        });
+
+        // Capture subtotal updates from renderCartPage
+        const originalRenderCartPage = renderCartPage;
+        window.renderCartPage = function(cart) {
+            originalRenderCartPage(cart); // call original
+            currentSubtotal = cart.subtotal / 100;
+            updateCartTotal(); // Recalculate with current shipping fee
+        };
+
+        // State change handler
+        stateSelect.addEventListener('change', function() {
+            const state = this.value;
+            areaSelect.innerHTML = '<option value="">Select Area</option>';
+            areaSelect.style.display = 'none';
+            
+            if (state) {
+                // Show spinner
+                spinner.style.display = 'block';
+                
+                // Small timeout to simulate loading/allow UI update
+                setTimeout(() => {
+                    spinner.style.display = 'none';
+                    
+                    if (cartAreasByState[state]) {
+                        cartAreasByState[state].forEach(route => {
+                            const opt = document.createElement('option');
+                            opt.value = route.id;
+                            opt.text = route.area ? `${route.area} (₦${(route.fee/100).toLocaleString()})` : `All Areas (₦${(route.fee/100).toLocaleString()})`;
+                            opt.dataset.fee = route.fee;
+                            areaSelect.appendChild(opt);
+                        });
+                        areaSelect.style.display = 'block';
+                    }
+                }, 500); // 500ms delay for visual feedback
+            } else {
+                spinner.style.display = 'none';
+            }
+            
+            // Reset fee when state changes
+            shippingFee = 0;
+            deliveryRouteSelected = false;
+            feeDisplay.innerText = 'Please choose area';
+            updateCartTotal();
+            updateCheckoutButton();
+        });
+
+        // Area change handler
+        areaSelect.addEventListener('change', function() {
+            const selectedOpt = this.options[this.selectedIndex];
+            if (selectedOpt.value) {
+                const feeKobo = parseInt(selectedOpt.dataset.fee || 0);
+                shippingFee = feeKobo / 100;
+                deliveryRouteSelected = true;
+                
+                const fmt = new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN' });
+                feeDisplay.innerText = fmt.format(shippingFee);
+            } else {
+                shippingFee = 0;
+                deliveryRouteSelected = false;
+                feeDisplay.innerText = 'Please choose area';
+            }
+            updateCartTotal();
+            updateCheckoutButton();
+        });
+    });
+
+
     document.addEventListener('DOMContentLoaded', function() {
         const originalRender = StorefrontCart.renderCart;
         

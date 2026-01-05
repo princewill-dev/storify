@@ -49,9 +49,7 @@
                     variantKey = size + '||'; 
                 }
                 
-                StorefrontCart.addToCart(productId, qty, variantKey, btn, function() {
-                    window.location.href = "{{ route('checkout.index', ['store_slug' => $store->slug]) }}";
-                });
+                
             });
         },
 

@@ -21,9 +21,9 @@ class BankTransferController extends Controller
     /**
      * Show bank transfer payment page with bank details
      */
-    public function show(Request $request, $store_slug, Order $order)
+    public function show(Request $request, $store_subdomain, Order $order)
     {
-        $store = Store::where('slug', $store_slug)->where('status', 'active')->firstOrFail();
+        $store = Store::where('slug', $store_subdomain)->where('status', 'active')->firstOrFail();
         
         if ($order->store_id !== $store->id) {
             abort(404);
@@ -53,14 +53,14 @@ class BankTransferController extends Controller
     /**
      * Confirm payment with optional payment slip
      */
-    public function confirmPayment(Request $request, $store_slug, Order $order)
+    public function confirmPayment(Request $request, $store_subdomain, Order $order)
     {
         $validated = $request->validate([
             'payment_slip' => 'nullable|file|mimes:jpeg,png,jpg,heic,pdf|max:5120', // 5MB max
             'store_bank_id' => 'nullable|exists:store_banks,id',
         ]);
 
-        $store = Store::where('slug', $store_slug)->where('status', 'active')->firstOrFail();
+        $store = Store::where('slug', $store_subdomain)->where('status', 'active')->firstOrFail();
         
         if ($order->store_id !== $store->id) {
             abort(404);
@@ -135,20 +135,20 @@ class BankTransferController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Payment confirmed successfully!',
-                'redirect_url' => route('payment.pending', ['store_slug' => $store_slug, 'order' => $order->order_number]),
+                'redirect_url' => route('payment.pending', ['store_subdomain' => $store_subdomain, 'order' => $order->order_number]),
             ]);
         }
 
         // Redirect to pending page for regular requests
-        return redirect()->route('payment.pending', ['store_slug' => $store_slug, 'order' => $order->order_number]);
+        return redirect()->route('payment.pending', ['store_subdomain' => $store_subdomain, 'order' => $order->order_number]);
     }
 
     /**
      * Show pending payment verification page
      */
-    public function pending(Request $request, $store_slug, Order $order)
+    public function pending(Request $request, $store_subdomain, Order $order)
     {
-        $store = Store::where('slug', $store_slug)->where('status', 'active')->firstOrFail();
+        $store = Store::where('slug', $store_subdomain)->where('status', 'active')->firstOrFail();
         
         if ($order->store_id !== $store->id) {
             abort(404);

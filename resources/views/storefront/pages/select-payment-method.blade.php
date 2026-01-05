@@ -61,7 +61,7 @@
                                 </div>
                             @endif
 
-                            <form method="POST" action="{{ route('checkout.payment-methods.select', ['store_slug' => $store->slug, 'order' => $order->order_number]) }}">
+                            <form method="POST" action="{{ route('checkout.payment-methods.select', ['store_subdomain' => $store->slug, 'order' => $order->order_number]) }}">
                                 @csrf
 
                                 <h6 class="mb-3">Available Payment Methods</h6>

@@ -11,7 +11,7 @@ class Cart extends Model
     use HasFactory;
 
     protected $fillable = [
-        'store_id','user_id','guest_token','currency','status',
+        'store_id','user_id','guest_token','checkout_token','delivery_route_id','currency','status',
         'item_count','subtotal','discount_total','tax_total','total','meta'
     ];
 
@@ -22,6 +22,11 @@ class Cart extends Model
     public function items(): HasMany
     {
         return $this->hasMany(CartItem::class);
+    }
+
+    public function deliveryRoute()
+    {
+        return $this->belongsTo(DeliveryRoute::class);
     }
 
     public function recalcTotals(): void

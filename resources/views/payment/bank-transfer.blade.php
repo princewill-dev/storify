@@ -69,7 +69,7 @@
                         </div>
 
                         <!-- Payment Form -->
-                        <form method="POST" action="{{ route('payment.bank-transfer.confirm', ['store_slug' => $store->slug, 'order' => $order]) }}" enctype="multipart/form-data" id="paymentForm">
+                        <form method="POST" action="{{ route('payment.bank-transfer.confirm', ['store_subdomain' => $store->slug, 'order' => $order]) }}" enctype="multipart/form-data" id="paymentForm">
                             @csrf
                             <input type="hidden" name="store_bank_id" id="store_bank_id" value="">
 

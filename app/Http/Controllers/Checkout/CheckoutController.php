@@ -28,15 +28,23 @@ use App\Services\PaystackService;
 
 class CheckoutController extends Controller
 {
-    public function index(Request $request, $store_slug)
+    public function index(Request $request, $store_subdomain, $token)
     {
         $customer = auth()->guard('customer')->user();
 
         // Get store by slug
-        $store = Store::where('slug', $store_slug)->where('status', 'active')->firstOrFail();
+        $store = Store::where('slug', $store_subdomain)->where('status', 'active')->firstOrFail();
 
-        // Get cart from database
-        $cart = $this->resolveCart($request, $store);
+        // Get cart
+        $cart = Cart::where('checkout_token', $token)
+            ->where('store_id', $store->id)
+            ->where('status', 'active')
+            ->first();
+            
+        if (!$cart) {
+            return redirect()->route('home.store.cart', ['store_subdomain' => $store_subdomain])
+            ->with('error', 'Invalid or expired checkout session.');
+        }
         
         // Log cart resolution for debugging
         Log::info('checkout_cart_resolution', [
@@ -45,15 +53,16 @@ class CheckoutController extends Controller
             'cart_found' => $cart ? true : false,
             'cart_items_count' => $cart ? $cart->items->count() : 0,
             'guest_token' => $request->cookie('guest_token'),
+            'checkout_token' => $token
         ]);
         
         if (!$cart || $cart->items->isEmpty()) {
-            return redirect()->route('home.store.products.index', ['store_slug' => $store_slug])
+            return redirect()->route('home.store.products.index', ['store_subdomain' => $store_subdomain])
                 ->with('error', 'Your cart is empty. Please add items to cart before checkout.');
         }
 
         // Load cart items with product details
-        $cart->load(['items.product.images']);
+        $cart->load(['items.product.images', 'deliveryRoute']);
 
         // Hydrate summary items for the view
         $cartSummaryItems = $cart->items->map(function ($item) {
@@ -86,6 +95,26 @@ class CheckoutController extends Controller
         // Get payment methods
         $paymentMethods = PaymentMethod::active()->get();
 
+        // Check for delivery route selection (Persisted in Cart or via Query Param)
+        $preselectedRoute = null;
+        $shippingFee = 0;
+        
+        if ($cart->delivery_route_id) {
+            $preselectedRoute = $cart->deliveryRoute; // Relationship loaded above
+            if ($preselectedRoute && $preselectedRoute->active) {
+                $shippingFee = $preselectedRoute->fee;
+            }
+        } elseif ($request->has('delivery_route_id')) {
+            $preselectedRoute = DeliveryRoute::where('store_id', $store->id)
+                ->where('id', $request->delivery_route_id)
+                ->where('active', true)
+                ->first();
+            
+            if ($preselectedRoute) {
+                $shippingFee = $preselectedRoute->fee;
+            }
+        }
+
         // VAT percentage
         return view('storefront.pages.checkout', [
             'store' => $store,
@@ -94,6 +123,8 @@ class CheckoutController extends Controller
             'paymentMethods' => $paymentMethods,
             'vatPercentage' => 0, // VAT removed from flow
             'customer' => $customer,
+            'preselectedRoute' => $preselectedRoute,
+            'shippingFee' => $shippingFee,
         ]);
     }
 
@@ -241,13 +272,13 @@ class CheckoutController extends Controller
         return null;
     }
 
-    public function process(Request $request, $store_slug)
+    public function process(Request $request, $store_subdomain)
     {
         $customer = auth()->guard('customer')->user();
         
         Log::info('checkout_process_attempt', [
             'customer_id' => $customer?->id,
-            'store_slug' => $store_slug,
+            'store_slug' => $store_subdomain,
             'request_data' => $request->except(['_token'])
         ]);
 
@@ -264,6 +295,7 @@ class CheckoutController extends Controller
                 'city' => 'required|string|max:255',
                 'landmark' => 'nullable|string|max:255',
                 'notes' => 'nullable|string',
+                'delivery_route_id' => 'nullable|exists:delivery_routes,id',
             ];
 
             // If not logged in, these are required
@@ -277,7 +309,7 @@ class CheckoutController extends Controller
             $validated = $request->validate($rules);
 
             // Get store by slug
-            $store = Store::where('slug', $store_slug)->where('status', 'active')->firstOrFail();
+            $store = Store::where('slug', $store_subdomain)->where('status', 'active')->firstOrFail();
 
             // Resolve/Create Customer if guest
             if (!$customer) {
@@ -327,6 +359,25 @@ class CheckoutController extends Controller
             $deliveryArea = $validated['city'];
             $deliveryDays = null;
             $resolvedRoute = null;
+
+            // Use persisted route from cart if available, otherwise fall back to request
+            if ($cart->delivery_route_id) {
+                $route = DeliveryRoute::find($cart->delivery_route_id);
+                if ($route && $route->store_id == $store->id) {
+                    $shippingFeeRaw = $route->fee;
+                    $deliveryDays = $route->delivery_days;
+                    
+                    // Override inputs with route data to ensure consistency
+                    // but we might want to keep user's typed address if it differs slightly?
+                    // Generally, if they selected a route, the state/area should match.
+                }
+            } elseif ($request->filled('delivery_route_id')) {
+                $route = DeliveryRoute::find($request->delivery_route_id);
+                if ($route && $route->store_id == $store->id) {
+                    $shippingFeeRaw = $route->fee;
+                    $deliveryDays = $route->delivery_days;
+                }
+            }
 
             // Calculate totals from cart
             $subtotalKobo = 0;
@@ -421,7 +472,7 @@ class CheckoutController extends Controller
 
             // Redirect directly to payment method selection
             return redirect()->route('checkout.payment-methods', [
-                'store_slug' => $store_slug,
+                'store_subdomain' => $store_subdomain,
                 'order' => $order->order_number
             ]);
 
@@ -440,9 +491,9 @@ class CheckoutController extends Controller
         }
     }
 
-    public function showPaymentMethods($store_slug, Order $order)
+    public function showPaymentMethods($store_subdomain, Order $order)
     {
-        $store = Store::where('slug', $store_slug)->where('status', 'active')->firstOrFail();
+        $store = Store::where('slug', $store_subdomain)->where('status', 'active')->firstOrFail();
         
         if ($order->store_id !== $store->id) {
             abort(404);
@@ -462,13 +513,13 @@ class CheckoutController extends Controller
         return view('storefront.pages.select-payment-method', compact('store', 'order', 'paymentMethods', 'paymentAmount'));
     }
 
-    public function selectPaymentMethod(Request $request, $store_slug, Order $order)
+    public function selectPaymentMethod(Request $request, $store_subdomain, Order $order)
     {
         $validated = $request->validate([
             'payment_method_id' => 'required|exists:payment_methods,id',
         ]);
 
-        $store = Store::where('slug', $store_slug)->where('status', 'active')->firstOrFail();
+        $store = Store::where('slug', $store_subdomain)->where('status', 'active')->firstOrFail();
         
         if ($order->store_id !== $store->id) {
             abort(404);
@@ -509,7 +560,7 @@ class CheckoutController extends Controller
             }
 
             return redirect()->route('payment.bank-transfer', [
-                'store_slug' => $store_slug,
+                'store_subdomain' => $store_subdomain,
                 'order' => $order
             ]);
         }
@@ -530,7 +581,7 @@ class CheckoutController extends Controller
         }
 
         return redirect()->route('checkout.payment', [
-            'store_slug' => $store_slug,
+                'store_subdomain' => $store_subdomain,
             'order' => $order->order_number
         ]);
     }
@@ -649,9 +700,9 @@ class CheckoutController extends Controller
         }
     }
 
-    public function confirmPayment(Request $request, $store_slug, Order $order)
+    public function confirmPayment(Request $request, $store_subdomain, Order $order)
     {
-        $store = Store::where('slug', $store_slug)->where('status', 'active')->firstOrFail();
+        $store = Store::where('slug', $store_subdomain)->where('status', 'active')->firstOrFail();
         
         if ($order->store_id !== $store->id) {
             abort(404);
@@ -683,15 +734,15 @@ class CheckoutController extends Controller
         session()->forget('pending_order_id');
 
         return redirect()->route('checkout.payment', [
-            'store_slug' => $store_slug,
+                'store_subdomain' => $store_subdomain,
             'order' => $order->order_number
         ])->with('success', 'Payment confirmed! Your order is being processed.');
     }
 
-    public function payment($store_slug, Order $order)
+    public function payment($store_subdomain, Order $order)
     {
         // Verify order belongs to this store
-        $store = Store::where('slug', $store_slug)->where('status', 'active')->firstOrFail();
+        $store = Store::where('slug', $store_subdomain)->where('status', 'active')->firstOrFail();
         
         if ($order->store_id !== $store->id) {
             abort(404);

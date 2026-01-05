@@ -20,7 +20,6 @@
             </div>
             <div class="cartmini__checkout-btn">
                 <a href="{{ route('home.store.cart', ['store_subdomain' => $store->slug ?? 'store']) }}" class="m-btn m-btn-border mb-10 w-100"> <span></span> view cart</a>
-                <a href="{{ route('checkout.index', ['store_slug' => $store->slug]) }}" class="m-btn m-btn-3 w-100"> <span></span> checkout</a>
             </div>
         </div>
     </div>

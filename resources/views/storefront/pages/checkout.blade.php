@@ -20,10 +20,13 @@
                             </div>
                         </div>
                         <div class="product__proprietor-body">
-                            <form action="{{ route('checkout.process', ['store_slug' => $store->slug]) }}" method="POST" id="checkoutForm">
+                            <form action="{{ route('checkout.process', ['store_subdomain' => $store->slug]) }}" method="POST" id="checkoutForm">
                                 @csrf
                                 
                                 <h6 class="mb-3">Personal Information</h6>
+                                @if(isset($preselectedRoute))
+                                    <input type="hidden" name="delivery_route_id" value="{{ $preselectedRoute->id }}">
+                                @endif
                                 <div class="row mb-4">
                                     <div class="col-md-6 mb-3">
                                         <label class="form-label">First Name *</label>
@@ -53,11 +56,11 @@
                                     </div>
                                     <div class="col-md-6 mb-3">
                                         <label class="form-label">State *</label>
-                                        <input type="text" name="state" class="form-control" value="{{ old('state') }}" placeholder="e.g. Lagos" required>
+                                        <input type="text" name="state" class="form-control" value="{{ old('state', $preselectedRoute->state ?? '') }}" placeholder="e.g. Lagos" required>
                                     </div>
                                     <div class="col-md-6 mb-3">
                                         <label class="form-label">City *</label>
-                                        <input type="text" name="city" class="form-control" value="{{ old('city') }}" placeholder="e.g. Ikeja" required>
+                                        <input type="text" name="city" class="form-control" value="{{ old('city', $preselectedRoute->area ?? '') }}" placeholder="e.g. Ikeja" required>
                                     </div>
                                     <div class="col-md-6 mb-3">
                                         <label class="form-label">Landmark (Optional)</label>
@@ -108,10 +111,16 @@
                                 <span>Subtotal</span>
                                 <span>₦{{ number_format($cart->subtotal / 100, 2) }}</span>
                             </div>
+                            @if(isset($shippingFee) && $shippingFee > 0)
+                            <div class="d-flex justify-content-between mb-2">
+                                <span>Shipping</span>
+                                <span>₦{{ number_format($shippingFee / 100, 2) }}</span>
+                            </div>
+                            @endif
                             <hr>
                             <div class="d-flex justify-content-between mb-2 font-weight-bold" style="font-size: 1.2rem;">
                                 <span>Total</span>
-                                <span id="grandTotalDisplay">₦{{ number_format($cart->total / 100, 2) }}</span>
+                                <span id="grandTotalDisplay">₦{{ number_format(($cart->total + ($shippingFee ?? 0)) / 100, 2) }}</span>
                             </div>
                         </div>
                     </div>
