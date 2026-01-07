@@ -21,15 +21,18 @@ RUN echo '<Directory /var/www/html/public>\n\
 # 4. Install Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
-# 5. Set Workdir
+# 5. Copy PHP upload configuration
+COPY php/conf.d/uploads.ini /usr/local/etc/php/conf.d/uploads.ini
+
+# 6. Set Workdir
 WORKDIR /var/www/html
 
-# 6. Copy Supervisor Config
+# 7. Copy Supervisor Config
 RUN mkdir -p /var/log/supervisor
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
-# 7. Expose Port
+# 8. Expose Port
 EXPOSE 80
 
-# 8. Start Supervisor as the main process
+# 9. Start Supervisor as the main process
 CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
