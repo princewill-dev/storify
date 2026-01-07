@@ -8,20 +8,6 @@
         <h2 class="mb-2">Set Up Delivery Routes</h2>
         <p class="text-muted mb-4">Configure delivery options for your store. You can add multiple routes.</p>
 
-        @if(session('success'))
-            <div class="alert alert-success alert-dismissible fade show" role="alert">
-                {{ session('success') }}
-                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-            </div>
-        @endif
-
-        @if(session('error'))
-            <div class="alert alert-danger alert-dismissible fade show" role="alert">
-                {{ session('error') }}
-                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-            </div>
-        @endif
-
         <form method="POST" action="{{ route('vendor.kyc.delivery-routes.save', ['vendor' => $vendor]) }}" id="deliveryRoutesForm">
             @csrf
 

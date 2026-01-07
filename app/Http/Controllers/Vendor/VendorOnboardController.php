@@ -389,7 +389,7 @@ class VendorOnboardController extends Controller
                     $store->deliveryRoutes()->create([
                         'country' => $routeData['country'],
                         'state' => $routeData['state'],
-                        'area' => $routeData['area'] ?? null,
+                        'area' => $routeData['area'] ?? '',
                         'fee' => $routeData['fee'] * 100, // Convert to kobo
                         'delivery_days' => $routeData['delivery_days'],
                         'active' => $routeData['active'] ?? true,
