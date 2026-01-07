@@ -95,8 +95,8 @@
                         <a style="color: #000000" href="{{ store_url($store->slug, 'products/' . $product->slug . '-' . $product->product_code) }}" class="m-btn m-btn-border m-btn-border-5 flex-grow-1 me-2">
                            <span style="font-size: 12px;">View</span> 
                         </a>
-                        <a style="color: #000000" href="javascript:void(0);" class="m-btn m-btn-border m-btn-border-5 flex-grow-1 ms-2 add-to-cart-btn-index" data-product-id="{{ $product->id }}">
-                           <span style="font-size: 12px;">Add to <i class="fas fa-shopping-cart" style="font-size: 12px;"></i></span> 
+                        <a style="color: #000000" href="javascript:void(0);" class="m-btn m-btn-border m-btn-border-5 flex-grow-1 ms-2 add-to-cart-btn-index" data-product-id="{{ $product->id }}" title="Add to cart">
+                           <i class="fas fa-shopping-cart" style="font-size: 10px;"></i>
                         </a>
                      </div>
                   </div>

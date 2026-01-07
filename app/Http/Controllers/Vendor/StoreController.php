@@ -55,7 +55,7 @@ class StoreController extends Controller
             'vendor_id' => $vendor->id,
         ]);
 
-        return view('vendors.auth.create', compact('vendor', 'ownershipTypes', 'businessTypes', 'defaults'));
+        return view('vendors.auth.create-store', compact('vendor', 'ownershipTypes', 'businessTypes', 'defaults'));
     }
 
     public function store(CreateStoreRequest $request, Vendor $routeVendor): RedirectResponse

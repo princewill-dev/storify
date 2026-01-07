@@ -100,6 +100,11 @@ class Store extends Model
         return $this->hasMany(DeliveryRoute::class);
     }
 
+    public function categories(): HasMany
+    {
+        return $this->hasMany(Category::class);
+    }
+
     public static function statusBadgeData(): array
     {
         return StoreStatus::badgeData();

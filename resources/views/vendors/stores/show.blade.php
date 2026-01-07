@@ -6,6 +6,10 @@
   <div class="d-flex justify-content-between align-items-center mb-3">
     <h6 class="mb-0">Store: {{ $store->name }}</h6>
     <div class="dropdown">
+      <!--create new store-->
+      <!-- <a href="{{ route('vendor.stores.create', ['vendor' => $vendor]) }}" class="btn btn-primary btn-sm fw-bold px-3 rounded-pill shadow-sm" type="button">
+        <i class="fi fi-rr-plus me-1"></i> Create New
+      </a> -->
       <button class="btn btn-primary btn-sm dropdown-toggle fw-bold px-3 rounded-pill shadow-sm" type="button" data-bs-toggle="dropdown" aria-expanded="false">
         <i class="fi fi-rr-settings me-1"></i> Actions
       </button>
@@ -73,6 +77,14 @@
         <li>
           <a class="dropdown-item d-flex align-items-center py-2 px-3" href="{{ route('vendor.categories.index', ['vendor' => $vendor, 'store_id' => $store->store_id]) }}">
             <i class="fi fi-rr-list me-2 text-secondary"></i> <span>Manage Categories</span>
+          </a>
+        </li>
+        <li>
+          <hr>
+        </li>
+        <li>
+          <a class="dropdown-item d-flex align-items-center py-2 px-3" href="{{ route('vendor.stores.create', ['vendor' => $vendor]) }}">
+            <i class="fi fi-rr-plus me-2 text-secondary"></i> <span>Create new store</span>
           </a>
         </li>
       </ul>
@@ -784,275 +796,275 @@
 @endsection
 
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-  var modal = document.getElementById('suspendStoreModal');
-  if (modal) {
-    modal.addEventListener('show.bs.modal', function (event) {
-      var button = event.relatedTarget;
-      var action = button.getAttribute('data-action');
-      var storeName = button.getAttribute('data-store-name');
-      var nameInput = document.getElementById('suspendStoreName');
-      var form = document.getElementById('suspendStoreForm');
-      if (nameInput) nameInput.value = storeName || '';
-      if (form && action) { form.action = action; }
-    });
-  }
-});
-
-document.addEventListener('DOMContentLoaded', function() {
-  var modal = document.getElementById('activateStoreModal');
-  if (modal) {
-    modal.addEventListener('show.bs.modal', function (event) {
-      var button = event.relatedTarget;
-      var action = button.getAttribute('data-action');
-      var storeName = button.getAttribute('data-store-name');
-      var nameInput = document.getElementById('activateStoreName');
-      var form = document.getElementById('activateStoreForm');
-      if (nameInput) nameInput.value = storeName || '';
-      if (form && action) { form.action = action; }
-    });
-  }
-});
-
-// Edit Store modal population (same as index)
-document.addEventListener('DOMContentLoaded', function() {
-  var modal = document.getElementById('editStoreModal');
-  if (!modal) return;
-  modal.addEventListener('show.bs.modal', function (event) {
-    var button = event.relatedTarget;
-    if (!button) return;
-    var form = document.getElementById('editStoreForm');
-    var action = button.getAttribute('data-action');
-    if (form && action) form.action = action;
-
-    var vendorId = button.getAttribute('data-vendor-id') || '';
-    var name = button.getAttribute('data-name') || '';
-    var slug = button.getAttribute('data-slug') || '';
-    var description = button.getAttribute('data-description') || '';
-    var supportEmail = button.getAttribute('data-support-email') || '';
-    var supportPhone = button.getAttribute('data-support-phone') || '';
-    var address = button.getAttribute('data-address') || '';
-    var instagramUrl = button.getAttribute('data-instagram-url') || '';
-    var facebookUrl = button.getAttribute('data-facebook-url') || '';
-    var twitterUrl = button.getAttribute('data-twitter-url') || '';
-    var tiktokUrl = button.getAttribute('data-tiktok-url') || '';
-    var ownershipTypeId = button.getAttribute('data-ownership-type-id') || '';
-    var businessTypeId = button.getAttribute('data-business-type-id') || '';
-    var status = (button.getAttribute('data-status') || '').toLowerCase();
-    var logoUrl = button.getAttribute('data-logo-url') || '';
-
-    // Safeguard elements
-    const vIdEl = document.getElementById('editStoreVendor');
-    if(vIdEl) vIdEl.value = vendorId;
-    
-    const nameEl = document.getElementById('editStoreName');
-    if(nameEl) nameEl.value = name;
-    
-    const slugEl = document.getElementById('editStoreSlug');
-    if(slugEl) slugEl.value = slug;
-    
-    const descEl = document.getElementById('editStoreDescription');
-    if(descEl) descEl.value = description;
-    
-    const sEmailEl = document.getElementById('editStoreSupportEmail');
-    if(sEmailEl) sEmailEl.value = supportEmail;
-    
-    const sPhoneEl = document.getElementById('editStoreSupportPhone');
-    if(sPhoneEl) sPhoneEl.value = supportPhone;
-    
-    const addrEl = document.getElementById('editStoreAddress');
-    if(addrEl) addrEl.value = address;
-    
-    const instaEl = document.getElementById('editStoreInstagramUrl');
-    if(instaEl) instaEl.value = instagramUrl;
-    
-    const fbEl = document.getElementById('editStoreFacebookUrl');
-    if(fbEl) fbEl.value = facebookUrl;
-    
-    const twEl = document.getElementById('editStoreTwitterUrl');
-    if(twEl) twEl.value = twitterUrl;
-    
-    const tkEl = document.getElementById('editStoreTiktokUrl');
-    if(tkEl) tkEl.value = tiktokUrl;
-    
-    const ownEl = document.getElementById('editStoreOwnershipType');
-    if(ownEl) ownEl.value = ownershipTypeId;
-    
-    const bizEl = document.getElementById('editStoreBusinessType');
-    if(bizEl) bizEl.value = businessTypeId;
-    
-    var statusSelect = document.getElementById('editStoreStatus');
-    if (statusSelect) Array.from(statusSelect.options).forEach(function(opt){ opt.selected = (opt.value.toLowerCase() === status); });
-    var logoPreview = document.getElementById('editStoreLogoPreview');
-    if (logoPreview) logoPreview.src = logoUrl;
+  document.addEventListener('DOMContentLoaded', function() {
+    var modal = document.getElementById('suspendStoreModal');
+    if (modal) {
+      modal.addEventListener('show.bs.modal', function (event) {
+        var button = event.relatedTarget;
+        var action = button.getAttribute('data-action');
+        var storeName = button.getAttribute('data-store-name');
+        var nameInput = document.getElementById('suspendStoreName');
+        var form = document.getElementById('suspendStoreForm');
+        if (nameInput) nameInput.value = storeName || '';
+        if (form && action) { form.action = action; }
+      });
+    }
   });
-});
 
-// Bank Management Scripts
-document.addEventListener('DOMContentLoaded', function() {
-    // 1. Fetch Banks
-    fetch("{{ route('vendor.kyc.store.get-banks', ['vendor' => $vendor]) }}")
-        .then(response => response.json())
-        .then(data => {
-            const selectors = document.querySelectorAll('.bank-selector');
-            selectors.forEach(select => {
-                select.innerHTML = '<option value="">Select Bank</option>';
-                if (data.status && data.data) {
-                    data.data.forEach(bank => {
-                        const option = document.createElement('option');
-                        option.value = bank.code;
-                        option.textContent = bank.name;
-                        select.appendChild(option);
-                    });
-                }
-            });
-        });
+  document.addEventListener('DOMContentLoaded', function() {
+    var modal = document.getElementById('activateStoreModal');
+    if (modal) {
+      modal.addEventListener('show.bs.modal', function (event) {
+        var button = event.relatedTarget;
+        var action = button.getAttribute('data-action');
+        var storeName = button.getAttribute('data-store-name');
+        var nameInput = document.getElementById('activateStoreName');
+        var form = document.getElementById('activateStoreForm');
+        if (nameInput) nameInput.value = storeName || '';
+        if (form && action) { form.action = action; }
+      });
+    }
+  });
 
-    // Handle Bank Name synchronization
-    document.querySelectorAll('.bank-selector').forEach(select => {
-        select.addEventListener('change', function() {
-            const nameHidden = this.closest('form').querySelector('.bank-name-hidden');
-            if (nameHidden) {
-                nameHidden.value = this.options[this.selectedIndex].text;
-            }
-        });
+  // Edit Store modal population (same as index)
+  document.addEventListener('DOMContentLoaded', function() {
+    var modal = document.getElementById('editStoreModal');
+    if (!modal) return;
+    modal.addEventListener('show.bs.modal', function (event) {
+      var button = event.relatedTarget;
+      if (!button) return;
+      var form = document.getElementById('editStoreForm');
+      var action = button.getAttribute('data-action');
+      if (form && action) form.action = action;
+
+      var vendorId = button.getAttribute('data-vendor-id') || '';
+      var name = button.getAttribute('data-name') || '';
+      var slug = button.getAttribute('data-slug') || '';
+      var description = button.getAttribute('data-description') || '';
+      var supportEmail = button.getAttribute('data-support-email') || '';
+      var supportPhone = button.getAttribute('data-support-phone') || '';
+      var address = button.getAttribute('data-address') || '';
+      var instagramUrl = button.getAttribute('data-instagram-url') || '';
+      var facebookUrl = button.getAttribute('data-facebook-url') || '';
+      var twitterUrl = button.getAttribute('data-twitter-url') || '';
+      var tiktokUrl = button.getAttribute('data-tiktok-url') || '';
+      var ownershipTypeId = button.getAttribute('data-ownership-type-id') || '';
+      var businessTypeId = button.getAttribute('data-business-type-id') || '';
+      var status = (button.getAttribute('data-status') || '').toLowerCase();
+      var logoUrl = button.getAttribute('data-logo-url') || '';
+
+      // Safeguard elements
+      const vIdEl = document.getElementById('editStoreVendor');
+      if(vIdEl) vIdEl.value = vendorId;
+      
+      const nameEl = document.getElementById('editStoreName');
+      if(nameEl) nameEl.value = name;
+      
+      const slugEl = document.getElementById('editStoreSlug');
+      if(slugEl) slugEl.value = slug;
+      
+      const descEl = document.getElementById('editStoreDescription');
+      if(descEl) descEl.value = description;
+      
+      const sEmailEl = document.getElementById('editStoreSupportEmail');
+      if(sEmailEl) sEmailEl.value = supportEmail;
+      
+      const sPhoneEl = document.getElementById('editStoreSupportPhone');
+      if(sPhoneEl) sPhoneEl.value = supportPhone;
+      
+      const addrEl = document.getElementById('editStoreAddress');
+      if(addrEl) addrEl.value = address;
+      
+      const instaEl = document.getElementById('editStoreInstagramUrl');
+      if(instaEl) instaEl.value = instagramUrl;
+      
+      const fbEl = document.getElementById('editStoreFacebookUrl');
+      if(fbEl) fbEl.value = facebookUrl;
+      
+      const twEl = document.getElementById('editStoreTwitterUrl');
+      if(twEl) twEl.value = twitterUrl;
+      
+      const tkEl = document.getElementById('editStoreTiktokUrl');
+      if(tkEl) tkEl.value = tiktokUrl;
+      
+      const ownEl = document.getElementById('editStoreOwnershipType');
+      if(ownEl) ownEl.value = ownershipTypeId;
+      
+      const bizEl = document.getElementById('editStoreBusinessType');
+      if(bizEl) bizEl.value = businessTypeId;
+      
+      var statusSelect = document.getElementById('editStoreStatus');
+      if (statusSelect) Array.from(statusSelect.options).forEach(function(opt){ opt.selected = (opt.value.toLowerCase() === status); });
+      var logoPreview = document.getElementById('editStoreLogoPreview');
+      if (logoPreview) logoPreview.src = logoUrl;
     });
+  });
 
-    // Bank Account Validation Logic
-    document.querySelectorAll('.btn-validate-bank').forEach(btn => {
-        btn.addEventListener('click', function() {
-            const form = this.closest('form');
-            const accountNumber = form.querySelector('input[name="account_number"]').value;
-            const bankCode = form.querySelector('select[name="bank_code"]').value;
-            const feedback = form.querySelector('.bank-validation-feedback');
-            const accountNameInput = form.querySelector('input[name="account_name"]');
-            const submitBtn = form.querySelector('button[type="submit"]');
+  // Bank Management Scripts
+  document.addEventListener('DOMContentLoaded', function() {
+      // 1. Fetch Banks
+      fetch("{{ route('vendor.kyc.store.get-banks', ['vendor' => $vendor]) }}")
+          .then(response => response.json())
+          .then(data => {
+              const selectors = document.querySelectorAll('.bank-selector');
+              selectors.forEach(select => {
+                  select.innerHTML = '<option value="">Select Bank</option>';
+                  if (data.status && data.data) {
+                      data.data.forEach(bank => {
+                          const option = document.createElement('option');
+                          option.value = bank.code;
+                          option.textContent = bank.name;
+                          select.appendChild(option);
+                      });
+                  }
+              });
+          });
 
-            if (accountNumber.length !== 10 || !bankCode) {
-                alert('Please enter a valid 10-digit account number and select a bank.');
-                return;
-            }
+      // Handle Bank Name synchronization
+      document.querySelectorAll('.bank-selector').forEach(select => {
+          select.addEventListener('change', function() {
+              const nameHidden = this.closest('form').querySelector('.bank-name-hidden');
+              if (nameHidden) {
+                  nameHidden.value = this.options[this.selectedIndex].text;
+              }
+          });
+      });
 
-            this.disabled = true;
-            this.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
-            feedback.innerHTML = '<span class="text-muted">Verifying...</span>';
+      // Bank Account Validation Logic
+      document.querySelectorAll('.btn-validate-bank').forEach(btn => {
+          btn.addEventListener('click', function() {
+              const form = this.closest('form');
+              const accountNumber = form.querySelector('input[name="account_number"]').value;
+              const bankCode = form.querySelector('select[name="bank_code"]').value;
+              const feedback = form.querySelector('.bank-validation-feedback');
+              const accountNameInput = form.querySelector('input[name="account_name"]');
+              const submitBtn = form.querySelector('button[type="submit"]');
 
-            fetch("{{ route('vendor.kyc.store.validate-bank', ['vendor' => $vendor]) }}", {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRF-TOKEN': '{{ csrf_token() }}'
-                },
-                body: JSON.stringify({ account_number: accountNumber, bank_code: bankCode })
-            })
-            .then(response => response.json())
-            .then(data => {
-                this.disabled = false;
-                this.innerHTML = 'Verify';
-                
-                if (data.status && data.data) {
-                    accountNameInput.value = data.data.account_name;
-                    feedback.innerHTML = '<span class="text-success"><i class="fi fi-rr-check"></i> Account verified</span>';
-                    submitBtn.disabled = false;
-                } else {
-                    accountNameInput.value = '';
-                    feedback.innerHTML = '<span class="text-danger"><i class="fi fi-rr-cross"></i> ' + (data.message || 'Verification failed') + '</span>';
-                    submitBtn.disabled = true;
-                }
-            })
-            .catch(err => {
-                this.disabled = false;
-                this.innerHTML = 'Verify';
-                feedback.innerHTML = '<span class="text-danger">Error during verification.</span>';
-                submitBtn.disabled = true;
-            });
-        });
-    });
+              if (accountNumber.length !== 10 || !bankCode) {
+                  alert('Please enter a valid 10-digit account number and select a bank.');
+                  return;
+              }
 
-    // 2. Edit Modal Population
-    var editModal = document.getElementById('editBankModal');
-    if (editModal) {
-        editModal.addEventListener('show.bs.modal', function (event) {
-            var button = event.relatedTarget;
-            var id = button.getAttribute('data-bank-id');
-            var bankName = button.getAttribute('data-bank-name');
-            var bankCode = button.getAttribute('data-bank-code');
-            var accountNumber = button.getAttribute('data-account-number');
-            var accountName = button.getAttribute('data-account-name');
-            var isPrimary = button.getAttribute('data-is-primary') === '1';
+              this.disabled = true;
+              this.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+              feedback.innerHTML = '<span class="text-muted">Verifying...</span>';
 
-            var form = document.getElementById('editBankForm');
-            var url = "{{ route('vendor.stores.banks.update', ['vendor' => $vendor, 'store' => $store, 'bank' => ':id']) }}".replace(':id', id);
-            form.action = url;
+              fetch("{{ route('vendor.kyc.store.validate-bank', ['vendor' => $vendor]) }}", {
+                  method: 'POST',
+                  headers: {
+                      'Content-Type': 'application/json',
+                      'X-CSRF-TOKEN': '{{ csrf_token() }}'
+                  },
+                  body: JSON.stringify({ account_number: accountNumber, bank_code: bankCode })
+              })
+              .then(response => response.json())
+              .then(data => {
+                  this.disabled = false;
+                  this.innerHTML = 'Verify';
+                  
+                  if (data.status && data.data) {
+                      accountNameInput.value = data.data.account_name;
+                      feedback.innerHTML = '<span class="text-success"><i class="fi fi-rr-check"></i> Account verified</span>';
+                      submitBtn.disabled = false;
+                  } else {
+                      accountNameInput.value = '';
+                      feedback.innerHTML = '<span class="text-danger"><i class="fi fi-rr-cross"></i> ' + (data.message || 'Verification failed') + '</span>';
+                      submitBtn.disabled = true;
+                  }
+              })
+              .catch(err => {
+                  this.disabled = false;
+                  this.innerHTML = 'Verify';
+                  feedback.innerHTML = '<span class="text-danger">Error during verification.</span>';
+                  submitBtn.disabled = true;
+              });
+          });
+      });
 
-            document.getElementById('editBankName').value = bankName;
-            document.getElementById('editBankNameHidden').value = bankName;
-            document.getElementById('editBankCode').value = bankCode;
-            document.getElementById('editAccountNumber').value = accountNumber;
-            document.getElementById('editAccountName').value = accountName;
-            document.getElementById('editBankPrimary').checked = isPrimary;
-        });
-    }
+      // 2. Edit Modal Population
+      var editModal = document.getElementById('editBankModal');
+      if (editModal) {
+          editModal.addEventListener('show.bs.modal', function (event) {
+              var button = event.relatedTarget;
+              var id = button.getAttribute('data-bank-id');
+              var bankName = button.getAttribute('data-bank-name');
+              var bankCode = button.getAttribute('data-bank-code');
+              var accountNumber = button.getAttribute('data-account-number');
+              var accountName = button.getAttribute('data-account-name');
+              var isPrimary = button.getAttribute('data-is-primary') === '1';
 
-    // 3. Delete Modal Population
-    var deleteModal = document.getElementById('deleteBankModal');
-    if (deleteModal) {
-        deleteModal.addEventListener('show.bs.modal', function (event) {
-            var button = event.relatedTarget;
-            var id = button.getAttribute('data-bank-id');
-            var bankName = button.getAttribute('data-bank-name');
+              var form = document.getElementById('editBankForm');
+              var url = "{{ route('vendor.stores.banks.update', ['vendor' => $vendor, 'store' => $store, 'bank' => ':id']) }}".replace(':id', id);
+              form.action = url;
 
-            var form = document.getElementById('deleteBankForm');
-            var url = "{{ route('vendor.stores.banks.destroy', ['vendor' => $vendor, 'store' => $store, 'bank' => ':id']) }}".replace(':id', id);
-            form.action = url;
+              document.getElementById('editBankName').value = bankName;
+              document.getElementById('editBankNameHidden').value = bankName;
+              document.getElementById('editBankCode').value = bankCode;
+              document.getElementById('editAccountNumber').value = accountNumber;
+              document.getElementById('editAccountName').value = accountName;
+              document.getElementById('editBankPrimary').checked = isPrimary;
+          });
+      }
 
-            document.getElementById('deleteBankDisplay').textContent = bankName;
-        });
-    }
-});
+      // 3. Delete Modal Population
+      var deleteModal = document.getElementById('deleteBankModal');
+      if (deleteModal) {
+          deleteModal.addEventListener('show.bs.modal', function (event) {
+              var button = event.relatedTarget;
+              var id = button.getAttribute('data-bank-id');
+              var bankName = button.getAttribute('data-bank-name');
 
-// Delivery Route Modals
-document.addEventListener('DOMContentLoaded', function() {
-    // Edit Modal
-    var editRouteModal = document.getElementById('editDeliveryRouteModal');
-    if (editRouteModal) {
-        editRouteModal.addEventListener('show.bs.modal', function (event) {
-            var button = event.relatedTarget;
-            var id = button.getAttribute('data-route-id');
-            var country = button.getAttribute('data-country');
-            var state = button.getAttribute('data-state');
-            var area = button.getAttribute('data-area');
-            var fee = button.getAttribute('data-fee');
-            var deliveryDays = button.getAttribute('data-delivery-days');
-            var active = button.getAttribute('data-active') === '1';
+              var form = document.getElementById('deleteBankForm');
+              var url = "{{ route('vendor.stores.banks.destroy', ['vendor' => $vendor, 'store' => $store, 'bank' => ':id']) }}".replace(':id', id);
+              form.action = url;
 
-            var form = document.getElementById('editRouteForm');
-            var url = "{{ route('vendor.stores.delivery-routes.update', ['vendor' => $vendor, 'store' => $store, 'deliveryRoute' => ':id']) }}".replace(':id', id);
-            form.action = url;
+              document.getElementById('deleteBankDisplay').textContent = bankName;
+          });
+      }
+  });
 
-            document.getElementById('editRouteCountry').value = country || '';
-            document.getElementById('editRouteState').value = state || '';
-            document.getElementById('editRouteArea').value = area || '';
-            document.getElementById('editRouteFee').value = fee || '';
-            document.getElementById('editRouteDeliveryDays').value = deliveryDays || '';
-            document.getElementById('editRouteActive').checked = active;
-        });
-    }
+  // Delivery Route Modals
+  document.addEventListener('DOMContentLoaded', function() {
+      // Edit Modal
+      var editRouteModal = document.getElementById('editDeliveryRouteModal');
+      if (editRouteModal) {
+          editRouteModal.addEventListener('show.bs.modal', function (event) {
+              var button = event.relatedTarget;
+              var id = button.getAttribute('data-route-id');
+              var country = button.getAttribute('data-country');
+              var state = button.getAttribute('data-state');
+              var area = button.getAttribute('data-area');
+              var fee = button.getAttribute('data-fee');
+              var deliveryDays = button.getAttribute('data-delivery-days');
+              var active = button.getAttribute('data-active') === '1';
 
-    // Delete Modal
-    var deleteRouteModal = document.getElementById('deleteDeliveryRouteModal');
-    if (deleteRouteModal) {
-        deleteRouteModal.addEventListener('show.bs.modal', function (event) {
-            var button = event.relatedTarget;
-            var id = button.getAttribute('data-route-id');
-            var location = button.getAttribute('data-location');
+              var form = document.getElementById('editRouteForm');
+              var url = "{{ route('vendor.stores.delivery-routes.update', ['vendor' => $vendor, 'store' => $store, 'deliveryRoute' => ':id']) }}".replace(':id', id);
+              form.action = url;
 
-            var form = document.getElementById('deleteRouteForm');
-            var url = "{{ route('vendor.stores.delivery-routes.destroy', ['vendor' => $vendor, 'store' => $store, 'deliveryRoute' => ':id']) }}".replace(':id', id);
-            form.action = url;
+              document.getElementById('editRouteCountry').value = country || '';
+              document.getElementById('editRouteState').value = state || '';
+              document.getElementById('editRouteArea').value = area || '';
+              document.getElementById('editRouteFee').value = fee || '';
+              document.getElementById('editRouteDeliveryDays').value = deliveryDays || '';
+              document.getElementById('editRouteActive').checked = active;
+          });
+      }
 
-            document.getElementById('deleteRouteLocation').textContent = location;
-        });
-    }
-});
+      // Delete Modal
+      var deleteRouteModal = document.getElementById('deleteDeliveryRouteModal');
+      if (deleteRouteModal) {
+          deleteRouteModal.addEventListener('show.bs.modal', function (event) {
+              var button = event.relatedTarget;
+              var id = button.getAttribute('data-route-id');
+              var location = button.getAttribute('data-location');
+
+              var form = document.getElementById('deleteRouteForm');
+              var url = "{{ route('vendor.stores.delivery-routes.destroy', ['vendor' => $vendor, 'store' => $store, 'deliveryRoute' => ':id']) }}".replace(':id', id);
+              form.action = url;
+
+              document.getElementById('deleteRouteLocation').textContent = location;
+          });
+      }
+  });
 </script>
