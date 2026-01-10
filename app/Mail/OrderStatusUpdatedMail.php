@@ -42,7 +42,7 @@ class OrderStatusUpdatedMail extends Mailable implements ShouldQueue
     public function content(): Content
     {
         return new Content(
-            view: 'emails.order-status-updated',
+            view: 'emails.order.order-status-updated',
             with: [
                 'order' => $this->order,
                 'customer' => $this->order->customer,

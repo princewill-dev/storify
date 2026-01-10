@@ -5,8 +5,7 @@ namespace App\Enums;
 enum TransactionStatus: string
 {
     case PENDING = 'pending';
-    case PAID = 'paid';
-    case COMPLETED = 'completed';
+    case CONFIRMED = 'confirmed';
     case REFUNDED = 'refunded';
     case CANCELED = 'cancelled';
 
@@ -14,8 +13,7 @@ enum TransactionStatus: string
     {
         return match ($this) {
             self::PENDING => 'Pending',
-            self::PAID => 'Paid',
-            self::COMPLETED => 'Completed',
+            self::CONFIRMED => 'Confirmed',
             self::REFUNDED => 'Refunded',
             self::CANCELED => 'Canceled',
         };
@@ -25,8 +23,7 @@ enum TransactionStatus: string
     {
         return match ($this) {
             self::PENDING => 'badge-warning light',
-            self::PAID => 'badge-success light',
-            self::COMPLETED => 'badge-success light',
+            self::CONFIRMED => 'badge-success light',
             self::REFUNDED => 'badge-info light',
             self::CANCELED => 'badge-danger light',
         };

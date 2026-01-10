@@ -166,4 +166,34 @@ class Vendor extends Authenticatable implements MustVerifyEmail
 
         return 'completed';
     }
+
+    /**
+     * Get total balance across all vendor's stores
+     * 
+     * @return int Balance in kobo
+     */
+    public function getTotalBalance(): int
+    {
+        return $this->stores()->sum('balance');
+    }
+
+    /**
+     * Get total balance in Naira
+     * 
+     * @return float
+     */
+    public function getTotalBalanceInNaira(): float
+    {
+        return $this->getTotalBalance() / 100;
+    }
+
+    /**
+     * Get formatted total balance for display
+     * 
+     * @return string
+     */
+    public function getFormattedTotalBalance(): string
+    {
+        return '₦' . number_format($this->getTotalBalanceInNaira(), 2);
+    }
 }

@@ -322,7 +322,7 @@ class StoreController extends Controller
         $incompleteTransactions = \App\Models\Transaction::whereHas('order', function($q) use ($store) {
                 $q->where('store_id', $store->id);
             })
-            ->where('status', '!=', \App\Enums\TransactionStatus::COMPLETED->value)
+            ->where('status', '!=', \App\Enums\TransactionStatus::CONFIRMED->value)
             ->exists();
 
         if ($incompleteTransactions) {

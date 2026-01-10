@@ -60,9 +60,9 @@
             const isIconBtn = btn.hasClass('m-btn');
             
             if (isIconBtn) {
-                 btn.find('span').text('Adding..');
+                 btn.find('span').text('...');
             } else {
-                 btn.text('Adding..');
+                 btn.text('...');
             }
             btn.prop('disabled', true);
 
@@ -78,9 +78,9 @@
                 },
                 success: function(response) {
                     if (isIconBtn) {
-                         btn.find('span').text('Added!');
+                         btn.find('span').text('✔');
                     } else {
-                         btn.text('Added!');
+                         btn.text('✔');
                     }
                     
                     StorefrontCart.updateCartCount(response.item_count);

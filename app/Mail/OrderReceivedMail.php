@@ -43,7 +43,7 @@ class OrderReceivedMail extends Mailable implements ShouldQueue
         $subtotal = $items->sum(fn($item) => $item->subtotal);
 
         return new Content(
-            view: 'emails.order-received',
+            view: 'emails.order.order-received',
             with: [
                 'order' => $this->order,
                 'customer' => $this->order->customer,

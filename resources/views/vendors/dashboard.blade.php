@@ -10,23 +10,19 @@
             <div class="card text-bg-primary overflow-hidden z-1">
                 <img src="{{ asset('vendor_files/assets/images/card-bg1.png') }}" alt="" class="position-absolute top-0 start-0 z-n1">
                 <div class="card-header pb-0 border-0 align-items-start pt-4">
-                    <h4 class="card-title">Revenue</h4>
+                    <h4 class="card-title">Available Balance</h4>
                     <div class="clearfix">
                         
                     </div>
                 </div>
                 <div class="card-body pt-1">
-                    <h3 class="display-4 text-white fw-semibold mb-2">₦{{ number_format($stats['total_revenue'], 2) }}</h3>
+                    <h3 class="display-4 text-white fw-semibold mb-2">{{ $vendor->getFormattedTotalBalance() }}</h3>
                     <div class="d-flex justify-content-between align-items-end">
                         <div class="clearfix">
-                            @if($stats['revenue_change_percent'] >= 0)
-                                <span class="text-success fw-medium fs-lg">+{{ $stats['revenue_change_percent'] }}%</span>
-                            @else
-                                <span class="text-danger fw-medium fs-lg">{{ $stats['revenue_change_percent'] }}%</span>
-                            @endif
-                            <span class="text-white fs-lg">prev month</span>												
+                            <span class="text-white fs-sm">
+                                <i class="fas fa-wallet me-1"></i> Across {{ $vendor->stores()->count() }} {{ Str::plural('store', $vendor->stores()->count()) }}
+                            </span>										
                         </div>
-                        <div id="chartRevenue"></div>
                     </div>
                 </div>
             </div>
@@ -315,15 +311,7 @@
                                         <span class="fw-semibold">₦{{ number_format($transaction->amount, 2) }}</span>
                                     </td>
                                     <td>
-                                        @if($transaction->status === 'completed')
-                                            <span class="badge badge-success light">Completed</span>
-                                        @elseif($transaction->status === 'pending')
-                                            <span class="badge badge-warning light">Pending</span>
-                                        @elseif($transaction->status === 'failed')
-                                            <span class="badge badge-danger light">Failed</span>
-                                        @else
-                                            <span class="badge {{ $transaction->status_badge_class }}">{{ $transaction->status_label }}</span>
-                                        @endif
+                                        <span class="badge {{ $transaction->status_badge_class }}">{{ $transaction->status_label }}</span>
                                     </td>
                                     <td>
                                         <span class="text-muted">{{ $transaction->created_at->format('d M Y') }}</span>

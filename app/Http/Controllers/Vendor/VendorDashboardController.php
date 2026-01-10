@@ -68,7 +68,7 @@ class VendorDashboardController extends Controller
             }
         });
 
-        $completedStatuses = ['completed', 'success'];
+        $completedStatuses = ['confirmed', 'success'];
         $completedTransactionsQuery = (clone $transactionsQuery)->whereIn('status', $completedStatuses);
 
         $totalRevenue = (clone $completedTransactionsQuery)->sum('amount');

@@ -2,7 +2,7 @@
 @section('title', 'Checkout')
 
 @section('content')
-<section class="product__area pt-105 pb-110 grey-bg-2">
+<section class="product__area pt-50 pb-110 grey-bg-2">
     <div class="container">
         <div class="row">
             <div class="col-lg-8">

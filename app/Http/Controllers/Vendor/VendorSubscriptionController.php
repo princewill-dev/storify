@@ -298,7 +298,7 @@ class VendorSubscriptionController extends Controller
                 $transaction = Transaction::where('reference', $payment->reference)->first();
                 if ($transaction) {
                     $transaction->update([
-                        'status' => TransactionStatus::PAID,
+                        'status' => TransactionStatus::CONFIRMED,
                         'gateway_reference' => $txnData['id'] ?? null,
                         'gateway_response' => $txnData,
                         'paid_at' => now(),

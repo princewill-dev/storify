@@ -39,7 +39,7 @@ class OrderController extends Controller
             $transactionStatus = match($status) {
                 'unpaid' => null, // Special case
                 'pending' => \App\Enums\TransactionStatus::PENDING->value,
-                'paid' => \App\Enums\TransactionStatus::PAID->value,
+                'paid' => \App\Enums\TransactionStatus::CONFIRMED->value,
                 'refunded' => \App\Enums\TransactionStatus::REFUNDED->value,
                 'failed' => \App\Enums\TransactionStatus::CANCELED->value, // Failed maps to canceled
                 default => $status,
@@ -105,7 +105,7 @@ class OrderController extends Controller
             $transactionStatus = match($statusValue) {
                 'unpaid' => null,
                 'pending' => \App\Enums\TransactionStatus::PENDING->value,
-                'paid' => \App\Enums\TransactionStatus::PAID->value,
+                'paid' => \App\Enums\TransactionStatus::CONFIRMED->value,
                 'refunded' => \App\Enums\TransactionStatus::REFUNDED->value,
                 'failed' => \App\Enums\TransactionStatus::CANCELED->value,
                 default => $statusValue,
@@ -118,7 +118,7 @@ class OrderController extends Controller
             }
         }
         
-        $stats['total_revenue'] = Order::whereHas('transactions', fn($q) => $q->where('status', \App\Enums\TransactionStatus::PAID->value))->sum('total');
+        $stats['total_revenue'] = Order::whereHas('transactions', fn($q) => $q->where('status', \App\Enums\TransactionStatus::CONFIRMED->value))->sum('total');
 
         return view('admin.order_management.index', compact('orders', 'stores', 'stats'))->with([
             'orderStatusBadges' => OrderStatus::badgeData(),
@@ -308,7 +308,7 @@ class OrderController extends Controller
             // Map selected payment status to TransactionStatus
             $newStatus = match($newPaymentStatus) {
                 'pending' => \App\Enums\TransactionStatus::PENDING,
-                'paid' => \App\Enums\TransactionStatus::PAID,
+                'paid' => \App\Enums\TransactionStatus::CONFIRMED,
                 'refunded' => \App\Enums\TransactionStatus::REFUNDED,
                 'failed' => \App\Enums\TransactionStatus::CANCELED,
                 'unpaid' => null, // Special handling

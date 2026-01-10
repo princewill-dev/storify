@@ -179,7 +179,7 @@ class VendorController extends Controller
             $incompleteTransactions = \App\Models\Transaction::whereHas('order', function($q) use ($storeIds) {
                     $q->whereIn('store_id', $storeIds);
                 })
-                ->where('status', '!=', \App\Enums\TransactionStatus::COMPLETED->value)
+                ->where('status', '!=', \App\Enums\TransactionStatus::CONFIRMED->value)
                 ->exists();
 
             if ($incompleteTransactions) {

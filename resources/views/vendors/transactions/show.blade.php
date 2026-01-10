@@ -19,10 +19,6 @@
         </div>
     </div>
 
-    @if(session('success'))
-    <div class="alert alert-success">{{ session('success') }}</div>
-    @endif
-
     <div class="row g-4">
         <div class="col-md-6">
             <div class="card">
@@ -65,7 +61,6 @@
                     </div>
 
                     @if($transaction->payment_slip || $transaction->status->value === 'pending')
-                    <hr>
                     <div class="d-flex gap-2 mt-3">
                         @if($transaction->payment_slip)
                         <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#paymentProofModal">
@@ -75,43 +70,27 @@
                     </div>
                     @endif
 
-                    <form action="{{ route('vendor.transactions.update', ['vendor' => $vendor, 'transaction' => $transaction]) }}" method="POST">
-                        @csrf
-                        @method('PUT')
-                        
-                        <div class="mb-3">
-                            <label class="form-label small text-muted">Current Status</label>
-                            <select name="status" class="form-select" required>
-                                @php
-                                    $currentStatus = $transaction->status;
-                                    $statuses = \App\Enums\TransactionStatus::cases();
-                                @endphp
 
-                                {{-- Render current status first --}}
-                                @if($currentStatus instanceof \App\Enums\TransactionStatus)
-                                    <option value="{{ $currentStatus->value }}" selected>{{ $currentStatus->label() }}</option>
-                                @endif
-                                
-                                {{-- Render other statuses --}}
-                                @foreach($statuses as $status)
-                                    @if($currentStatus instanceof \App\Enums\TransactionStatus && $status === $currentStatus)
-                                        @continue
-                                    @endif
-                                    <option value="{{ $status->value }}" {{ !$currentStatus instanceof \App\Enums\TransactionStatus && $currentStatus == $status->value ? 'selected' : '' }}>
-                                        {{ $status->label() }}
-                                    </option>
-                                @endforeach
-                            </select>
-                        </div>
-                        
-                        <div class="alert alert-info small">
-                            <i class="fa fa-info-circle me-1"></i> Changing this status will automatically update the order payment status.
-                        </div>
-
-                        <button type="submit" class="btn btn-dark btn-sm w-100">
-                            <i class="fa fa-save"></i> Update Status
+                    @if($transaction->status->value === 'pending')
+                    <hr>
+                    <div class="d-flex gap-2 mt-3">
+                        <button type="button" class="btn btn-success btn-sm flex-fill" data-bs-toggle="modal" data-bs-target="#confirmPaymentModal">
+                            <i class="fa fa-check-circle me-1"></i> Confirm Payment
                         </button>
-                    </form>
+                        <button type="button" class="btn btn-danger btn-sm flex-fill" data-bs-toggle="modal" data-bs-target="#rejectPaymentModal">
+                            <i class="fa fa-times-circle me-1"></i> Reject Payment
+                        </button>
+                    </div>
+                    @endif
+
+                    @if($transaction->status->value === 'confirmed')
+                    <hr>
+                    <div class="mt-3">
+                        <button type="button" class="btn btn-warning btn-sm w-100" data-bs-toggle="modal" data-bs-target="#refundPaymentModal">
+                            <i class="fa fa-undo me-1"></i> Refund Payment
+                        </button>
+                    </div>
+                    @endif
 
                 </div>
             </div>
@@ -190,5 +169,221 @@
     </div>
     @endif
 
+
+{{-- Confirm Payment Modal --}}
+<div class="modal fade" id="confirmPaymentModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title">
+                    <i class="fa fa-check-circle me-2"></i>Confirm Payment
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form action="{{ route('vendor.transactions.confirm', ['vendor' => $vendor, 'transaction' => $transaction]) }}" method="POST">
+                @csrf
+                <div class="modal-body">
+                    <div class="alert alert-success mb-3">
+                        <strong>Are you sure you want to confirm this payment?</strong>
+                    </div>
+                    
+                    <div class="card border-0 bg-light">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between mb-2">
+                                <span class="text-muted">Transaction ID:</span>
+                                <strong>{{ $transaction->reference }}</strong>
+                            </div>
+                            <div class="d-flex justify-content-between mb-2">
+                                <span class="text-muted">Order Number:</span>
+                                <strong>{{ $transaction->order->order_number ?? 'N/A' }}</strong>
+                            </div>
+                            <div class="d-flex justify-content-between">
+                                <span class="text-muted">Amount:</span>
+                                <strong class="text-success">₦{{ number_format($transaction->amount, 2) }}</strong>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="alert alert-info mt-3 mb-0">
+                        <small>
+                            <i class="fa fa-info-circle me-1"></i>
+                            This action will:
+                            <ul class="mb-0 mt-2">
+                                <li>Credit ₦{{ number_format($transaction->amount, 2) }} to your store balance</li>
+                                <li>Send a confirmation email to the customer</li>
+                                <li>Update the transaction status to "Confirmed"</li>
+                            </ul>
+                        </small>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-success">
+                        <i class="fa fa-check me-1"></i> Yes, Confirm Payment
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+{{-- Reject Payment Modal --}}
+<div class="modal fade" id="rejectPaymentModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title">
+                    <i class="fa fa-times-circle me-2"></i>Reject Payment
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form action="{{ route('vendor.transactions.reject', ['vendor' => $vendor, 'transaction' => $transaction]) }}" method="POST">
+                @csrf
+                <div class="modal-body">
+                    <div class="alert alert-warning mb-3">
+                        <strong>Are you sure you want to reject this payment?</strong>
+                    </div>
+                    
+                    <div class="card border-0 bg-light mb-3">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between mb-2">
+                                <span class="text-muted">Transaction ID:</span>
+                                <strong>{{ $transaction->reference }}</strong>
+                            </div>
+                            <div class="d-flex justify-content-between mb-2">
+                                <span class="text-muted">Order Number:</span>
+                                <strong>{{ $transaction->order->order_number ?? 'N/A' }}</strong>
+                            </div>
+                            <div class="d-flex justify-content-between">
+                                <span class="text-muted">Amount:</span>
+                                <strong>₦{{ number_format($transaction->amount, 2) }}</strong>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="rejectionReason" class="form-label">Rejection Reason <span class="text-muted">(Optional)</span></label>
+                        <textarea 
+                            class="form-control" 
+                            id="rejectionReason" 
+                            name="reason" 
+                            rows="3" 
+                            maxlength="500" 
+                            placeholder="Provide a reason for rejecting this payment (optional, but recommended)"
+                        ></textarea>
+                        <div class="form-text">This reason will be shared with the customer via email.</div>
+                    </div>
+                    
+                    <div class="alert alert-danger mb-0">
+                        <small>
+                            <i class="fa fa-exclamation-triangle me-1"></i>
+                            This action will:
+                            <ul class="mb-0 mt-2">
+                                <li>Send a rejection email to the customer</li>
+                                <li>Update the transaction status to "Canceled"</li>
+                                <li>No balance will be credited to your store</li>
+                            </ul>
+                        </small>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-danger">
+                        <i class="fa fa-times me-1"></i> Yes, Reject Payment
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+{{-- Refund Payment Modal --}}
+<div class="modal fade" id="refundPaymentModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-warning text-dark">
+                <h5 class="modal-title">
+                    <i class="fa fa-undo me-2"></i>Refund Payment
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form action="{{ route('vendor.transactions.refund', ['vendor' => $vendor, 'transaction' => $transaction]) }}" method="POST">
+                @csrf
+                <div class="modal-body">
+                    <div class="alert alert-warning mb-3">
+                        <strong>Are you sure you want to refund this payment?</strong>
+                    </div>
+                    
+                    <div class="card border-0 bg-light mb-3">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between mb-2">
+                                <span class="text-muted">Transaction ID:</span>
+                                <strong>{{ $transaction->reference }}</strong>
+                            </div>
+                            <div class="d-flex justify-content-between mb-2">
+                                <span class="text-muted">Order Number:</span>
+                                <strong>{{ $transaction->order->order_number ?? 'N/A' }}</strong>
+                            </div>
+                            <div class="d-flex justify-content-between mb-2">
+                                <span class="text-muted">Order Status:</span>
+                                <span class="badge {{ $transaction->order->status->badgeClass() }}">
+                                    {{ $transaction->order->status->label() }}
+                                </span>
+                            </div>
+                            <div class="d-flex justify-content-between">
+                                <span class="text-muted">Amount to Refund:</span>
+                                <strong class="text-danger">₦{{ number_format($transaction->amount, 2) }}</strong>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    @php
+                        $orderStatus = $transaction->order->status;
+                        $isDeliveredOrCompleted = in_array($orderStatus, [\App\Enums\OrderStatus::DELIVERED, \App\Enums\OrderStatus::COMPLETED]);
+                    @endphp
+                    
+                    @if($isDeliveredOrCompleted)
+                    <div class="alert alert-danger mb-3">
+                        <strong><i class="fa fa-exclamation-triangle me-1"></i> Warning!</strong><br>
+                        This order is marked as <strong>{{ $orderStatus->label() }}</strong>. You must change the order status to <strong>"Returned"</strong> before processing a refund.
+                    </div>
+                    @endif
+                    
+                    <div class="mb-3">
+                        <label for="refundReason" class="form-label">Refund Reason <span class="text-danger">*</span></label>
+                        <textarea 
+                            class="form-control" 
+                            id="refundReason" 
+                            name="reason" 
+                            rows="3" 
+                            maxlength="500" 
+                            placeholder="Provide a reason for this refund (required)"
+                            required
+                        ></textarea>
+                        <div class="form-text">This reason will be shared with the customer via email.</div>
+                    </div>
+                    
+                    <div class="alert alert-warning mb-0">
+                        <small>
+                            <i class="fa fa-exclamation-circle me-1"></i>
+                            This action will:
+                            <ul class="mb-0 mt-2">
+                                <li><strong>Debit ₦{{ number_format($transaction->amount, 2) }}</strong> from your store balance</li>
+                                <li>Send a refund notification email to the customer</li>
+                                <li>Update the transaction status to "Refunded"</li>
+                            </ul>
+                        </small>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-warning">
+                        <i class="fa fa-undo me-1"></i> Yes, Process Refund
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
 
 @endsection

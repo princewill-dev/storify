@@ -40,7 +40,7 @@ class NewOrderAdminMail extends Mailable implements ShouldQueue
     public function content(): Content
     {
         return new Content(
-            view: 'emails.new-order-admin',
+            view: 'emails.order.new-order-admin',
             with: [
                 'order' => $this->order,
                 'customer' => $this->order->customer,

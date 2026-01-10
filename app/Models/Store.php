@@ -34,6 +34,7 @@ class Store extends Model
         'ownership_type_id',
         'business_type_id',
         'status',
+        'balance',
     ];
 
     protected static function boot()
@@ -103,6 +104,79 @@ class Store extends Model
     public function categories(): HasMany
     {
         return $this->hasMany(Category::class);
+    }
+
+    /**
+     * Atomically credit the store balance
+     * 
+     * @param int $amountInKobo Amount to credit in kobo
+     * @return bool
+     * @throws \Exception
+     */
+    public function creditBalance(int $amountInKobo): bool
+    {
+        if ($amountInKobo < 0) {
+            throw new \Exception('Credit amount must be positive');
+        }
+
+        return \DB::transaction(function () use ($amountInKobo) {
+            // Lock the row for update to prevent concurrent modifications
+            $this->lockForUpdate();
+            
+            // Use increment for atomic database operation
+            $this->increment('balance', $amountInKobo);
+            
+            return true;
+        });
+    }
+
+    /**
+     * Atomically debit the store balance
+     * 
+     * @param int $amountInKobo Amount to debit in kobo
+     * @return bool
+     * @throws \Exception
+     */
+    public function debitBalance(int $amountInKobo): bool
+    {
+        if ($amountInKobo < 0) {
+            throw new \Exception('Debit amount must be positive');
+        }
+
+        return \DB::transaction(function () use ($amountInKobo) {
+            // Lock the row for update
+            $store = Store::where('id', $this->id)->lockForUpdate()->first();
+            
+            // Check sufficient funds
+            if ($store->balance < $amountInKobo) {
+                throw new \Exception('Insufficient balance');
+            }
+            
+            // Use decrement for atomic database operation
+            $this->decrement('balance', $amountInKobo);
+            
+            return true;
+        });
+    }
+
+    /**
+     * Get balance in Naira (conversion from kobo)
+     * 
+     * @return float
+     */
+    public function getBalanceInNaira(): float
+    {
+        return $this->balance / 100;
+    }
+
+    /**
+     * Get formatted balance for display
+     * 
+     * @return string
+     */
+    public function getFormattedBalance(): string
+    {
+        return '₦' . number_format($this->getBalanceInNaira(), 2);
     }
 
     public static function statusBadgeData(): array

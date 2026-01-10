@@ -2,8 +2,10 @@
 
 namespace App\Mail;
 
+use App\Models\Transaction;
 use App\Models\Order;
-use App\Queue\WithQueueConfig;
+use App\Models\Customer;
+use App\Models\Store;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Mail\Mailable;
@@ -11,17 +13,24 @@ use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Queue\SerializesModels;
 
-class OrderDispatchedMail extends Mailable implements ShouldQueue
+class PaymentConfirmedMail extends Mailable implements ShouldQueue
 {
-    use Queueable, SerializesModels, WithQueueConfig;
+    use Queueable, SerializesModels;
+
+    public Transaction $transaction;
+    public Order $order;
+    public Customer $customer;
+    public Store $store;
 
     /**
      * Create a new message instance.
      */
-    public function __construct(
-        public Order $order
-    ) {
-        $this->initQueueConfig();
+    public function __construct(Transaction $transaction, Order $order, Customer $customer, Store $store)
+    {
+        $this->transaction = $transaction;
+        $this->order = $order;
+        $this->customer = $customer;
+        $this->store = $store;
     }
 
     /**
@@ -30,7 +39,7 @@ class OrderDispatchedMail extends Mailable implements ShouldQueue
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: 'Your Order Has Been Dispatched - ' . $this->order->order_number,
+            subject: "Payment Confirmed for Order {$this->order->order_number}",
         );
     }
 
@@ -40,13 +49,12 @@ class OrderDispatchedMail extends Mailable implements ShouldQueue
     public function content(): Content
     {
         return new Content(
-            view: 'emails.order.order-dispatched',
+            view: 'emails.order.payment-confirmed',
             with: [
+                'transaction' => $this->transaction,
                 'order' => $this->order,
-                'customer' => $this->order->customer,
-                'deliveryRoute' => $this->order->deliveryRoute,
-                'appName' => config('app.name', 'Ecom'),
-                'appUrl' => config('app.url'),
+                'customer' => $this->customer,
+                'store' => $this->store,
             ],
         );
     }

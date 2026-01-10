@@ -141,8 +141,7 @@ class Order extends Model
         // Map TransactionStatus to PaymentStatus
         return match($transaction->status) {
             \App\Enums\TransactionStatus::PENDING => \App\Enums\PaymentStatus::PENDING,
-            \App\Enums\TransactionStatus::PAID => \App\Enums\PaymentStatus::PAID,
-            \App\Enums\TransactionStatus::COMPLETED => \App\Enums\PaymentStatus::PAID, // Treat completed as paid
+            \App\Enums\TransactionStatus::CONFIRMED => \App\Enums\PaymentStatus::PAID,
             \App\Enums\TransactionStatus::REFUNDED => \App\Enums\PaymentStatus::REFUNDED,
             \App\Enums\TransactionStatus::CANCELED => \App\Enums\PaymentStatus::FAILED,
             default => \App\Enums\PaymentStatus::UNPAID,

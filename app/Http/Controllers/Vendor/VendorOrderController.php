@@ -43,7 +43,7 @@ class VendorOrderController extends Controller
             $transactionStatus = match($status) {
                 'unpaid' => null, // Special case
                 'pending' => \App\Enums\TransactionStatus::PENDING->value,
-                'paid' => \App\Enums\TransactionStatus::PAID->value,
+                'paid' => \App\Enums\TransactionStatus::CONFIRMED->value,
                 'refunded' => \App\Enums\TransactionStatus::REFUNDED->value,
                 'failed' => \App\Enums\TransactionStatus::CANCELED->value, // Failed maps to canceled
                 default => $status,
@@ -102,7 +102,7 @@ class VendorOrderController extends Controller
             'cancelled' => Order::where('vendor_id', $vendor->id)->where('status', 'cancelled')->count(),
             'returned' => Order::where('vendor_id', $vendor->id)->where('status', 'returned')->count(),
             'total_revenue' => Order::where('vendor_id', $vendor->id)
-                ->whereHas('transactions', fn($q) => $q->where('status', \App\Enums\TransactionStatus::PAID))
+                ->whereHas('transactions', fn($q) => $q->where('status', \App\Enums\TransactionStatus::CONFIRMED))
                 ->sum('total'),
         ];
 
@@ -190,7 +190,7 @@ class VendorOrderController extends Controller
         // Map selected payment status to TransactionStatus
         $newStatus = match($data['payment_status']) {
             'pending' => \App\Enums\TransactionStatus::PENDING,
-            'paid' => \App\Enums\TransactionStatus::PAID,
+            'paid' => \App\Enums\TransactionStatus::CONFIRMED,
             'refunded' => \App\Enums\TransactionStatus::REFUNDED,
             'failed' => \App\Enums\TransactionStatus::CANCELED,
             'unpaid' => null, // Special handling

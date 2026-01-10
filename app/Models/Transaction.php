@@ -22,11 +22,15 @@ class Transaction extends Model
         'paid_at',
         'payment_slip',
         'store_bank_id',
+        'balance_updated_at',
+        'store_balance_before',
+        'store_balance_after',
     ];
 
     protected $casts = [
         'amount' => 'decimal:2',
         'paid_at' => 'datetime',
+        'balance_updated_at' => 'datetime',
         'status' => TransactionStatus::class,
         'metadata' => 'array',
     ];
