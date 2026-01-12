@@ -37,9 +37,29 @@ class VendorOnboardController extends Controller
      */
     public function getBanks(): JsonResponse
     {
-        $result = $this->paystackService->getBanks();
+        \Log::info('[Bank Loading] getBanks method called');
         
-        return response()->json($result);
+        try {
+            $result = $this->paystackService->getBanks();
+            
+            \Log::info('[Bank Loading] Paystack service returned', [
+                'status' => $result['status'] ?? null,
+                'data_count' => isset($result['data']) ? count($result['data']) : 0,
+                'result' => $result
+            ]);
+            
+            return response()->json($result);
+        } catch (\Exception $e) {
+            \Log::error('[Bank Loading] Exception in getBanks', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
+            return response()->json([
+                'status' => false,
+                'message' => 'Failed to fetch banks: ' . $e->getMessage()
+            ], 500);
+        }
     }
 
     /**

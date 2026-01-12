@@ -580,16 +580,13 @@
           <div class="mb-3">
             <label class="form-label">Bank Name</label>
             <select name="bank_code" class="form-select bank-selector" required>
-              <option value="">Loading banks...</option>
+              <option value="">Select Bank</option>
             </select>
             <input type="hidden" name="bank_name" class="bank-name-hidden">
           </div>
           <div class="mb-3">
             <label class="form-label">Account Number</label>
-            <div class="input-group">
-                <input type="text" name="account_number" class="form-control" maxlength="10" required>
-                <button type="button" class="btn btn-outline-secondary btn-validate-bank">Verify</button>
-            </div>
+            <input type="text" name="account_number" class="form-control account-number-input" maxlength="10" pattern="[0-9]{10}" required>
             <div class="bank-validation-feedback mt-1 small"></div>
           </div>
           <div class="mb-3">
@@ -902,23 +899,89 @@
 
   // Bank Management Scripts
   document.addEventListener('DOMContentLoaded', function() {
-      // 1. Fetch Banks
-      fetch("{{ route('vendor.kyc.store.get-banks', ['vendor' => $vendor]) }}")
-          .then(response => response.json())
-          .then(data => {
-              const selectors = document.querySelectorAll('.bank-selector');
-              selectors.forEach(select => {
-                  select.innerHTML = '<option value="">Select Bank</option>';
-                  if (data.status && data.data) {
-                      data.data.forEach(bank => {
-                          const option = document.createElement('option');
-                          option.value = bank.code;
-                          option.textContent = bank.name;
-                          select.appendChild(option);
-                      });
-                  }
+      // Fetch and cache banks on page load for immediate availability
+      let banksCache = null;
+      
+      function loadBanksIntoSelector(selector) {
+          console.log('[Bank Loading] Starting loadBanksIntoSelector');
+          console.log('[Bank Loading] Selector:', selector);
+          console.log('[Bank Loading] Banks cache exists:', banksCache !== null);
+          
+          if (!selector) {
+              console.error('[Bank Loading] ERROR: No selector provided');
+              return;
+          }
+          
+          if (banksCache) {
+              // Use cached data
+              console.log('[Bank Loading] Using cached data, count:', banksCache.length);
+              selector.innerHTML = '<option value="">Select Bank</option>';
+              banksCache.forEach(bank => {
+                  const option = document.createElement('option');
+                  option.value = bank.code;
+                  option.textContent = bank.name;
+                  selector.appendChild(option);
               });
+              console.log('[Bank Loading] Successfully loaded from cache');
+          } else {
+              // Fetch and cache
+              console.log('[Bank Loading] No cache, fetching from API...');
+              selector.innerHTML = '<option value="">Loading banks...</option>';
+              
+              const fetchUrl = "{{ route('vendor.kyc.store.get-banks', ['vendor' => $vendor]) }}";
+              console.log('[Bank Loading] Fetch URL:', fetchUrl);
+              
+              fetch(fetchUrl)
+                  .then(response => {
+                      console.log('[Bank Loading] Response status:', response.status);
+                      console.log('[Bank Loading] Response OK:', response.ok);
+                      return response.json();
+                  })
+                  .then(data => {
+                      console.log('[Bank Loading] Data received:', data);
+                      console.log('[Bank Loading] Data success:', data.success);
+                      console.log('[Bank Loading] Data.data exists:', !!data.data);
+                      
+                      selector.innerHTML = '<option value="">Select Bank</option>';
+                      
+                      // Handle response format: {success, data}
+                      const banks = data.data || [];
+                      
+                      if (banks && banks.length > 0) {
+                          console.log('[Bank Loading] Bank count:', banks.length);
+                          banksCache = banks; // Cache the banks
+                          banks.forEach(bank => {
+                              const option = document.createElement('option');
+                              option.value = bank.code;
+                              option.textContent = bank.name;
+                              selector.appendChild(option);
+                          });
+                          console.log('[Bank Loading] Successfully loaded', banks.length, 'banks');
+                      } else {
+                          console.error('[Bank Loading] ERROR: No banks in response or empty array');
+                          selector.innerHTML = '<option value="">No banks available</option>';
+                      }
+                  })
+                  .catch(err => {
+                      console.error('[Bank Loading] FETCH ERROR:', err);
+                      console.error('[Bank Loading] Error details:', err.message, err.stack);
+                      selector.innerHTML = '<option value="">Failed to load banks</option>';
+                  });
+          }
+      }
+
+      // Load banks when Add Bank Modal is shown
+      var addBankModal = document.getElementById('addBankModal');
+      console.log('[Bank Loading] Add Bank Modal found:', !!addBankModal);
+      
+      if (addBankModal) {
+          addBankModal.addEventListener('show.bs.modal', function () {
+              console.log('[Bank Loading] Modal shown event triggered');
+              const selector = this.querySelector('.bank-selector');
+              console.log('[Bank Loading] Selector found in modal:', !!selector);
+              loadBanksIntoSelector(selector);
           });
+      }
 
       // Handle Bank Name synchronization
       document.querySelectorAll('.bank-selector').forEach(select => {
@@ -930,54 +993,72 @@
           });
       });
 
-      // Bank Account Validation Logic
-      document.querySelectorAll('.btn-validate-bank').forEach(btn => {
-          btn.addEventListener('click', function() {
+      // Auto-verify on 10-digit account number entry
+      document.querySelectorAll('.account-number-input').forEach(input => {
+          input.addEventListener('input', function() {
               const form = this.closest('form');
-              const accountNumber = form.querySelector('input[name="account_number"]').value;
+              const accountNumber = this.value;
               const bankCode = form.querySelector('select[name="bank_code"]').value;
               const feedback = form.querySelector('.bank-validation-feedback');
               const accountNameInput = form.querySelector('input[name="account_name"]');
               const submitBtn = form.querySelector('button[type="submit"]');
 
-              if (accountNumber.length !== 10 || !bankCode) {
-                  alert('Please enter a valid 10-digit account number and select a bank.');
+              // Reset validation state if less than 10 digits
+              if (accountNumber.length < 10) {
+                  accountNameInput.value = '';
+                  feedback.innerHTML = '';
+                  submitBtn.disabled = true;
                   return;
               }
 
-              this.disabled = true;
-              this.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
-              feedback.innerHTML = '<span class="text-muted">Verifying...</span>';
-
-              fetch("{{ route('vendor.kyc.store.validate-bank', ['vendor' => $vendor]) }}", {
-                  method: 'POST',
-                  headers: {
-                      'Content-Type': 'application/json',
-                      'X-CSRF-TOKEN': '{{ csrf_token() }}'
-                  },
-                  body: JSON.stringify({ account_number: accountNumber, bank_code: bankCode })
-              })
-              .then(response => response.json())
-              .then(data => {
-                  this.disabled = false;
-                  this.innerHTML = 'Verify';
-                  
-                  if (data.status && data.data) {
-                      accountNameInput.value = data.data.account_name;
-                      feedback.innerHTML = '<span class="text-success"><i class="fi fi-rr-check"></i> Account verified</span>';
-                      submitBtn.disabled = false;
-                  } else {
-                      accountNameInput.value = '';
-                      feedback.innerHTML = '<span class="text-danger"><i class="fi fi-rr-cross"></i> ' + (data.message || 'Verification failed') + '</span>';
+              // Auto-verify once 10 digits are entered
+              if (accountNumber.length === 10) {
+                  if (!bankCode) {
+                      feedback.innerHTML = '<span class="text-warning"><i class="fi fi-rr-exclamation"></i> Please select a bank first</span>';
                       submitBtn.disabled = true;
+                      return;
                   }
-              })
-              .catch(err => {
-                  this.disabled = false;
-                  this.innerHTML = 'Verify';
-                  feedback.innerHTML = '<span class="text-danger">Error during verification.</span>';
+
+                  // Start verification
+                  feedback.innerHTML = '<span class="text-muted"><span class="spinner-border spinner-border-sm me-1"></span> Verifying...</span>';
+                  accountNameInput.value = '';
                   submitBtn.disabled = true;
-              });
+
+                  fetch("{{ route('vendor.kyc.store.validate-bank', ['vendor' => $vendor]) }}", {
+                      method: 'POST',
+                      headers: {
+                          'Content-Type': 'application/json',
+                          'X-CSRF-TOKEN': '{{ csrf_token() }}'
+                      },
+                      body: JSON.stringify({ account_number: accountNumber, bank_code: bankCode })
+                  })
+                  .then(response => response.json())
+                  .then(data => {
+                      console.log('[Bank Verification] Response:', data);
+                      console.log('[Bank Verification] Success:', data.success);
+                      console.log('[Bank Verification] Data:', data.data);
+                      
+                      if (data.success && data.data && data.data.account_name) {
+                          const accountName = data.data.account_name;
+                          console.log('[Bank Verification] Account Name:', accountName);
+                          
+                          accountNameInput.value = accountName;
+                          feedback.innerHTML = '<span class="text-success fw-bold">✓ Account verified successfully</span>';
+                          submitBtn.disabled = false;
+                      } else {
+                          console.error('[Bank Verification] Verification failed:', data);
+                          accountNameInput.value = '';
+                          feedback.innerHTML = '<span class="text-danger">✗ ' + (data.message || 'Verification failed') + '</span>';
+                          submitBtn.disabled = true;
+                      }
+                  })
+                  .catch(err => {
+                      console.error('[Bank Verification] Error:', err);
+                      accountNameInput.value = '';
+                      feedback.innerHTML = '<span class="text-danger">✗ Error during verification</span>';
+                      submitBtn.disabled = true;
+                  });
+              }
           });
       });
 

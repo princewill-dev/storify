@@ -17,30 +17,67 @@ class VendorStoreBankController extends Controller
      */
     public function store(Request $request, Vendor $vendor, Store $store): RedirectResponse
     {
-        $validated = $request->validate([
-            'bank_name' => 'required|string|max:255',
-            'bank_code' => 'required|string|max:50',
-            'account_number' => 'required|string|max:20',
-            'account_name' => 'required|string|max:255',
-            'is_primary' => 'boolean',
+        \Log::info('[Bank Store] Request received', [
+            'vendor_id' => $vendor->id,
+            'store_id' => $store->id,
+            'request_data' => $request->all()
         ]);
 
-        $isPrimary = $request->has('is_primary');
+        try {
+            $validated = $request->validate([
+                'bank_name' => 'required|string|max:255',
+                'bank_code' => 'required|string|max:50',
+                'account_number' => 'required|string|max:20',
+                'account_name' => 'required|string|max:255',
+                'is_primary' => 'nullable|in:on,1,true',
+            ]);
+            
+            \Log::info('[Bank Store] Validation passed', ['validated' => $validated]);
 
-        DB::transaction(function () use ($store, $validated, $isPrimary) {
-            if ($isPrimary) {
-                $store->banks()->update(['is_primary' => false]);
-            }
+            // Convert checkbox value to boolean
+            $isPrimary = $request->filled('is_primary');
+            \Log::info('[Bank Store] Is primary checkbox', ['is_primary' => $isPrimary, 'raw_value' => $request->input('is_primary')]);
 
-            // If no banks exist, the first one should be primary
-            if ($store->banks()->count() === 0) {
-                $isPrimary = true;
-            }
+            DB::transaction(function () use ($store, $validated, $isPrimary) {
+                \Log::info('[Bank Store] Starting DB transaction');
+                
+                if ($isPrimary) {
+                    $updated = $store->banks()->update(['is_primary' => false]);
+                    \Log::info('[Bank Store] Reset existing primary banks', ['count' => $updated]);
+                }
 
-            $store->banks()->create(array_merge($validated, ['is_primary' => $isPrimary, 'is_verified' => true]));
-        });
+                // If no banks exist, the first one should be primary
+                $bankCount = $store->banks()->count();
+                \Log::info('[Bank Store] Existing bank count', ['count' => $bankCount]);
+                
+                if ($bankCount === 0) {
+                    $isPrimary = true;
+                    \Log::info('[Bank Store] First bank, setting as primary');
+                }
 
-        return redirect()->back()->with('success', 'Bank account added successfully.');
+                $bankData = array_merge($validated, ['is_primary' => $isPrimary, 'is_verified' => true]);
+                \Log::info('[Bank Store] Creating bank with data', $bankData);
+                
+                $bank = $store->banks()->create($bankData);
+                \Log::info('[Bank Store] Bank created successfully', ['bank_id' => $bank->id]);
+            });
+
+            \Log::info('[Bank Store] Transaction committed successfully');
+            return redirect()->back()->with('success', 'Bank account added successfully.');
+            
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            \Log::error('[Bank Store] Validation failed', [
+                'errors' => $e->errors()
+            ]);
+            return redirect()->back()->withErrors($e->errors())->withInput();
+            
+        } catch (\Exception $e) {
+            \Log::error('[Bank Store] Exception occurred', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            return redirect()->back()->with('error', 'Failed to add bank account: ' . $e->getMessage());
+        }
     }
 
     /**
