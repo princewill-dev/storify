@@ -32,7 +32,7 @@ class CheckVendorSubscription
             Log::info('vendor.subscription.middleware.no_store', [
                 'vendor_id' => $vendor->id,
             ]);
-            return redirect()->route('vendor.kyc.store.create', ['vendor' => $vendor]);
+            return redirect()->route('vendor.store.create', ['vendor' => $vendor]);
         }
 
         if ($vendor->needsSubscription()) {

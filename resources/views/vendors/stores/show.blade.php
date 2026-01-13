@@ -928,7 +928,7 @@
               console.log('[Bank Loading] No cache, fetching from API...');
               selector.innerHTML = '<option value="">Loading banks...</option>';
               
-              const fetchUrl = "{{ route('vendor.kyc.store.get-banks', ['vendor' => $vendor]) }}";
+              const fetchUrl = "{{ route('vendor.store.get-banks', ['vendor' => $vendor]) }}";
               console.log('[Bank Loading] Fetch URL:', fetchUrl);
               
               fetch(fetchUrl)
@@ -1024,7 +1024,7 @@
                   accountNameInput.value = '';
                   submitBtn.disabled = true;
 
-                  fetch("{{ route('vendor.kyc.store.validate-bank', ['vendor' => $vendor]) }}", {
+                  fetch("{{ route('vendor.store.validate-bank', ['vendor' => $vendor]) }}", {
                       method: 'POST',
                       headers: {
                           'Content-Type': 'application/json',

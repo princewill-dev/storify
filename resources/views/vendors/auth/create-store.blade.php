@@ -10,7 +10,7 @@
 
     <div class="card shadow-sm border-0">
         <div class="card-body p-4">
-            <form action="{{ route('vendor.kyc.store.submit', ['vendor' => $vendor]) }}" method="POST" enctype="multipart/form-data" class="vstack gap-4">
+            <form action="{{ route('vendor.store.submit', ['vendor' => $vendor]) }}" method="POST" enctype="multipart/form-data" class="vstack gap-4">
                 @csrf
 
                 <div class="row g-4">
@@ -158,48 +158,6 @@
                             @enderror
                         </div>
                     </div>
-                </div>
-
-                <div class="card bg-light border-0">
-                    <div class="card-body p-4">
-                        <h5 class="fw-semibold mb-3">Bank Account Details</h5>
-                        <p class="text-muted small mb-3">Add your bank account to receive payouts. The account name must match your KYC documents.</p>
-                        
-                        <div class="row g-3">
-                            <div class="col-md-6">
-                                <label for="bank_code" class="form-label fw-semibold">Select Bank</label>
-                                <select id="bank_code" name="bank_code" class="form-select form-select-lg @error('bank_code') is-invalid @enderror" required>
-                                    <option value="" disabled selected>Loading banks...</option>
-                                </select>
-                                <input type="hidden" id="bank_name" name="bank_name" value="{{ old('bank_name') }}">
-                                @error('bank_code')
-                                    <div class="invalid-feedback">{{ $message }}</div>
-                                @enderror
-                            </div>
-                            <div class="col-md-6">
-                                <label for="account_number" class="form-label fw-semibold">Account Number</label>
-                                <div class="position-relative">
-                                    <input type="text" id="account_number" name="account_number" 
-                                           class="form-control form-control-lg @error('account_number') is-invalid @enderror"
-                                           value="{{ old('account_number') }}" placeholder="0123456789" maxlength="10" required>
-                                    <div id="accountCheckingSpinner" class="position-absolute top-50 end-0 translate-middle-y me-3" style="display: none;">
-                                        <div class="spinner-border spinner-border-sm text-primary" role="status">
-                                            <span class="visually-hidden">Loading...</span>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div id="accountNameFeedback" class="form-text mt-1 fw-bold text-success" style="display: none;"></div>
-                                <input type="hidden" id="account_name" name="account_name" value="{{ old('account_name') }}">
-                                @error('account_number')
-                                    <div class="invalid-feedback d-block">{{ $message }}</div>
-                                @enderror
-                                @error('account_name')
-                                    <div class="invalid-feedback d-block">{{ $message }}</div>
-                                @enderror
-                            </div>
-                        </div>
-                    </div>
-                </div>
 
                 <div class="text-end">
                     <button type="submit" id="submitBtn" class="btn btn-dark btn-lg px-4" disabled>
@@ -238,7 +196,7 @@
             const slugFeedback = document.getElementById('slugFeedback');
             const slugStatus = document.getElementById('slugStatus');
             const submitBtn = document.getElementById('submitBtn');
-            const checkSlugUrl = '{{ route("vendor.kyc.store.check-slug", ["vendor" => $vendor]) }}';
+            const checkSlugUrl = '{{ route("vendor.store.check-slug", ["vendor" => $vendor]) }}';
             const csrfToken = '{{ csrf_token() }}';
             
             let debounceTimer = null;
@@ -351,156 +309,17 @@
                 });
             }
 
-            // Bank validation
-            const bankSelect = document.getElementById('bank_code');
-            const bankNameInput = document.getElementById('bank_name');
-            const accountNumberInput = document.getElementById('account_number');
-            const accountNameInput = document.getElementById('account_name');
-            const accountNameFeedback = document.getElementById('accountNameFeedback');
-            const accountCheckingSpinner = document.getElementById('accountCheckingSpinner');
-            
-            const getBanksUrl = '{{ route("vendor.kyc.store.get-banks", ["vendor" => $vendor]) }}';
-            const validateBankUrl = '{{ route("vendor.kyc.store.validate-bank", ["vendor" => $vendor]) }}';
-            
-            let isBankVerified = false;
-
-            // Load banks
-            fetch(getBanksUrl)
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        bankSelect.innerHTML = '<option value="" disabled selected>Select a bank</option>';
-                        // Sort banks alphabetically
-                        data.data.sort((a, b) => a.name.localeCompare(b.name));
-                        
-                        data.data.forEach(bank => {
-                            const option = document.createElement('option');
-                            option.value = bank.code;
-                            option.text = bank.name;
-                            option.dataset.name = bank.name;
-                            if (bank.code === '{{ old("bank_code") }}') {
-                                option.selected = true;
-                            }
-                            bankSelect.appendChild(option);
-                        });
-                        
-                        // Trigger validation if we have old values
-                        if (bankSelect.value && accountNumberInput.value.length === 10) {
-                            validateBankAccount();
-                        }
-                    } else {
-                        bankSelect.innerHTML = '<option value="" disabled selected>Error loading banks</option>';
-                    }
-                })
-                .catch(error => {
-                    console.error('Error loading banks:', error);
-                    bankSelect.innerHTML = '<option value="" disabled selected>Error loading banks</option>';
-                });
-
-            bankSelect.addEventListener('change', function() {
-                const selectedOption = this.options[this.selectedIndex];
-                bankNameInput.value = selectedOption.dataset.name;
-                validateBankAccount();
-            });
-
-            accountNumberInput.addEventListener('input', function() {
-                // Only allow numbers
-                this.value = this.value.replace(/[^0-9]/g, '');
-                
-                if (this.value.length === 10) {
-                    validateBankAccount();
-                } else {
-                    isBankVerified = false;
-                    accountNameFeedback.style.display = 'none';
-                    accountNameInput.value = '';
-                    checkSubmitButton();
-                }
-            });
-
-            function validateBankAccount() {
-                const bankCode = bankSelect.value;
-                const accountNumber = accountNumberInput.value;
-
-                if (!bankCode || accountNumber.length !== 10) {
-                    return;
-                }
-
-                accountCheckingSpinner.style.display = 'block';
-                accountNameFeedback.innerHTML = '';
-                accountNameFeedback.style.display = 'none';
-                isBankVerified = false;
-                checkSubmitButton();
-
-                fetch(validateBankUrl, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRF-TOKEN': csrfToken,
-                        'Accept': 'application/json'
-                    },
-                    body: JSON.stringify({ 
-                        bank_code: bankCode, 
-                        account_number: accountNumber 
-                    })
-                })
-                .then(response => response.json())
-                .then(data => {
-                    accountCheckingSpinner.style.display = 'none';
-                    if (data.success) {
-                        isBankVerified = true;
-                        accountNameInput.value = data.data.account_name;
-                        accountNameFeedback.className = 'form-text mt-1 fw-bold text-success';
-                        accountNameFeedback.innerHTML = `<i class="bi bi-check-circle-fill me-1"></i> ${data.data.account_name}`;
-                        accountNameFeedback.style.display = 'block';
-                    } else {
-                        isBankVerified = false;
-                        accountNameInput.value = '';
-                        accountNameFeedback.className = 'form-text mt-1 fw-bold text-danger';
-                        accountNameFeedback.innerHTML = `<i class="bi bi-x-circle-fill me-1"></i> ${data.message}`;
-                        accountNameFeedback.style.display = 'block';
-                    }
-                    checkSubmitButton();
-                })
-                .catch(error => {
-                    accountCheckingSpinner.style.display = 'none';
-                    console.error('Error validating bank:', error);
-                    isBankVerified = false;
-                    accountNameFeedback.className = 'form-text mt-1 fw-bold text-danger';
-                    accountNameFeedback.innerHTML = '<i class="bi bi-x-circle-fill me-1"></i> Validation failed';
-                    accountNameFeedback.style.display = 'block';
-                    checkSubmitButton();
-                });
-            }
-
             function checkSubmitButton() {
-                // Modified setButtonState logic to include bank verification
-                setButtonState(isSlugValid && isBankVerified);
+                // Only check slug validation now (bank moved to separate page)
+                setButtonState(isSlugValid);
             }
             
-            // Override the original setButtonState to include bank check
+            // Simplified button state function  
             const originalSetButtonState = setButtonState;
             setButtonState = function(enabled) {
-                // Update slug specific logic, but then re-evaluate everything
-                // We shouldn't rely on the passed 'enabled' alone because it only knows about slug
-                // But we need to use it to update isSlugValid
-                if (document.activeElement === nameInput) {
-                     // If we are editing name, enabled represents slug validity
-                     // But we should track isSlugValid separately in the slug logic really.
-                     // The original slug logic calls setButtonState(true/false) based on slug only.
-                     // We should intercept this.
-                }
-                
-                // Since the original slug logic calls setButtonState directly with true/false,
-                // we need to be careful. The original code doesn't expose isSlugValid well enough to just use it here
-                // without modifying the slug logic too. 
-                // Wait, I declared isSlugValid at the top scope of this script block in previous edits.
-                // So I can just use that variable since the slug logic updates it before calling setButtonState.
-                
-                // Let's redefine setButtonState to just update the button UI based on both flags
-                const finalState = isSlugValid && isBankVerified;
-                submitBtn.disabled = !finalState;
-                submitBtn.classList.toggle('btn-dark', finalState);
-                submitBtn.classList.toggle('btn-secondary', !finalState);
+                submitBtn.disabled = !enabled;
+                submitBtn.classList.toggle('btn-dark', enabled);
+                submitBtn.classList.toggle('btn-secondary', !enabled);
             };
 
             if (nameInput) {

@@ -39,18 +39,24 @@ Route::prefix('vendor')->name('vendor.')->group(function () {
         Route::get('/{vendor}/subscription/callback', [VendorSubscriptionController::class, 'handleCallback'])->name('subscription.callback');
         Route::post('/{vendor}/subscription/check-early-pass', [VendorSubscriptionController::class, 'checkEarlyPass'])->name('subscription.check-early-pass');
         
-        Route::get('/{vendor}/store/create', [VendorOnboardController::class, 'showStoreCreationForm'])->name('kyc.store.create');
-        Route::post('/{vendor}/store/create', [VendorOnboardController::class, 'submitOnboardingStore'])->name('kyc.store.submit');
-        Route::post('/{vendor}/store/check-slug', [VendorOnboardController::class, 'checkSlugAvailability'])->name('kyc.store.check-slug');
-        Route::get('/{vendor}/store/success', [VendorOnboardController::class, 'showStoreSuccess'])->name('kyc.store.success');
+        Route::get('/{vendor}/store/create', [VendorOnboardController::class, 'showStoreCreationForm'])->name('store.create');
+        Route::post('/{vendor}/store/create', [VendorOnboardController::class, 'submitOnboardingStore'])->name('store.submit');
+        Route::post('/{vendor}/store/check-slug', [VendorOnboardController::class, 'checkSlugAvailability'])->name('store.check-slug');
+        Route::get('/{vendor}/store/success', [VendorOnboardController::class, 'showStoreSuccess'])->name('store.success');
         
         // Delivery Routes Setup
-        Route::get('/{vendor}/store/set-delivery-routes', [VendorOnboardController::class, 'showDeliveryRoutesForm'])->name('kyc.delivery-routes.form');
-        Route::post('/{vendor}/store/set-delivery-routes', [VendorOnboardController::class, 'saveDeliveryRoutes'])->name('kyc.delivery-routes.save');
+        Route::get('/{vendor}/store/set-delivery-routes', [VendorOnboardController::class, 'showDeliveryRoutesForm'])->name('delivery-routes.form');
+        Route::post('/{vendor}/store/set-delivery-routes', [VendorOnboardController::class, 'saveDeliveryRoutes'])->name('delivery-routes.save');
+        
+        // Payment Methods Setup
+        Route::get('/{vendor}/store/set-payment-methods', [VendorOnboardController::class, 'showPaymentMethods'])->name('payment-methods.form');
+        Route::post('/{vendor}/store/payment-methods/bank', [VendorOnboardController::class, 'storePaymentBank'])->name('payment-methods.bank');
+        Route::post('/{vendor}/store/payment-methods/paystack', [VendorOnboardController::class, 'storePaymentPaystack'])->name('payment-methods.paystack');
+        Route::post('/{vendor}/store/payment-methods/skip', [VendorOnboardController::class, 'skipPaymentMethods'])->name('payment-methods.skip');
         
         // Bank Validation Routes
-        Route::get('/{vendor}/store/get-banks', [VendorOnboardController::class, 'getBanks'])->name('kyc.store.get-banks');
-        Route::post('/{vendor}/store/validate-bank', [VendorOnboardController::class, 'validateBank'])->name('kyc.store.validate-bank');
+        Route::get('/{vendor}/store/get-banks', [VendorOnboardController::class, 'getBanks'])->name('store.get-banks');
+        Route::post('/{vendor}/store/validate-bank', [VendorOnboardController::class, 'validateBank'])->name('store.validate-bank');
         
         Route::middleware('vendor.subscription')->group(function () {
             Route::get('/dashboard', [VendorDashboardController::class, 'index'])->name('dashboard');

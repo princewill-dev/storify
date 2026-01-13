@@ -91,6 +91,14 @@ class Store extends Model
         return $this->hasMany(StoreBank::class);
     }
 
+    /**
+     * Get payment gateways configured for this store.
+     */
+    public function paymentGateways(): HasMany
+    {
+        return $this->hasMany(StorePaymentGateway::class);
+    }
+
     public function primaryBank()
     {
         return $this->hasOne(StoreBank::class)->where('is_primary', true);

@@ -224,17 +224,8 @@ class VendorOnboardController extends Controller
         try {
             DB::beginTransaction();
 
-            $store = Store::create($data);
 
-            // Create store bank account
-            $store->banks()->create([
-                'bank_name' => $request->input('bank_name'),
-                'bank_code' => $request->input('bank_code'),
-                'account_number' => $request->input('account_number'),
-                'account_name' => $request->input('account_name'),
-                'is_primary' => true,
-                'is_verified' => true, // Already verified via API before submission
-            ]);
+            $store = Store::create($data);
 
             DB::commit();
 
@@ -275,8 +266,9 @@ class VendorOnboardController extends Controller
 
         session(['onboarding_store_id' => $store->id]);
 
-        return redirect()->route('vendor.kyc.delivery-routes.form', ['vendor' => $vendor])
-            ->with('success', 'Store profile created! Now set up your delivery routes.');
+
+        return redirect()->route('vendor.store.success', ['vendor' => $vendor])
+            ->with('success', 'Store created successfully!');
     }
 
     public function showStoreSuccess(Request $request, Vendor $routeVendor): View|RedirectResponse
@@ -294,44 +286,35 @@ class VendorOnboardController extends Controller
 
         $storeId = session('onboarding_store_id');
         if (!$storeId) {
-            return redirect()->route('vendor.kyc.store.create', ['vendor' => $vendor])
+            return redirect()->route('vendor.store.create', ['vendor' => $vendor])
                 ->with('error', 'Create your store to continue.');
         }
 
         $store = Store::where('id', $storeId)->where('vendor_id', $vendor->id)->first();
         if (!$store) {
-            return redirect()->route('vendor.kyc.store.create', ['vendor' => $vendor])
+            return redirect()->route('vendor.store.create', ['vendor' => $vendor])
                 ->with('error', 'We could not find the store you just created. Please try again.');
         }
 
         session()->forget('onboarding_store_id');
-
-        // If vendor already has active subscription (e.g. via early pass), show success page
-        if ($vendor->hasActiveSubscription()) {
-            Log::info('vendor.onboarding.store_success_shown', [
-                'vendor_id' => $vendor->id,
-                'store_id' => $store->id,
-            ]);
-
-            // Generate store URL
-            $storeUrl = null;
-            if ($store->slug) {
-                $storeUrl = 'https://' . $store->slug . '.' . config('app.main_domain');
-            }
-
-            return view('vendors.auth.success', [
-                'store' => $store,
-                'storeUrl' => $storeUrl,
-            ]);
-        }
-
-        Log::info('vendor.onboarding.store_success_redirect_to_subscription', [
+        
+        // Show success page with store details
+        Log::info('vendor.onboarding.store_success_shown', [
             'vendor_id' => $vendor->id,
             'store_id' => $store->id,
         ]);
 
-        return redirect()->route('vendor.subscription.plan', ['vendor' => $vendor])
-            ->with('success', 'Store created successfully! Please complete your subscription to activate your account.');
+        // Generate store URL
+        $storeUrl = null;
+        if ($store->slug) {
+            $storeUrl = 'https://' . $store->slug . '.' . config('app.main_domain');
+        }
+
+        return view('vendors.auth.success', [
+            'vendor' => $vendor,
+            'store' => $store,
+            'storeUrl' => $storeUrl,
+        ]);
     }
 
     public function showDeliveryRoutesForm(Request $request, Vendor $routeVendor): View|RedirectResponse
@@ -345,13 +328,13 @@ class VendorOnboardController extends Controller
 
         $storeId = session('onboarding_store_id');
         if (!$storeId) {
-            return redirect()->route('vendor.kyc.store.create', ['vendor' => $vendor])
+            return redirect()->route('vendor.store.create', ['vendor' => $vendor])
                 ->with('error', 'Create your store first to set up delivery routes.');
         }
 
         $store = Store::where('id', $storeId)->where('vendor_id', $vendor->id)->first();
         if (!$store) {
-            return redirect()->route('vendor.kyc.store.create', ['vendor' => $vendor])
+            return redirect()->route('vendor.store.create', ['vendor' => $vendor])
                 ->with('error', 'Store not found.');
         }
 
@@ -376,13 +359,13 @@ class VendorOnboardController extends Controller
 
         $storeId = session('onboarding_store_id');
         if (!$storeId) {
-            return redirect()->route('vendor.kyc.store.create', ['vendor' => $vendor])
+            return redirect()->route('vendor.store.create', ['vendor' => $vendor])
                 ->with('error', 'Create your store first.');
         }
 
         $store = Store::where('id', $storeId)->where('vendor_id', $vendor->id)->first();
         if (!$store) {
-            return redirect()->route('vendor.kyc.store.create', ['vendor' => $vendor])
+            return redirect()->route('vendor.store.create', ['vendor' => $vendor])
                 ->with('error', 'Store not found.');
         }
 
@@ -442,6 +425,127 @@ class VendorOnboardController extends Controller
 
             return back()->withInput()->with('error', 'Could not save delivery routes. Please try again.');
         }
+    }
+
+    /**
+     * Show payment methods configuration page
+     */
+    public function showPaymentMethods(Vendor $vendor): View|RedirectResponse
+    {
+        $store = $vendor->stores()->latest()->first();
+        
+        if (!$store) {
+            return redirect()->route('vendor.store.create', ['vendor' => $vendor])
+                ->with('error', 'Please create a store first.');
+        }
+
+        // Check if payment method already configured
+        $hasBank = $store->banks()->exists();
+        $hasPaystack = $store->paymentGateways()->where('gateway', 'paystack')->exists();
+        
+        $configuredMethod = null;
+        $configuredData = null;
+        
+        if ($hasBank) {
+            $configuredMethod = 'bank';
+            $configuredData = $store->banks()->first();
+        } elseif ($hasPaystack) {
+            $configuredMethod = 'paystack';
+            $configuredData = $store->paymentGateways()->where('gateway', 'paystack')->first();
+        }
+
+        return view('vendors.auth.set-payment-methods', compact('vendor', 'store', 'configuredMethod', 'configuredData'));
+    }
+
+    /**
+     * Store bank as payment method
+     */
+    public function storePaymentBank(Request $request, Vendor $vendor): RedirectResponse
+    {
+        $store = $vendor->stores()->latest()->first();
+        
+        if (!$store) {
+            return redirect()->route('vendor.store.create', ['vendor' => $vendor])
+                ->with('error', 'Please create a store first.');
+        }
+
+        try {
+            $validated = $request->validate([
+                'bank_name' => 'required|string|max:255',
+                'bank_code' => 'required|string|max:50',
+                'account_number' => 'required|string|max:20',
+                'account_name' => 'required|string|max:255',
+            ]);
+
+            // Create bank account as primary
+            $store->banks()->create(array_merge($validated, [
+                'is_primary' => true,
+                'is_verified' => true
+            ]));
+
+            return redirect()->route('vendor.payment-methods.form', ['vendor' => $vendor])
+                ->with('success', 'Bank account added successfully!');
+                
+        } catch (\Exception $e) {
+            \Log::error('[Payment Methods] Bank save failed', [
+                'error' => $e->getMessage(),
+                'vendor_id' => $vendor->id,
+                'store_id' => $store->id
+            ]);
+            
+            return back()->withInput()->with('error', 'Failed to add bank account. Please try again.');
+        }
+    }
+
+    /**
+     * Store Paystack keys as payment method
+     */
+    public function storePaymentPaystack(Request $request, Vendor $vendor): RedirectResponse
+    {
+        $store = $vendor->stores()->latest()->first();
+        
+        if (!$store) {
+            return redirect()->route('vendor.store.create', ['vendor' => $vendor])
+                ->with('error', 'Please create a store first.');
+        }
+
+        try {
+            $validated = $request->validate([
+                'public_key' => 'required|string|starts_with:pk_',
+                'secret_key' => 'required|string|starts_with:sk_',
+            ]);
+
+            // Delete existing Paystack config if any
+            $store->paymentGateways()->where('gateway', 'paystack')->delete();
+
+            // Create new Paystack configuration with encrypted keys
+            $store->paymentGateways()->create([
+                'gateway' => 'paystack',
+                'public_key' => $validated['public_key'],
+                'secret_key' => $validated['secret_key'],
+                'is_active' => true,
+            ]);
+
+            return redirect()->route('vendor.payment-methods.form', ['vendor' => $vendor])
+                ->with('success', 'Paystack integration configured successfully!');
+                
+        } catch (\Exception $e) {
+            \Log::error('[Payment Methods] Paystack save failed', [
+                'error' => $e->getMessage(),
+                'vendor_id' => $vendor->id,
+                'store_id' => $store->id
+            ]);
+            
+            return back()->withInput()->with('error', 'Failed to configure Paystack. Please check your keys and try again.');
+        }
+    }
+
+    /**
+     * Skip payment methods configuration
+     */
+    public function skipPaymentMethods(Vendor $vendor): RedirectResponse
+    {
+        return redirect()->route('vendor.delivery-routes.form', ['vendor' => $vendor]);
     }
 
     private function adminRecipients(): array

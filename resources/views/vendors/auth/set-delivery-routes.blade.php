@@ -8,7 +8,7 @@
         <h2 class="mb-2">Set Up Delivery Routes</h2>
         <p class="text-muted mb-4">Configure delivery options for your store. You can add multiple routes.</p>
 
-        <form method="POST" action="{{ route('vendor.kyc.delivery-routes.save', ['vendor' => $vendor]) }}" id="deliveryRoutesForm">
+        <form method="POST" action="{{ route('vendor.delivery-routes.save', ['vendor' => $vendor]) }}" id="deliveryRoutesForm">
             @csrf
 
             <div id="routesContainer">

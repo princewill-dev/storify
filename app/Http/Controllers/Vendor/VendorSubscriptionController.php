@@ -54,7 +54,7 @@ class VendorSubscriptionController extends Controller
             Log::info('vendor.subscription.no_store', [
                 'vendor_id' => $vendor->id,
             ]);
-            return redirect()->route('vendor.kyc.store.create', ['vendor' => $vendor]);
+            return redirect()->route('vendor.store.create', ['vendor' => $vendor]);
         }
 
         if ($vendor->hasActiveSubscription()) {
@@ -384,7 +384,7 @@ class VendorSubscriptionController extends Controller
                 $firstStore = $vendor->stores()->first();
                 session(['onboarding_store_id' => $firstStore?->id]);
 
-                return redirect()->route('vendor.kyc.store.success', ['vendor' => $vendor])
+                return redirect()->route('vendor.store.success', ['vendor' => $vendor])
                     ->with('success', 'Subscription payment successful! Your account and store have been activated.');
             } else {
                 $payment->update([
@@ -571,7 +571,7 @@ class VendorSubscriptionController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Early access activated! Redirecting...',
-                'redirect_url' => route('vendor.kyc.store.success', ['vendor' => $vendor]),
+                'redirect_url' => route('vendor.store.success', ['vendor' => $vendor]),
             ]);
 
         } catch (\Throwable $e) {

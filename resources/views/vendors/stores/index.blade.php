@@ -491,9 +491,9 @@
     const createSlugFeedback = document.getElementById('createStoreSlugFeedback');
     const createSlugStatus = document.getElementById('createStoreSlugStatus');
     const createSubmitBtn = document.getElementById('createStoreSubmitBtn');
-    const checkSlugUrl = '{{ route("vendor.kyc.store.check-slug", ["vendor" => $vendor]) }}';
-    const getBanksUrl = '{{ route("vendor.kyc.store.get-banks", ["vendor" => $vendor]) }}';
-    const validateBankUrl = '{{ route("vendor.kyc.store.validate-bank", ["vendor" => $vendor]) }}';
+    const checkSlugUrl = '{{ route("vendor.store.check-slug", ["vendor" => $vendor]) }}';
+    const getBanksUrl = '{{ route("vendor.store.get-banks", ["vendor" => $vendor]) }}';
+    const validateBankUrl = '{{ route("vendor.store.validate-bank", ["vendor" => $vendor]) }}';
     const csrfToken = '{{ csrf_token() }}';
     
     let debounceTimer = null;

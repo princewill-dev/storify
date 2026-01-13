@@ -26,10 +26,6 @@ class VendorOnboardRequest extends FormRequest
             'address' => ['nullable', 'string'],
             'ownership_type_id' => ['nullable', 'exists:ownership_types,id'],
             'business_type_id' => ['nullable', 'exists:business_types,id'],
-            'bank_code' => ['required', 'string'],
-            'account_number' => ['required', 'string', 'size:10'],
-            'account_name' => ['required', 'string'],
-            'bank_name' => ['required', 'string'],
         ];
     }
 }

@@ -260,7 +260,7 @@ class VendorKycController extends Controller
         $this->queueVendorNotification($vendor, $application);
         $this->queueAdminNotification($application);
 
-        return redirect()->route('vendor.kyc.store.create', ['vendor' => $vendor])
+        return redirect()->route('vendor.store.create', ['vendor' => $vendor])
             ->with('success', 'KYC submitted successfully! Continue setting up your store while we review your details.');
     }
 
