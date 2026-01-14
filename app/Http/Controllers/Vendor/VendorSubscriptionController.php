@@ -380,10 +380,7 @@ class VendorSubscriptionController extends Controller
 
                 session()->forget('pending_subscription_payment');
 
-                // Store the first store ID in session for success page
-                $firstStore = $vendor->stores()->first();
-                session(['onboarding_store_id' => $firstStore?->id]);
-
+                // No session needed - success page will query the database
                 return redirect()->route('vendor.store.success', ['vendor' => $vendor])
                     ->with('success', 'Subscription payment successful! Your account and store have been activated.');
             } else {
@@ -565,9 +562,7 @@ class VendorSubscriptionController extends Controller
                 'stores_activated' => $stores->count(),
             ]);
 
-            // Store the store ID in session for success page
-            session(['onboarding_store_id' => $store?->id]);
-
+            // No session needed - success page will query the database
             return response()->json([
                 'success' => true,
                 'message' => 'Early access activated! Redirecting...',

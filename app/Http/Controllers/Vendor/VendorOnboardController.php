@@ -264,9 +264,7 @@ class VendorOnboardController extends Controller
             Mail::to($admins)->queue(new AdminStoreCreated($store));
         }
 
-        session(['onboarding_store_id' => $store->id]);
-
-
+        // No session needed - we'll query the database in next steps
         return redirect()->route('vendor.store.success', ['vendor' => $vendor])
             ->with('success', 'Store created successfully!');
     }
@@ -284,19 +282,12 @@ class VendorOnboardController extends Controller
             abort(503, 'Unable to verify your access to this page.');
         }
 
-        $storeId = session('onboarding_store_id');
-        if (!$storeId) {
-            return redirect()->route('vendor.store.create', ['vendor' => $vendor])
-                ->with('error', 'Create your store to continue.');
-        }
-
-        $store = Store::where('id', $storeId)->where('vendor_id', $vendor->id)->first();
+        // Get the latest store from database (no session needed)
+        $store = $vendor->stores()->latest()->first();
         if (!$store) {
             return redirect()->route('vendor.store.create', ['vendor' => $vendor])
-                ->with('error', 'We could not find the store you just created. Please try again.');
+                ->with('error', 'Please create your store first.');
         }
-
-        session()->forget('onboarding_store_id');
         
         // Show success page with store details
         Log::info('vendor.onboarding.store_success_shown', [
@@ -326,16 +317,11 @@ class VendorOnboardController extends Controller
             abort(503, 'Unable to verify your access to this page.');
         }
 
-        $storeId = session('onboarding_store_id');
-        if (!$storeId) {
-            return redirect()->route('vendor.store.create', ['vendor' => $vendor])
-                ->with('error', 'Create your store first to set up delivery routes.');
-        }
-
-        $store = Store::where('id', $storeId)->where('vendor_id', $vendor->id)->first();
+        // Get the latest store from database (no session needed)
+        $store = $vendor->stores()->latest()->first();
         if (!$store) {
             return redirect()->route('vendor.store.create', ['vendor' => $vendor])
-                ->with('error', 'Store not found.');
+                ->with('error', 'Please create your store first.');
         }
 
         // Load existing delivery routes if any
@@ -357,16 +343,11 @@ class VendorOnboardController extends Controller
             abort(503, 'Unable to verify your access to submit delivery routes.');
         }
 
-        $storeId = session('onboarding_store_id');
-        if (!$storeId) {
-            return redirect()->route('vendor.store.create', ['vendor' => $vendor])
-                ->with('error', 'Create your store first.');
-        }
-
-        $store = Store::where('id', $storeId)->where('vendor_id', $vendor->id)->first();
+        // Get the latest store from database (no session needed)
+        $store = $vendor->stores()->latest()->first();
         if (!$store) {
             return redirect()->route('vendor.store.create', ['vendor' => $vendor])
-                ->with('error', 'Store not found.');
+                ->with('error', 'Please create your store first.');
         }
 
         // Validate the routes
@@ -408,10 +389,7 @@ class VendorOnboardController extends Controller
                 'routes_count' => count($validated['routes'] ?? []),
             ]);
 
-            // Clear the onboarding session
-            session()->forget('onboarding_store_id');
-
-            // Redirect to subscription page
+            // Redirect to subscription page (no session clearing needed)
             return redirect()->route('vendor.subscription.plan', ['vendor' => $vendor])
                 ->with('success', 'Delivery routes saved! Please complete your subscription to activate your account.');
         } catch (\Throwable $e) {
@@ -498,16 +476,24 @@ class VendorOnboardController extends Controller
     }
 
     /**
-     * Store Paystack keys as payment method
+     * Store Paystack payment gateway configuration
      */
     public function storePaymentPaystack(Request $request, Vendor $vendor): RedirectResponse
     {
         $store = $vendor->stores()->latest()->first();
         
         if (!$store) {
-            return redirect()->route('vendor.store.create', ['vendor' => $vendor])
-                ->with('error', 'Please create a store first.');
+            \Log::error('[Payment Methods] Paystack save - No store found', [
+                'vendor_id' => $vendor->id
+            ]);
+            return redirect()->route('vendor.store.create', ['vendor' => $vendor]);
         }
+
+        \Log::info('[Payment Methods] Paystack configuration started', [
+            'vendor_id' => $vendor->id,
+            'store_id' => $store->id,
+            'store_name' => $store->name,
+        ]);
 
         try {
             $validated = $request->validate([
@@ -515,23 +501,119 @@ class VendorOnboardController extends Controller
                 'secret_key' => 'required|string|starts_with:sk_',
             ]);
 
+            \Log::info('[Payment Methods] Paystack keys validated (format)', [
+                'vendor_id' => $vendor->id,
+                'public_key_prefix' => substr($validated['public_key'], 0, 7),
+                'secret_key_prefix' => substr($validated['secret_key'], 0, 7),
+            ]);
+
+            // Test API keys with Paystack handshake (skip in development)
+            $skipValidation = config('app.debug') || config('app.env') === 'local';
+            $validationWarning = null;
+            
+            if (!$skipValidation) {
+                \Log::info('[Payment Methods] Testing Paystack keys with API handshake', [
+                    'vendor_id' => $vendor->id,
+                ]);
+
+                $paystackService = app(\App\Services\PaystackService::class);
+                $testResult = $paystackService->testApiKeys(
+                    $validated['secret_key'],
+                    $validated['public_key']
+                );
+
+                if (!$testResult['success']) {
+                    // Check if it's a network error (timeout/connection issue)
+                    $isNetworkError = isset($testResult['error']) && 
+                        (str_contains($testResult['error'], 'timeout') || 
+                         str_contains($testResult['error'], 'cURL') ||
+                         str_contains($testResult['error'], 'Could not resolve'));
+
+                    if ($isNetworkError) {
+                        \Log::warning('[Payment Methods] Paystack validation skipped due to network error', [
+                            'vendor_id' => $vendor->id,
+                            'error' => $testResult['error'] ?? $testResult['message'],
+                        ]);
+                        
+                        // Allow saving but show warning
+                        $validationWarning = 'Keys saved but could not be validated due to network issues. Please ensure they are correct.';
+                    } else {
+                        // Invalid keys error
+                        \Log::warning('[Payment Methods] Paystack key validation failed', [
+                            'vendor_id' => $vendor->id,
+                            'error_message' => $testResult['message'],
+                            'error_code' => $testResult['error_code'] ?? null,
+                        ]);
+
+                        return back()
+                            ->withInput()
+                            ->with('error', $testResult['message']);
+                    }
+                } else {
+                    \Log::info('[Payment Methods] Paystack keys validated successfully', [
+                        'vendor_id' => $vendor->id,
+                        'store_id' => $store->id,
+                        'test_response' => $testResult['data']['test_response'] ?? 'Success',
+                    ]);
+                }
+            } else {
+                \Log::info('[Payment Methods] Paystack validation skipped (development environment)', [
+                    'vendor_id' => $vendor->id,
+                    'app_env' => config('app.env'),
+                ]);
+                $validationWarning = 'Keys saved without validation (development mode). Ensure they are correct for production.';
+            }
+
             // Delete existing Paystack config if any
-            $store->paymentGateways()->where('gateway', 'paystack')->delete();
+            $existingCount = $store->paymentGateways()->where('gateway', 'paystack')->count();
+            if ($existingCount > 0) {
+                \Log::info('[Payment Methods] Removing existing Paystack configuration', [
+                    'vendor_id' => $vendor->id,
+                    'store_id' => $store->id,
+                    'existing_count' => $existingCount,
+                ]);
+                $store->paymentGateways()->where('gateway', 'paystack')->delete();
+            }
 
             // Create new Paystack configuration with encrypted keys
-            $store->paymentGateways()->create([
+            $gateway = $store->paymentGateways()->create([
                 'gateway' => 'paystack',
                 'public_key' => $validated['public_key'],
                 'secret_key' => $validated['secret_key'],
                 'is_active' => true,
+                'metadata' => [
+                    'configured_at' => now()->toDateTimeString(),
+                    'validated' => true,
+                ],
             ]);
 
-            return redirect()->route('vendor.payment-methods.form', ['vendor' => $vendor])
-                ->with('success', 'Paystack integration configured successfully!');
+            \Log::info('[Payment Methods] Paystack configuration saved successfully', [
+                'vendor_id' => $vendor->id,
+                'store_id' => $store->id,
+                'gateway_id' => $gateway->id,
+                'public_key_masked' => $gateway->masked_public_key,
+                'validation_skipped' => !is_null($validationWarning),
+            ]);
+
+            $redirect = redirect()->route('vendor.payment-methods.form', ['vendor' => $vendor]);
+            
+            if ($validationWarning) {
+                return $redirect->with('warning', $validationWarning);
+            }
+            
+            return $redirect->with('success', 'Paystack integration configured successfully!');
                 
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            \Log::warning('[Payment Methods] Paystack validation failed', [
+                'vendor_id' => $vendor->id,
+                'errors' => $e->errors(),
+            ]);
+            throw $e;
+            
         } catch (\Exception $e) {
             \Log::error('[Payment Methods] Paystack save failed', [
                 'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
                 'vendor_id' => $vendor->id,
                 'store_id' => $store->id
             ]);
