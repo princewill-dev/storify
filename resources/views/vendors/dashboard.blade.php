@@ -2,9 +2,23 @@
 @section('subtitle', 'Dashboard')
 
 @section('content')
+{{-- Subscription Reminder Banner --}}
+@if(!$vendor->hasActiveSubscription())
+<div class="alert alert-warning alert-dismissible fade show d-flex align-items-center justify-content-between mb-4" role="alert" style="background: linear-gradient(135deg, #ffc107 0%, #ffca2c 100%); border: none; border-radius: 12px;">
+    <div class="d-flex align-items-center">
+        <i class="bi bi-lightning-charge-fill fs-4 me-3 text-dark"></i>
+        <div>
+            <strong class="text-dark">Your store is not live yet!</strong>
+            <span class="text-dark ms-2 d-none d-md-inline">Activate your subscription so customers can start ordering.</span>
+        </div>
+    </div>
+    <a href="{{ route('vendor.subscription.plan', ['vendor' => $vendor]) }}" class="btn btn-dark btn-sm px-4 fw-semibold">
+        <i class="bi bi-rocket-takeoff me-1"></i>Go Live Now
+    </a>
+</div>
+@endif
+
 <div class="row">
-    
-    <div class="row">
 
         <div class="col-md-3">
             <div class="card text-bg-primary overflow-hidden z-1">

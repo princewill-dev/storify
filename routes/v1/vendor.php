@@ -13,6 +13,9 @@ use App\Http\Controllers\Vendor\VendorCustomerController;
 use App\Http\Controllers\Vendor\VendorTransactionController;
 use App\Http\Controllers\Vendor\VendorSubscriptionController;
 use App\Http\Controllers\Vendor\VendorServicesController;
+use App\Http\Controllers\Vendor\VendorProfileController;
+use App\Http\Controllers\Vendor\VendorStoreBankController;
+use App\Http\Controllers\Vendor\VendorDeliveryRouteController;
 
 Route::prefix('vendor')->name('vendor.')->group(function () {
     Route::get('/register', [VendorAuthController::class, 'showRegister'])->name('auth.register');
@@ -58,13 +61,15 @@ Route::prefix('vendor')->name('vendor.')->group(function () {
         Route::get('/{vendor}/store/get-banks', [VendorOnboardController::class, 'getBanks'])->name('store.get-banks');
         Route::post('/{vendor}/store/validate-bank', [VendorOnboardController::class, 'validateBank'])->name('store.validate-bank');
         
-        Route::middleware('vendor.subscription')->group(function () {
+        // Protected routes that require completed onboarding (subscription optional)
+        Route::middleware(['vendor.onboarding'])->group(function () {
+            // Dashboard
             Route::get('/dashboard', [VendorDashboardController::class, 'index'])->name('dashboard');
             Route::post('/dashboard/switch-store', [VendorDashboardController::class, 'switchStore'])->name('stores.switch');
             
             // Profile
-            Route::get('/dashboard/profile', [\App\Http\Controllers\Vendor\VendorProfileController::class, 'index'])->name('profile.index');
-            Route::put('/dashboard/profile/password', [\App\Http\Controllers\Vendor\VendorProfileController::class, 'updatePassword'])->name('profile.password');
+            Route::get('/dashboard/profile', [VendorProfileController::class, 'index'])->name('profile.index');
+            Route::put('/dashboard/profile/password', [VendorProfileController::class, 'updatePassword'])->name('profile.password');
 
             Route::get('/{vendor}/kyc', [VendorKycController::class, 'show'])->name('kyc.show');
             Route::post('/{vendor}/kyc', [VendorKycController::class, 'submit'])->name('kyc.submit');
@@ -74,19 +79,19 @@ Route::prefix('vendor')->name('vendor.')->group(function () {
             Route::get('/{vendor}/stores/{store}/finalize', [VendorStoreController::class, 'success'])->name('stores.success');
             Route::get('/{vendor}/stores/{store}', [VendorStoreController::class, 'show'])->name('stores.show');
             Route::put('/stores/{store}', [VendorStoreController::class, 'update'])->name('stores.update');
-            Route::post('/stores/{store}/suspend', [VendorStoreController::class, 'suspend'])->name('stores.suspend');
-            Route::post('/stores/{store}/activate', [VendorStoreController::class, 'activate'])->name('stores.activate');
+            Route::patch('/{vendor}/stores/{store}/suspend', [VendorStoreController::class, 'suspend'])->name('stores.suspend');
+            Route::patch('/{vendor}/stores/{store}/activate', [VendorStoreController::class, 'activate'])->name('stores.activate');
 
-            // Store Bank Accounts
-            Route::post('/{vendor}/stores/{store}/banks', [\App\Http\Controllers\Vendor\VendorStoreBankController::class, 'store'])->name('stores.banks.store');
-            Route::put('/{vendor}/stores/{store}/banks/{bank}', [\App\Http\Controllers\Vendor\VendorStoreBankController::class, 'update'])->name('stores.banks.update');
-            Route::delete('/{vendor}/stores/{store}/banks/{bank}', [\App\Http\Controllers\Vendor\VendorStoreBankController::class, 'destroy'])->name('stores.banks.destroy');
-            Route::patch('/{vendor}/stores/{store}/banks/{bank}/primary', [\App\Http\Controllers\Vendor\VendorStoreBankController::class, 'setPrimary'])->name('stores.banks.primary');
-            
+            // Store Banks
+            Route::post('/{vendor}/stores/{store}/banks', [VendorStoreBankController::class, 'store'])->name('stores.banks.store');
+            Route::put('/{vendor}/stores/{store}/banks/{bank}', [VendorStoreBankController::class, 'update'])->name('stores.banks.update');
+            Route::patch('/{vendor}/stores/{store}/banks/{bank}/primary', [VendorStoreBankController::class, 'setPrimary'])->name('stores.banks.primary');
+            Route::delete('/{vendor}/stores/{store}/banks/{bank}', [VendorStoreBankController::class, 'destroy'])->name('stores.banks.destroy');
+
             // Delivery Routes
-            Route::post('/{vendor}/stores/{store}/delivery-routes', [\App\Http\Controllers\Vendor\VendorStoreDeliveryRouteController::class, 'store'])->name('stores.delivery-routes.store');
-            Route::put('/{vendor}/stores/{store}/delivery-routes/{deliveryRoute}', [\App\Http\Controllers\Vendor\VendorStoreDeliveryRouteController::class, 'update'])->name('stores.delivery-routes.update');
-            Route::delete('/{vendor}/stores/{store}/delivery-routes/{deliveryRoute}', [\App\Http\Controllers\Vendor\VendorStoreDeliveryRouteController::class, 'destroy'])->name('stores.delivery-routes.destroy');
+            Route::post('/{vendor}/stores/{store}/delivery-routes', [VendorDeliveryRouteController::class, 'store'])->name('stores.delivery-routes.store');
+            Route::put('/{vendor}/stores/{store}/delivery-routes/{deliveryRoute}', [VendorDeliveryRouteController::class, 'update'])->name('stores.delivery-routes.update');
+            Route::delete('/{vendor}/stores/{store}/delivery-routes/{deliveryRoute}', [VendorDeliveryRouteController::class, 'destroy'])->name('stores.delivery-routes.destroy');
             Route::get('/{vendor}/products', [VendorProductsController::class, 'index'])->name('products.index');
             Route::get('/{vendor}/products/create', [VendorProductsController::class, 'create'])->name('products.create');
             Route::post('/{vendor}/products', [VendorProductsController::class, 'store'])->name('products.store');

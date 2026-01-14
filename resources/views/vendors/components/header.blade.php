@@ -21,10 +21,21 @@
 				<ul class="navbar-nav header-right">
 
 					<li class="nav-item align-items-center header-border">
-						@php
+						<!-- @php
 							$vendorStores = auth('vendor')->user()->stores;
 							$storeCount = $vendorStores->count();
+							$hasActiveSubscription = auth('vendor')->user()->hasActiveSubscription();
 						@endphp
+						
+						{{-- Show Go Live button if no active subscription --}}
+						@if(!$hasActiveSubscription)
+							<a href="{{ route('vendor.subscription.plan', ['vendor' => auth('vendor')->user()]) }}" class="btn btn-success btn-sm me-2">
+								<i class="bi bi-rocket-takeoff me-1"></i>
+								Go Live
+							</a>
+						@endif -->
+						
+						{{-- Visit Store button(s) --}}
 						@if($storeCount === 1)
 							@php $store = $vendorStores->first(); @endphp
 							<a href="{{ config('app.env') === 'local' ? route('local.store.products.index', ['store_subdomain' => $store->slug]) : route('home.store.products.index', ['store_subdomain' => $store->slug]) }}" target="_blank" class="btn btn-primary btn-sm">

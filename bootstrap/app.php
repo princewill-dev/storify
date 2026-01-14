@@ -18,6 +18,7 @@ return Application::configure(basePath: dirname(__DIR__))
         
         $middleware->alias([
             'vendor.subscription' => \App\Http\Middleware\CheckVendorSubscription::class,
+            'vendor.onboarding' => \App\Http\Middleware\RedirectIfOnboardingIncomplete::class,
         ]);
         
         // Configure authentication redirects for customer guard

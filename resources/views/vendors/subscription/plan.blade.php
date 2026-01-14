@@ -40,27 +40,29 @@
                 </button>
             </form>
 
-            <div class="text-center mt-3">
-                <button type="button" class="btn btn-link text-muted p-0" data-bs-toggle="modal" data-bs-target="#earlyPassModal">
+            {{-- Secondary Actions - Grouped together --}}
+            <div class="d-flex justify-content-center align-items-center gap-4 mt-4 flex-wrap">
+                <button type="button" class="btn btn-link text-muted p-0 text-decoration-none" data-bs-toggle="modal" data-bs-target="#earlyPassModal">
                     <i class="bi bi-ticket-perforated me-1"></i>
                     Have a coupon code?
                 </button>
+                
+                <span class="text-muted">•</span>
+                
+                <button type="button" class="btn btn-link text-muted p-0 text-decoration-none" data-bs-toggle="modal" data-bs-target="#skipSubscriptionModal">
+                    <i class="bi bi-clock me-1"></i>
+                    Do this later
+                </button>
             </div>
 
-            <div class="text-center mt-3">
+            {{-- Security badge --}}
+            <div class="text-center mt-4 pt-3 border-top">
                 <small class="text-muted">
                     <i class="bi bi-shield-check me-1"></i>
                     Secure payment powered by Paystack
                 </small>
             </div>
         </div>
-    </div>
-
-    <div class="text-center mt-4">
-        <a href="{{ route('vendor.dashboard') }}" class="text-muted">
-            <i class="bi bi-arrow-left me-1"></i>
-            Return to Dashboard
-        </a>
     </div>
 
     <!-- Early Pass Modal -->
@@ -96,6 +98,43 @@
                     <button type="button" class="btn btn-primary" id="applyCodeBtn">
                         Apply Code
                     </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Skip Subscription Modal -->
+    <div class="modal fade" id="skipSubscriptionModal" tabindex="-1" aria-labelledby="skipSubscriptionLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow">
+                <div class="modal-header border-0 pb-2">
+                    <h5 class="modal-title fw-bold" id="skipSubscriptionLabel">
+                        <i class="bi bi-exclamation-triangle text-warning me-2"></i>
+                        Store Not Active
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body pt-2">
+                    <p class="mb-3">You can proceed to set up your store, but please note:</p>
+                    
+                    <div class="alert alert-warning d-flex align-items-start mb-3" role="alert">
+                        <i class="bi bi-info-circle flex-shrink-0 me-2 mt-1"></i>
+                        <div>
+                            <strong>Customers cannot buy from your store</strong> until you activate a subscription plan.
+                        </div>
+                    </div>
+                    
+                    <p class="text-muted small mb-0">
+                        You can activate your plan anytime from your dashboard to start accepting orders.
+                    </p>
+                </div>
+                <div class="modal-footer border-0 pt-0">
+                    <button type="button" class="btn btn-light" data-bs-dismiss="modal">
+                        <i class="bi bi-arrow-left me-1"></i>Back to Payment
+                    </button>
+                    <a href="{{ route('vendor.dashboard') }}" class="btn btn-primary">
+                        <i class="bi bi-check-circle me-1"></i>I Understand, Continue
+                    </a>
                 </div>
             </div>
         </div>

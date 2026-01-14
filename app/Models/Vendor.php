@@ -196,4 +196,74 @@ class Vendor extends Authenticatable implements MustVerifyEmail
     {
         return '₦' . number_format($this->getTotalBalanceInNaira(), 2);
     }
+
+    /**
+     * Get vendor's onboarding progress status
+     * Returns: ['step' => 'store', 'completed' => false, 'next_route' => '...']
+     */
+    public function getOnboardingProgress(): array
+    {
+        // Step 1: Check if vendor has a store
+        $store = $this->stores()->latest()->first();
+        if (!$store) {
+            return [
+                'step' => 'store',
+                'step_number' => 1,
+                'completed' => false,
+                'next_route' => route('vendor.store.create', ['vendor' => $this]),
+                'progress_percentage' => 0,
+            ];
+        }
+
+        // Step 2: Check if vendor has configured payment methods
+        $hasPaymentMethod = $store->banks()->exists() || $store->paymentGateways()->exists();
+        if (!$hasPaymentMethod) {
+            return [
+                'step' => 'payment-methods',
+                'step_number' => 2,
+                'completed' => false,
+                'next_route' => route('vendor.payment-methods.form', ['vendor' => $this]),
+                'progress_percentage' => 25,
+            ];
+        }
+
+        // Step 3: Check if vendor has delivery routes
+        $hasDeliveryRoutes = $store->deliveryRoutes()->exists();
+        if (!$hasDeliveryRoutes) {
+            return [
+                'step' => 'delivery-routes',
+                'step_number' => 3,
+                'completed' => false,
+                'next_route' => route('vendor.delivery-routes.form', ['vendor' => $this]),
+                'progress_percentage' => 50,
+            ];
+        }
+
+        // Onboarding complete! Subscription is optional
+        // Vendor can access dashboard and set up store without paying
+        return [
+            'step' => 'complete',
+            'step_number' => 4,
+            'completed' => true,
+            'next_route' => route('vendor.dashboard'),
+            'progress_percentage' => 100,
+            'subscription_active' => $this->hasActiveSubscription(),
+        ];
+    }
+
+    /**
+     * Check if vendor has completed onboarding
+     */
+    public function hasCompletedOnboarding(): bool
+    {
+        return $this->getOnboardingProgress()['completed'];
+    }
+
+    /**
+     * Get the next onboarding step URL
+     */
+    public function getNextOnboardingStep(): string
+    {
+        return $this->getOnboardingProgress()['next_route'];
+    }
 }

@@ -176,16 +176,64 @@
             </div>
         @endif
 
+        {{-- Show onboarding stepper for onboarding pages --}}
+        @if(auth('vendor')->check() && !in_array(Route::currentRouteName(), ['vendor.register', 'vendor.verify-email']))
+            @include('vendors.auth.partials.onboarding-stepper')
+        @endif
+
         @yield('content')
 
         <div class="auth-footer">
-
-            <a href="{{ route('home.index') }}">Home</a>
-            <br>
-            <br>
-            <small>&copy; {{ now()->year }} {{ config('app.name') }}. All rights reserved.</small>
+            {{-- Show cancel button only for logged-in vendors during onboarding --}}
+            @if(auth('vendor')->check() && !in_array(Route::currentRouteName(), ['vendor.register', 'vendor.verify-email']))
+                <div class="mb-3">
+                    <button type="button" class="btn btn-link text-danger text-decoration-none p-0" style="font-size: 0.9rem;" data-bs-toggle="modal" data-bs-target="#cancelOnboardingModal">
+                        <i class="fas fa-times-circle me-1"></i> Cancel Process
+                    </button>
+                </div>
+            @endif
+            
+            <div class="d-flex justify-content-center align-items-center gap-3 mb-3">
+                <a href="{{ route('home.index') }}" class="text-muted text-decoration-none">
+                    <i class="fas fa-home me-1"></i>Home
+                </a>
+            </div>
+            
+            <small class="text-muted">&copy; {{ now()->year }} {{ config('app.name') }}. All rights reserved.</small>
         </div>
     </main>
+
+    {{-- Cancel Onboarding Modal --}}
+    <div class="modal fade" id="cancelOnboardingModal" tabindex="-1" aria-labelledby="cancelOnboardingLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header border-0">
+                    <h5 class="modal-title" id="cancelOnboardingLabel">
+                        <i class="fas fa-exclamation-triangle text-warning me-2"></i>Cancel Onboarding?
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="mb-2">Are you sure you want to cancel the onboarding process?</p>
+                    <p class="text-muted small mb-0">
+                        <i class="fas fa-info-circle me-1"></i>
+                        Don't worry - your progress has been saved! You can continue from where you left off when you log in again.
+                    </p>
+                </div>
+                <div class="modal-footer border-0">
+                    <button type="button" class="btn btn-light" data-bs-dismiss="modal">
+                        <i class="fas fa-arrow-left me-1"></i>Continue Setup
+                    </button>
+                    <form action="{{ route('vendor.auth.logout') }}" method="POST" class="d-inline">
+                        @csrf
+                        <button type="submit" class="btn btn-danger">
+                            <i class="fas fa-sign-out-alt me-1"></i>Yes, Cancel Process
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
