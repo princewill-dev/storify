@@ -1,4 +1,4 @@
-{{-- Onboarding Progress Stepper --}}
+<!-- {{-- Onboarding Progress Stepper --}}
 @php
     $vendor = $vendor ?? auth('vendor')->user();
     $progress = $vendor ? $vendor->getOnboardingProgress() : ['step_number' => 1, 'step' => 'store'];
@@ -134,4 +134,4 @@
         margin-bottom: 22px;
     }
 }
-</style>
+</style> -->

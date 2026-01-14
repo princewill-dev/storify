@@ -19,7 +19,11 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\View\View;
+use App\Mail\VendorStoreCreated;
+use App\Mail\AdminStoreCreated;
+use App\Models\User;
 
 class VendorSubscriptionController extends Controller
 {
@@ -380,6 +384,9 @@ class VendorSubscriptionController extends Controller
 
                 session()->forget('pending_subscription_payment');
 
+                // Send "Store is Live" email to vendor and admin
+                $this->sendStoreActivationEmails($vendor);
+
                 // No session needed - success page will query the database
                 return redirect()->route('vendor.store.success', ['vendor' => $vendor])
                     ->with('success', 'Subscription payment successful! Your account and store have been activated.');
@@ -562,6 +569,9 @@ class VendorSubscriptionController extends Controller
                 'stores_activated' => $stores->count(),
             ]);
 
+            // Send "Store is Live" email to vendor and admin
+            $this->sendStoreActivationEmails($vendor);
+
             // No session needed - success page will query the database
             return response()->json([
                 'success' => true,
@@ -581,6 +591,59 @@ class VendorSubscriptionController extends Controller
                 'success' => false,
                 'message' => 'An error occurred. Please try again.',
             ]);
+        }
+    }
+
+    /**
+     * Send "Store is Live" email notifications to vendor and admin
+     */
+    private function sendStoreActivationEmails(Vendor $vendor): void
+    {
+        // Get the latest store
+        $store = $vendor->stores()->latest()->first();
+        
+        if (!$store) {
+            Log::warning('vendor.subscription.email.no_store', [
+                'vendor_id' => $vendor->id,
+            ]);
+            return;
+        }
+
+        // Send email to vendor
+        if (!empty($vendor->email)) {
+            try {
+                Mail::to($vendor->email)->queue(new VendorStoreCreated($store));
+                Log::info('vendor.subscription.store_live_email_sent', [
+                    'vendor_id' => $vendor->id,
+                    'store_id' => $store->id,
+                    'recipient' => $vendor->email,
+                ]);
+            } catch (\Throwable $e) {
+                Log::error('vendor.subscription.store_live_email_failed', [
+                    'vendor_id' => $vendor->id,
+                    'store_id' => $store->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        // Send email to admins
+        $admins = User::where('role', 'superadmin')->pluck('email')->filter()->all();
+        if (!empty($admins)) {
+            try {
+                Mail::to($admins)->queue(new AdminStoreCreated($store));
+                Log::info('vendor.subscription.admin_notification_sent', [
+                    'vendor_id' => $vendor->id,
+                    'store_id' => $store->id,
+                    'admin_count' => count($admins),
+                ]);
+            } catch (\Throwable $e) {
+                Log::error('vendor.subscription.admin_notification_failed', [
+                    'vendor_id' => $vendor->id,
+                    'store_id' => $store->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
         }
     }
 }
