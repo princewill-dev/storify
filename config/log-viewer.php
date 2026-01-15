@@ -1,8 +1,7 @@
 <?php
 
-use Opcodes\LogViewer\Enums\SortingMethod;
-use Opcodes\LogViewer\Enums\SortingOrder;
-use Opcodes\LogViewer\Enums\Theme;
+// Note: Using string values instead of enum classes for production compatibility
+// Enum classes: Opcodes\LogViewer\Enums\SortingMethod, SortingOrder, Theme
 
 return [
 
@@ -283,22 +282,22 @@ return [
         'use_local_storage' => true,
 
         // Method to sort the folders. Other options: `Alphabetical`, `ModifiedTime`
-        'folder_sorting_method' => SortingMethod::ModifiedTime,
+        'folder_sorting_method' => 'ModifiedTime',
 
         // Order to sort the folders. Other options: `Ascending`, `Descending`
-        'folder_sorting_order' => SortingOrder::Descending,
+        'folder_sorting_order' => 'Descending',
 
         // Method for sorting log-files into directories. Other options: `Alphabetical`, `ModifiedTime`
-        'file_sorting_method' => SortingMethod::ModifiedTime,
+        'file_sorting_method' => 'ModifiedTime',
 
         // Order to sort the logs. Other options: `Ascending`, `Descending`
-        'log_sorting_order' => SortingOrder::Descending,
+        'log_sorting_order' => 'Descending',
 
         // Number of results per page. Must be one of the above `per_page_options` values
         'per_page' => 25,
 
         // Color scheme for the Log Viewer. Other options: `System`, `Light`, `Dark`
-        'theme' => Theme::System,
+        'theme' => 'System',
 
         // Whether to enable `Shorter Stack Traces` option by default
         'shorter_stack_traces' => false,

@@ -10,7 +10,9 @@ services:
     env_file:
       - .env
     command: >
-      sh -c "php artisan migrate --force && 
+      sh -c "php artisan config:clear && 
+             php artisan cache:clear &&
+             php artisan migrate --force && 
              /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf"
 
 networks:
