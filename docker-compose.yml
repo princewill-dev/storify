@@ -11,6 +11,7 @@ services:
       - .env
     command: >
       sh -c "composer install --no-dev --optimize-autoloader &&
+             php artisan vendor:publish --tag=log-viewer-assets --force &&
              php artisan config:clear && 
              php artisan cache:clear &&
              php artisan migrate --force && 
