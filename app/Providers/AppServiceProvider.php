@@ -15,7 +15,6 @@ use Illuminate\Support\Facades\Auth;
 use App\Models\Currency;
 use Illuminate\Support\Facades\Route;
 use App\Models\Vendor;
-use Opcodes\LogViewer\Facades\LogViewer;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -38,11 +37,13 @@ class AppServiceProvider extends ServiceProvider
             \URL::forceScheme('https');
         }
 
-        // Configure Log Viewer access - only allow superadmins
-        LogViewer::auth(function ($request) {
-            $user = $request->user();
-            return $user && in_array($user->role ?? null, ['superadmin'], true);
-        });
+        // Configure Log Viewer access - only allow superadmins (if package is installed)
+        if (class_exists(\Opcodes\LogViewer\Facades\LogViewer::class)) {
+            \Opcodes\LogViewer\Facades\LogViewer::auth(function ($request) {
+                $user = $request->user();
+                return $user && in_array($user->role ?? null, ['superadmin'], true);
+            });
+        }
 
         Paginator::useBootstrapFive();
         
