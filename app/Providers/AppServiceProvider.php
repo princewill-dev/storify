@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\Auth;
 use App\Models\Currency;
 use Illuminate\Support\Facades\Route;
 use App\Models\Vendor;
+use Opcodes\LogViewer\Facades\LogViewer;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -36,6 +37,12 @@ class AppServiceProvider extends ServiceProvider
         if ($this->app->environment('production')) {
             \URL::forceScheme('https');
         }
+
+        // Configure Log Viewer access - only allow superadmins
+        LogViewer::auth(function ($request) {
+            $user = $request->user();
+            return $user && in_array($user->role ?? null, ['superadmin'], true);
+        });
 
         Paginator::useBootstrapFive();
         
