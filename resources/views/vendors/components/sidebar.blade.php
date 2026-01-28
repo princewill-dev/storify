@@ -188,7 +188,16 @@
             @endif
 
             <li>
-                <a href="{{ route('vendor.transactions.index', ['vendor' => $vendor]) }}" aria-expanded="false">
+                <a href="{{ route('vendor.payment-settings.index', ['vendor' => $sidebarVendor]) }}" aria-expanded="false">
+                    <div class="menu-icon">
+                        <i class="fi fi-rr-credit-card"></i>
+                    </div>
+                    <span class="nav-text">Payment Settings</span>
+                </a>
+            </li>
+
+            <li>
+                <a href="{{ route('vendor.transactions.index', ['vendor' => $sidebarVendor]) }}" aria-expanded="false">
                     <div class="menu-icon">
                         <i class="fa-solid fa-file-invoice-dollar"></i>
                     </div>

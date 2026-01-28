@@ -16,6 +16,7 @@ use App\Http\Controllers\Vendor\VendorServicesController;
 use App\Http\Controllers\Vendor\VendorProfileController;
 use App\Http\Controllers\Vendor\VendorStoreBankController;
 use App\Http\Controllers\Vendor\VendorDeliveryRouteController;
+use App\Http\Controllers\Vendor\VendorPaymentSettingsController;
 
 Route::prefix('vendor')->name('vendor.')->group(function () {
     Route::get('/register', [VendorAuthController::class, 'showRegister'])->name('auth.register');
@@ -36,6 +37,7 @@ Route::prefix('vendor')->name('vendor.')->group(function () {
 
     Route::middleware('auth:vendor')->group(function () {
         Route::post('/logout', [VendorAuthController::class, 'logout'])->name('auth.logout');
+        Route::get('/logout', fn() => redirect()->route('vendor.auth.login'))->name('auth.logout.get');
         
         Route::get('/{vendor}/subscription/plan', [VendorSubscriptionController::class, 'showSubscriptionPlan'])->name('subscription.plan');
         Route::post('/{vendor}/subscription/initialize', [VendorSubscriptionController::class, 'initializePayment'])->name('subscription.initialize');
@@ -92,6 +94,19 @@ Route::prefix('vendor')->name('vendor.')->group(function () {
             Route::post('/{vendor}/stores/{store}/delivery-routes', [VendorDeliveryRouteController::class, 'store'])->name('stores.delivery-routes.store');
             Route::put('/{vendor}/stores/{store}/delivery-routes/{deliveryRoute}', [VendorDeliveryRouteController::class, 'update'])->name('stores.delivery-routes.update');
             Route::delete('/{vendor}/stores/{store}/delivery-routes/{deliveryRoute}', [VendorDeliveryRouteController::class, 'destroy'])->name('stores.delivery-routes.destroy');
+
+            // Payment Settings
+            Route::get('/{vendor}/payment-settings', [VendorPaymentSettingsController::class, 'index'])->name('payment-settings.index');
+            Route::post('/{vendor}/payment-settings/bank-accounts', [VendorPaymentSettingsController::class, 'storeBankAccount'])->name('payment-settings.bank-accounts.store');
+            Route::put('/{vendor}/payment-settings/bank-accounts/{bank}', [VendorPaymentSettingsController::class, 'updateBankAccount'])->name('payment-settings.bank-accounts.update');
+            Route::delete('/{vendor}/payment-settings/bank-accounts/{bank}', [VendorPaymentSettingsController::class, 'destroyBankAccount'])->name('payment-settings.bank-accounts.destroy');
+            Route::post('/{vendor}/payment-settings/paystack-keys', [VendorPaymentSettingsController::class, 'storePaystackKeys'])->name('payment-settings.paystack-keys.store');
+            Route::put('/{vendor}/payment-settings/paystack-keys/{gateway}', [VendorPaymentSettingsController::class, 'updatePaystackKeys'])->name('payment-settings.paystack-keys.update');
+            Route::delete('/{vendor}/payment-settings/paystack-keys/{gateway}', [VendorPaymentSettingsController::class, 'destroyPaystackKeys'])->name('payment-settings.paystack-keys.destroy');
+            Route::post('/{vendor}/payment-settings/paystack-keys/{gateway}/toggle', [VendorPaymentSettingsController::class, 'togglePaystackKeys'])->name('payment-settings.paystack-keys.toggle');
+            Route::post('/{vendor}/payment-settings/verify-bank', [VendorPaymentSettingsController::class, 'verifyBankAccount'])->name('payment-settings.verify-bank');
+            Route::post('/{vendor}/payment-settings/stores/{store}/toggle-mode', [VendorPaymentSettingsController::class, 'togglePaymentMode'])->name('payment-settings.toggle-mode');
+
             Route::get('/{vendor}/products', [VendorProductsController::class, 'index'])->name('products.index');
             Route::get('/{vendor}/products/create', [VendorProductsController::class, 'create'])->name('products.create');
             Route::post('/{vendor}/products', [VendorProductsController::class, 'store'])->name('products.store');

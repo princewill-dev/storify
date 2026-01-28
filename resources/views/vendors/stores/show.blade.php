@@ -41,7 +41,7 @@
           <li>
             <a class="dropdown-item d-flex align-items-center py-2 px-3 text-success" href="javascript:void(0)" 
                data-bs-toggle="modal" data-bs-target="#activateStoreModal" 
-               data-action="{{ route('vendor.stores.activate', $store) }}" 
+               data-action="{{ route('vendor.stores.activate', ['vendor' => $vendor, 'store' => $store]) }}" 
                data-store-name="{{ $store->name }}">
               <i class="fi fi-rr-play me-2"></i> <span>Activate Store</span>
             </a>
@@ -50,7 +50,7 @@
           <li>
             <a class="dropdown-item d-flex align-items-center py-2 px-3 text-warning" href="javascript:void(0)" 
                data-bs-toggle="modal" data-bs-target="#suspendStoreModal" 
-               data-action="{{ route('vendor.stores.suspend', $store) }}" 
+               data-action="{{ route('vendor.stores.suspend', ['vendor' => $vendor, 'store' => $store]) }}" 
                data-store-name="{{ $store->name }}">
               <i class="fi fi-rr-pause me-2"></i> <span>Suspend Store</span>
             </a>

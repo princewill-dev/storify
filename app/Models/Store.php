@@ -35,6 +35,7 @@ class Store extends Model
         'business_type_id',
         'status',
         'balance',
+        'payment_mode',
     ];
 
     protected static function boot()
