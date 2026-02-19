@@ -14,8 +14,54 @@ class SubscriptionPlanController extends Controller
      */
     public function index()
     {
-        $plans = SubscriptionPlan::paginate(15);
+        $plans = SubscriptionPlan::orderBy('sort_order')->paginate(15);
         return view('admin.subscription_fee.index', compact('plans'));
+    }
+
+    /**
+     * Store a newly created subscription plan.
+     */
+    public function store(Request $request)
+    {
+        $validated = $request->validate([
+            'name' => 'required|string|max:255',
+            'description' => 'nullable|string',
+            'amount' => 'required|numeric|min:0',
+            'currency' => 'required|string|max:3',
+            'interval' => 'required|string|in:daily,weekly,monthly,yearly',
+            'interval_count' => 'required|integer|min:1',
+            'is_active' => 'boolean',
+            'is_default' => 'boolean',
+            'is_trial' => 'boolean',
+            'trial_days' => 'nullable|integer|min:1',
+            'features' => 'nullable|string',
+            'sort_order' => 'integer|min:0',
+        ]);
+
+        // Parse features from textarea (one per line)
+        if (!empty($validated['features'])) {
+            $validated['features'] = array_values(array_filter(
+                array_map('trim', explode("\n", $validated['features']))
+            ));
+        } else {
+            $validated['features'] = [];
+        }
+
+        // If setting as default, unset other defaults
+        if (!empty($validated['is_default'])) {
+            SubscriptionPlan::where('is_default', true)->update(['is_default' => false]);
+        }
+
+        $plan = SubscriptionPlan::create($validated);
+
+        Log::info('Subscription plan created', [
+            'plan_id' => $plan->id,
+            'name' => $plan->name,
+            'admin_id' => auth()->id(),
+        ]);
+
+        return redirect()->route('admin.subscription-plans.index')
+            ->with('success', 'Subscription plan created successfully.');
     }
 
     /**
@@ -24,11 +70,35 @@ class SubscriptionPlanController extends Controller
     public function update(Request $request, SubscriptionPlan $subscriptionPlan)
     {
         $validated = $request->validate([
-            'amount' => 'required|numeric|min:0',
             'name' => 'required|string|max:255',
             'description' => 'nullable|string',
+            'amount' => 'required|numeric|min:0',
+            'currency' => 'required|string|max:3',
+            'interval' => 'required|string|in:daily,weekly,monthly,yearly',
+            'interval_count' => 'required|integer|min:1',
             'is_active' => 'boolean',
+            'is_default' => 'boolean',
+            'is_trial' => 'boolean',
+            'trial_days' => 'nullable|integer|min:1',
+            'features' => 'nullable|string',
+            'sort_order' => 'integer|min:0',
         ]);
+
+        // Parse features from textarea
+        if (!empty($validated['features'])) {
+            $validated['features'] = array_values(array_filter(
+                array_map('trim', explode("\n", $validated['features']))
+            ));
+        } else {
+            $validated['features'] = [];
+        }
+
+        // If setting as default, unset other defaults
+        if (!empty($validated['is_default'])) {
+            SubscriptionPlan::where('is_default', true)
+                ->where('id', '!=', $subscriptionPlan->id)
+                ->update(['is_default' => false]);
+        }
 
         $subscriptionPlan->update($validated);
 
@@ -41,5 +111,28 @@ class SubscriptionPlanController extends Controller
 
         return redirect()->route('admin.subscription-plans.index')
             ->with('success', 'Subscription plan updated successfully.');
+    }
+
+    /**
+     * Remove the specified subscription plan.
+     */
+    public function destroy(SubscriptionPlan $subscriptionPlan)
+    {
+        // Prevent deleting if vendors are actively subscribed
+        if ($subscriptionPlan->vendorSubscriptions()->where('status', 'active')->exists()) {
+            return redirect()->route('admin.subscription-plans.index')
+                ->with('error', 'Cannot delete a plan with active subscriptions. Deactivate it instead.');
+        }
+
+        $name = $subscriptionPlan->name;
+        $subscriptionPlan->delete();
+
+        Log::info('Subscription plan deleted', [
+            'name' => $name,
+            'admin_id' => auth()->id(),
+        ]);
+
+        return redirect()->route('admin.subscription-plans.index')
+            ->with('success', "Plan \"{$name}\" deleted successfully.");
     }
 }

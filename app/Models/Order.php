@@ -37,7 +37,6 @@ class Order extends Model
         'tax' => 'decimal:2',
         'total' => 'decimal:2',
         'status' => \App\Enums\OrderStatus::class,
-        'status' => \App\Enums\OrderStatus::class,
         'meta' => 'array',
     ];
 

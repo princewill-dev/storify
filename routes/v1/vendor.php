@@ -15,7 +15,7 @@ use App\Http\Controllers\Vendor\VendorSubscriptionController;
 use App\Http\Controllers\Vendor\VendorServicesController;
 use App\Http\Controllers\Vendor\VendorProfileController;
 use App\Http\Controllers\Vendor\VendorStoreBankController;
-use App\Http\Controllers\Vendor\VendorDeliveryRouteController;
+use App\Http\Controllers\Vendor\VendorStoreDeliveryRouteController;
 use App\Http\Controllers\Vendor\VendorPaymentSettingsController;
 
 Route::prefix('vendor')->name('vendor.')->group(function () {
@@ -43,6 +43,7 @@ Route::prefix('vendor')->name('vendor.')->group(function () {
         Route::post('/{vendor}/subscription/initialize', [VendorSubscriptionController::class, 'initializePayment'])->name('subscription.initialize');
         Route::get('/{vendor}/subscription/callback', [VendorSubscriptionController::class, 'handleCallback'])->name('subscription.callback');
         Route::post('/{vendor}/subscription/check-early-pass', [VendorSubscriptionController::class, 'checkEarlyPass'])->name('subscription.check-early-pass');
+        Route::post('/{vendor}/subscription/activate-trial', [VendorSubscriptionController::class, 'activateTrial'])->name('subscription.activate-trial');
         
         Route::get('/{vendor}/store/create', [VendorOnboardController::class, 'showStoreCreationForm'])->name('store.create');
         Route::post('/{vendor}/store/create', [VendorOnboardController::class, 'submitOnboardingStore'])->name('store.submit');
@@ -91,9 +92,9 @@ Route::prefix('vendor')->name('vendor.')->group(function () {
             Route::delete('/{vendor}/stores/{store}/banks/{bank}', [VendorStoreBankController::class, 'destroy'])->name('stores.banks.destroy');
 
             // Delivery Routes
-            Route::post('/{vendor}/stores/{store}/delivery-routes', [VendorDeliveryRouteController::class, 'store'])->name('stores.delivery-routes.store');
-            Route::put('/{vendor}/stores/{store}/delivery-routes/{deliveryRoute}', [VendorDeliveryRouteController::class, 'update'])->name('stores.delivery-routes.update');
-            Route::delete('/{vendor}/stores/{store}/delivery-routes/{deliveryRoute}', [VendorDeliveryRouteController::class, 'destroy'])->name('stores.delivery-routes.destroy');
+            Route::post('/{vendor}/stores/{store}/delivery-routes', [VendorStoreDeliveryRouteController::class, 'store'])->name('stores.delivery-routes.store');
+            Route::put('/{vendor}/stores/{store}/delivery-routes/{deliveryRoute}', [VendorStoreDeliveryRouteController::class, 'update'])->name('stores.delivery-routes.update');
+            Route::delete('/{vendor}/stores/{store}/delivery-routes/{deliveryRoute}', [VendorStoreDeliveryRouteController::class, 'destroy'])->name('stores.delivery-routes.destroy');
 
             // Payment Settings
             Route::get('/{vendor}/payment-settings', [VendorPaymentSettingsController::class, 'index'])->name('payment-settings.index');

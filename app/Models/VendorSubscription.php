@@ -27,6 +27,10 @@ class VendorSubscription extends Model
         'expires_at',
         'cancelled_at',
         'metadata',
+        'trial_reminder_day5_sent_at',
+        'trial_reminder_day6_sent_at',
+        'trial_reminder_day7_sent_at',
+        'trial_expired_sent_at',
     ];
 
     protected $casts = [
@@ -34,6 +38,10 @@ class VendorSubscription extends Model
         'expires_at' => 'datetime',
         'cancelled_at' => 'datetime',
         'metadata' => 'array',
+        'trial_reminder_day5_sent_at' => 'datetime',
+        'trial_reminder_day6_sent_at' => 'datetime',
+        'trial_reminder_day7_sent_at' => 'datetime',
+        'trial_expired_sent_at' => 'datetime',
     ];
 
     protected static function boot()

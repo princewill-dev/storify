@@ -4,8 +4,8 @@
 
 @section('content')
     <div class="mb-4 text-center">
-        <h3 class="fw-semibold mb-1">Almost there! Let’s set up your store</h3>
-        <p class="text-muted mb-0">Complete the details below so we can prepare your storefront while our team reviews your KYC.</p>
+        <h3 class="fw-semibold mb-1">Let’s set up your store</h3>
+        <!-- <p class="text-muted mb-0">Store Information</p> -->
     </div>
 
     <div class="card shadow-sm border-0">
@@ -14,6 +14,32 @@
                 @csrf
 
                 <div class="row g-4">
+                
+                    <div>
+                        <!-- <label class="form-label fw-semibold">Store Logo</label> -->
+                        <div class="d-inline-block position-relative" style="width: 150px;">
+                            <div class="border rounded-4 overflow-hidden position-relative" style="width: 150px; height: 150px; background: #f4f4f5;">
+                                <img id="logoPreview" src="{{ asset('vendor_files/assets/images/default-store-icon.png') }}" alt="Logo preview" style="width:100%; height:100%; object-fit:cover;">
+                                <!-- Delete button -->
+                                <button type="button" id="logoDeleteBtn" class="btn btn-light btn-sm position-absolute d-flex align-items-center justify-content-center shadow-sm" style="top: 8px; right: 8px; width: 32px; height: 32px; border-radius: 8px; padding: 0; display: none !important;">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                                        <path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z"/>
+                                        <path fill-rule="evenodd" d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1h2.5a1 1 0 0 1 1 1v1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z"/>
+                                    </svg>
+                                </button>
+                                <!-- Change Image button -->
+                                <button type="button" id="logoChangeBtn" class="btn btn-dark btn-sm position-absolute" style="bottom: 10px; left: 50%; transform: translateX(-50%); white-space: nowrap; border-radius: 6px; font-size: 0.8rem; padding: 5px 14px;">
+                                    Add Store Logo
+                                </button>
+                            </div>
+                            <input type="file" id="logo" name="logo" accept=".png,.jpg,.jpeg,.webp" class="d-none @error('logo') is-invalid @enderror">
+                            <!-- <small class="text-muted d-block mt-2">PNG, JPG, or WEBP. Max 2MB.</small> -->
+                            @error('logo')
+                                <div class="invalid-feedback d-block">{{ $message }}</div>
+                            @enderror
+                        </div>
+                    </div>
+
                     <div class="col-12">
                         <label for="name" class="form-label fw-semibold">Store name<span class="text-danger">*</span></label>
                         <input type="text" id="name" name="name"
@@ -43,7 +69,7 @@
 
                 <div class="row g-4">
                     <div class="col-md-6">
-                        <label for="support_email" class="form-label fw-semibold">Support email</label>
+                        <label for="support_email" class="form-label fw-semibold">Store email</label>
                         <input type="email" id="support_email" name="support_email"
                                class="form-control form-control-lg @error('support_email') is-invalid @enderror"
                                value="{{ old('support_email') }}" placeholder="support@yourbrand.com">
@@ -52,7 +78,7 @@
                         @enderror
                     </div>
                     <div class="col-md-6">
-                        <label for="support_phone" class="form-label fw-semibold">Support phone</label>
+                        <label for="support_phone" class="form-label fw-semibold">Store phone</label>
                         <input type="text" id="support_phone" name="support_phone"
                                class="form-control form-control-lg @error('support_phone') is-invalid @enderror"
                                value="{{ old('support_phone') }}" placeholder="0800 000 0000">
@@ -101,63 +127,62 @@
                     </div>
                 </div>
 
-                <div class="row g-4">
-                    <div class="col-lg-6">
-                        <label for="instagram_url" class="form-label fw-semibold">Instagram</label>
-                        <input type="url" id="instagram_url" name="instagram_url"
-                               class="form-control form-control-lg @error('instagram_url') is-invalid @enderror"
-                               value="{{ old('instagram_url') }}" placeholder="https://www.instagram.com/yourhandle">
-                        @error('instagram_url')
-                            <div class="invalid-feedback">{{ $message }}</div>
-                        @enderror
-                    </div>
-                    <div class="col-lg-6">
-                        <label for="facebook_url" class="form-label fw-semibold">Facebook</label>
-                        <input type="url" id="facebook_url" name="facebook_url"
-                               class="form-control form-control-lg @error('facebook_url') is-invalid @enderror"
-                               value="{{ old('facebook_url') }}" placeholder="https://www.facebook.com/yourpage">
-                        @error('facebook_url')
-                            <div class="invalid-feedback">{{ $message }}</div>
-                        @enderror
-                    </div>
-                </div>
-
-                <div class="row g-4">
-                    <div class="col-lg-6">
-                        <label for="twitter_url" class="form-label fw-semibold">Twitter / X</label>
-                        <input type="url" id="twitter_url" name="twitter_url"
-                               class="form-control form-control-lg @error('twitter_url') is-invalid @enderror"
-                               value="{{ old('twitter_url') }}" placeholder="https://twitter.com/yourhandle">
-                        @error('twitter_url')
-                            <div class="invalid-feedback">{{ $message }}</div>
-                        @enderror
-                    </div>
-                    <div class="col-lg-6">
-                        <label for="tiktok_url" class="form-label fw-semibold">TikTok</label>
-                        <input type="url" id="tiktok_url" name="tiktok_url"
-                               class="form-control form-control-lg @error('tiktok_url') is-invalid @enderror"
-                               value="{{ old('tiktok_url') }}" placeholder="https://www.tiktok.com/@yourhandle">
-                        @error('tiktok_url')
-                            <div class="invalid-feedback">{{ $message }}</div>
-                        @enderror
-                    </div>
-                </div>
+                {{-- Social media — hidden inputs carry values, modal for editing --}}
+                <input type="hidden" name="instagram_url" id="instagram_url_hidden" value="{{ old('instagram_url') }}">
+                <input type="hidden" name="facebook_url"  id="facebook_url_hidden"  value="{{ old('facebook_url') }}">
+                <input type="hidden" name="twitter_url"   id="twitter_url_hidden"   value="{{ old('twitter_url') }}">
+                <input type="hidden" name="tiktok_url"    id="tiktok_url_hidden"    value="{{ old('tiktok_url') }}">
 
                 <div>
-                    <label for="logo" class="form-label fw-semibold">Store logo</label>
-                    <div class="border rounded-3 p-4 d-flex flex-column flex-md-row align-items-start align-items-md-center gap-3">
-                        <div class="border rounded-3" style="width: 160px; height: 90px; display:flex; align-items:center; justify-content:center; overflow:hidden; background:#f4f4f5;">
-                            <img id="logoPreview" src="#" alt="Logo preview" style="max-width:100%; max-height:100%; display:none;">
-                        </div>
-                        <div class="flex-grow-1">
-                            <input type="file" id="logo" name="logo" accept=".png,.jpg,.jpeg,.webp"
-                                   class="form-control form-control-lg @error('logo') is-invalid @enderror">
-                            <small class="text-muted d-block mt-2">PNG, JPG, or WEBP. Max 2MB.</small>
-                            @error('logo')
-                                <div class="invalid-feedback d-block">{{ $message }}</div>
-                            @enderror
+                    <label class="form-label fw-semibold">Social Media Links <span class="text-muted fw-normal">(optional)</span></label>
+                    <div class="d-flex flex-wrap align-items-center gap-2">
+                        <button type="button" class="btn btn-outline-dark btn-sm d-inline-flex align-items-center gap-1" data-bs-toggle="modal" data-bs-target="#socialLinksModal">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" fill="currentColor" viewBox="0 0 16 16"><path d="M8 4a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3A.5.5 0 0 1 8 4z"/></svg>
+                            Add Social Media Links
+                        </button>
+                        <div id="socialBadges" class="d-flex flex-wrap gap-2"></div>
+                    </div>
+                    @error('instagram_url')<div class="text-danger small mt-1">{{ $message }}</div>@enderror
+                    @error('facebook_url')<div class="text-danger small mt-1">{{ $message }}</div>@enderror
+                    @error('twitter_url')<div class="text-danger small mt-1">{{ $message }}</div>@enderror
+                    @error('tiktok_url')<div class="text-danger small mt-1">{{ $message }}</div>@enderror
+                </div>
+
+                {{-- Social Links Modal --}}
+                <div class="modal fade" id="socialLinksModal" tabindex="-1" aria-labelledby="socialLinksModalLabel" aria-hidden="true">
+                    <div class="modal-dialog modal-dialog-centered">
+                        <div class="modal-content border-0 shadow">
+                            <div class="modal-header border-bottom-0 pb-0">
+                                <h5 class="modal-title fw-semibold" id="socialLinksModalLabel">Social Media Links</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                            </div>
+                            <div class="modal-body pt-2 vstack gap-3">
+                                <p class="text-muted small mb-0">Add your social media pages so customers can find you.</p>
+
+                                <div>
+                                    <label for="modal_instagram" class="form-label fw-medium small mb-1">Instagram</label>
+                                    <input type="url" id="modal_instagram" class="form-control" placeholder="https://www.instagram.com/yourhandle" value="{{ old('instagram_url') }}">
+                                </div>
+                                <div>
+                                    <label for="modal_facebook" class="form-label fw-medium small mb-1">Facebook</label>
+                                    <input type="url" id="modal_facebook" class="form-control" placeholder="https://www.facebook.com/yourpage" value="{{ old('facebook_url') }}">
+                                </div>
+                                <div>
+                                    <label for="modal_twitter" class="form-label fw-medium small mb-1">Twitter / X</label>
+                                    <input type="url" id="modal_twitter" class="form-control" placeholder="https://twitter.com/yourhandle" value="{{ old('twitter_url') }}">
+                                </div>
+                                <div>
+                                    <label for="modal_tiktok" class="form-label fw-medium small mb-1">TikTok</label>
+                                    <input type="url" id="modal_tiktok" class="form-control" placeholder="https://www.tiktok.com/@yourhandle" value="{{ old('tiktok_url') }}">
+                                </div>
+                            </div>
+                            <div class="modal-footer border-top-0 pt-0">
+                                <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+                                <button type="button" class="btn btn-dark" id="saveSocialLinks">Save Links</button>
+                            </div>
                         </div>
                     </div>
+                </div>
 
                 <div class="text-end">
                     <button type="submit" id="submitBtn" class="btn btn-dark btn-lg px-4" disabled>
@@ -170,25 +195,77 @@
 
     <script>
         document.addEventListener('DOMContentLoaded', function () {
-            // Logo preview
+            // Logo upload
             const logoInput = document.getElementById('logo');
             const preview = document.getElementById('logoPreview');
+            const changeBtn = document.getElementById('logoChangeBtn');
+            const deleteBtn = document.getElementById('logoDeleteBtn');
+            const defaultSrc = '{{ asset("vendor_files/assets/images/default-store-icon.png") }}';
+
+            if (changeBtn) {
+                changeBtn.addEventListener('click', function () {
+                    logoInput.click();
+                });
+            }
+
             if (logoInput && preview) {
                 logoInput.addEventListener('change', function (event) {
                     const file = event.target.files?.[0];
-                    if (!file) {
-                        preview.style.display = 'none';
-                        preview.src = '#';
-                        return;
-                    }
+                    if (!file) return;
                     const reader = new FileReader();
                     reader.onload = function (e) {
-                        preview.src = e.target?.result ?? '#';
-                        preview.style.display = 'block';
+                        preview.src = e.target?.result ?? defaultSrc;
+                        deleteBtn.style.cssText = deleteBtn.style.cssText.replace('display: none !important', '');
                     };
                     reader.readAsDataURL(file);
                 });
             }
+
+            if (deleteBtn) {
+                deleteBtn.addEventListener('click', function () {
+                    preview.src = defaultSrc;
+                    logoInput.value = '';
+                    deleteBtn.style.cssText += 'display: none !important;';
+                });
+            }
+
+            // Social media modal
+            const socialMap = {
+                instagram: { modal: 'modal_instagram', hidden: 'instagram_url_hidden', label: 'Instagram', icon: '📷' },
+                facebook:  { modal: 'modal_facebook',  hidden: 'facebook_url_hidden',  label: 'Facebook',  icon: '📘' },
+                twitter:   { modal: 'modal_twitter',   hidden: 'twitter_url_hidden',   label: 'Twitter / X', icon: '🐦' },
+                tiktok:    { modal: 'modal_tiktok',    hidden: 'tiktok_url_hidden',    label: 'TikTok',    icon: '🎵' },
+            };
+            const badgesContainer = document.getElementById('socialBadges');
+
+            function renderSocialBadges() {
+                badgesContainer.innerHTML = '';
+                Object.entries(socialMap).forEach(([key, cfg]) => {
+                    const val = document.getElementById(cfg.hidden).value.trim();
+                    if (!val) return;
+                    const badge = document.createElement('span');
+                    badge.className = 'badge bg-light text-dark border d-inline-flex align-items-center gap-1';
+                    badge.style.cssText = 'font-size:.8rem; padding:5px 10px; border-radius:6px; cursor:default;';
+                    badge.innerHTML = `${cfg.icon} ${cfg.label} <button type="button" class="btn-close btn-close-sm ms-1" style="font-size:.55rem;" data-social-key="${key}"></button>`;
+                    badge.querySelector('button').addEventListener('click', function () {
+                        document.getElementById(cfg.hidden).value = '';
+                        document.getElementById(cfg.modal).value = '';
+                        renderSocialBadges();
+                    });
+                    badgesContainer.appendChild(badge);
+                });
+            }
+
+            document.getElementById('saveSocialLinks')?.addEventListener('click', function () {
+                Object.values(socialMap).forEach(cfg => {
+                    document.getElementById(cfg.hidden).value = document.getElementById(cfg.modal).value.trim();
+                });
+                renderSocialBadges();
+                bootstrap.Modal.getInstance(document.getElementById('socialLinksModal'))?.hide();
+            });
+
+            // Pre-populate badges on page load (e.g. after validation error)
+            renderSocialBadges();
 
             // Slug availability checker
             const nameInput = document.getElementById('name');

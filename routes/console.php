@@ -6,6 +6,8 @@ use Illuminate\Support\Facades\Schedule;
 use App\Jobs\ProcessScheduledFamilyPackDeliveries;
 use App\Jobs\SendPaymentReminder;
 use App\Jobs\CancelUnpaidDelivery;
+use App\Jobs\ProcessTrialExpirations;
+use App\Models\VendorSubscription;
 
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
@@ -21,3 +23,12 @@ Schedule::job(new SendPaymentReminder('overdue'))->dailyAt('09:00');      // +1 
 
 // Auto-cancel unpaid deliveries
 Schedule::job(new CancelUnpaidDelivery)->dailyAt('23:59');
+
+// Trial expiry reminders & store deactivation — only runs when there are active trials
+Schedule::job(new ProcessTrialExpirations)
+    ->dailyAt('08:00')
+    ->when(fn () => VendorSubscription::active()
+        ->whereHas('subscriptionPlan', fn ($q) => $q->where('is_trial', true))
+        ->exists()
+    );
+

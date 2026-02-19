@@ -12,6 +12,7 @@
             background: #f7f7f7;
             color: #111827;
             display: flex;
+            flex-direction: column;
             align-items: center;
             justify-content: center;
             padding: clamp(2rem, 3vw, 3rem) 1rem;
@@ -24,6 +25,30 @@
             border-radius: 24px;
             box-shadow: 0 12px 32px rgba(17, 24, 39, 0.08);
             padding: clamp(1.75rem, 2vw + 1rem, 2.75rem);
+            position: relative;
+        }
+
+        .cancel-x-btn {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            width: 34px;
+            height: 34px;
+            border-radius: 50%;
+            border: none;
+            background: #fee2e2;
+            color: #dc2626;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: background .2s, transform .15s;
+            z-index: 10;
+            padding: 0;
+        }
+        .cancel-x-btn:hover {
+            background: #fecaca;
+            transform: scale(1.1);
         }
 
         .auth-logo {
@@ -130,11 +155,14 @@
 </head>
 <body>
     <main class="auth-card">
-        <!-- <div class="auth-heading">
-            <img src="{{ $company->logo }}" alt="{{ $company->name }}" width="200px">
-            <br>
-            <br>
-        </div> -->
+        {{-- Red X cancel button at top-right of card --}}
+        @if(auth('vendor')->check() && !in_array(Route::currentRouteName(), ['vendor.register', 'vendor.verify-email']))
+            <button type="button" class="cancel-x-btn" title="Cancel onboarding" data-bs-toggle="modal" data-bs-target="#cancelOnboardingModal">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                    <path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"/>
+                </svg>
+            </button>
+        @endif
 
         @if(session('success'))
             <div class="alert alert-success alert-dismissible fade show" role="alert">
@@ -183,25 +211,14 @@
 
         @yield('content')
 
-        <div class="auth-footer">
-            {{-- Show cancel button only for logged-in vendors during onboarding --}}
-            @if(auth('vendor')->check() && !in_array(Route::currentRouteName(), ['vendor.register', 'vendor.verify-email']))
-                <div class="mb-3">
-                    <button type="button" class="btn btn-link text-danger text-decoration-none p-0" style="font-size: 0.9rem;" data-bs-toggle="modal" data-bs-target="#cancelOnboardingModal">
-                        <i class="fas fa-times-circle me-1"></i> Cancel Process
-                    </button>
-                </div>
-            @endif
-            
-            <div class="d-flex justify-content-center align-items-center gap-3 mb-3">
-                <a href="{{ route('home.index') }}" class="text-muted text-decoration-none">
-                    <i class="fas fa-home me-1"></i>Home
-                </a>
-            </div>
-            
-            <small class="text-muted">&copy; {{ now()->year }} {{ config('app.name') }}. All rights reserved.</small>
-        </div>
+        
     </main>
+
+    <div class="auth-footer" style="margin-top: auto; padding-top: 2rem; padding-bottom: 1rem;">
+        <a href="{{ route('home.index') }}" class="text-muted text-decoration-none">Home</a>
+        <br>
+        <small class="text-muted">&copy; {{ now()->year }} {{ config('app.name') }}. All rights reserved.</small>
+    </div>
 
     {{-- Cancel Onboarding Modal --}}
     <div class="modal fade" id="cancelOnboardingModal" tabindex="-1" aria-labelledby="cancelOnboardingLabel" aria-hidden="true">

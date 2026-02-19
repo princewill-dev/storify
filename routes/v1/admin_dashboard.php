@@ -174,6 +174,6 @@ Route::middleware(['auth'])->group(function () {
         Route::post('early-access/{earlyPass}/toggle-status', [\App\Http\Controllers\Admin\AdminEarlyPassController::class, 'toggleStatus'])->name('early-access.toggle-status');
 
         // Subscription Plans
-        Route::resource('subscription-plans', SubscriptionPlanController::class)->only(['index', 'update']);
+        Route::resource('subscription-plans', SubscriptionPlanController::class)->only(['index', 'store', 'update', 'destroy']);
     });
 });

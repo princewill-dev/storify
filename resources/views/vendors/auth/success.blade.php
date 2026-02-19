@@ -10,8 +10,6 @@
             <br>
             @if ($store->logo_path)
                 <img src="{{ asset('storage/' . $store->logo_path) }}" alt="{{ $store->name }} logo" width="200px">
-            @else
-                <span class="text-muted">No logo</span>
             @endif
         </div>
 

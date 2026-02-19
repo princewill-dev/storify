@@ -46,14 +46,6 @@ class VendorSubscriptionController extends Controller
             return redirect()->route('vendor.auth.login');
         }
 
-        // if (!$vendor->is_verified) {
-        //     Log::info('vendor.subscription.unverified_vendor', [
-        //         'vendor_id' => $vendor->id,
-        //     ]);
-        //     return redirect()->route('vendor.auth.verify-otp', ['vendor' => $vendor])
-        //         ->with('warning', 'Please verify your email to continue.');
-        // }
-
         if (!$vendor->stores()->exists()) {
             Log::info('vendor.subscription.no_store', [
                 'vendor_id' => $vendor->id,
@@ -70,9 +62,10 @@ class VendorSubscriptionController extends Controller
                 ->with('info', 'You already have an active subscription.');
         }
 
-        $plan = SubscriptionPlan::active()->default()->first();
+        $plans = SubscriptionPlan::active()->orderBy('sort_order')->get();
+        $defaultPlan = $plans->where('is_default', true)->first() ?? $plans->where('is_trial', false)->first();
 
-        if (!$plan) {
+        if ($plans->isEmpty()) {
             Log::error('vendor.subscription.no_plan_available', [
                 'vendor_id' => $vendor->id,
             ]);
@@ -82,15 +75,109 @@ class VendorSubscriptionController extends Controller
 
         Log::info('vendor.subscription.plan_viewed', [
             'vendor_id' => $vendor->id,
-            'plan_id' => $plan->id,
-            'plan_amount' => $plan->amount,
+            'plans_count' => $plans->count(),
         ]);
 
         return view('vendors.subscription.plan', [
             'vendor' => $vendor,
-            'plan' => $plan,
+            'plans' => $plans,
+            'defaultPlan' => $defaultPlan,
             'paystackPublicKey' => $this->paystackService->getPublicKey(),
         ]);
+    }
+
+    /**
+     * Activate a free trial subscription for the vendor.
+     */
+    public function activateTrial(Request $request, Vendor $vendor): RedirectResponse
+    {
+        $authVendor = $request->user('vendor');
+
+        if (!$authVendor || $authVendor->id !== $vendor->id) {
+            return redirect()->route('vendor.auth.login');
+        }
+
+        if ($vendor->hasActiveSubscription()) {
+            return redirect()->route('vendor.dashboard')
+                ->with('error', 'You already have an active subscription.');
+        }
+
+        $trialPlan = SubscriptionPlan::active()->trial()->first();
+
+        if (!$trialPlan) {
+            Log::error('vendor.subscription.trial.no_plan', [
+                'vendor_id' => $vendor->id,
+            ]);
+            return back()->with('error', 'No trial plan available.');
+        }
+
+        DB::beginTransaction();
+        try {
+            $subscription = VendorSubscription::create([
+                'vendor_id' => $vendor->id,
+                'subscription_plan_id' => $trialPlan->id,
+                'status' => VendorSubscription::STATUS_ACTIVE,
+                'starts_at' => now(),
+                'expires_at' => $trialPlan->getTrialExpiresAt(),
+                'metadata' => [
+                    'is_trial' => true,
+                    'trial_days' => $trialPlan->trial_days,
+                    'activated_at' => now()->toDateTimeString(),
+                ],
+            ]);
+
+            // Activate vendor
+            if ($vendor->status !== Vendor::STATUS_ACTIVE || !$vendor->is_verified) {
+                $vendor->update([
+                    'status' => Vendor::STATUS_ACTIVE,
+                    'is_verified' => true,
+                ]);
+
+                VendorKycApplication::updateOrCreate(
+                    ['vendor_id' => $vendor->id],
+                    [
+                        'status' => VendorKycApplication::STATUS_APPROVED,
+                        'approved_at' => now(),
+                        'legal_name' => $vendor->name,
+                        'phone_number' => $vendor->phone,
+                        'payload' => ['auto_approved_via_trial' => true],
+                    ]
+                );
+            }
+
+            // Activate stores
+            $stores = $vendor->stores()->whereIn('status', [
+                Store::STATUS_PENDING,
+                Store::STATUS_SUSPENDED,
+            ])->get();
+
+            foreach ($stores as $store) {
+                $store->update(['status' => Store::STATUS_ACTIVE]);
+            }
+
+            DB::commit();
+
+            Log::info('vendor.subscription.trial.activated', [
+                'vendor_id' => $vendor->id,
+                'subscription_id' => $subscription->id,
+                'trial_days' => $trialPlan->trial_days,
+                'expires_at' => $subscription->expires_at,
+            ]);
+
+            // Send activation emails
+            $this->sendStoreActivationEmails($vendor);
+
+            return redirect()->route('vendor.store.success', ['vendor' => $vendor])
+                ->with('success', 'Free trial activated! Your store is now live.');
+
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            Log::error('vendor.subscription.trial.failed', [
+                'vendor_id' => $vendor->id,
+                'error' => $e->getMessage(),
+            ]);
+            return back()->with('error', 'An error occurred. Please try again.');
+        }
     }
 
     public function initializePayment(Request $request, Vendor $vendor): RedirectResponse

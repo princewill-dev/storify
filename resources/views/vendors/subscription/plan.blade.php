@@ -1,68 +1,103 @@
 @extends('vendors.auth.layout')
 
-@section('subtitle', 'Subscription Plan')
+@section('subtitle', 'Choose Your Plan')
 
 @section('content')
 
     <header class="auth-heading">
-        <h1>Subscription Plan</h1>
-        <p>Complete your subscription to activate your vendor account</p>
+        <h1>Choose Your Plan</h1>
+        <p>Select a plan to activate your vendor account</p>
     </header>
 
-    <div class="card border-0 shadow-sm">
-        <div class="card-body p-4">
-            <div class="text-center mb-4">
-                <div class="display-4 fw-bold text-dark">
-                    {{ $plan->currency }} {{ number_format($plan->amount, 2) }}
+    <div class="row g-4 justify-content-center">
+        @foreach($plans as $plan)
+            <div class="col-md-6">
+                <div class="card border-0 shadow-sm h-100 {{ $plan->is_trial ? 'border-success' : '' }}" style="border-radius: 16px; {{ $plan->is_trial ? 'border: 2px solid #22c55e !important;' : '' }}">
+                    <div class="card-body p-4 d-flex flex-column">
+
+                        {{-- Badge --}}
+                        @if($plan->is_trial)
+                            <span class="badge bg-success-subtle text-success mb-3 align-self-start" style="font-size: .8rem; padding: 6px 12px; border-radius: 8px;">
+                                🎉 Free Trial
+                            </span>
+                        @else
+                            <span class="badge bg-dark-subtle text-dark mb-3 align-self-start" style="font-size: .8rem; padding: 6px 12px; border-radius: 8px;">
+                                ⭐ Recommended
+                            </span>
+                        @endif
+
+                        {{-- Plan name --}}
+                        <h5 class="fw-bold mb-2">{{ $plan->name }}</h5>
+
+                        @if($plan->description)
+                            <p class="text-muted small mb-3">{{ $plan->description }}</p>
+                        @endif
+
+                        {{-- Price --}}
+                        <div class="mb-3">
+                            @if($plan->is_trial)
+                                <div class="d-flex align-items-baseline gap-1">
+                                    <span class="display-6 fw-bold text-success">Free</span>
+                                </div>
+                                <small class="text-muted">for {{ $plan->trial_days }} days</small>
+                            @else
+                                <div class="d-flex align-items-baseline gap-1">
+                                    <span class="display-6 fw-bold">{{ $plan->currency }} {{ number_format($plan->amount, 2) }}</span>
+                                </div>
+                                <small class="text-muted">{{ $plan->interval }}</small>
+                            @endif
+                        </div>
+
+                        {{-- Features --}}
+                        @if($plan->features && is_array($plan->features) && count($plan->features) > 0)
+                            <ul class="list-unstyled mb-4 flex-grow-1">
+                                @foreach($plan->features as $feature)
+                                    <li class="mb-2 d-flex align-items-start gap-2">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="{{ $plan->is_trial ? '#22c55e' : '#111827' }}" viewBox="0 0 16 16" class="flex-shrink-0 mt-1">
+                                            <path d="M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0zm-3.97-3.03a.75.75 0 0 0-1.08.022L7.477 9.417 5.384 7.323a.75.75 0 0 0-1.06 1.06L6.97 11.03a.75.75 0 0 0 1.079-.02l3.992-4.99a.75.75 0 0 0-.01-1.05z"/>
+                                        </svg>
+                                        <span class="small">{{ $feature }}</span>
+                                    </li>
+                                @endforeach
+                            </ul>
+                        @endif
+
+                        {{-- CTA Button --}}
+                        @if($plan->is_trial)
+                            <form method="POST" action="{{ route('vendor.subscription.activate-trial', ['vendor' => $vendor]) }}">
+                                @csrf
+                                <button type="submit" class="btn btn-success btn-lg w-100" style="border-radius: 12px;">
+                                    Start Free Trial
+                                </button>
+                            </form>
+                        @else
+                            <form method="POST" action="{{ route('vendor.subscription.initialize', ['vendor' => $vendor]) }}" id="subscriptionForm">
+                                @csrf
+                                <button type="submit" class="btn btn-dark btn-lg w-100" id="payButton" style="border-radius: 12px;">
+                                    Make Payment
+                                </button>
+                            </form>
+                        @endif
+                    </div>
                 </div>
-                <p class="text-muted">{{ $plan->interval }}</p>
             </div>
+        @endforeach
+    </div>
 
-            @if($plan->features && is_array($plan->features) && count($plan->features) > 0)
-                <div class="mb-4">
-                    <h5 class="fw-semibold mb-3">Features Included:</h5>
-                    <ul class="list-unstyled">
-                        @foreach($plan->features as $feature)
-                            <li class="mb-2">
-                                <i class="bi bi-check-circle-fill text-success me-2"></i>
-                                {{ $feature }}
-                            </li>
-                        @endforeach
-                    </ul>
-                </div>
-            @endif
+    {{-- Secondary Actions --}}
+    <div class="d-flex justify-content-center align-items-center gap-4 mt-4 flex-wrap">
+        <button type="button" class="btn btn-link text-muted p-0 text-decoration-none" data-bs-toggle="modal" data-bs-target="#earlyPassModal">
+            <i class="bi bi-ticket-perforated me-1"></i>
+            Have a coupon code?
+        </button>
+    </div>
 
-            <form method="POST" action="{{ route('vendor.subscription.initialize', ['vendor' => $vendor]) }}" id="subscriptionForm">
-                @csrf
-                <button type="submit" class="btn btn-primary btn-lg w-100" id="payButton">
-                    <i class="bi bi-credit-card me-2"></i>
-                    Make Payment
-                </button>
-            </form>
-
-            {{-- Secondary Actions - Grouped together --}}
-            <div class="d-flex justify-content-center align-items-center gap-4 mt-4 flex-wrap">
-                <button type="button" class="btn btn-link text-muted p-0 text-decoration-none" data-bs-toggle="modal" data-bs-target="#earlyPassModal">
-                    <i class="bi bi-ticket-perforated me-1"></i>
-                    Have a coupon code?
-                </button>
-                
-                <span class="text-muted">•</span>
-                
-                <button type="button" class="btn btn-link text-muted p-0 text-decoration-none" data-bs-toggle="modal" data-bs-target="#skipSubscriptionModal">
-                    <i class="bi bi-clock me-1"></i>
-                    Do this later
-                </button>
-            </div>
-
-            {{-- Security badge --}}
-            <div class="text-center mt-4 pt-3 border-top">
-                <small class="text-muted">
-                    <i class="bi bi-shield-check me-1"></i>
-                    Secure payment powered by Paystack
-                </small>
-            </div>
-        </div>
+    {{-- Security badge --}}
+    <div class="text-center mt-3">
+        <small class="text-muted">
+            <i class="bi bi-shield-check me-1"></i>
+            Secure payment powered by Paystack
+        </small>
     </div>
 
     <!-- Early Pass Modal -->
@@ -103,43 +138,6 @@
         </div>
     </div>
 
-    <!-- Skip Subscription Modal -->
-    <div class="modal fade" id="skipSubscriptionModal" tabindex="-1" aria-labelledby="skipSubscriptionLabel" aria-hidden="true">
-        <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content border-0 shadow">
-                <div class="modal-header border-0 pb-2">
-                    <h5 class="modal-title fw-bold" id="skipSubscriptionLabel">
-                        <i class="bi bi-exclamation-triangle text-warning me-2"></i>
-                        Store Not Active
-                    </h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
-                <div class="modal-body pt-2">
-                    <p class="mb-3">You can proceed to set up your store, but please note:</p>
-                    
-                    <div class="alert alert-warning d-flex align-items-start mb-3" role="alert">
-                        <i class="bi bi-info-circle flex-shrink-0 me-2 mt-1"></i>
-                        <div>
-                            <strong>Customers cannot buy from your store</strong> until you activate a subscription plan.
-                        </div>
-                    </div>
-                    
-                    <p class="text-muted small mb-0">
-                        You can activate your plan anytime from your dashboard to start accepting orders.
-                    </p>
-                </div>
-                <div class="modal-footer border-0 pt-0">
-                    <button type="button" class="btn btn-light" data-bs-dismiss="modal">
-                        <i class="bi bi-arrow-left me-1"></i>Back to Payment
-                    </button>
-                    <a href="{{ route('vendor.dashboard') }}" class="btn btn-primary">
-                        <i class="bi bi-check-circle me-1"></i>I Understand, Continue
-                    </a>
-                </div>
-            </div>
-        </div>
-    </div>
-
 @endsection
 
 @push('scripts')
@@ -150,14 +148,14 @@
         const form = document.getElementById('subscriptionForm');
         const payButton = document.getElementById('payButton');
 
-        form.addEventListener('submit', function(e) {
-            e.preventDefault();
-            
-            payButton.disabled = true;
-            payButton.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Processing...';
-
-            form.submit();
-        });
+        if (form && payButton) {
+            form.addEventListener('submit', function(e) {
+                e.preventDefault();
+                payButton.disabled = true;
+                payButton.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Processing...';
+                form.submit();
+            });
+        }
 
         // Early Pass handling
         const earlyPassInput = document.getElementById('earlyPassCode');
@@ -230,7 +228,6 @@
             .then(data => {
                 if (data.success) {
                     showFeedback('success', data.message);
-                    // Keep button disabled and redirect
                     applyCodeBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Redirecting...';
                     
                     setTimeout(() => {
@@ -250,7 +247,6 @@
 
         applyCodeBtn.addEventListener('click', checkEarlyPass);
 
-        // Allow pressing Enter to submit
         earlyPassInput.addEventListener('keypress', function(e) {
             if (e.key === 'Enter') {
                 e.preventDefault();
@@ -258,7 +254,6 @@
             }
         });
 
-        // Clear feedback when modal is opened
         const modal = document.getElementById('earlyPassModal');
         modal.addEventListener('show.bs.modal', function() {
             earlyPassInput.value = '';
@@ -266,7 +261,6 @@
             setButtonLoading(false);
         });
 
-        // Focus input when modal opens
         modal.addEventListener('shown.bs.modal', function() {
             earlyPassInput.focus();
         });

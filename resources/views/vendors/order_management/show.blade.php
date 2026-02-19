@@ -238,14 +238,14 @@
                         <div class="mb-3">
                             <label class="form-label small text-muted">Current Status</label>
                             <select name="status" class="form-select" required>
-                                <option value="pending" {{ $order->status === 'pending' ? 'selected' : '' }}>Pending</option>
-                                <option value="accepted" {{ $order->status === 'accepted' ? 'selected' : '' }}>Accepted</option>
-                                <option value="processing" {{ $order->status === 'processing' ? 'selected' : '' }}>Processing</option>
-                                <option value="dispatched" {{ $order->status === 'dispatched' ? 'selected' : '' }}>Dispatched</option>
-                                <option value="delivered" {{ $order->status === 'delivered' ? 'selected' : '' }}>Delivered</option>
-                                <option value="completed" {{ $order->status === 'completed' ? 'selected' : '' }}>Completed</option>
-                                <option value="cancelled" {{ $order->status === 'cancelled' ? 'selected' : '' }}>Cancelled</option>
-                                <option value="returned" {{ $order->status === 'returned' ? 'selected' : '' }}>Returned</option>
+                                <option value="pending" {{ ($order->status->value ?? $order->status) === 'pending' ? 'selected' : '' }}>Pending</option>
+                                <option value="accepted" {{ ($order->status->value ?? $order->status) === 'accepted' ? 'selected' : '' }}>Accepted</option>
+                                <option value="processing" {{ ($order->status->value ?? $order->status) === 'processing' ? 'selected' : '' }}>Processing</option>
+                                <option value="dispatched" {{ ($order->status->value ?? $order->status) === 'dispatched' ? 'selected' : '' }}>Dispatched</option>
+                                <option value="delivered" {{ ($order->status->value ?? $order->status) === 'delivered' ? 'selected' : '' }}>Delivered</option>
+                                <option value="completed" {{ ($order->status->value ?? $order->status) === 'completed' ? 'selected' : '' }}>Completed</option>
+                                <option value="cancelled" {{ ($order->status->value ?? $order->status) === 'cancelled' ? 'selected' : '' }}>Cancelled</option>
+                                <option value="returned" {{ ($order->status->value ?? $order->status) === 'returned' ? 'selected' : '' }}>Returned</option>
                             </select>
                         </div>
 
