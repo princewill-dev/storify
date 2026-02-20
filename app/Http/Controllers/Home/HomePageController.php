@@ -62,4 +62,18 @@ class HomePageController extends Controller
     {
         return view('home.pages.services');
     }
+
+    /**
+     * Display the pricing page.
+     *
+     * @return \Illuminate\Contracts\View\View
+     */
+    public function pricing()
+    {
+        $plans = \App\Models\SubscriptionPlan::active()
+            ->orderBy('sort_order')
+            ->get();
+            
+        return view('home.pages.pricing', compact('plans'));
+    }
 }

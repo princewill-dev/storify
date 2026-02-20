@@ -33,6 +33,8 @@
                         
                         <li class="nl-simple" aria-haspopup="true"><a href="./#features" class="h-link">Features</a></li>
 
+                        <li class="nl-simple" aria-haspopup="true"><a href="{{ route('home.pricing') }}" class="h-link">Pricing</a></li>
+
                         <li class="nl-simple" aria-haspopup="true"><a href="{{ route('home.stores') }}" class="h-link">Stores</a></li>
                         
                         <li class="nl-simple" aria-haspopup="true"><a href="{{ route('home.support') }}" class="h-link">Support</a></li>
