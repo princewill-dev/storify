@@ -217,30 +217,46 @@
 
                     <div class="col-md-6">
                         <label for="password" class="form-label fw-semibold">Password</label>
-                        <input
-                            type="password"
-                            id="password"
-                            name="password"
-                            class="form-control form-control-lg @error('password') is-invalid @enderror"
-                            placeholder="Create a strong password"
-                            required
-                        >
+                        <div class="input-group">
+                            <input
+                                type="password"
+                                id="password"
+                                name="password"
+                                class="form-control form-control-lg @error('password') is-invalid @enderror"
+                                placeholder="Create a strong password"
+                                required
+                            >
+                            <button class="btn btn-outline-secondary toggle-password d-flex align-items-center justify-content-center" type="button" data-target="password" style="border-radius: 0 12px 12px 0; border-color: #e2e8f0; border-left: 0; background-color: transparent; z-index: 5; padding-left: 15px; padding-right: 15px;">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" class="bi bi-eye" viewBox="0 0 16 16">
+                                  <path d="M16 8s-3-5.5-8-5.5S0 8 0 8s3 5.5 8 5.5S16 8 16 8zM1.173 8a13.133 13.133 0 0 1 1.66-2.043C4.12 4.668 5.88 3.5 8 3.5c2.12 0 3.879 1.168 5.168 2.457A13.133 13.133 0 0 1 14.828 8c-.058.087-.122.183-.195.288-.335.48-.83 1.12-1.465 1.755C11.879 11.332 10.119 12.5 8 12.5c-2.12 0-3.879-1.168-5.168-2.457A13.134 13.134 0 0 1 1.172 8z"/>
+                                  <path d="M8 5.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5zM4.5 8a3.5 3.5 0 1 1 7 0 3.5 3.5 0 0 1-7 0z"/>
+                                </svg>
+                            </button>
+                        </div>
                         <small class="text-muted">Minimum 8 characters.</small>
                         @error('password')
-                            <div class="invalid-feedback">{{ $message }}</div>
+                            <div class="invalid-feedback d-block">{{ $message }}</div>
                         @enderror
                     </div>
 
                     <div class="col-md-6">
                         <label for="password_confirmation" class="form-label fw-semibold">Confirm password</label>
-                        <input
-                            type="password"
-                            id="password_confirmation"
-                            name="password_confirmation"
-                            class="form-control form-control-lg"
-                            placeholder="Re-enter password"
-                            required
-                        >
+                        <div class="input-group">
+                            <input
+                                type="password"
+                                id="password_confirmation"
+                                name="password_confirmation"
+                                class="form-control form-control-lg"
+                                placeholder="Re-enter password"
+                                required
+                            >
+                            <button class="btn btn-outline-secondary toggle-password d-flex align-items-center justify-content-center" type="button" data-target="password_confirmation" style="border-radius: 0 12px 12px 0; border-color: #e2e8f0; border-left: 0; background-color: transparent; z-index: 5; padding-left: 15px; padding-right: 15px;">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" class="bi bi-eye" viewBox="0 0 16 16">
+                                  <path d="M16 8s-3-5.5-8-5.5S0 8 0 8s3 5.5 8 5.5S16 8 16 8zM1.173 8a13.133 13.133 0 0 1 1.66-2.043C4.12 4.668 5.88 3.5 8 3.5c2.12 0 3.879 1.168 5.168 2.457A13.133 13.133 0 0 1 14.828 8c-.058.087-.122.183-.195.288-.335.48-.83 1.12-1.465 1.755C11.879 11.332 10.119 12.5 8 12.5c-2.12 0-3.879-1.168-5.168-2.457A13.134 13.134 0 0 1 1.172 8z"/>
+                                  <path d="M8 5.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5zM4.5 8a3.5 3.5 0 1 1 7 0 3.5 3.5 0 0 1-7 0z"/>
+                                </svg>
+                            </button>
+                        </div>
                     </div>
 
                     <div class="col-12 d-grid mt-2">
@@ -253,6 +269,30 @@
                     <span class="text-muted">Already a vendor?</span>
                     <a class="link-primary text-decoration-none" href="{{ route('vendor.auth.login') }}">Sign in</a>
                 </div>
-            </div>
     </section>
 @endsection
+
+@push('scripts')
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const togglePasswordButtons = document.querySelectorAll('.toggle-password');
+        togglePasswordButtons.forEach(button => {
+            button.addEventListener('click', function() {
+                const targetId = this.getAttribute('data-target');
+                const targetInput = document.getElementById(targetId);
+                const icon = this.querySelector('i');
+                
+                if (targetInput.type === 'password') {
+                    targetInput.type = 'text';
+                    icon.classList.remove('bi-eye');
+                    icon.classList.add('bi-eye-slash');
+                } else {
+                    targetInput.type = 'password';
+                    icon.classList.remove('bi-eye-slash');
+                    icon.classList.add('bi-eye');
+                }
+            });
+        });
+    });
+</script>
+@endpush
