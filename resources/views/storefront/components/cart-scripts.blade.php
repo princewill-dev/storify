@@ -323,10 +323,10 @@
                             </div>
                             <div class="cartmini__content">
                                 <h5><a href="#">${item.name}</a></h5>
-                                <div class="product-quantity mt-10 mb-10">
-                                    <span class="cart-minus" onclick="StorefrontCart.updateItemQty('${item.id}', ${item.qty - 1})">-</span>
-                                    <input class="cart-input" type="text" value="${item.qty}" readonly/>
-                                    <span class="cart-plus" onclick="StorefrontCart.updateItemQty('${item.id}', ${item.qty + 1})">+</span>
+                                <div class="custom-qty-wrapper">
+                                    <button class="custom-qty-btn" type="button" onclick="StorefrontCart.updateItemQty('${item.id}', ${item.qty - 1})">−</button>
+                                    <input class="custom-qty-input" type="text" value="${item.qty}" readonly/>
+                                    <button class="custom-qty-btn" type="button" onclick="StorefrontCart.updateItemQty('${item.id}', ${item.qty + 1})">+</button>
                                 </div>
                                 <div class="product__sm-price-wrapper">
                                     <span class="product__sm-price">${new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN' }).format(item.line_subtotal / 100)}</span>

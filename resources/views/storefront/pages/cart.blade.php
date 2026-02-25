@@ -334,13 +334,10 @@
                         </div>
                     </div>
 
-                    <div class="mt-4" id="checkoutBtnContainer" style="display: none;">
-                        <button type="button" id="checkoutBtn" class="checkout-btn">
+                    <div class="mt-4" id="checkoutBtnContainer">
+                        <button type="button" id="checkoutBtn" class="checkout-btn" data-ready="false" style="opacity: 0.5;">
                             Check Out.
                         </button>
-                        <small id="checkoutHelp" class="text-success d-block mt-2 text-center">
-                            Ready to checkout
-                        </small>
                     </div>
                 </div>
             </div>
@@ -381,7 +378,6 @@
         const totalEl = document.getElementById('cartPageTotal');
         const checkoutBtn = document.getElementById('checkoutBtn');
         const checkoutBtnContainer = document.getElementById('checkoutBtnContainer');
-        const checkoutHelp = document.getElementById('checkoutHelp');
         const spinner = document.getElementById('areaSpinner');
         
         let currentSubtotal = 0;
@@ -391,9 +387,11 @@
         // Helper to update button visibility
         function updateCheckoutButton() {
             if (!hasPaymentMethods || !deliveryRouteSelected) {
-                checkoutBtnContainer.style.display = 'none';
+                checkoutBtn.dataset.ready = "false";
+                checkoutBtn.style.opacity = '0.5';
             } else {
-                checkoutBtnContainer.style.display = 'block';
+                checkoutBtn.dataset.ready = "true";
+                checkoutBtn.style.opacity = '1';
             }
         }
 
@@ -420,6 +418,11 @@
         // Checkout button click handler
         checkoutBtn.addEventListener('click', function(e) {
             e.preventDefault();
+            
+            if (this.dataset.ready === "false" || !deliveryRouteSelected) {
+                showModalError("Please select your state and delivery area before checking out.");
+                return;
+            }
             
             const routeId = areaSelect.value;
             const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
