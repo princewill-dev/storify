@@ -73,7 +73,9 @@
                      <h3 class="product__title product__title2">
                         <a href="{{ store_url($store->slug, 'products/' . $product->slug . '-' . $product->product_code) }}">{{ $product->name }}</a>
                      </h3>
-                     <p class="product__author">by <a href="#">{{ $store->name }}</a> in <a href="#">{{ $product->category->name ?? 'Products' }}</a></p>
+                     <p class="product__author">by <a href="#">{{ $store->name }}</a>
+                     <!-- in
+                     <a href="#">{{ $product->category->name ?? 'Products' }}</a></p> -->
                      <div class="product__ratings">
                         <i class="fas fa-star"></i>
                         <i class="fas fa-star"></i>
@@ -90,14 +92,14 @@
                               <p style="visibility: hidden;">Sale</p>
                            @endif
                         </div>
-                        @if(!$product->has_variants)
+                        <!-- @if(!$product->has_variants)
                           @php($stockQtyDisplay = (int)($product->quantity ?? 0))
-                          <div style="font-size:11px; color:{{ $stockQtyDisplay <= 5 && $stockQtyDisplay > 0 ? '#ef4444' : ($stockQtyDisplay === 0 ? '#9ca3af' : '#6b7280') }}; font-weight:600; letter-spacing:.04em; margin-top:4px;">
+                          <div style="font-size:11px; color:{{ $stockQtyDisplay <= 5 && $stockQtyDisplay > 0 ? '#ef4444' : ($stockQtyDisplay === 0 ? '#9ca3af' : '#6b7280') }}; font-weight:600; letter-spacing:.04em;">
                             Stock left: {{ $stockQtyDisplay }}
                           </div>
-                        @endif
+                        @endif -->
                      </div>
-                     <hr style="margin:12px 0 10px; border-color:#e5e7eb;">
+                     <!-- <hr style="margin:12px 0 10px; border-color:#e5e7eb;"> -->
                      <div class="pricing__buy mb-20 d-flex justify-content-between">
                         <a style="color: #000000" href="{{ store_url($store->slug, 'products/' . $product->slug . '-' . $product->product_code) }}" class="m-btn m-btn-border m-btn-border-5 flex-grow-1 me-2">
                            <span style="font-size: 12px;">View</span> 
