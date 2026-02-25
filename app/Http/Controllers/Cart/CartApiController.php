@@ -96,6 +96,9 @@ class CartApiController extends Controller
                 'slug' => $product->slug ?? null,
                 'code' => $product->product_code ?? null,
                 'is_bulk' => $isBulk,
+                'max_stock' => ($product && !$product->has_variants && !is_null($product->quantity))
+                    ? (int)$product->quantity
+                    : null,
             ];
         });
         return [
@@ -110,15 +113,15 @@ class CartApiController extends Controller
         ];
     }
 
-    public function get(Request $request, string $store_slug)
+    public function get(Request $request, string $store_subdomain)
     {
-        $store = $this->resolveStore($store_slug);
+        $store = $this->resolveStore($store_subdomain);
         $cart = $this->resolveCart($request, $store);
         $cart->recalcTotals();
         return response()->json($this->cartPayload($cart));
     }
 
-    public function add(Request $request, string $store_slug)
+    public function add(Request $request, string $store_subdomain)
     {
         $data = $request->validate([
             'product_id' => ['required','exists:products,id'],
@@ -126,15 +129,35 @@ class CartApiController extends Controller
             'variant_key' => ['nullable','string','max:100'],
         ]);
         $qty = max(1, (int)($data['qty'] ?? 1));
-        $store = $this->resolveStore($store_slug);
+        $store = $this->resolveStore($store_subdomain);
         $product = Product::findOrFail($data['product_id']);
         if ((int)$product->store_id !== (int)$store->id) {
             return response()->json(['message' => 'Product not in this store'], 422);
         }
-        if (!$product->has_variants && (int)$product->quantity < $qty) {
-            return response()->json(['message' => 'Insufficient stock'], 422);
-        }
+
         $cart = $this->resolveCart($request, $store);
+
+        // For non-variant products, check stock against total qty that will be in cart
+        if (!$product->has_variants && !is_null($product->quantity)) {
+            $existingLine = CartItem::where('cart_id', $cart->id)
+                ->where('product_id', $product->id)
+                ->where('variant_key', $data['variant_key'] ?? null)
+                ->first();
+
+            $existingCartQty = $existingLine ? (int)$existingLine->qty : 0;
+            $totalQtyAfterAdd = $existingCartQty + $qty;
+
+            if ($totalQtyAfterAdd > (int)$product->quantity) {
+                $available = max(0, (int)$product->quantity - $existingCartQty);
+                return response()->json([
+                    'message' => $available > 0
+                        ? "Only {$available} more unit(s) can be added (you already have {$existingCartQty} in cart)."
+                        : 'You have already added the maximum available stock to your cart.',
+                    'max_stock' => (int)$product->quantity,
+                    'cart_qty' => $existingCartQty,
+                ], 422);
+            }
+        }
 
         return DB::transaction(function() use ($cart, $product, $data, $qty) {
             $line = CartItem::where('cart_id', $cart->id)
@@ -183,16 +206,102 @@ class CartApiController extends Controller
             }
             $cart->load('items');
             $cart->recalcTotals();
-            return response()->json($this->cartPayload($cart));
+            $payload = $this->cartPayload($cart);
+            $payload['max_stock'] = is_null($product->quantity) ? null : (int)$product->quantity;
+            $payload['cart_qty'] = (int)$line->qty;
+            return response()->json($payload);
         });
     }
 
-    public function updateItem(Request $request, string $store_slug, CartItem $item)
+    public function buyNow(Request $request, string $store_subdomain)
+    {
+        $data = $request->validate([
+            'product_id' => ['required','exists:products,id'],
+            'qty' => ['nullable','integer','min:1'],
+            'variant_key' => ['nullable','string','max:100'],
+        ]);
+        $qty = max(1, (int)($data['qty'] ?? 1));
+        $store = $this->resolveStore($store_subdomain);
+        $product = Product::findOrFail($data['product_id']);
+        if ((int)$product->store_id !== (int)$store->id) {
+            return response()->json(['message' => 'Product not in this store'], 422);
+        }
+
+        // Check stock availability
+        if (!$product->has_variants && !is_null($product->quantity)) {
+            if ($qty > (int)$product->quantity) {
+                return response()->json([
+                    'message' => 'Requested quantity exceeds available stock.',
+                ], 422);
+            }
+        }
+
+        return DB::transaction(function() use ($product, $data, $qty, $store, $store_subdomain, $request) {
+            // Create an isolated cart specifically for Buy Now
+            $token = bin2hex(random_bytes(16)); // 32 chars
+            
+            $cart = Cart::create([
+                'store_id' => $store->id,
+                'user_id' => auth()->guard('customer')->id() ?: null,
+                'guest_token' => auth()->guard('customer')->id() ? null : $request->cookie('guest_token'),
+                'status' => 'active',
+                'checkout_token' => $token,
+                'meta' => ['is_buy_now' => true],
+            ]);
+
+            // Calculate unit price
+            if ($product->bulk_quantity > 0 && $qty >= $product->bulk_quantity && $product->bulk_price > 0) {
+                $unit = (int) round(($product->bulk_price / $product->bulk_quantity) * 100);
+            } else {
+                $raw = $product->amount ?? 0;
+                if (is_string($raw)) { $raw = trim($raw); }
+                if (is_numeric($raw)) {
+                    $unit = (strpos((string)$raw, '.') !== false) ? (int) round(((float)$raw) * 100) : (int) $raw;
+                } else {
+                    $unit = 0;
+                }
+            }
+
+            // Create cart item
+            CartItem::create([
+                'cart_id' => $cart->id,
+                'product_id' => $product->id,
+                'variant_key' => $data['variant_key'] ?? null,
+                'name' => $product->name,
+                'unit_amount' => $unit,
+                'qty' => $qty,
+                'line_subtotal' => $qty * $unit,
+            ]);
+
+            $cart->load('items');
+            $cart->recalcTotals();
+
+            // Generate redirect URL
+            if ($request->routeIs('local.*') || config('app.env') === 'local') {
+                $redirectUrl = route('local.checkout.index', [
+                    'store_subdomain' => $store_subdomain,
+                    'token' => $token
+                ]);
+            } else {
+                $redirectUrl = route('checkout.index', [
+                    'store_subdomain' => $store_subdomain,
+                    'token' => $token
+                ]);
+            }
+
+            return response()->json([
+                'success' => true,
+                'redirect_url' => $redirectUrl
+            ]);
+        });
+    }
+
+    public function updateItem(Request $request, string $store_subdomain, CartItem $item)
     {
         $data = $request->validate([
             'qty' => ['required','integer','min:1']
         ]);
-        $store = $this->resolveStore($store_slug);
+        $store = $this->resolveStore($store_subdomain);
         if ((int)$item->cart->store_id !== (int)$store->id) {
             return response()->json(['message' => 'Wrong store'], 403);
         }
@@ -231,9 +340,9 @@ class CartApiController extends Controller
         return response()->json($this->cartPayload($cart));
     }
 
-    public function removeItem(Request $request, string $store_slug, CartItem $item)
+    public function removeItem(Request $request, string $store_subdomain, CartItem $item)
     {
-        $store = $this->resolveStore($store_slug);
+        $store = $this->resolveStore($store_subdomain);
         if ((int)$item->cart->store_id !== (int)$store->id) {
             return response()->json(['message' => 'Wrong store'], 403);
         }
@@ -244,9 +353,9 @@ class CartApiController extends Controller
         return response()->json($this->cartPayload($cart));
     }
 
-    public function clear(Request $request, string $store_slug)
+    public function clear(Request $request, string $store_subdomain)
     {
-        $store = $this->resolveStore($store_slug);
+        $store = $this->resolveStore($store_subdomain);
         $cart = $this->resolveCart($request, $store);
         $cart->items()->delete();
         $cart->load('items');

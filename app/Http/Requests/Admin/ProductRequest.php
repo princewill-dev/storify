@@ -65,6 +65,7 @@ class ProductRequest extends FormRequest
         $singleSku = [
             'color' => 'nullable|string|max:100',
             'quantity' => 'bail|required|integer|gt:0',
+            'stock_quantity' => 'nullable|integer|gt:0',
             'size' => 'nullable|numeric|min:0',
             'size_unit_id' => 'nullable|exists:size_units,id',
             'weight' => 'nullable|numeric|min:0',

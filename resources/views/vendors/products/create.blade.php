@@ -38,8 +38,13 @@
             <input type="text" name="brand" class="form-control" value="{{ old('brand') }}" placeholder="Apple, Samsung, ...">
           </div>
           <div class="col-md-3">
-            <label class="form-label">Quantity</label>
+            <label class="form-label">Quantity <span class="text-muted small">(remaining)</span></label>
             <input type="number" name="quantity" min="1" class="form-control" value="{{ old('quantity', 1) }}" required>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Initial Stock <span class="text-muted small">(optional)</span></label>
+            <input type="number" name="stock_quantity" min="1" class="form-control" value="{{ old('stock_quantity') }}" placeholder="e.g. 100">
+            <small class="text-muted">Total units you started with. Sold = Initial − Remaining.</small>
           </div>
           <div class="col-md-4">
             <label class="form-label">Amount</label>
@@ -462,7 +467,7 @@
     const tmpl = document.getElementById('variantRowTemplate');
 
     function setBaseFieldsDisabled(disabled){
-      const baseNames = ['quantity','amount','size','size_unit_id','weight','weight_unit_id','color','currency_id'];
+      const baseNames = ['quantity','stock_quantity','amount','size','size_unit_id','weight','weight_unit_id','color','currency_id'];
       baseNames.forEach(n => {
         const el = document.querySelector(`[name="${n}"]`);
         if (el) { el.disabled = disabled; }

@@ -81,7 +81,7 @@
                         <i class="fas fa-star"></i>
                         <i class="fas fa-star"></i>
                      </div>
-                     <div class="product__meta d-flex justify-content-between align-items-end mt-15">
+                     <div class="product__meta mt-15">
                         <div class="product__price">
                            <span>{{ $product->display_price ?? $product->price_currency_symbol . number_format($product->amount ?? 0, 2) }}</span>
                            @if(isset($product->display_price_was))
@@ -89,15 +89,29 @@
                            @else
                               <p style="visibility: hidden;">Sale</p>
                            @endif
-                        </div>                        
+                        </div>
+                        @if(!$product->has_variants)
+                          @php($stockQtyDisplay = (int)($product->quantity ?? 0))
+                          <div style="font-size:11px; color:{{ $stockQtyDisplay <= 5 && $stockQtyDisplay > 0 ? '#ef4444' : ($stockQtyDisplay === 0 ? '#9ca3af' : '#6b7280') }}; font-weight:600; letter-spacing:.04em; margin-top:4px;">
+                            Stock left: {{ $stockQtyDisplay }}
+                          </div>
+                        @endif
                      </div>
+                     <hr style="margin:12px 0 10px; border-color:#e5e7eb;">
                      <div class="pricing__buy mb-20 d-flex justify-content-between">
                         <a style="color: #000000" href="{{ store_url($store->slug, 'products/' . $product->slug . '-' . $product->product_code) }}" class="m-btn m-btn-border m-btn-border-5 flex-grow-1 me-2">
                            <span style="font-size: 12px;">View</span> 
                         </a>
-                        <a style="color: #000000" href="javascript:void(0);" class="m-btn m-btn-border m-btn-border-5 flex-grow-1 ms-2 add-to-cart-btn-index" data-product-id="{{ $product->id }}">
-                           <span style="font-size: 12px;"><i class="fas fa-shopping-cart" style="font-size: 12px;"></i></span> 
-                        </a>
+                        @php($stockQty = $product->has_variants ? null : (int)($product->quantity ?? 0))
+                        @if(!$product->has_variants && $stockQty <= 0)
+                          <span class="m-btn m-btn-border m-btn-border-5 flex-grow-1 ms-2" style="color:#9ca3af;border-color:#d1d5db;cursor:not-allowed;text-align:center;" title="Out of stock">
+                            <span style="font-size:12px;">Out of stock</span>
+                          </span>
+                        @else
+                          <a style="color: #000000" href="javascript:void(0);" class="m-btn m-btn-border m-btn-border-5 flex-grow-1 ms-2 add-to-cart-btn-index" data-product-id="{{ $product->id }}" data-max-stock="{{ $stockQty ?? '' }}">
+                             <span style="font-size: 12px;"><i class="fas fa-shopping-cart" style="font-size: 12px;"></i></span> 
+                          </a>
+                        @endif
                      </div>
                   </div>
                </div>

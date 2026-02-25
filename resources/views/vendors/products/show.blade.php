@@ -40,11 +40,13 @@
                     <div class="fw-semibold">{{ $priceInfoSymbol ?? '—' }}</div>
                   @else
                     <div class="mb-1 text-muted">Amount</div>
-                    @php(
-                      $sym = ($currencySymbols[$product->currency_id ?? 0]->symbol ?? '')
-                    )
+                    @php
+                      $sym = ($currencySymbols[$product->currency_id ?? 0]->symbol ?? '');
+                    @endphp
                     @if(!is_null($product->discount_percentage) && $product->discount_percentage > 0)
-                      @php($discAmt = (float)($product->amount ?? 0) * (1 - ((float)$product->discount_percentage/100)))
+                      @php
+                        $discAmt = (float)($product->amount ?? 0) * (1 - ((float)$product->discount_percentage / 100));
+                      @endphp
                       <div class="fw-semibold">
                         <span class="text-muted text-decoration-line-through me-2">{{ $sym }}{{ number_format((float)($product->amount ?? 0), 2) }}</span>
                         <span>{{ $sym }}{{ number_format($discAmt, 2) }}</span>
@@ -118,17 +120,27 @@
         <div class="card-header"><h6 class="mb-0">Pricing & Stock</h6></div>
         <div class="card-body">
           <div class="row g-3">
-            <div class="col-md-4">
-              <div class="mb-1 text-muted">Quantity</div>
-              <div class="fw-semibold">{{ (int)($product->quantity ?? 0) }}</div>
+            <div class="col-md-3">
+              <div class="mb-1 text-muted">Initial Stock</div>
+              <div class="fw-semibold fs-5">{{ is_null($product->stock_quantity) ? '—' : number_format((int)$product->stock_quantity) }}</div>
             </div>
-            <div class="col-md-4">
+            <div class="col-md-3">
+              <div class="mb-1 text-muted">Remaining</div>
+              <div class="fw-semibold fs-5">{{ number_format((int)($product->quantity ?? 0)) }}</div>
+            </div>
+            <div class="col-md-3">
+              <div class="mb-1 text-muted">Sold</div>
+              <div class="fw-semibold fs-5 text-primary">{{ number_format($product->soldQuantity()) }}</div>
+            </div>
+            <div class="col-md-3">
               <div class="mb-1 text-muted">Amount</div>
-              @php(
-                $sym = ($currencySymbols[$product->currency_id ?? 0]->symbol ?? '')
-              )
+              @php
+                $sym = ($currencySymbols[$product->currency_id ?? 0]->symbol ?? '');
+              @endphp
               @if(!is_null($product->discount_percentage) && $product->discount_percentage > 0)
-                @php($discAmt = (float)($product->amount ?? 0) * (1 - ((float)$product->discount_percentage/100)))
+                @php
+                  $discAmt = (float)($product->amount ?? 0) * (1 - ((float)$product->discount_percentage / 100));
+                @endphp
                 <div class="fw-semibold">
                   <span class="text-muted text-decoration-line-through me-2">{{ $sym }}{{ number_format((float)($product->amount ?? 0), 2) }}</span>
                   <span>{{ $sym }}{{ number_format($discAmt, 2) }}</span>
@@ -138,6 +150,29 @@
                 <div class="fw-semibold">{{ $sym }}{{ number_format((float)($product->amount ?? 0), 2) }}</div>
               @endif
             </div>
+            @if(!is_null($product->stock_quantity))
+            <div class="col-12">
+              @php
+                $pct = $product->stockPercentage();
+                $barColor = $pct > 50 ? 'bg-success' : ($pct > 20 ? 'bg-warning' : 'bg-danger');
+              @endphp
+              <div class="d-flex justify-content-between mb-1">
+                <small class="text-muted">Stock level</small>
+                <small class="fw-semibold">{{ $pct }}%
+                  @if($pct <= 20)
+                    <span class="badge bg-danger ms-1">Low stock</span>
+                  @elseif($pct <= 50)
+                    <span class="badge bg-warning text-dark ms-1">Medium</span>
+                  @else
+                    <span class="badge bg-success ms-1">Good</span>
+                  @endif
+                </small>
+              </div>
+              <div class="progress" style="height:8px;">
+                <div class="progress-bar {{ $barColor }}" style="width:{{ $pct }}%;"></div>
+              </div>
+            </div>
+            @endif
             <div class="col-md-4">
               <div class="mb-1 text-muted">Color</div>
               <div class="fw-semibold">{{ $product->color ?? '—' }}</div>

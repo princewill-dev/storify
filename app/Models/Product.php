@@ -25,6 +25,7 @@ class Product extends Model
         'color',
         'tags',
         'quantity',
+        'stock_quantity',
         'size',
         'size_unit_id',
         'weight',
@@ -132,5 +133,27 @@ class Product extends Model
     public function variants(): HasMany
     {
         return $this->hasMany(ProductVariant::class);
+    }
+
+    /**
+     * Number of units sold = initial stock minus remaining.
+     */
+    public function soldQuantity(): int
+    {
+        if (is_null($this->stock_quantity)) {
+            return 0;
+        }
+        return max(0, (int)$this->stock_quantity - (int)$this->quantity);
+    }
+
+    /**
+     * Stock percentage remaining (0-100).
+     */
+    public function stockPercentage(): int
+    {
+        if (is_null($this->stock_quantity) || (int)$this->stock_quantity === 0) {
+            return 100;
+        }
+        return (int) round(((int)$this->quantity / (int)$this->stock_quantity) * 100);
     }
 }

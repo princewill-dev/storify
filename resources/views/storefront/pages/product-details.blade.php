@@ -156,6 +156,12 @@
                      @endif
                   @endif
                </div>
+               @if(!$product->has_variants)
+                 @php($detailStockQty = (int)($product->quantity ?? 0))
+                 <div style="font-size:12px; font-weight:600; letter-spacing:.04em; margin-top:6px; color:{{ $detailStockQty <= 5 && $detailStockQty > 0 ? '#ef4444' : ($detailStockQty === 0 ? '#9ca3af' : '#6b7280') }};">
+                   Stock left: {{ $detailStockQty }}
+                 </div>
+               @endif
 
                @if($product->description)
                   <div class="product-description">
@@ -183,14 +189,19 @@
                @endif
 
                <!-- Quantity & Add to Cart -->
+               @php($detailStock = $product->has_variants ? null : (int)($product->quantity ?? 0))
                <div class="quantity-cart-wrapper">
-                  <div class="quantity-selector">
-                     <button class="qty-btn" onclick="decrementQty()">−</button>
-                     <input type="number" class="qty-input" id="quantity" value="1" min="1" readonly>
-                     <button class="qty-btn" onclick="incrementQty()">+</button>
+                  <div class="quantity-selector" id="qtySelectorWrapper">
+                     <button class="qty-btn" id="qtyDecBtn" onclick="decrementQty()" {{ (!$product->has_variants && $detailStock <= 0) ? 'disabled' : '' }}>−</button>
+                     <input type="number" class="qty-input" id="quantity" value="1" min="1" max="{{ $detailStock ?? '' }}" {{ (!$product->has_variants && $detailStock <= 0) ? 'disabled' : '' }} readonly>
+                     <button class="qty-btn" id="qtyIncBtn" onclick="incrementQty()" {{ (!$product->has_variants && $detailStock <= 0) ? 'disabled' : '' }}>+</button>
                   </div>
-                  <button style="font-size: 12px;" id="addToCartDetails" class="add-to-cart-btn" data-product-id="{{ $product->id }}">Add to <i class="far fa-shopping-cart"></i></button>
-                  <button style="font-size: 12px;" id="buyNowBtn" class="add-to-cart-btn" data-product-id="{{ $product->id }}">Buy Now</button>
+                  @if(!$product->has_variants && $detailStock <= 0)
+                    <button style="font-size:12px; background:#e5e7eb; color:#9ca3af; cursor:not-allowed; border:none;" class="add-to-cart-btn" disabled>Out of stock</button>
+                  @else
+                    <button style="font-size: 12px;" id="addToCartDetails" class="add-to-cart-btn" data-product-id="{{ $product->id }}" data-max-stock="{{ $detailStock ?? '' }}" data-has-variants="{{ $product->has_variants ? 'true' : 'false' }}">Add to <i class="far fa-shopping-cart"></i></button>
+                    <button style="font-size: 12px;" id="buyNowBtn" class="add-to-cart-btn" data-product-id="{{ $product->id }}">Buy Now</button>
+                  @endif
                </div>
 
                <div class="shipping-info">
@@ -295,6 +306,33 @@
    </div>
 </section>
 
+<!-- Buy Now Conflict Modal -->
+<div class="modal fade" id="buyNowConflictModal" tabindex="-1" role="dialog" aria-labelledby="buyNowConflictModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered" role="document">
+    <div class="modal-content" style="border-radius: 8px; border: none; box-shadow: 0 10px 30px rgba(0,0,0,0.1);">
+      <div class="modal-header border-0 pb-0" style="position: absolute; right: 0; z-index: 10;">
+        <button type="button" class="close" data-dismiss="modal" aria-label="Close" onclick="$('#buyNowConflictModal').modal('hide')" style="background: #f1f5f9; border: none; padding: 5px 10px; font-size: 20px; color: #64748b; border-bottom-left-radius: 8px;">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <div class="modal-body text-center" style="padding: 40px 30px;">
+        <i class="far fa-shopping-cart" style="font-size: 48px; color: #64748b; margin-bottom: 20px;"></i>
+        <h5 class="mb-3" style="font-size: 24px; font-weight: 700; color: #1e293b;">Items in your cart</h5>
+        <p style="font-size: 16px; margin-bottom: 30px; color: #64748b; line-height: 1.6; max-width: 90%; margin-left: auto; margin-right: auto;">You already have items in your shopping cart. How would you like to proceed?</p>
+        
+        <div class="d-flex flex-column align-items-center">
+            <button type="button" class="btn w-100 mb-3" id="btnCheckoutSingleItem" style="background-color: #5b21b6; color: white; text-transform: none; padding: 14px; border-radius: 6px; font-weight: 600; font-size: 16px; border: none; box-shadow: 0 4px 6px rgba(91, 33, 182, 0.2);">
+                Checkout ONLY this item
+            </button>
+            <button type="button" class="btn w-100" id="btnCheckoutAllItems" style="background-color: transparent; border: 2px solid #cbd5e1; color: #475569; text-transform: none; padding: 12px; border-radius: 6px; font-weight: 600; font-size: 16px;">
+                Add to cart & Checkout ALL
+            </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 function changeMainMedia(mediaSrc, extension, isVideo, thumbElement) {
     const mainGallery = document.getElementById('mainGallery');
@@ -366,7 +404,10 @@ function selectSize(btn) {
 
 function incrementQty() {
     const input = document.getElementById('quantity');
-    input.value = parseInt(input.value) + 1;
+    const max = input.getAttribute('max');
+    const current = parseInt(input.value);
+    if (max && current >= parseInt(max)) return;
+    input.value = current + 1;
 }
 
 function decrementQty() {

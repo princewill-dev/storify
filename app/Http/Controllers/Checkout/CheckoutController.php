@@ -298,6 +298,7 @@ class CheckoutController extends Controller
                 'landmark' => 'nullable|string|max:255',
                 'notes' => 'nullable|string',
                 'delivery_route_id' => 'nullable|exists:delivery_routes,id',
+                'checkout_token' => 'nullable|string',
             ];
 
             // If not logged in, these are required
@@ -328,8 +329,17 @@ class CheckoutController extends Controller
                 }
             }
 
-            // Get cart from database
-            $cart = $this->resolveCart($request, $store);
+            // Get cart from database: prioritize checkout_token for isolated Buy Now carts
+            $cart = null;
+            if (!empty($validated['checkout_token'])) {
+                $cart = Cart::where('checkout_token', $validated['checkout_token'])
+                    ->where('store_id', $store->id)
+                    ->where('status', 'active')
+                    ->first();
+            }
+            if (!$cart) {
+                $cart = $this->resolveCart($request, $store);
+            }
 
             if (!$cart || $cart->items->isEmpty()) {
                 return back()->with('error', 'Your cart is empty')->withInput();

@@ -12,6 +12,7 @@ if (config('app.env') === 'local') {
             // Cart JSON API
             Route::get('/cart/json', [CartApiController::class, 'get']);
             Route::post('/cart/add', [CartApiController::class, 'add']);
+            Route::post('/cart/buy-now', [CartApiController::class, 'buyNow']);
             Route::patch('/cart/item/{item}', [CartApiController::class, 'updateItem'])->where(['item' => '[0-9]+']);
             Route::delete('/cart/item/{item}', [CartApiController::class, 'removeItem'])->where(['item' => '[0-9]+']);
             Route::delete('/cart/clear', [CartApiController::class, 'clear']);
@@ -26,6 +27,7 @@ Route::domain('{store_subdomain}.' . config('app.main_domain', parse_url(config(
         // Cart JSON API
         Route::get('/cart/json', [CartApiController::class, 'get']);
         Route::post('/cart/add', [CartApiController::class, 'add']);
+        Route::post('/cart/buy-now', [CartApiController::class, 'buyNow']);
         Route::patch('/cart/item/{item}', [CartApiController::class, 'updateItem'])->where(['item' => '[0-9]+']);
         Route::delete('/cart/item/{item}', [CartApiController::class, 'removeItem'])->where(['item' => '[0-9]+']);
         Route::delete('/cart/clear', [CartApiController::class, 'clear']);

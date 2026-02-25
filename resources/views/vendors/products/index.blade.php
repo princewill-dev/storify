@@ -45,6 +45,7 @@
             <th>Store</th>
             <th>Category</th>
             <th>Amount</th>
+            <th>Stock</th>
             <th>Status</th>
             <th>Featured</th>
             <th></th>
@@ -66,6 +67,29 @@
               <td>{{ $p->category?->name ?? '—' }}</td>
               <td>
                 {{ $displayPrices[$p->id] ?? '—' }}
+              </td>
+              <td>
+                @if($p->has_variants)
+                  <span class="text-muted small">—</span>
+                @else
+                  @php
+                    $qty = (int)($p->quantity ?? 0);
+                    $stockQty = (int)($p->stock_quantity ?? $qty);
+                    $pct = $stockQty > 0 ? min(100, round(($qty / $stockQty) * 100)) : 100;
+                    $barColor = $pct > 50 ? 'bg-success' : ($pct > 20 ? 'bg-warning' : 'bg-danger');
+                  @endphp
+                  <div style="min-width:110px;">
+                    <div class="d-flex justify-content-between mb-1">
+                      <small class="fw-semibold">{{ $qty }} / {{ $stockQty }}</small>
+                      @if($pct <= 20)
+                        <span class="badge bg-danger ms-1" style="font-size:.7rem;">Low</span>
+                      @endif
+                    </div>
+                    <div class="progress" style="height:5px;">
+                      <div class="progress-bar {{ $barColor }}" style="width:{{ $pct }}%;"></div>
+                    </div>
+                  </div>
+                @endif
               </td>
               <td>
                 <span class="badge bg-{{ $p->status === 'active' ? 'success' : 'secondary' }}">{{ $p->status }}</span>
@@ -173,7 +197,7 @@
               </div>
             </div>
           @empty
-            <tr><td colspan="9" class="text-center text-muted">No products yet</td></tr>
+            <tr><td colspan="10" class="text-center text-muted">No products yet</td></tr>
           @endforelse
         </tbody>
       </table>

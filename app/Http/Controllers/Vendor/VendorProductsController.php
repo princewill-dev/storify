@@ -450,12 +450,12 @@ class VendorProductsController extends Controller
             });
 
             ActivityLog::create([
-                'user_id' => $vendor->id,
+                'user_id' => null,
                 'action' => 'vendor_update_product',
                 'description' => 'Vendor updated a product',
                 'ip_address' => $request->ip(),
                 'user_agent' => substr((string)$request->userAgent(), 0, 255),
-                'metadata' => ['product_id' => $product->id, 'has_variants' => (bool)$product->has_variants],
+                'metadata' => ['vendor_id' => $vendor->id, 'product_id' => $product->id, 'has_variants' => (bool)$product->has_variants],
             ]);
 
             return redirect()->route('vendor.products.index', ['vendor' => $vendor, 'store_id' => $product->store->store_id])->with('success', 'Product updated.');

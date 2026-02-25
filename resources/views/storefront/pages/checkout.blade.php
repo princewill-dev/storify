@@ -20,8 +20,9 @@
                             </div>
                         </div>
                         <div class="product__proprietor-body">
-                            <form action="{{ route('checkout.process', ['store_subdomain' => $store->slug]) }}" method="POST" id="checkoutForm">
-                                @csrf
+                                <form action="{{ route('checkout.process', ['store_subdomain' => $store->slug]) }}" method="POST" id="checkoutForm">
+                                    @csrf
+                                    <input type="hidden" name="checkout_token" value="{{ $cart->checkout_token ?? '' }}">
                                 
                                 <h6 class="mb-3">Personal Information</h6>
                                 @if(isset($preselectedRoute))
