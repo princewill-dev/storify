@@ -11,6 +11,8 @@ enum BulkOrderStatus: string
     case COMPLETED = 'completed';
     case CANCELLED = 'cancelled';
 
+
+
     public function label(): string
     {
         return match ($this) {
@@ -22,6 +24,8 @@ enum BulkOrderStatus: string
             self::CANCELLED => 'Cancelled',
         };
     }
+
+    
 
     public function badgeClass(): string
     {
