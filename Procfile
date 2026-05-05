@@ -1,1 +1,0 @@
-web: bash -c "mkdir -p storage/framework/views storage/framework/cache storage/framework/sessions && chmod -R 775 storage && php artisan config:cache && php artisan route:cache && php -d variables_order=EGPCS -S 0.0.0.0:8080 -t public"
