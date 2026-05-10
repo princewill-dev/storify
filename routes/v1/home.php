@@ -39,7 +39,7 @@ Route::domain(config('app.main_domain', parse_url(config('app.url'), PHP_URL_HOS
     
     Route::get('/about-us', [HomePageController::class, 'about'])->name('home.about');
     Route::get('/support', [SupportController::class, 'platformIndex'])->name('home.support');
-    Route::post('/support/send', [SupportController::class, 'platformSend'])->name('home.support.send');
+    Route::post('/support/send', [SupportController::class, 'platformSend'])->name('home.support.send')->middleware('throttle:3,10');
     Route::get('/pricing', [HomePageController::class, 'pricing'])->name('home.pricing');
     Route::get('/stores', [HomePageController::class, 'stores'])->name('home.stores');
     Route::get('/services', [HomePageController::class, 'services'])->name('home.services');

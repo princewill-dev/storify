@@ -129,6 +129,7 @@
 				url: "{{ route('home.support.send') }}",
 				type: "POST",
 				data: $form.serialize(),
+				dataType: "json",
 				success: function(response) {
 					if(response.success) {
 						// Reset form
