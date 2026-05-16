@@ -2,6 +2,11 @@
 
 @section('title', 'Set Up Payment Methods')
 
+@push('styles')
+<style>
+    .auth-card { width: min(680px, 100%); }
+</style>
+@endpush
 @section('content')
 <div class="card shadow-sm">
     <div class="card-body p-4">
