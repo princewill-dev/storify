@@ -2,6 +2,11 @@
 
 @section('subtitle', 'Choose Your Plan')
 
+@push('styles')
+<style>
+    .auth-card { width: min(780px, 100%); }
+</style>
+@endpush
 @section('content')
 
     <header class="auth-heading">

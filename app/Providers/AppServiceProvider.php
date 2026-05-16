@@ -40,8 +40,8 @@ class AppServiceProvider extends ServiceProvider
         // Configure Log Viewer access - only allow superadmins (if package is installed)
         if (class_exists(\Opcodes\LogViewer\Facades\LogViewer::class)) {
             \Opcodes\LogViewer\Facades\LogViewer::auth(function ($request) {
-                $user = $request->user();
-                return $user && in_array($user->role ?? null, ['superadmin'], true);
+                $user = $request->user('web');
+                return $user !== null && ($user->role ?? null) === 'superadmin';
             });
         }
 
