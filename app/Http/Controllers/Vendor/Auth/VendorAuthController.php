@@ -78,7 +78,7 @@ class VendorAuthController extends Controller
     {
         $credentials = $request->only('email', 'password');
 
-        if (!Auth::guard('vendor')->attempt($credentials, $request->boolean('remember'))) {
+        if (!Auth::guard('vendor')->attempt($credentials, false)) {
             return back()->withInput($request->only('email'))
                 ->with('error', 'Invalid credentials.');
         }

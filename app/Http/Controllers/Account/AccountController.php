@@ -64,7 +64,7 @@ class AccountController extends Controller
             'password' => ['required', 'string'],
         ]);
 
-        if (Auth::guard('customer')->attempt($credentials, $request->boolean('remember'))) {
+        if (Auth::guard('customer')->attempt($credentials, false)) {
             $request->session()->regenerate();
             
             $customer = Auth::guard('customer')->user();

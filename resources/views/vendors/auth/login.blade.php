@@ -52,12 +52,7 @@
             @enderror
         </div>
 
-        <div class="d-flex justify-content-between align-items-center">
-            <div class="form-check">
-                <input class="form-check-input" type="checkbox" value="1" id="remember" name="remember" {{ old('remember') ? 'checked' : '' }}>
-                <label class="form-check-label" for="remember">Keep me signed in</label>
-            </div>
-
+        <div class="d-flex justify-content-end align-items-center">
             <a class="link-primary text-decoration-none" href="{{ route('vendor.auth.forgot-password') }}">Forgot password?</a>
         </div>
 
