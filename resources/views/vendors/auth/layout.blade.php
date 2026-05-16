@@ -151,6 +151,7 @@
             }
         }
     </style>
+    @stack('styles')
     @stack('scripts')
 </head>
 <body>

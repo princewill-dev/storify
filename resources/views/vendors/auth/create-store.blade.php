@@ -2,6 +2,12 @@
 
 @section('subtitle', 'Create your store')
 
+@push('styles')
+<style>
+    .auth-card { width: min(680px, 100%); }
+</style>
+@endpush
+
 @section('content')
     <div class="mb-4 text-center">
         <h3 class="fw-semibold mb-1">Let’s set up your store</h3>
