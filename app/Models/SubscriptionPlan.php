@@ -7,12 +7,14 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Str;
 
 class SubscriptionPlan extends Model
 {
     use HasFactory;
 
     protected $fillable = [
+        'plan_code',
         'name',
         'description',
         'amount',
@@ -35,12 +37,26 @@ class SubscriptionPlan extends Model
         'features' => 'array',
     ];
 
+    protected static function booted()
+    {
+        static::creating(function ($plan) {
+            if (empty($plan->plan_code)) {
+                $plan->plan_code = Str::random(24);
+            }
+        });
+    }
+
+    public function getRouteKeyName(): string
+    {
+        return 'plan_code';
+    }
+
     /**
      * Get the subscriptions associated with this plan.
      */
     public function vendorSubscriptions(): HasMany
     {
-        return $this->hasMany(VendorSubscription::class);
+        return $this->hasMany(Subscription::class);
     }
 
     /**

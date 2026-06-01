@@ -4,7 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Store;
-use App\Models\Vendor;
+use App\Models\User;
 use App\Models\OwnershipType;
 use App\Models\BusinessType;
 use App\Models\Product;
@@ -18,7 +18,6 @@ use App\Mail\AdminStoreCreated;
 use App\Mail\VendorStoreCreated;
 use App\Mail\VendorStoreSuspended;
 use App\Mail\VendorStoreReactivated;
-use App\Models\User;
 use App\Models\Setting;
 
 class StoreController extends Controller
@@ -121,7 +120,7 @@ class StoreController extends Controller
             return redirect()->route('admin.stores.index')->with('error', 'multi-vendor crontrols is incomplete');
         }
         $data = $request->validate([
-            'vendor_id' => 'required|exists:vendors,id',
+            'user_id' => 'required|exists:vendors,id',
             'name' => 'required|string|max:255',
             'slug' => 'nullable|string|max:255',
             'description' => 'nullable|string',
@@ -151,7 +150,7 @@ class StoreController extends Controller
             $superadmin = User::where('role', 'superadmin')->orderBy('id')->first();
             if ($superadmin) {
                 $saVendor = Vendor::where('email', $superadmin->email)->first();
-                if ($saVendor) { $data['vendor_id'] = $saVendor->id; }
+                if ($saVendor) { $data['user_id'] = $saVendor->id; }
             }
         }
         $store = Store::create($data);
@@ -206,7 +205,7 @@ class StoreController extends Controller
     {
         Log::info('store_update_requested', ['user_id' => auth()->id(), 'store_id' => $store->id, 'ip' => $request->ip()]);
         $data = $request->validate([
-            'vendor_id' => 'required|exists:vendors,id',
+            'user_id' => 'required|exists:vendors,id',
             'name' => 'required|string|max:255',
             'slug' => 'nullable|string|max:255',
             'description' => 'nullable|string',

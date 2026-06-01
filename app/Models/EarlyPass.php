@@ -30,7 +30,7 @@ class EarlyPass extends Model
     public function markAsUsed(int $vendorId, ?int $storeId = null): void
     {
         $this->usages()->create([
-            'vendor_id' => $vendorId,
+            'user_id' => $vendorId,
             'store_id' => $storeId,
             'used_at' => now(),
         ]);

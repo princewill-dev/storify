@@ -63,6 +63,6 @@ class FamilyPackOrderController extends Controller
             'total_revenue' => (clone $statsBase)->where('payment_status', 'paid')->sum('total'),
         ];
 
-        return view('admin.order_management.family_pack', compact('orders', 'stores', 'stats'));
+        return view('admin.orders.family_pack', compact('orders', 'stores', 'stats'));
     }
 }

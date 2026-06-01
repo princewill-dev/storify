@@ -40,8 +40,8 @@
 			
 								<!-- Links -->
 								<ul class="foo-links clearfix">
-									<li><p><a href="{{ route('vendor.auth.register') }}">Create a store</a></p></li>
-									<li><p><a href="{{ route('vendor.auth.login') }}">Login </a></p></li>
+									<li><p><a href="{{ route('management.auth.register') }}">Create a store</a></p></li>
+									<li><p><a href="{{ route('management.auth.login') }}">Login </a></p></li>
 									<li><p><a href="{{ route('home.stores') }}">View Stores</a></p></li>		
 								</ul>
 			

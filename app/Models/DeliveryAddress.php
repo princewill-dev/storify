@@ -36,6 +36,11 @@ class DeliveryAddress extends Model
         return $this->belongsTo(Customer::class);
     }
 
+    public function deliveryRoute(): BelongsTo
+    {
+        return $this->belongsTo(DeliveryRoute::class);
+    }
+
     /**
      * Get full address as string
      */

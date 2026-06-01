@@ -147,6 +147,8 @@ class ProductController extends Controller
             \Log::warning('activity_log_failed', ['context' => 'view_store_products', 'error' => $e->getMessage()]);
         }
 
+        $store->increment('views');
+
         return view('storefront.pages.index', compact('store','products','services','q','status'));
     }
     public function show(Request $request, string $store_subdomain, string $slug, string $code)

@@ -8,7 +8,6 @@ use App\Http\Requests\Admin\Auth\OnboardRequest;
 use App\Http\Requests\Admin\Auth\VerifyOtpRequest;
 use App\Mail\OtpMail;
 use App\Models\User;
-use App\Models\Vendor;
 use App\Services\ActivityLogger;
 use App\Services\OtpService;
 use Illuminate\Http\RedirectResponse;

@@ -86,9 +86,9 @@
                             <!-- TABLE BUTTON -->
                             <div class="pricing-table-btn">
                                 @if($plan->is_trial)
-                                    <a style="border:2px solid #22c55e;" href="{{ route('vendor.auth.register') }}" class="btn btn--success hover--theme">Start Free Trial</a>
+                                    <a style="border:2px solid #22c55e;" href="{{ route('management.auth.register') }}" class="btn btn--success hover--theme">Start Free Trial</a>
                                 @else
-                                    <a href="{{ route('vendor.auth.register') }}" class="btn {{ $plan->is_default ? 'btn--theme' : 'btn--tra-black hover--theme' }}">Get Started</a>
+                                    <a href="{{ route('management.auth.register') }}" class="btn {{ $plan->is_default ? 'btn--theme' : 'btn--tra-black hover--theme' }}">Get Started</a>
                                 @endif
                             </div>
 

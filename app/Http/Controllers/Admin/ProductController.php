@@ -7,7 +7,6 @@ use App\Models\Product;
 use App\Models\ProductImage;
 use App\Models\Store;
 use App\Models\Category;
-use App\Models\Vendor;
 use App\Models\User;
 use App\Models\Currency;
 use App\Models\ProductVariant;
@@ -146,7 +145,7 @@ class ProductController extends Controller
             if ($superadmin) {
                 $saVendor = Vendor::where('email', $superadmin->email)->first();
                 if ($saVendor) {
-                    $stores = Store::where('vendor_id', $saVendor->id)->orderBy('name')->get();
+                    $stores = Store::where('user_id', $saVendor->id)->orderBy('name')->get();
                 } else {
                     $stores = Store::orderBy('name')->get();
                 }
@@ -191,7 +190,7 @@ class ProductController extends Controller
                     if ($superadmin) {
                         $saVendor = Vendor::where('email', $superadmin->email)->first();
                         if ($saVendor) {
-                            $storeIds = Store::where('vendor_id', $saVendor->id)->pluck('id')->all();
+                            $storeIds = Store::where('user_id', $saVendor->id)->pluck('id')->all();
                             if (!in_array($data['store_id'], $storeIds, true)) {
                                 $data['store_id'] = $storeIds[0] ?? $data['store_id'];
                             }

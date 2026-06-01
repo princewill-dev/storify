@@ -4,9 +4,12 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use App\Models\Concerns\BelongsToBusiness;
 
 class StoreBank extends Model
 {
+    use BelongsToBusiness;
+
     protected $fillable = [
         'store_id',
         'bank_name',

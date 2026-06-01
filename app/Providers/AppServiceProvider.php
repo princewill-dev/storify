@@ -14,7 +14,7 @@ use App\Models\Feature;
 use Illuminate\Support\Facades\Auth;
 use App\Models\Currency;
 use Illuminate\Support\Facades\Route;
-use App\Models\Vendor;
+use App\Models\User;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -46,6 +46,12 @@ class AppServiceProvider extends ServiceProvider
         }
 
         Paginator::useBootstrapFive();
+
+        $this->app->resolving(\Spatie\Permission\PermissionRegistrar::class, function ($registrar) {
+            $registrar->setPermissionsTeamId(
+                auth()->check() ? auth()->user()->business_id : null
+            );
+        });
         
         // Wrap in try-catch to handle missing cache table during migrations
         try {
@@ -278,28 +284,45 @@ class AppServiceProvider extends ServiceProvider
             $view->with('featureCtas', $featureCtas);
         });
 
-        View::composer('vendors.components.header', function ($view) {
+        View::composer(['management.components.header', 'management.components.sidebar'], function ($view) {
             $data = $view->getData();
             $company = $data['company'] ?? (object) [];
 
-            $vendor = Auth::guard('vendor')->user();
-            if ($vendor && !$vendor->relationLoaded('store')) {
-                $vendor->load('store');
-            }
+            $user = Auth::user();
+            if (!$user || !$user->isBusinessOwner()) {
+                $view->with([
+                    'headerVendor' => $user,
+                    'headerStores' => collect(),
+            'sidebarUser' => $user,
+            'sidebarStores' => collect(),
+            'sidebarStoreCount' => 0,
+            'sidebarWarehouses' => collect(),
+        ]);
+        return;
+    }
 
-            $store = $vendor?->store;
-            $brandLogo = $store?->logo_path
-                ? asset('storage/' . $store->logo_path)
-                : ($company->favicon ?? asset('vendor_files/assets/images/logo.png'));
-            $brandName = $store?->name
-                ?? $vendor?->name
-                ?? ($company->name ?? config('app.name'));
+    $stores = $user->stores;
+    $warehouses = $user->warehouses()->with('sections')->get();
+    $activeStore = $stores->find(session('active_store_id')) ?? $stores->first();
 
-            $view->with([
-                'vendorBrandLogo' => $brandLogo,
-                'vendorBrandName' => $brandName,
-                'vendorBrandStore' => $store,
-                'vendorBrandVendor' => $vendor,
+    $store = $user->stores()->first();
+    $brandLogo = $store?->logo_path
+        ? asset('storage/' . $store->logo_path)
+        : ($company->favicon ?? asset('vendor_files/assets/images/logo.png'));
+    $brandName = $store?->name ?? $user->name ?? ($company->name ?? config('app.name'));
+
+    $view->with([
+        'vendorBrandLogo' => $brandLogo,
+        'vendorBrandName' => $brandName,
+        'vendorBrandStore' => $store,
+        'vendorBrandVendor' => $user,
+        'headerVendor' => $user,
+        'headerStores' => $stores,
+        'headerActiveStore' => $activeStore,
+        'sidebarUser' => $user,
+        'sidebarStores' => $stores,
+        'sidebarStoreCount' => $stores->count(),
+                'sidebarWarehouses' => $warehouses,
             ]);
         });
         // Share categories for storefront header

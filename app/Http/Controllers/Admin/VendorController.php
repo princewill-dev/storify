@@ -4,7 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Mail\AdminVendorCreated;
-use App\Models\Vendor;
+use App\Models\User;
 use App\Models\Setting;
 use Illuminate\Http\Request;
 use App\Http\Requests\Admin\VendorRequest;
@@ -13,8 +13,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use App\Mail\VendorSuspended;
 use App\Mail\VendorReactivated;
-use App\Models\User;
-use App\Models\VendorKycApplication;
+use App\Models\KycApplication;
 
 class VendorController extends Controller
 {
@@ -37,7 +36,7 @@ class VendorController extends Controller
 
         $vendorsQuery = Vendor::query()
             ->with(['stores' => function($q){
-                $q->select(['id','store_id','name','vendor_id'])->limit(3);
+                $q->select(['id','store_id','name','user_id'])->limit(3);
             }, 'kycApplication'])
             ->withCount('stores');
         if (in_array(strtolower((string)$status), ['active','suspended','deleted'], true)) {
@@ -72,7 +71,7 @@ class VendorController extends Controller
             'q' => $q,
             'from' => $from,
             'to' => $to,
-            'kycStatusBadgeData' => VendorKycApplication::statusBadgeData(),
+            'kycStatusBadgeData' => KycApplication::statusBadgeData(),
             'vendorStatusBadgeData' => Vendor::statusBadgeData(),
         ]);
     }
@@ -106,7 +105,7 @@ class VendorController extends Controller
             ->lower()
             ->replace(' ', '_');
         $vendor = Vendor::create($data);
-        Log::info('vendor_created', ['user_id' => auth()->id(), 'vendor_id' => $vendor->id]);
+        Log::info('vendor_created', ['user_id' => auth()->id(), 'user_id' => $vendor->id]);
 
         try {
             $admins = $this->adminRecipients();
@@ -114,20 +113,20 @@ class VendorController extends Controller
                 Mail::to($admins)->queue(new AdminVendorCreated($vendor));
             }
         } catch (\Throwable $e) {
-            Log::error('vendor_created_mail_queue_failed', ['vendor_id' => $vendor->id, 'error' => $e->getMessage()]);
+            Log::error('vendor_created_mail_queue_failed', ['user_id' => $vendor->id, 'error' => $e->getMessage()]);
         }
         return redirect()->route('admin.vendors.index')->with('success', 'Vendor created');
     }
 
     public function edit(Vendor $vendor)
     {
-        Log::info('vendor_edit_viewed', ['user_id' => auth()->id(), 'vendor_id' => $vendor->id]);
+        Log::info('vendor_edit_viewed', ['user_id' => auth()->id(), 'user_id' => $vendor->id]);
         return view('admin.vendors.edit', compact('vendor'));
     }
 
     public function update(VendorRequest $request, Vendor $vendor)
     {
-        Log::info('vendor_update_requested', ['user_id' => auth()->id(), 'vendor_id' => $vendor->id, 'ip' => $request->ip()]);
+        Log::info('vendor_update_requested', ['user_id' => auth()->id(), 'user_id' => $vendor->id, 'ip' => $request->ip()]);
         $data = $request->validated();
         if (empty($data['slug']) && !empty($data['name'])) {
             $data['slug'] = Str::of($data['name'])->trim()->lower()->replace(' ', '_');
@@ -136,7 +135,7 @@ class VendorController extends Controller
         }
         $vendor->update($data);
         $vendor->refresh(); // Refresh to get updated data
-        Log::info('vendor_updated', ['user_id' => auth()->id(), 'vendor_id' => $vendor->id]);
+        Log::info('vendor_updated', ['user_id' => auth()->id(), 'user_id' => $vendor->id]);
         
         // Check if redirect parameter is set to show page
         if ($request->query('redirect') === 'show') {
@@ -148,12 +147,12 @@ class VendorController extends Controller
 
     public function destroy(Vendor $vendor)
     {
-        Log::info('vendor_delete_requested', ['user_id' => auth()->id(), 'vendor_id' => $vendor->id]);
+        Log::info('vendor_delete_requested', ['user_id' => auth()->id(), 'user_id' => $vendor->id]);
         
         // Check if vendor owns the main store
         $mainStoreId = Setting::value('main_store_id');
         if ($mainStoreId && $vendor->stores()->where('id', $mainStoreId)->exists()) {
-            Log::warning('vendor_delete_blocked_main_store_owner', ['vendor_id' => $vendor->id, 'main_store_id' => $mainStoreId]);
+            Log::warning('vendor_delete_blocked_main_store_owner', ['user_id' => $vendor->id, 'main_store_id' => $mainStoreId]);
             return back()->with('error', 'This vendor owns the main store and cannot be deleted.');
         }
 
@@ -169,7 +168,7 @@ class VendorController extends Controller
             if ($incompleteOrders) {
                 Log::warning('vendor_delete_rejected_incomplete_orders', [
                     'user_id' => auth()->id(),
-                    'vendor_id' => $vendor->id,
+                    'user_id' => $vendor->id,
                     'vendor_name' => $vendor->name
                 ]);
                 return back()->with('error', "Deletion rejected: {$vendor->name} has stores with incomplete orders");
@@ -185,7 +184,7 @@ class VendorController extends Controller
             if ($incompleteTransactions) {
                 Log::warning('vendor_delete_rejected_incomplete_transactions', [
                     'user_id' => auth()->id(),
-                    'vendor_id' => $vendor->id,
+                    'user_id' => $vendor->id,
                     'vendor_name' => $vendor->name
                 ]);
                 return back()->with('error', "Deletion rejected: {$vendor->name} has stores with incomplete transactions");
@@ -194,13 +193,13 @@ class VendorController extends Controller
 
         // If all validations pass, mark vendor as deleted
         $vendor->update(['status' => 'deleted']);
-        Log::info('vendor_marked_deleted', ['user_id' => auth()->id(), 'vendor_id' => $vendor->id]);
+        Log::info('vendor_marked_deleted', ['user_id' => auth()->id(), 'user_id' => $vendor->id]);
         return back()->with('success', "Vendor '{$vendor->name}' has been deleted successfully.");
     }
 
     public function show(Vendor $vendor)
     {
-        Log::info('vendor_show_viewed', ['user_id' => auth()->id(), 'vendor_id' => $vendor->id]);
+        Log::info('vendor_show_viewed', ['user_id' => auth()->id(), 'user_id' => $vendor->id]);
         $vendor->load(['stores' => function($q){ $q->with(['ownershipType','businessType']); }]);
         return view('admin.vendors.show', compact('vendor'));
     }
@@ -212,10 +211,10 @@ class VendorController extends Controller
         ]);
         $mainStoreId = Setting::value('main_store_id');
         if ($mainStoreId && $vendor->stores()->where('id', $mainStoreId)->exists()) {
-            Log::warning('vendor_suspend_blocked_main_store_owner', ['vendor_id' => $vendor->id, 'main_store_id' => $mainStoreId]);
+            Log::warning('vendor_suspend_blocked_main_store_owner', ['user_id' => $vendor->id, 'main_store_id' => $mainStoreId]);
             return back()->with('error', 'This vendor owns the main store and cannot be suspended.');
         }
-        Log::info('vendor_suspend_requested', ['user_id' => auth()->id(), 'vendor_id' => $vendor->id, 'reason' => $data['reason']]);
+        Log::info('vendor_suspend_requested', ['user_id' => auth()->id(), 'user_id' => $vendor->id, 'reason' => $data['reason']]);
         $vendor->update(['status' => 'suspended']);
 
         try {
@@ -223,10 +222,10 @@ class VendorController extends Controller
                 Mail::to($vendor->email)->queue(new VendorSuspended($vendor, $data['reason']));
             }
         } catch (\Throwable $e) {
-            Log::error('vendor_suspended_mail_queue_failed', ['vendor_id' => $vendor->id, 'error' => $e->getMessage()]);
+            Log::error('vendor_suspended_mail_queue_failed', ['user_id' => $vendor->id, 'error' => $e->getMessage()]);
         }
 
-        Log::info('vendor_suspended', ['user_id' => auth()->id(), 'vendor_id' => $vendor->id]);
+        Log::info('vendor_suspended', ['user_id' => auth()->id(), 'user_id' => $vendor->id]);
         return back()->with('success', 'Vendor suspended');
     }
 
@@ -235,7 +234,7 @@ class VendorController extends Controller
         $data = $request->validate([
             'reason' => 'required|string|max:2000',
         ]);
-        Log::info('vendor_activate_requested', ['user_id' => auth()->id(), 'vendor_id' => $vendor->id, 'reason' => $data['reason']]);
+        Log::info('vendor_activate_requested', ['user_id' => auth()->id(), 'user_id' => $vendor->id, 'reason' => $data['reason']]);
         $vendor->update(['status' => 'active']);
 
         // Approve KYC application if it exists
@@ -249,7 +248,7 @@ class VendorController extends Controller
             ]);
             Log::info('vendor_kyc_auto_approved', [
                 'user_id' => auth()->id(),
-                'vendor_id' => $vendor->id,
+                'user_id' => $vendor->id,
                 'kyc_application_id' => $kycApplication->id
             ]);
         }
@@ -259,10 +258,10 @@ class VendorController extends Controller
                 Mail::to($vendor->email)->queue(new VendorReactivated($vendor, $data['reason']));
             }
         } catch (\Throwable $e) {
-            Log::error('vendor_reactivated_mail_queue_failed', ['vendor_id' => $vendor->id, 'error' => $e->getMessage()]);
+            Log::error('vendor_reactivated_mail_queue_failed', ['user_id' => $vendor->id, 'error' => $e->getMessage()]);
         }
 
-        Log::info('vendor_activated', ['user_id' => auth()->id(), 'vendor_id' => $vendor->id]);
+        Log::info('vendor_activated', ['user_id' => auth()->id(), 'user_id' => $vendor->id]);
         
         $message = 'Vendor activated';
         if ($kycApplication && $kycApplication->status === 'approved') {

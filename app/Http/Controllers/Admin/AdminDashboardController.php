@@ -10,7 +10,6 @@ use App\Models\Setting;
 use App\Models\Store;
 use App\Models\Customer;
 use App\Models\Order;
-use App\Models\Vendor;
 use App\Models\Product;
 use App\Models\Transaction;
 use Illuminate\Http\Request;

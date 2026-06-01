@@ -5,9 +5,12 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Casts\Attribute;
+use App\Models\Concerns\BelongsToBusiness;
 
 class StorePaymentGateway extends Model
 {
+    use BelongsToBusiness;
+
     protected $fillable = [
         'store_id',
         'gateway',

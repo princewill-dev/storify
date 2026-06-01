@@ -1,158 +1,16 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\Vendor\Auth\VendorAuthController;
-use App\Http\Controllers\Vendor\VendorDashboardController;
-use App\Http\Controllers\Vendor\VendorKycController;
-use App\Http\Controllers\Vendor\VendorOnboardController;
-use App\Http\Controllers\Vendor\VendorProductsController;
-use App\Http\Controllers\Vendor\VendorCategoryController;
-use App\Http\Controllers\Vendor\StoreController as VendorStoreController;
-use App\Http\Controllers\Vendor\VendorOrderController;
-use App\Http\Controllers\Vendor\VendorCustomerController;
-use App\Http\Controllers\Vendor\VendorTransactionController;
-use App\Http\Controllers\Vendor\VendorSubscriptionController;
-use App\Http\Controllers\Vendor\VendorServicesController;
-use App\Http\Controllers\Vendor\VendorProfileController;
-use App\Http\Controllers\Vendor\VendorStoreBankController;
-use App\Http\Controllers\Vendor\VendorStoreDeliveryRouteController;
-use App\Http\Controllers\Vendor\VendorPaymentSettingsController;
 
+// Legacy vendor routes - redirect to management
 Route::prefix('vendor')->name('vendor.')->group(function () {
-    Route::get('/register', [VendorAuthController::class, 'showRegister'])->name('auth.register');
-    Route::post('/register', [VendorAuthController::class, 'register'])->name('auth.register.store');
+    Route::redirect('/register', '/management/register', 301)->name('auth.register');
+    Route::post('/register', fn() => redirect('/management/register', 301));
+    Route::redirect('/login', '/management/login', 301)->name('auth.login');
+    Route::post('/login', fn() => redirect('/management/login', 301));
+    Route::redirect('/forgot-password', '/management/forgot-password', 301);
+    Route::redirect('/reset-password', '/management/reset-password', 301);
 
-    Route::get('/login', [VendorAuthController::class, 'showLogin'])->name('auth.login');
-    Route::post('/login', [VendorAuthController::class, 'login'])->name('auth.login.store');
-
-    Route::get('/forgot-password', [VendorAuthController::class, 'showForgotPassword'])->name('auth.forgot-password');
-    Route::post('/forgot-password', [VendorAuthController::class, 'sendResetOtp'])->name('auth.forgot-password.send');
-
-    Route::get('/reset-password', [VendorAuthController::class, 'showResetPassword'])->name('auth.reset-password');
-    Route::post('/reset-password', [VendorAuthController::class, 'resetPassword'])->name('auth.reset-password.update');
-
-    Route::get('/{vendor}/verify-email', [VendorAuthController::class, 'showVerifyOtp'])->name('auth.verify-otp');
-    Route::post('/{vendor}/verify-email', [VendorAuthController::class, 'verifyOtp'])->name('auth.verify-otp.store');
-    Route::post('/{vendor}/verify-email/resend', [VendorAuthController::class, 'resendOtp'])->name('auth.verify-otp.resend');
-
-    Route::middleware('auth:vendor')->group(function () {
-        Route::post('/logout', [VendorAuthController::class, 'logout'])->name('auth.logout');
-        Route::get('/logout', fn() => redirect()->route('vendor.auth.login'))->name('auth.logout.get');
-        
-        Route::get('/{vendor}/subscription/plan', [VendorSubscriptionController::class, 'showSubscriptionPlan'])->name('subscription.plan');
-        Route::post('/{vendor}/subscription/initialize', [VendorSubscriptionController::class, 'initializePayment'])->name('subscription.initialize');
-        Route::get('/{vendor}/subscription/callback', [VendorSubscriptionController::class, 'handleCallback'])->name('subscription.callback');
-        Route::post('/{vendor}/subscription/check-early-pass', [VendorSubscriptionController::class, 'checkEarlyPass'])->name('subscription.check-early-pass');
-        Route::post('/{vendor}/subscription/activate-trial', [VendorSubscriptionController::class, 'activateTrial'])->name('subscription.activate-trial');
-        
-        Route::get('/{vendor}/store/create', [VendorOnboardController::class, 'showStoreCreationForm'])->name('store.create');
-        Route::post('/{vendor}/store/create', [VendorOnboardController::class, 'submitOnboardingStore'])->name('store.submit');
-        Route::post('/{vendor}/store/check-slug', [VendorOnboardController::class, 'checkSlugAvailability'])->name('store.check-slug');
-        Route::get('/{vendor}/store/success', [VendorOnboardController::class, 'showStoreSuccess'])->name('store.success');
-        
-        // Delivery Routes Setup
-        Route::get('/{vendor}/store/set-delivery-routes', [VendorOnboardController::class, 'showDeliveryRoutesForm'])->name('delivery-routes.form');
-        Route::post('/{vendor}/store/set-delivery-routes', [VendorOnboardController::class, 'saveDeliveryRoutes'])->name('delivery-routes.save');
-        
-        // Payment Methods Setup
-        Route::get('/{vendor}/store/set-payment-methods', [VendorOnboardController::class, 'showPaymentMethods'])->name('payment-methods.form');
-        Route::post('/{vendor}/store/payment-methods/bank', [VendorOnboardController::class, 'storePaymentBank'])->name('payment-methods.bank');
-        Route::post('/{vendor}/store/payment-methods/paystack', [VendorOnboardController::class, 'storePaymentPaystack'])->name('payment-methods.paystack');
-        Route::post('/{vendor}/store/payment-methods/skip', [VendorOnboardController::class, 'skipPaymentMethods'])->name('payment-methods.skip');
-        
-        // Bank Validation Routes
-        Route::get('/{vendor}/store/get-banks', [VendorOnboardController::class, 'getBanks'])->name('store.get-banks');
-        Route::post('/{vendor}/store/validate-bank', [VendorOnboardController::class, 'validateBank'])->name('store.validate-bank');
-        
-        // Protected routes that require completed onboarding (subscription optional)
-        Route::middleware(['vendor.onboarding'])->group(function () {
-            // Dashboard
-            Route::get('/dashboard', [VendorDashboardController::class, 'index'])->name('dashboard');
-            Route::post('/dashboard/switch-store', [VendorDashboardController::class, 'switchStore'])->name('stores.switch');
-            
-            // Profile
-            Route::get('/dashboard/profile', [VendorProfileController::class, 'index'])->name('profile.index');
-            Route::put('/dashboard/profile/password', [VendorProfileController::class, 'updatePassword'])->name('profile.password');
-
-            Route::get('/{vendor}/kyc', [VendorKycController::class, 'show'])->name('kyc.show');
-            Route::post('/{vendor}/kyc', [VendorKycController::class, 'submit'])->name('kyc.submit');
-            Route::get('/{vendor}/stores/create', [VendorStoreController::class, 'create'])->name('stores.create');
-            Route::post('/{vendor}/stores', [VendorStoreController::class, 'store'])->name('stores.store');
-            Route::get('/stores', [VendorStoreController::class, 'index'])->name('stores.index');
-            Route::get('/{vendor}/stores/{store}/finalize', [VendorStoreController::class, 'success'])->name('stores.success');
-            Route::get('/{vendor}/stores/{store}', [VendorStoreController::class, 'show'])->name('stores.show');
-            Route::put('/stores/{store}', [VendorStoreController::class, 'update'])->name('stores.update');
-            Route::patch('/{vendor}/stores/{store}/suspend', [VendorStoreController::class, 'suspend'])->name('stores.suspend');
-            Route::patch('/{vendor}/stores/{store}/activate', [VendorStoreController::class, 'activate'])->name('stores.activate');
-
-            // Store Banks
-            Route::post('/{vendor}/stores/{store}/banks', [VendorStoreBankController::class, 'store'])->name('stores.banks.store');
-            Route::put('/{vendor}/stores/{store}/banks/{bank}', [VendorStoreBankController::class, 'update'])->name('stores.banks.update');
-            Route::patch('/{vendor}/stores/{store}/banks/{bank}/primary', [VendorStoreBankController::class, 'setPrimary'])->name('stores.banks.primary');
-            Route::delete('/{vendor}/stores/{store}/banks/{bank}', [VendorStoreBankController::class, 'destroy'])->name('stores.banks.destroy');
-
-            // Delivery Routes
-            Route::post('/{vendor}/stores/{store}/delivery-routes', [VendorStoreDeliveryRouteController::class, 'store'])->name('stores.delivery-routes.store');
-            Route::put('/{vendor}/stores/{store}/delivery-routes/{deliveryRoute}', [VendorStoreDeliveryRouteController::class, 'update'])->name('stores.delivery-routes.update');
-            Route::delete('/{vendor}/stores/{store}/delivery-routes/{deliveryRoute}', [VendorStoreDeliveryRouteController::class, 'destroy'])->name('stores.delivery-routes.destroy');
-
-            // Payment Settings
-            Route::get('/{vendor}/payment-settings', [VendorPaymentSettingsController::class, 'index'])->name('payment-settings.index');
-            Route::post('/{vendor}/payment-settings/bank-accounts', [VendorPaymentSettingsController::class, 'storeBankAccount'])->name('payment-settings.bank-accounts.store');
-            Route::put('/{vendor}/payment-settings/bank-accounts/{bank}', [VendorPaymentSettingsController::class, 'updateBankAccount'])->name('payment-settings.bank-accounts.update');
-            Route::delete('/{vendor}/payment-settings/bank-accounts/{bank}', [VendorPaymentSettingsController::class, 'destroyBankAccount'])->name('payment-settings.bank-accounts.destroy');
-            Route::post('/{vendor}/payment-settings/paystack-keys', [VendorPaymentSettingsController::class, 'storePaystackKeys'])->name('payment-settings.paystack-keys.store');
-            Route::put('/{vendor}/payment-settings/paystack-keys/{gateway}', [VendorPaymentSettingsController::class, 'updatePaystackKeys'])->name('payment-settings.paystack-keys.update');
-            Route::delete('/{vendor}/payment-settings/paystack-keys/{gateway}', [VendorPaymentSettingsController::class, 'destroyPaystackKeys'])->name('payment-settings.paystack-keys.destroy');
-            Route::post('/{vendor}/payment-settings/paystack-keys/{gateway}/toggle', [VendorPaymentSettingsController::class, 'togglePaystackKeys'])->name('payment-settings.paystack-keys.toggle');
-            Route::post('/{vendor}/payment-settings/verify-bank', [VendorPaymentSettingsController::class, 'verifyBankAccount'])->name('payment-settings.verify-bank');
-            Route::post('/{vendor}/payment-settings/stores/{store}/toggle-mode', [VendorPaymentSettingsController::class, 'togglePaymentMode'])->name('payment-settings.toggle-mode');
-
-            Route::get('/{vendor}/products', [VendorProductsController::class, 'index'])->name('products.index');
-            Route::get('/{vendor}/products/create', [VendorProductsController::class, 'create'])->name('products.create');
-            Route::post('/{vendor}/products', [VendorProductsController::class, 'store'])->name('products.store');
-            Route::get('/{vendor}/products/{product}', [VendorProductsController::class, 'show'])->name('products.show');
-            Route::get('/{vendor}/products/{product}/edit', [VendorProductsController::class, 'edit'])->name('products.edit');
-            Route::put('/{vendor}/products/{product}', [VendorProductsController::class, 'update'])->name('products.update');
-            Route::put('/{vendor}/products/{product}/status', [VendorProductsController::class, 'updateStatus'])->name('products.status');
-            Route::delete('/{vendor}/products/{product}', [VendorProductsController::class, 'destroy'])->name('products.destroy');
-
-            Route::get('/{vendor}/services', [VendorServicesController::class, 'index'])->name('services.index');
-            Route::get('/{vendor}/services/create', [VendorServicesController::class, 'create'])->name('services.create');
-            Route::post('/{vendor}/services', [VendorServicesController::class, 'store'])->name('services.store');
-            Route::get('/{vendor}/services/{service}/edit', [VendorServicesController::class, 'edit'])->name('services.edit');
-            Route::put('/{vendor}/services/{service}', [VendorServicesController::class, 'update'])->name('services.update');
-            Route::delete('/{vendor}/services/{service}', [VendorServicesController::class, 'destroy'])->name('services.destroy');
-            Route::get('/{vendor}/categories', [VendorCategoryController::class, 'index'])->name('categories.index');
-            Route::get('/{vendor}/categories/create', [VendorCategoryController::class, 'create'])->name('categories.create');
-            Route::post('/{vendor}/categories', [VendorCategoryController::class, 'store'])->name('categories.store');
-            Route::get('/{vendor}/categories/{category}/edit', [VendorCategoryController::class, 'edit'])->name('categories.edit');
-            Route::put('/{vendor}/categories/{category}', [VendorCategoryController::class, 'update'])->name('categories.update');
-            Route::delete('/{vendor}/categories/{category}', [VendorCategoryController::class, 'destroy'])->name('categories.destroy');
-            Route::get('/{vendor}/orders', [VendorOrderController::class, 'index'])->name('orders.index');
-            Route::get('/{vendor}/orders/{order}', [VendorOrderController::class, 'show'])->name('orders.show');
-            Route::get('/{vendor}/orders/{order}/edit', [VendorOrderController::class, 'edit'])->name('orders.edit');
-            Route::put('/{vendor}/orders/{order}', [VendorOrderController::class, 'update'])->name('orders.update');
-            Route::patch('/{vendor}/orders/{order}/status', [VendorOrderController::class, 'updateStatus'])->name('orders.update-status');
-            Route::patch('/{vendor}/orders/{order}/payment', [VendorOrderController::class, 'updatePaymentStatus'])->name('orders.update-payment-status');
-            Route::delete('/{vendor}/orders/{order}', [VendorOrderController::class, 'destroy'])->name('orders.destroy');
-            Route::get('/{vendor}/customers', [VendorCustomerController::class, 'index'])->name('customers.index');
-            Route::get('/{vendor}/customers/{customer}', [VendorCustomerController::class, 'show'])->name('customers.show');
-            Route::get('/{vendor}/customers/{customer}/edit', [VendorCustomerController::class, 'edit'])->name('customers.edit');
-            Route::put('/{vendor}/customers/{customer}', [VendorCustomerController::class, 'update'])->name('customers.update');
-            Route::post('/{vendor}/customers/{customer}/suspend', [VendorCustomerController::class, 'suspend'])->name('customers.suspend');
-            Route::post('/{vendor}/customers/{customer}/activate', [VendorCustomerController::class, 'activate'])->name('customers.activate');
-            Route::get('/{vendor}/transactions', [VendorTransactionController::class, 'index'])->name('transactions.index');
-            Route::get('/{vendor}/transactions/{transaction:reference}', [VendorTransactionController::class, 'show'])->name('transactions.show');
-            Route::post('/{vendor}/transactions/{transaction:reference}/confirm', [VendorTransactionController::class, 'confirmPayment'])->name('transactions.confirm');
-            Route::post('/{vendor}/transactions/{transaction:reference}/reject', [VendorTransactionController::class, 'rejectPayment'])->name('transactions.reject');
-            Route::post('/{vendor}/transactions/{transaction:reference}/refund', [VendorTransactionController::class, 'refundPayment'])->name('transactions.refund');
-            
-            // Support Messages
-            Route::get('/{vendor}/support-messages', [\App\Http\Controllers\Vendor\SupportMessageController::class, 'index'])->name('support-messages.index');
-            Route::post('/{vendor}/support-messages/{supportMessage}/reply', [\App\Http\Controllers\Vendor\SupportMessageController::class, 'reply'])->name('support-messages.reply');
-        });
-    });
-
-    Route::redirect('/', '/vendor/dashboard');
+    Route::redirect('/', '/management', 301);
+    Route::redirect('/{any}', '/management', 301)->where('any', '.*');
 });

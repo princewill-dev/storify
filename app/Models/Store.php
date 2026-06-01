@@ -6,11 +6,14 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
+use Illuminate\Database\Eloquent\Relations\MorphToMany;
 use App\Enums\StoreStatus;
+use App\Models\Concerns\BelongsToBusiness;
 
 class Store extends Model
 {
-    use HasFactory;
+    use HasFactory, BelongsToBusiness;
 
     public const STATUS_PENDING = StoreStatus::PENDING->value;
     public const STATUS_ACTIVE = StoreStatus::ACTIVE->value;
@@ -19,7 +22,8 @@ class Store extends Model
 
     protected $fillable = [
         'store_id',
-        'vendor_id',
+        'user_id',
+        'business_id',
         'name',
         'slug',
         'description',
@@ -33,9 +37,15 @@ class Store extends Model
         'tiktok_url',
         'ownership_type_id',
         'business_type_id',
+        'currency_id',
         'status',
         'balance',
+        'views',
         'payment_mode',
+        'pos_enabled',
+        'physical_address',
+        'store_type',
+        'has_website',
     ];
 
     protected static function boot()
@@ -72,9 +82,9 @@ class Store extends Model
         return $query->where('status', 'active');
     }
 
-    public function vendor(): BelongsTo
+    public function business(): BelongsTo
     {
-        return $this->belongsTo(Vendor::class);
+        return $this->belongsTo(Business::class);
     }
 
     public function ownershipType(): BelongsTo
@@ -113,6 +123,36 @@ class Store extends Model
     public function categories(): HasMany
     {
         return $this->hasMany(Category::class);
+    }
+
+    public function stockLocations(): MorphMany
+    {
+        return $this->morphMany(StockLocation::class, 'locationable');
+    }
+
+    public function posSessions(): HasMany
+    {
+        return $this->hasMany(PosSession::class);
+    }
+
+    public function assignedStaff(): MorphToMany
+    {
+        return $this->morphToMany(User::class, 'assignmentable', 'staff_assignments');
+    }
+
+    public function activePosSession()
+    {
+        return $this->hasOne(PosSession::class)->where('status', PosSession::STATUS_OPEN)->latestOfMany();
+    }
+
+    public function orders(): HasMany
+    {
+        return $this->hasMany(Order::class);
+    }
+
+    public function products(): HasMany
+    {
+        return $this->hasMany(Product::class);
     }
 
     /**
@@ -186,6 +226,14 @@ class Store extends Model
     public function getFormattedBalance(): string
     {
         return '₦' . number_format($this->getBalanceInNaira(), 2);
+    }
+
+    public function logoUrl(): ?string
+    {
+        if ($this->logo_path) {
+            return asset('storage/' . $this->logo_path);
+        }
+        return null;
     }
 
     public static function statusBadgeData(): array

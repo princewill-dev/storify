@@ -23,7 +23,7 @@ class KycDocumentType extends Model
 
     public function vendorKycApplications(): HasMany
     {
-        return $this->hasMany(VendorKycApplication::class, 'kyc_document_type_id');
+        return $this->hasMany(KycApplication::class, 'kyc_document_type_id');
     }
 
     public function vendors(): HasMany

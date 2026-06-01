@@ -31,6 +31,10 @@ class AccountController extends Controller
         if (Auth::guard('customer')->check()) {
             return redirect()->route('account.dashboard');
         }
+
+        if (Auth::guard('web')->check()) {
+            return redirect()->route('management.auth.login');
+        }
         
         $flow = $request->query('flow');
         // Preserve family-pack redirect if coming from family pack checkout

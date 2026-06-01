@@ -22,6 +22,7 @@ class ProductRequest extends FormRequest
         $base = [
             'store_id' => 'required|exists:stores,id',
             'category_id' => 'nullable|exists:categories,id',
+            'section_id' => 'nullable|exists:sections,id',
             'name' => 'required|string|max:255',
             'brand' => 'nullable|string|max:255',
             'description' => 'nullable|string',

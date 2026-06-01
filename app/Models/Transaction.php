@@ -6,9 +6,12 @@ use App\Enums\TransactionStatus;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Str;
+use App\Models\Concerns\BelongsToBusiness;
 
 class Transaction extends Model
 {
+    use BelongsToBusiness;
+
     protected $fillable = [
         'reference',
         'order_id',

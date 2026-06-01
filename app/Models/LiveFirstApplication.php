@@ -6,9 +6,12 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Str;
+use App\Models\Concerns\BelongsToBusiness;
 
 class LiveFirstApplication extends Model
 {
+    use BelongsToBusiness;
+
     protected $fillable = [
         'kyc_id',
         'user_id',

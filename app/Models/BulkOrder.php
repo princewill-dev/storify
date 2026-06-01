@@ -6,9 +6,12 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use App\Enums\BulkOrderStatus;
+use App\Models\Concerns\BelongsToBusiness;
 
 class BulkOrder extends Model
 {
+    use BelongsToBusiness;
+
     protected $fillable = [
         'bulk_code',
         'customer_id',

@@ -17,17 +17,19 @@ return Application::configure(basePath: dirname(__DIR__))
         );
         
         $middleware->alias([
-            'vendor.subscription' => \App\Http\Middleware\CheckVendorSubscription::class,
-            'vendor.onboarding' => \App\Http\Middleware\RedirectIfOnboardingIncomplete::class,
+            'management.subscription' => \App\Http\Middleware\CheckSubscription::class,
+            'management.onboarding' => \App\Http\Middleware\RedirectIfOnboardingIncomplete::class,
+            'permission' => \Spatie\Permission\Middleware\PermissionMiddleware::class,
+            'role' => \Spatie\Permission\Middleware\RoleMiddleware::class,
         ]);
         
         // Configure authentication redirects for customer guard
         $middleware->redirectGuestsTo(function ($request) {
-            if ($request->is('vendor') || $request->is('vendor/*')) {
-                return route('vendor.auth.login');
+            if ($request->is('management') || $request->is('management/*')
+                || $request->is('staff') || $request->is('staff/*')) {
+                return route('management.auth.login');
             }
 
-            // Check if this is a checkout route
             if ($request->is('*/checkout') || $request->is('*/checkout/*')) {
                 // Extract store slug from URL
                 $segments = $request->segments();

@@ -9,7 +9,7 @@ class EarlyPassUsage extends Model
 {
     protected $fillable = [
         'early_pass_id',
-        'vendor_id',
+        'user_id',
         'store_id',
         'used_at',
     ];
@@ -25,7 +25,7 @@ class EarlyPassUsage extends Model
 
     public function vendor(): BelongsTo
     {
-        return $this->belongsTo(Vendor::class);
+        return $this->belongsTo(User::class);
     }
 
     public function store(): BelongsTo

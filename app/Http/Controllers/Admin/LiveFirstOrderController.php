@@ -69,6 +69,6 @@ class LiveFirstOrderController extends Controller
             'total_revenue' => (clone $statsBase)->where('payment_status', 'paid')->sum('total'),
         ];
 
-        return view('admin.order_management.live_first', compact('orders', 'stores', 'stats'));
+        return view('admin.orders.live_first', compact('orders', 'stores', 'stats'));
     }
 }

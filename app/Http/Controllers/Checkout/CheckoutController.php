@@ -25,7 +25,7 @@ use Illuminate\Validation\ValidationException;
 use App\Mail\VendorOrderNotificationMail;
 use App\Enums\PaymentStatus;
 use App\Services\PaystackService;
-use App\Models\Vendor;
+use App\Models\User;
 use App\Enums\OrderStatus;
 
 class CheckoutController extends Controller
@@ -436,14 +436,14 @@ class CheckoutController extends Controller
 
             // Verify vendor exists to avoid foreign key constraint violation
             $vendorId = null;
-            if ($store->vendor_id) {
-                $vendorExists = Vendor::where('id', $store->vendor_id)->exists();
-                $vendorId = $vendorExists ? $store->vendor_id : null;
+            if ($store->user_id) {
+                $vendorExists = Vendor::where('id', $store->user_id)->exists();
+                $vendorId = $vendorExists ? $store->user_id : null;
             }
 
             $order = Order::create([
                 'store_id' => $store->id,
-                'vendor_id' => $vendorId,
+                'user_id' => $vendorId,
                 'customer_id' => $customer->id,
                 'cart_id' => $cart->id,
                 'source' => $cartSource,

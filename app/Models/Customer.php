@@ -10,10 +10,11 @@ use Illuminate\Support\Str;
 use App\Enums\CustomerStatus;
 use App\Enums\LiveFirstStatus;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use App\Models\Concerns\BelongsToBusiness;
 
 class Customer extends Authenticatable
 {
-    use Notifiable;
+    use Notifiable, BelongsToBusiness;
 
     public const STATUS_ACTIVE = CustomerStatus::ACTIVE->value;
     public const STATUS_SUSPENDED = CustomerStatus::SUSPENDED->value;

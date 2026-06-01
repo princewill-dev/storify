@@ -41,7 +41,7 @@
             <p>Simply log in and choose a subscription plan to reactivate your store immediately.</p>
 
             <p style="text-align: center;">
-                <a href="{{ route('vendor.subscription.plan', ['vendor' => $subscription->vendor]) }}" class="button">Reactivate My Store</a>
+                <a href="{{ route('management.subscription.plan', ['vendor' => $subscription->vendor]) }}" class="button">Reactivate My Store</a>
             </p>
 
             <p style="color: #666; font-size: 14px;">Need help? Our support team is here for you.</p>
