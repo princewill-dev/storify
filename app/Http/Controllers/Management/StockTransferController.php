@@ -230,24 +230,12 @@ class StockTransferController extends Controller
                     ->first();
 
                 if ($sourceStock) {
-                    $sourceStock->decrement('quantity', $qty);
+                    $ledger = app(\App\Services\StockLedgerService::class);
+                    $ledger->recordRemoval(
+                        $sourceStock, $qty, $transfer, $user,
+                        'Transfer dispatched to ' . ($transfer->toLocation?->name ?? 'destination')
+                    );
                 }
-
-                StockMovement::create([
-                    'product_id' => $item->product_id,
-                    'product_variant_id' => $item->product_variant_id,
-                    'from_location_type' => $transfer->from_location_type,
-                    'from_location_id' => $transfer->from_location_id,
-                    'to_location_type' => $transfer->to_location_type,
-                    'to_location_id' => $transfer->to_location_id,
-                    'quantity' => $qty,
-                    'type' => \App\Enums\StockMovementType::TRANSFERRED->value,
-                    'reference_type' => StockTransfer::class,
-                    'reference_id' => $transfer->id,
-                    'performed_by_type' => \App\Models\User::class,
-                    'performed_by_id' => $user->id,
-                    'notes' => 'Transfer dispatched to ' . ($transfer->toLocation?->name ?? 'store'),
-                ]);
             }
 
             $transfer->update([
@@ -295,7 +283,11 @@ class StockTransferController extends Controller
                     ['quantity' => 0, 'min_quantity' => 0]
                 );
 
-                $destStock->increment('quantity', $qty);
+                $ledger = app(\App\Services\StockLedgerService::class);
+                $ledger->recordAddition(
+                    $destStock, $qty, $transfer, $user,
+                    'Transfer received from ' . ($transfer->fromLocation?->name ?? 'source')
+                );
             }
 
             $transfer->update([

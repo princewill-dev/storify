@@ -267,22 +267,26 @@ class PosController extends Controller
             $store->creditBalance((int) round($total));
         }
 
+        $ledger = app(\App\Services\StockLedgerService::class);
+
         foreach ($validated['items'] as $item) {
             $product = Product::find($item['product_id']);
-            if ($product && $product->quantity >= (int) $item['quantity']) {
+            $stockLoc = \App\Models\StockLocation::where('locationable_type', \App\Models\Store::class)
+                ->where('locationable_id', $store->id)
+                ->where('product_id', $product->id)
+                ->first();
+
+            if ($stockLoc && $stockLoc->quantity >= (int) $item['quantity']) {
                 $product->decrement('quantity', (int) $item['quantity']);
-                \App\Models\StockMovement::create([
+                $ledger->recordRemoval($stockLoc, (int) $item['quantity'], $order, $user, 'POS sale — Order #' . $order->order_number);
+            } elseif ($product && $product->quantity >= (int) $item['quantity']) {
+                $product->decrement('quantity', (int) $item['quantity']);
+                $stockLoc = \App\Models\StockLocation::firstOrCreate([
                     'product_id' => $product->id,
-                    'from_location_type' => \App\Models\Store::class,
-                    'from_location_id' => $store->id,
-                    'quantity' => (int) $item['quantity'],
-                    'type' => \App\Enums\StockMovementType::REMOVED->value,
-                    'reference_type' => \App\Models\Order::class,
-                    'reference_id' => $order->id,
-                    'performed_by_type' => \App\Models\User::class,
-                    'performed_by_id' => $user->id,
-                    'notes' => 'POS sale — Order #' . $order->order_number,
-                ]);
+                    'locationable_type' => \App\Models\Store::class,
+                    'locationable_id' => $store->id,
+                ], ['quantity' => $product->quantity + (int) $item['quantity'], 'business_id' => $store->business_id]);
+                $ledger->recordRemoval($stockLoc, (int) $item['quantity'], $order, $user, 'POS sale — Order #' . $order->order_number);
             }
         }
 

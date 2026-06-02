@@ -228,16 +228,16 @@ class ProductController extends Controller
                 $product->save();
 
                 if ($product->quantity > 0) {
-                    \App\Models\StockMovement::create([
+                    $ledger = app(\App\Services\StockLedgerService::class);
+                    $storeLoc = \App\Models\StockLocation::firstOrCreate([
                         'product_id' => $product->id,
-                        'to_location_type' => \App\Models\Store::class,
-                        'to_location_id' => $product->store_id,
-                        'quantity' => $product->quantity,
-                        'type' => \App\Enums\StockMovementType::ADDED->value,
-                        'performed_by_type' => \App\Models\User::class,
-                        'performed_by_id' => $user->id,
-                        'notes' => 'Initial stock — Product created',
+                        'locationable_type' => \App\Models\Store::class,
+                        'locationable_id' => $product->store_id,
+                    ], [
+                        'quantity' => 0,
+                        'business_id' => $product->business_id,
                     ]);
+                    $ledger->recordAddition($storeLoc, $product->quantity, $product, $user, 'Product created — initial stock');
                 }
 
                 if ($product->section_id && $product->quantity > 0) {

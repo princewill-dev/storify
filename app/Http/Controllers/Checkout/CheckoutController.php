@@ -463,23 +463,27 @@ class CheckoutController extends Controller
                 OrderItem::create(array_merge(['order_id' => $order->id], $itemData));
             }
 
+            $ledger = app(\App\Services\StockLedgerService::class);
+
             foreach ($orderItems as $itemData) {
                 if (!empty($itemData['product_id']) && isset($itemData['quantity'])) {
                     $product = Product::find($itemData['product_id']);
-                    if ($product && $product->quantity >= (int) $itemData['quantity']) {
+                    $stockLoc = \App\Models\StockLocation::where('locationable_type', \App\Models\Store::class)
+                        ->where('locationable_id', $store->id)
+                        ->where('product_id', $product->id)
+                        ->first();
+
+                    if ($stockLoc && $stockLoc->quantity >= (int) $itemData['quantity']) {
                         $product->decrement('quantity', (int) $itemData['quantity']);
-                        \App\Models\StockMovement::create([
+                        $ledger->recordRemoval($stockLoc, (int) $itemData['quantity'], $order, $customer, 'Storefront order — #' . $order->order_number);
+                    } elseif ($product && $product->quantity >= (int) $itemData['quantity']) {
+                        $product->decrement('quantity', (int) $itemData['quantity']);
+                        $stockLoc = \App\Models\StockLocation::firstOrCreate([
                             'product_id' => $product->id,
-                            'from_location_type' => \App\Models\Store::class,
-                            'from_location_id' => $store->id,
-                            'quantity' => (int) $itemData['quantity'],
-                            'type' => \App\Enums\StockMovementType::REMOVED->value,
-                            'reference_type' => \App\Models\Order::class,
-                            'reference_id' => $order->id,
-                            'performed_by_type' => \App\Models\Customer::class,
-                            'performed_by_id' => $customer->id,
-                            'notes' => 'Storefront order — #' . $order->order_number,
-                        ]);
+                            'locationable_type' => \App\Models\Store::class,
+                            'locationable_id' => $store->id,
+                        ], ['quantity' => $product->quantity + (int) $itemData['quantity'], 'business_id' => $store->business_id]);
+                        $ledger->recordRemoval($stockLoc, (int) $itemData['quantity'], $order, $customer, 'Storefront order — #' . $order->order_number);
                     }
                 }
             }
@@ -996,23 +1000,27 @@ class CheckoutController extends Controller
                     ]);
             }
 
+            $ledger = app(\App\Services\StockLedgerService::class);
+
             // Decrement stock for ordered products
             foreach ($cart->items as $cartItem) {
                 $product = $cartItem->product;
-                if ($product && $product->quantity >= $cartItem->qty) {
+                $stockLoc = \App\Models\StockLocation::where('locationable_type', \App\Models\Store::class)
+                    ->where('locationable_id', $store->id)
+                    ->where('product_id', $product->id)
+                    ->first();
+
+                if ($stockLoc && $stockLoc->quantity >= $cartItem->qty) {
                     $product->decrement('quantity', $cartItem->qty);
-                    \App\Models\StockMovement::create([
+                    $ledger->recordRemoval($stockLoc, $cartItem->qty, $order, $customer, 'LiveFirst order — #' . $order->order_number);
+                } elseif ($product && $product->quantity >= $cartItem->qty) {
+                    $product->decrement('quantity', $cartItem->qty);
+                    $stockLoc = \App\Models\StockLocation::firstOrCreate([
                         'product_id' => $product->id,
-                        'from_location_type' => \App\Models\Store::class,
-                        'from_location_id' => $store->id,
-                        'quantity' => $cartItem->qty,
-                        'type' => \App\Enums\StockMovementType::REMOVED->value,
-                        'reference_type' => \App\Models\Order::class,
-                        'reference_id' => $order->id,
-                        'performed_by_type' => \App\Models\Customer::class,
-                        'performed_by_id' => $customer->id,
-                        'notes' => 'LiveFirst order — #' . $order->order_number,
-                    ]);
+                        'locationable_type' => \App\Models\Store::class,
+                        'locationable_id' => $store->id,
+                    ], ['quantity' => $product->quantity + $cartItem->qty, 'business_id' => $store->business_id]);
+                    $ledger->recordRemoval($stockLoc, $cartItem->qty, $order, $customer, 'LiveFirst order — #' . $order->order_number);
                 }
             }
 

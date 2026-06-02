@@ -118,8 +118,16 @@ class ProductAndStockSeeder extends Seeder
 
         $stores = $business->stores;
         if ($stores->isEmpty()) {
-            $this->warn("No stores found for business [{$business->name}]. Skipping.");
-            return;
+            $store = Store::firstOrCreate(
+                ['business_id' => $business->id, 'slug' => Str::slug($business->name)],
+                [
+                    'name' => $business->name . ' Store',
+                    'user_id' => $business->user_id,
+                    'status' => 'active',
+                ]
+            );
+            $stores = collect([$store]);
+            $this->line("No stores found — created default store [{$store->name}].");
         }
 
         if (!$warehouse) {
