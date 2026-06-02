@@ -87,15 +87,19 @@ class ProductAndStockSeeder extends Seeder
         'High-Value Cage — Secure Storage',
     ];
 
-    public function run(?int $businessId = null, ?int $warehouseId = null): void
+    public function run(?int $businessId = null, $warehouseId = null): void
     {
         $warehouse = null;
         $business = null;
 
         if ($warehouseId) {
-            $warehouse = Warehouse::find($warehouseId);
+            $warehouse = is_numeric($warehouseId)
+                ? Warehouse::find($warehouseId)
+                : Warehouse::where('warehouse_code', $warehouseId)->first();
+
             if (!$warehouse) {
-                $this->command?->warn("Warehouse ID {$warehouseId} not found.");
+                $msg = "Warehouse '{$warehouseId}' not found.";
+                if ($this->command) $this->command->warn($msg); else echo $msg . PHP_EOL;
                 return;
             }
             $business = $warehouse->business;
@@ -108,13 +112,13 @@ class ProductAndStockSeeder extends Seeder
         }
 
         if (!$business) {
-            $this->command?->warn('No business found. Ensure BusinessSeeder has run first.');
+            $this->warn('No business found. Ensure BusinessSeeder has run first.');
             return;
         }
 
         $stores = $business->stores;
         if ($stores->isEmpty()) {
-            $this->command?->warn("No stores found for business [{$business->name}]. Skipping.");
+            $this->warn("No stores found for business [{$business->name}]. Skipping.");
             return;
         }
 
@@ -123,7 +127,7 @@ class ProductAndStockSeeder extends Seeder
         }
 
         if (!$warehouse) {
-            $this->command?->warn("No warehouse found for business [{$business->name}]. Skipping warehouse stock.");
+            $this->warn("No warehouse found for business [{$business->name}]. Skipping warehouse stock.");
         }
 
         $sizeUnitIds = \DB::table('size_units')->pluck('id')->all();
@@ -141,7 +145,7 @@ class ProductAndStockSeeder extends Seeder
             // Count existing products for this store (idempotent guard)
             $existingCount = Product::where('store_id', $store->id)->count();
             if ($existingCount > 0) {
-                $this->command?->line("  Store [{$store->name}] already has {$existingCount} products. Skipping.");
+                $this->line("  Store [{$store->name}] already has {$existingCount} products. Skipping.");
                 continue;
             }
 
@@ -240,10 +244,10 @@ class ProductAndStockSeeder extends Seeder
                 }
             }
 
-            $this->command?->info("  Store [{$store->name}]: {$totalProducts} products seeded.");
+            $this->info("  Store [{$store->name}]: {$totalProducts} products seeded.");
         }
 
-        $this->command?->info("Done: {$totalProducts} products across " . $stores->count() . " stores, warehouse stock created for [{$warehouse?->name}].");
+        $this->info("Done: {$totalProducts} products across " . $stores->count() . " stores, warehouse stock created for [{$warehouse?->name}].");
     }
 
     protected function seedCategories(Store $store): array
@@ -266,7 +270,7 @@ class ProductAndStockSeeder extends Seeder
         $existingCount = Section::where('warehouse_id', $warehouse->id)->count();
 
         if ($existingCount >= count($this->sectionNames)) {
-            $this->command?->line("  Warehouse [{$warehouse->name}] already has {$existingCount} sections. Skipping section creation.");
+            $this->line("  Warehouse [{$warehouse->name}] already has {$existingCount} sections. Skipping section creation.");
             return Section::where('warehouse_id', $warehouse->id)->get();
         }
 
@@ -286,8 +290,23 @@ class ProductAndStockSeeder extends Seeder
             $sections->push($sec);
         }
 
-        $this->command?->info("  Warehouse [{$warehouse->name}]: {$sections->count()} sections created.");
+        $this->info("  Warehouse [{$warehouse->name}]: {$sections->count()} sections created.");
         return $sections;
+    }
+
+    protected function line(string $message): void
+    {
+        if ($this->command) $this->command->line($message); else echo $message . PHP_EOL;
+    }
+
+    protected function warn(string $message): void
+    {
+        if ($this->command) $this->command->warn($message); else echo $message . PHP_EOL;
+    }
+
+    protected function info(string $message): void
+    {
+        if ($this->command) $this->command->info($message); else echo $message . PHP_EOL;
     }
 
     protected function sectionDescriptions(): array
