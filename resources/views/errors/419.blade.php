@@ -1,1 +1,5 @@
-<?php header('Location: ' . route('vendor.auth.login')); exit; ?>
+@extends('errors::minimal')
+
+@section('title', __('Page Expired'))
+@section('code', '419')
+@section('message', __('Your session has expired. Please refresh the page and try again.'))

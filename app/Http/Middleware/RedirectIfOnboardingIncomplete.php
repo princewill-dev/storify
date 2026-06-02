@@ -8,55 +8,56 @@ use Symfony\Component\HttpFoundation\Response;
 
 class RedirectIfOnboardingIncomplete
 {
-    /**
-     * Handle an incoming request.
-     * Redirect vendors to their next onboarding step if incomplete
-     */
     public function handle(Request $request, Closure $next): Response
     {
-        /** @var \App\Models\Vendor|null $vendor */
-        $vendor = $request->user('vendor');
+        $user = $request->user();
 
-        if (!$vendor) {
+        if (!$user) {
             return $next($request);
         }
 
-        // Skip redirect for onboarding routes themselves
-        $onboardingRoutes = [
-            'vendor.store.create',
-            'vendor.store.submit',
-            'vendor.store.success',
-            'vendor.payment-methods.form',
-            'vendor.payment-methods.bank',
-            'vendor.payment-methods.paystack',
-            'vendor.payment-methods.skip',
-            'vendor.delivery-routes.form',
-            'vendor.delivery-routes.save',
-            'vendor.delivery-routes.skip',
-            'vendor.subscription.plan',
-            'vendor.subscription.initiate',
-            'vendor.subscription.callback',
-            'vendor.early-pass.check',
-        ];
+        if ($user->isStaff()) {
+            return $next($request);
+        }
 
         $currentRoute = $request->route()->getName();
 
-        // Don't redirect if already on an onboarding route
-        if (in_array($currentRoute, $onboardingRoutes)) {
-            return $next($request);
+        if (!$user->is_verified) {
+            $exemptRoutes = [
+                'management.auth.verify-otp',
+                'management.auth.verify-otp.store',
+                'management.auth.verify-otp.resend',
+                'management.auth.logout',
+            ];
+
+            if (!in_array($currentRoute, $exemptRoutes)) {
+                return redirect()->route('management.auth.verify-otp')
+                    ->with('warning', 'Please verify your email to continue.');
+            }
         }
 
-        // Check if onboarding is complete
-        if (!$vendor->hasCompletedOnboarding()) {
-            $nextStep = $vendor->getNextOnboardingStep();
-            
-            \Log::info('[Onboarding Redirect] Redirecting incomplete vendor', [
-                'vendor_id' => $vendor->id,
-                'current_route' => $currentRoute,
-                'next_step' => $nextStep,
-            ]);
+        if ($user->is_verified && !$user->business_id) {
+            $exemptRoutes = [
+                'management.setup',
+                'management.setup.store',
+                'management.plans.index',
+                'management.plans.checkout',
+                'management.plans.validate-coupon',
+                'management.subscription.plan',
+                'management.subscription.initialize',
+                'management.subscription.callback',
+                'management.subscription.check-early-pass',
+                'management.subscription.activate-trial',
+                'management.auth.logout',
+                'management.auth.verify-otp',
+                'management.auth.verify-otp.store',
+                'management.auth.verify-otp.resend',
+            ];
 
-            return redirect($nextStep);
+            if (!in_array($currentRoute, $exemptRoutes)) {
+                return redirect()->route('management.setup')
+                    ->with('info', 'Please complete your business setup to continue.');
+            }
         }
 
         return $next($request);

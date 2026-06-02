@@ -4,7 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Store;
-use App\Models\Vendor;
+use App\Models\User;
 use App\Models\OwnershipType;
 use App\Models\BusinessType;
 use App\Models\Product;
@@ -18,7 +18,6 @@ use App\Mail\AdminStoreCreated;
 use App\Mail\VendorStoreCreated;
 use App\Mail\VendorStoreSuspended;
 use App\Mail\VendorStoreReactivated;
-use App\Models\User;
 use App\Models\Setting;
 
 class StoreController extends Controller
@@ -66,7 +65,7 @@ class StoreController extends Controller
         $stores = $storesQuery->latest()->paginate(15)->withQueryString();
         $mainStoreId = Setting::value('main_store_id');
         // For create/edit modals
-        $vendors = Vendor::orderBy('name')->get();
+        $users = User::where('role', 'business_owner')->orderBy('name')->get();
         $ownershipTypes = OwnershipType::orderBy('name')->get();
         $businessTypes = BusinessType::orderBy('name')->get();
         return view('admin.stores.index', compact('stores','mainStoreId','status','q','from','to','vendors','ownershipTypes','businessTypes'))
@@ -82,7 +81,7 @@ class StoreController extends Controller
         $categories = Category::where('store_id', $store->id)->orderBy('name')->get();
         $packs = Pack::where('store_id', $store->id)->latest()->take(10)->get();
         // For inline modals on the show page
-        $vendors = Vendor::orderBy('name')->get();
+        $users = User::where('role', 'business_owner')->orderBy('name')->get();
         $ownershipTypes = OwnershipType::orderBy('name')->get();
         $businessTypes = BusinessType::orderBy('name')->get();
         return view('admin.stores.show', compact('store','productCount','recentProducts','categories','packs','vendors','ownershipTypes','businessTypes'));
@@ -101,11 +100,11 @@ class StoreController extends Controller
         if (!$allow) {
             $superadmin = User::where('role', 'superadmin')->orderBy('id')->first();
             if ($superadmin) {
-                $lockedVendor = Vendor::where('email', $superadmin->email)->first();
+                $lockedVendor = User::where('email', $superadmin->email)->first();
                 if ($lockedVendor) { $lockVendor = true; }
             }
         }
-        $vendors = Vendor::orderBy('name')->get();
+        $users = User::where('role', 'business_owner')->orderBy('name')->get();
         $ownershipTypes = OwnershipType::orderBy('name')->get();
         $businessTypes = BusinessType::orderBy('name')->get();
         return view('admin.stores.create', compact('vendors','ownershipTypes','businessTypes','lockVendor','lockedVendor'));
@@ -121,7 +120,7 @@ class StoreController extends Controller
             return redirect()->route('admin.stores.index')->with('error', 'multi-vendor crontrols is incomplete');
         }
         $data = $request->validate([
-            'vendor_id' => 'required|exists:vendors,id',
+            'user_id' => 'required|exists:vendors,id',
             'name' => 'required|string|max:255',
             'slug' => 'nullable|string|max:255',
             'description' => 'nullable|string',
@@ -150,8 +149,8 @@ class StoreController extends Controller
         if (!$allow) {
             $superadmin = User::where('role', 'superadmin')->orderBy('id')->first();
             if ($superadmin) {
-                $saVendor = Vendor::where('email', $superadmin->email)->first();
-                if ($saVendor) { $data['vendor_id'] = $saVendor->id; }
+                $saVendor = User::where('email', $superadmin->email)->first();
+                if ($saVendor) { $data['user_id'] = $saVendor->id; }
             }
         }
         $store = Store::create($data);
@@ -183,9 +182,9 @@ class StoreController extends Controller
             Log::error('store_created_admin_mail_queue_failed', ['store_id' => $store->id, 'error' => $e->getMessage()]);
         }
         try {
-            $vendorEmail = $store->vendor?->email;
-            if ($vendorEmail) {
-                Mail::to($vendorEmail)->queue(new VendorStoreCreated($store));
+            $userEmail = User::find($store->user_id)?->email;
+            if ($userEmail) {
+                Mail::to($userEmail)->queue(new VendorStoreCreated($store));
             }
         } catch (\Throwable $e) {
             Log::error('store_created_vendor_mail_queue_failed', ['store_id' => $store->id, 'error' => $e->getMessage()]);
@@ -196,7 +195,7 @@ class StoreController extends Controller
     public function edit(Store $store)
     {
         Log::info('store_edit_viewed', ['user_id' => auth()->id(), 'store_id' => $store->id]);
-        $vendors = Vendor::orderBy('name')->get();
+        $users = User::where('role', 'business_owner')->orderBy('name')->get();
         $ownershipTypes = OwnershipType::orderBy('name')->get();
         $businessTypes = BusinessType::orderBy('name')->get();
         return view('admin.stores.edit', compact('store','vendors','ownershipTypes','businessTypes'));
@@ -206,7 +205,7 @@ class StoreController extends Controller
     {
         Log::info('store_update_requested', ['user_id' => auth()->id(), 'store_id' => $store->id, 'ip' => $request->ip()]);
         $data = $request->validate([
-            'vendor_id' => 'required|exists:vendors,id',
+            'user_id' => 'required|exists:vendors,id',
             'name' => 'required|string|max:255',
             'slug' => 'nullable|string|max:255',
             'description' => 'nullable|string',
@@ -272,9 +271,9 @@ class StoreController extends Controller
         // If status changed to a suspended-like state, notify vendor
         if ($oldStatus !== $store->status && in_array(strtolower($store->status), ['inactive','suspended'], true)) {
             try {
-                $vendorEmail = $store->vendor?->email;
-                if ($vendorEmail) {
-                    Mail::to($vendorEmail)->queue(new VendorStoreSuspended($store));
+                $userEmail = User::find($store->user_id)?->email;
+                if ($userEmail) {
+                    Mail::to($userEmail)->queue(new VendorStoreSuspended($store));
                 }
             } catch (\Throwable $e) {
                 Log::error('store_suspension_vendor_mail_queue_failed', ['store_id' => $store->id, 'error' => $e->getMessage()]);
@@ -355,9 +354,9 @@ class StoreController extends Controller
         $store->update(['status' => 'suspended']);
 
         try {
-            $vendorEmail = $store->vendor?->email;
-            if ($vendorEmail) {
-                Mail::to($vendorEmail)->queue(new VendorStoreSuspended($store, $data['reason']));
+            $userEmail = User::find($store->user_id)?->email;
+            if ($userEmail) {
+                Mail::to($userEmail)->queue(new VendorStoreSuspended($store, $data['reason']));
             }
         } catch (\Throwable $e) {
             Log::error('store_suspended_vendor_mail_queue_failed', ['store_id' => $store->id, 'error' => $e->getMessage()]);
@@ -376,9 +375,9 @@ class StoreController extends Controller
         $store->update(['status' => 'active']);
 
         try {
-            $vendorEmail = $store->vendor?->email;
-            if ($vendorEmail) {
-                Mail::to($vendorEmail)->queue(new VendorStoreReactivated($store, $data['reason']));
+            $userEmail = User::find($store->user_id)?->email;
+            if ($userEmail) {
+                Mail::to($userEmail)->queue(new VendorStoreReactivated($store, $data['reason']));
             }
         } catch (\Throwable $e) {
             Log::error('store_reactivated_vendor_mail_queue_failed', ['store_id' => $store->id, 'error' => $e->getMessage()]);

@@ -27,10 +27,10 @@ class EarlyPass extends Model
      * Mark this pass as used by a vendor.
      * @deprecated Use usages() relationship instead.
      */
-    public function markAsUsed(int $vendorId, ?int $storeId = null): void
+    public function markAsUsed(int $userId, ?int $storeId = null): void
     {
         $this->usages()->create([
-            'vendor_id' => $vendorId,
+            'user_id' => $userId,
             'store_id' => $storeId,
             'used_at' => now(),
         ]);

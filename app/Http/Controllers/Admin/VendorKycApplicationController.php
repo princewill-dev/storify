@@ -3,8 +3,8 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
-use App\Models\Vendor;
-use App\Models\VendorKycApplication;
+use App\Models\User;
+use App\Models\KycApplication;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -17,28 +17,28 @@ class VendorKycApplicationController extends Controller
     {
         $status = $request->query('status');
         $statusOptions = [
-            VendorKycApplication::STATUS_SUBMITTED => 'Submitted',
-            VendorKycApplication::STATUS_APPROVED => 'Approved',
-            VendorKycApplication::STATUS_REJECTED => 'Rejected',
+            KycApplication::STATUS_SUBMITTED => 'Submitted',
+            KycApplication::STATUS_APPROVED => 'Approved',
+            KycApplication::STATUS_REJECTED => 'Rejected',
         ];
 
-        $query = VendorKycApplication::query()
+        $query = KycApplication::query()
             ->with(['vendor'])
             ->latest('submitted_at')
             ->latest();
 
         if ($status && in_array($status, [
-            VendorKycApplication::STATUS_DRAFT,
-            VendorKycApplication::STATUS_SUBMITTED,
-            VendorKycApplication::STATUS_APPROVED,
-            VendorKycApplication::STATUS_REJECTED,
+            KycApplication::STATUS_DRAFT,
+            KycApplication::STATUS_SUBMITTED,
+            KycApplication::STATUS_APPROVED,
+            KycApplication::STATUS_REJECTED,
         ], true)) {
             $query->where('status', $status);
         }
 
         $applications = $query->paginate(20)->withQueryString();
 
-        $statusCounts = VendorKycApplication::select('status', DB::raw('count(*) as total'))
+        $statusCounts = KycApplication::select('status', DB::raw('count(*) as total'))
             ->groupBy('status')
             ->pluck('total', 'status');
 
@@ -47,11 +47,11 @@ class VendorKycApplicationController extends Controller
             'statusCounts' => $statusCounts,
             'status' => $status,
             'statusOptions' => $statusOptions,
-            'statusBadgeData' => VendorKycApplication::statusBadgeData(),
+            'statusBadgeData' => KycApplication::statusBadgeData(),
         ]);
     }
 
-    public function show(VendorKycApplication $application): View
+    public function show(KycApplication $application): View
     {
         $application->load(['vendor', 'reviewer']);
 
@@ -60,11 +60,11 @@ class VendorKycApplicationController extends Controller
             'application' => $application,
             'statusBadge' => $badge,
             'statusLabelLower' => strtolower($badge['label'] ?? ''),
-            'isActionable' => $application->status === VendorKycApplication::STATUS_SUBMITTED,
+            'isActionable' => $application->status === KycApplication::STATUS_SUBMITTED,
         ]);
     }
 
-    public function approve(Request $request, VendorKycApplication $application): RedirectResponse
+    public function approve(Request $request, KycApplication $application): RedirectResponse
     {
         $data = $request->validate([
             'review_notes' => ['nullable', 'string', 'max:2000'],
@@ -72,21 +72,21 @@ class VendorKycApplicationController extends Controller
 
         DB::transaction(function () use ($application, $data) {
             $application->fill([
-                'status' => VendorKycApplication::STATUS_APPROVED,
+                'status' => KycApplication::STATUS_APPROVED,
                 'review_notes' => $data['review_notes'] ?? null,
                 'reviewed_by' => auth()->id(),
                 'approved_at' => now(),
                 'rejected_at' => null,
             ])->save();
 
-            $application->vendor->forceFill([
-                'status' => Vendor::STATUS_ACTIVE,
+            User::find($application->user_id)->forceFill([
+                'status' => 'active',
             ])->save();
         });
 
         Log::info('admin.vendor_kyc.approved', [
             'application_id' => $application->id,
-            'vendor_id' => $application->vendor_id,
+            'user_id' => $application->user_id,
             'reviewer_id' => auth()->id(),
         ]);
 
@@ -94,7 +94,7 @@ class VendorKycApplicationController extends Controller
             ->with('success', 'KYC application approved successfully.');
     }
 
-    public function reject(Request $request, VendorKycApplication $application): RedirectResponse
+    public function reject(Request $request, KycApplication $application): RedirectResponse
     {
         $data = $request->validate([
             'review_notes' => ['required', 'string', 'max:2000'],
@@ -102,21 +102,21 @@ class VendorKycApplicationController extends Controller
 
         DB::transaction(function () use ($application, $data) {
             $application->fill([
-                'status' => VendorKycApplication::STATUS_REJECTED,
+                'status' => KycApplication::STATUS_REJECTED,
                 'review_notes' => $data['review_notes'],
                 'reviewed_by' => auth()->id(),
                 'approved_at' => null,
                 'rejected_at' => now(),
             ])->save();
 
-            $application->vendor->forceFill([
-                'status' => Vendor::STATUS_PENDING,
+            User::find($application->user_id)->forceFill([
+                'status' => 'pending',
             ])->save();
         });
 
         Log::info('admin.vendor_kyc.rejected', [
             'application_id' => $application->id,
-            'vendor_id' => $application->vendor_id,
+            'user_id' => $application->user_id,
             'reviewer_id' => auth()->id(),
         ]);
 

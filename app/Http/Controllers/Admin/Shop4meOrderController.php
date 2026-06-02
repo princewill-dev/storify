@@ -69,6 +69,6 @@ class Shop4meOrderController extends Controller
             'total_revenue' => (clone $statsBase)->where('payment_status', 'paid')->sum('total'),
         ];
 
-        return view('admin.order_management.shop4me_orders', compact('orders', 'stores', 'stats'));
+        return view('admin.orders.shop4me_orders', compact('orders', 'stores', 'stats'));
     }
 }

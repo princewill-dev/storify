@@ -2,7 +2,8 @@
 
 namespace App\Mail;
 
-use App\Models\VendorSubscription;
+use App\Models\Subscription;
+
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Mail\Mailable;
@@ -14,10 +15,10 @@ class TrialExpiryReminderMail extends Mailable implements ShouldQueue
 {
     use Queueable, SerializesModels;
 
-    public VendorSubscription $subscription;
+    public Subscription $subscription;
     public int $daysRemaining;
 
-    public function __construct(VendorSubscription $subscription, int $daysRemaining)
+    public function __construct(Subscription $subscription, int $daysRemaining)
     {
         $this->subscription = $subscription;
         $this->daysRemaining = $daysRemaining;

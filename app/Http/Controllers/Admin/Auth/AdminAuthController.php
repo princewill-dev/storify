@@ -8,7 +8,6 @@ use App\Http\Requests\Admin\Auth\OnboardRequest;
 use App\Http\Requests\Admin\Auth\VerifyOtpRequest;
 use App\Mail\OtpMail;
 use App\Models\User;
-use App\Models\Vendor;
 use App\Services\ActivityLogger;
 use App\Services\OtpService;
 use Illuminate\Http\RedirectResponse;
@@ -64,10 +63,11 @@ class AdminAuthController extends Controller
 
             // Automatically create the first vendor account
             try {
-                Vendor::create([
+                User::create([
                     'name' => $user->name,
                     'email' => $user->email,
                     'phone' => $user->phone,
+                    'role' => 'business_owner',
                     'status' => 'active',
                 ]);
             } catch (\Throwable $ve) {

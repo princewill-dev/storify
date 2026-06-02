@@ -12,6 +12,15 @@
                 </a>
             </li>
 
+            <li>
+                <a href="{{ route('admin.executive') }}" aria-expanded="false">
+                    <div class="menu-icon">
+                        <i class="fi fi-rr-chart-histogram"></i>
+                    </div>	
+                    <span class="nav-text">Executive</span>
+                </a>
+            </li>
+
             <!-- @if(!empty($adminMainStore))
             <li>
                 <a class="has-arrow" href="javascript:void(0);" aria-expanded="false">

@@ -6,10 +6,11 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Str;
+use App\Models\Concerns\BelongsToBusiness;
 
 class Payment extends Model
 {
-    use HasFactory;
+    use HasFactory, BelongsToBusiness;
 
     public const STATUS_PENDING = 'pending';
     public const STATUS_SUCCESS = 'success';
@@ -22,7 +23,7 @@ class Payment extends Model
 
     protected $fillable = [
         'payment_code',
-        'vendor_id',
+        'user_id',
         'vendor_subscription_id',
         'reference',
         'amount',
@@ -58,14 +59,14 @@ class Payment extends Model
         });
     }
 
-    public function vendor(): BelongsTo
+    public function business(): BelongsTo
     {
-        return $this->belongsTo(Vendor::class);
+        return $this->belongsTo(Business::class);
     }
 
     public function vendorSubscription(): BelongsTo
     {
-        return $this->belongsTo(VendorSubscription::class);
+        return $this->belongsTo(Subscription::class);
     }
 
     public function isSuccessful(): bool

@@ -21,7 +21,7 @@
 
 					<!-- Buttons -->	
 					<div class="btns-group">
-						<a href="{{ route('vendor.auth.register') }}" class="btn r-04 btn--theme hover--theme" style="display: inline-flex; align-items: center; min-height: 52px;">Create Your Store</a>
+						<a href="{{ route('management.auth.register') }}" class="btn r-04 btn--theme hover--theme" style="display: inline-flex; align-items: center; min-height: 52px;">Create Your Store</a>
 					</div>
 
 					<br>

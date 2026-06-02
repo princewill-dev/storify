@@ -7,14 +7,18 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Str;
+use App\Models\Concerns\BelongsToBusiness;
 
 class Order extends Model
 {
+    use BelongsToBusiness;
+
     protected $fillable = [
+        'business_id',
         'order_number',
         'customer_id',
         'store_id',
-        'vendor_id',
+        'user_id',
         'delivery_address_id',
         'delivery_route_id',
         'source',
@@ -29,6 +33,8 @@ class Order extends Model
         'status',
         'notes',
         'meta',
+        'staff_id',
+        'pos_session_id',
     ];
 
     protected $casts = [
@@ -39,6 +45,11 @@ class Order extends Model
         'status' => \App\Enums\OrderStatus::class,
         'meta' => 'array',
     ];
+
+    public function isPos(): bool
+    {
+        return $this->source === 'pos';
+    }
 
     public function isShop4me(): bool
     {
@@ -84,9 +95,9 @@ class Order extends Model
         return $this->belongsTo(Store::class);
     }
 
-    public function vendor(): BelongsTo
+    public function business(): BelongsTo
     {
-        return $this->belongsTo(Vendor::class);
+        return $this->belongsTo(Business::class);
     }
 
     public function items(): HasMany
@@ -117,6 +128,16 @@ class Order extends Model
     public function deliveryRoute(): BelongsTo
     {
         return $this->belongsTo(DeliveryRoute::class);
+    }
+
+    public function staff(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'staff_id');
+    }
+
+    public function posSession(): BelongsTo
+    {
+        return $this->belongsTo(PosSession::class);
     }
 
     public function getStatusLabelAttribute(): string

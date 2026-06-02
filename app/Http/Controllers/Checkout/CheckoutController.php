@@ -25,7 +25,7 @@ use Illuminate\Validation\ValidationException;
 use App\Mail\VendorOrderNotificationMail;
 use App\Enums\PaymentStatus;
 use App\Services\PaystackService;
-use App\Models\Vendor;
+use App\Models\User;
 use App\Enums\OrderStatus;
 
 class CheckoutController extends Controller
@@ -435,15 +435,15 @@ class CheckoutController extends Controller
             $total = round($subtotal + $shippingFee + $taxAmount, 2);
 
             // Verify vendor exists to avoid foreign key constraint violation
-            $vendorId = null;
-            if ($store->vendor_id) {
-                $vendorExists = Vendor::where('id', $store->vendor_id)->exists();
-                $vendorId = $vendorExists ? $store->vendor_id : null;
+            $userId = null;
+            if ($store->user_id) {
+                $userExists = User::where('id', $store->user_id)->exists();
+                $userId = $userExists ? $store->user_id : null;
             }
 
             $order = Order::create([
                 'store_id' => $store->id,
-                'vendor_id' => $vendorId,
+                'user_id' => $userId,
                 'customer_id' => $customer->id,
                 'cart_id' => $cart->id,
                 'source' => $cartSource,
@@ -461,6 +461,27 @@ class CheckoutController extends Controller
 
             foreach ($orderItems as $itemData) {
                 OrderItem::create(array_merge(['order_id' => $order->id], $itemData));
+            }
+
+            foreach ($orderItems as $itemData) {
+                if (!empty($itemData['product_id']) && isset($itemData['quantity'])) {
+                    $product = Product::find($itemData['product_id']);
+                    if ($product && $product->quantity >= (int) $itemData['quantity']) {
+                        $product->decrement('quantity', (int) $itemData['quantity']);
+                        \App\Models\StockMovement::create([
+                            'product_id' => $product->id,
+                            'from_location_type' => \App\Models\Store::class,
+                            'from_location_id' => $store->id,
+                            'quantity' => (int) $itemData['quantity'],
+                            'type' => \App\Enums\StockMovementType::REMOVED->value,
+                            'reference_type' => \App\Models\Order::class,
+                            'reference_id' => $order->id,
+                            'performed_by_type' => \App\Models\Customer::class,
+                            'performed_by_id' => $customer->id,
+                            'notes' => 'Storefront order — #' . $order->order_number,
+                        ]);
+                    }
+                }
             }
 
             DB::commit();
@@ -972,7 +993,27 @@ class CheckoutController extends Controller
                     'quantity' => $cartItem->qty,
                     'unit_price' => $unitPrice,
                     'subtotal' => $itemSubtotal,
-                ]);
+                    ]);
+            }
+
+            // Decrement stock for ordered products
+            foreach ($cart->items as $cartItem) {
+                $product = $cartItem->product;
+                if ($product && $product->quantity >= $cartItem->qty) {
+                    $product->decrement('quantity', $cartItem->qty);
+                    \App\Models\StockMovement::create([
+                        'product_id' => $product->id,
+                        'from_location_type' => \App\Models\Store::class,
+                        'from_location_id' => $store->id,
+                        'quantity' => $cartItem->qty,
+                        'type' => \App\Enums\StockMovementType::REMOVED->value,
+                        'reference_type' => \App\Models\Order::class,
+                        'reference_id' => $order->id,
+                        'performed_by_type' => \App\Models\Customer::class,
+                        'performed_by_id' => $customer->id,
+                        'notes' => 'LiveFirst order — #' . $order->order_number,
+                    ]);
+                }
             }
 
             // Create transaction for 10% down payment

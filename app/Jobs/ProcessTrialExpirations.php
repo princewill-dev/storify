@@ -4,7 +4,7 @@ namespace App\Jobs;
 
 use App\Mail\TrialExpiryReminderMail;
 use App\Mail\TrialExpiredMail;
-use App\Models\VendorSubscription;
+use App\Models\Subscription;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -24,9 +24,9 @@ class ProcessTrialExpirations implements ShouldQueue
 
     public function handle(): void
     {
-        $trialSubscriptions = VendorSubscription::active()
+        $trialSubscriptions = Subscription::active()
             ->whereHas('subscriptionPlan', fn ($q) => $q->where('is_trial', true))
-            ->with(['vendor', 'subscriptionPlan'])
+            ->with(['user', 'subscriptionPlan'])
             ->get();
 
         if ($trialSubscriptions->isEmpty()) {
@@ -44,21 +44,21 @@ class ProcessTrialExpirations implements ShouldQueue
             } catch (\Throwable $e) {
                 Log::error('trial_expirations.subscription_error', [
                     'subscription_id' => $subscription->id,
-                    'vendor_id' => $subscription->vendor_id,
+                    'user_id' => $subscription->user_id,
                     'error' => $e->getMessage(),
                 ]);
             }
         }
     }
 
-    private function processSubscription(VendorSubscription $subscription): void
+    private function processSubscription(Subscription $subscription): void
     {
         $daysElapsed = (int) $subscription->starts_at->diffInDays(now());
         $trialDays = $subscription->subscriptionPlan->trial_days ?? 7;
         $daysRemaining = $trialDays - $daysElapsed;
-        $vendor = $subscription->vendor;
+        $user = $subscription->vendor;
 
-        if (!$vendor || !$vendor->email) {
+        if (!$user || !$user->email) {
             return;
         }
 
@@ -70,12 +70,12 @@ class ProcessTrialExpirations implements ShouldQueue
 
         // Day 5 — 2 days remaining
         if ($daysElapsed >= ($trialDays - 2) && $daysRemaining > 0 && !$subscription->trial_reminder_day5_sent_at) {
-            Mail::to($vendor->email)->queue(new TrialExpiryReminderMail($subscription, min($daysRemaining, 2)));
+            Mail::to($user->email)->queue(new TrialExpiryReminderMail($subscription, min($daysRemaining, 2)));
             $subscription->update(['trial_reminder_day5_sent_at' => now()]);
 
             Log::info('trial_expirations.reminder_sent', [
                 'subscription_id' => $subscription->id,
-                'vendor_id' => $vendor->id,
+                'user_id' => $user->id,
                 'day' => 'day5',
                 'days_remaining' => $daysRemaining,
             ]);
@@ -83,12 +83,12 @@ class ProcessTrialExpirations implements ShouldQueue
 
         // Day 6 — 1 day remaining
         if ($daysElapsed >= ($trialDays - 1) && $daysRemaining > 0 && !$subscription->trial_reminder_day6_sent_at) {
-            Mail::to($vendor->email)->queue(new TrialExpiryReminderMail($subscription, min($daysRemaining, 1)));
+            Mail::to($user->email)->queue(new TrialExpiryReminderMail($subscription, min($daysRemaining, 1)));
             $subscription->update(['trial_reminder_day6_sent_at' => now()]);
 
             Log::info('trial_expirations.reminder_sent', [
                 'subscription_id' => $subscription->id,
-                'vendor_id' => $vendor->id,
+                'user_id' => $user->id,
                 'day' => 'day6',
                 'days_remaining' => $daysRemaining,
             ]);
@@ -97,30 +97,30 @@ class ProcessTrialExpirations implements ShouldQueue
         // Day 7 — last day
         if ($daysElapsed >= $trialDays && $daysRemaining <= 0 && !$subscription->trial_reminder_day7_sent_at) {
             // This is the last day - will expire tomorrow
-            Mail::to($vendor->email)->queue(new TrialExpiryReminderMail($subscription, 0));
+            Mail::to($user->email)->queue(new TrialExpiryReminderMail($subscription, 0));
             $subscription->update(['trial_reminder_day7_sent_at' => now()]);
 
             Log::info('trial_expirations.reminder_sent', [
                 'subscription_id' => $subscription->id,
-                'vendor_id' => $vendor->id,
+                'user_id' => $user->id,
                 'day' => 'day7',
                 'days_remaining' => 0,
             ]);
         }
     }
 
-    private function expireTrial(VendorSubscription $subscription): void
+    private function expireTrial(Subscription $subscription): void
     {
-        $vendor = $subscription->vendor;
+        $user = $subscription->vendor;
 
         // Expire the subscription
         $subscription->update([
-            'status' => VendorSubscription::STATUS_EXPIRED,
+            'status' => Subscription::STATUS_EXPIRED,
             'trial_expired_sent_at' => now(),
         ]);
 
         // Deactivate all vendor stores
-        $stores = $vendor->stores()
+        $stores = $user->stores()
             ->where('status', \App\Models\Store::STATUS_ACTIVE)
             ->get();
 
@@ -129,11 +129,11 @@ class ProcessTrialExpirations implements ShouldQueue
         }
 
         // Send expiry email
-        Mail::to($vendor->email)->queue(new TrialExpiredMail($subscription));
+        Mail::to($user->email)->queue(new TrialExpiredMail($subscription));
 
         Log::info('trial_expirations.trial_expired', [
             'subscription_id' => $subscription->id,
-            'vendor_id' => $vendor->id,
+            'user_id' => $user->id,
             'stores_deactivated' => $stores->count(),
         ]);
     }

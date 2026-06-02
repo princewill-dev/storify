@@ -146,7 +146,7 @@
             <div class="col-md-9">
               <select name="vendor_id" class="form-select" required>
                 <option value="">Select a vendor...</option>
-                @foreach(($vendors ?? []) as $v)
+                @foreach(($users ?? []) as $v)
                   <option value="{{ $v->id }}">{{ $v->name }}</option>
                 @endforeach
               </select>
@@ -263,7 +263,7 @@
             <div class="col-md-3"><label class="form-label mb-md-0">Vendor</label></div>
             <div class="col-md-9">
               <select name="vendor_id" id="editStoreVendor" class="form-select" required>
-                @foreach(($vendors ?? []) as $v)
+                @foreach(($users ?? []) as $v)
                   <option value="{{ $v->id }}">{{ $v->name }}</option>
                 @endforeach
               </select>

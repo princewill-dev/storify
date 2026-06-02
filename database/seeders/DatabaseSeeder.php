@@ -37,6 +37,10 @@ class DatabaseSeeder extends Seeder
             KycDocumentTypeSeeder::class,
             FeatureSeeder::class,
             SubscriptionPlanSeeder::class,
+            BusinessSeeder::class,
+            SpatiePermissionSeeder::class,
+            ProductAndStockSeeder::class,
+            CustomerSeeder::class,
         ]);
     }
 }

@@ -4,7 +4,9 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Auth;
 
 require __DIR__ . '/v1/admin_auth.php';
-require __DIR__ . '/v1/vendor.php';
+require __DIR__ . '/v1/management.php';
+require __DIR__ . '/v1/vendor.php'; // legacy redirects
+require __DIR__ . '/v1/staff.php';
 // require __DIR__ . '/v1/checkout.php'; // Moved to storefront.php
 require __DIR__ . '/v1/shop4me.php';
 require __DIR__ . '/v1/account.php';

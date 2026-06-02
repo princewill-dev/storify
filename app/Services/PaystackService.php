@@ -438,4 +438,119 @@ class PaystackService
             ];
         }
     }
+
+    /**
+     * Set dynamic keys from a business gateway configuration.
+     */
+    public function usingGateway(\App\Models\StorePaymentGateway $gateway): self
+    {
+        $this->secretKey = $gateway->secret_key;
+        $this->publicKey = $gateway->public_key;
+        return $this;
+    }
+
+    /**
+     * Test API keys quickly by fetching banks.
+     */
+    public function testConnection(): array
+    {
+        try {
+            $response = Http::withToken($this->secretKey)
+                ->get("{$this->baseUrl}/bank", ['perPage' => 1]);
+
+            $body = $response->json();
+
+            if ($response->successful() && ($body['status'] ?? false)) {
+                return [
+                    'success' => true,
+                    'message' => $body['message'] ?? 'Connection successful',
+                ];
+            }
+
+            return [
+                'success' => false,
+                'message' => $body['message'] ?? 'Authentication failed. Please check your keys.',
+            ];
+        } catch (\Exception $e) {
+            return [
+                'success' => false,
+                'message' => 'Unable to connect to Paystack. ' . $e->getMessage(),
+            ];
+        }
+    }
+
+    /**
+     * List registered webhooks on the Paystack account.
+     */
+    public function getWebhooks(): array
+    {
+        try {
+            $response = Http::withToken($this->secretKey)
+                ->get("{$this->baseUrl}/webhook");
+
+            $body = $response->json();
+
+            if ($response->successful() && ($body['status'] ?? false)) {
+                return [
+                    'success' => true,
+                    'data' => $body['data'] ?? [],
+                ];
+            }
+
+            return [
+                'success' => false,
+                'message' => $body['message'] ?? 'Could not fetch webhooks.',
+            ];
+        } catch (\Exception $e) {
+            return ['success' => false, 'message' => $e->getMessage()];
+        }
+    }
+
+    /**
+     * Register a new webhook URL with Paystack.
+     */
+    public function createWebhook(string $url): array
+    {
+        try {
+            $response = Http::withToken($this->secretKey)
+                ->post("{$this->baseUrl}/webhook", ['url' => $url]);
+
+            $body = $response->json();
+
+            if ($response->successful() && ($body['status'] ?? false)) {
+                return [
+                    'success' => true,
+                    'message' => 'Webhook configured successfully.',
+                    'data' => $body['data'] ?? [],
+                ];
+            }
+
+            return [
+                'success' => false,
+                'message' => $body['message'] ?? 'Could not configure webhook.',
+            ];
+        } catch (\Exception $e) {
+            return ['success' => false, 'message' => $e->getMessage()];
+        }
+    }
+
+    /**
+     * Delete a webhook by ID.
+     */
+    public function deleteWebhook(int $id): array
+    {
+        try {
+            $response = Http::withToken($this->secretKey)
+                ->delete("{$this->baseUrl}/webhook/{$id}");
+
+            $body = $response->json();
+
+            return [
+                'success' => $response->successful() && ($body['status'] ?? false),
+                'message' => $body['message'] ?? 'Deleted',
+            ];
+        } catch (\Exception $e) {
+            return ['success' => false, 'message' => $e->getMessage()];
+        }
+    }
 }

@@ -7,10 +7,11 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
 use App\Enums\Shop4meRequestStatus;
 use App\Enums\Shop4mePaymentStatus;
+use App\Models\Concerns\BelongsToBusiness;
 
 class Shop4meRequest extends Model
 {
-    use HasFactory;
+    use HasFactory, BelongsToBusiness;
 
     protected $fillable = [
         'list_id', 'user_id', 'customer_id', 'store_id', 'currency_id',

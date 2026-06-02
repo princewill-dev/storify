@@ -4,10 +4,13 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Home\HomePageController;
 use App\Http\Controllers\Home\ProductController;
 use App\Http\Controllers\Home\TrackingController;
-// use App\Http\Controllers\Home\BulkOrderController;
 use App\Http\Controllers\Shop4me\Shop4meController;
 use App\Http\Controllers\Storefront\StoreSupportController;
 use App\Http\Controllers\Storefront\StoreOrderController;
+use App\Http\Controllers\Payment\PaystackWebhookController;
+
+// Public webhooks
+Route::post('/webhooks/paystack', [PaystackWebhookController::class, 'handle'])->name('webhooks.paystack');
 use App\Http\Controllers\Cart\CartController;
 use App\Http\Controllers\Cart\CartApiController;
 // use App\Http\Controllers\BulkCartController;

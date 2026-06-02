@@ -43,7 +43,7 @@
             </ul>
 
             <p style="text-align: center;">
-                <a href="{{ route('vendor.subscription.plan', ['vendor' => $subscription->vendor]) }}" class="button">Upgrade Now</a>
+                <a href="{{ route('management.subscription.plan', ['vendor' => $subscription->vendor]) }}" class="button">Upgrade Now</a>
             </p>
 
             <p style="color: #666; font-size: 14px;">If you have any questions, our support team is happy to help.</p>

@@ -80,7 +80,7 @@
                     
                 </div>
                 <br>
-                <p class="text-center">Are you a vendor? <a href="{{ route('vendor.auth.login') }}">Login</a></p>
+                <p class="text-center">Are you a vendor? <a href="{{ route('management.auth.login') }}">Login</a></p>
             </div>
         </div>
     </section>

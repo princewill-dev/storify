@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use App\Models\SubscriptionPlan;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Str;
 
 class SubscriptionPlanSeeder extends Seeder
 {
@@ -13,6 +14,7 @@ class SubscriptionPlanSeeder extends Seeder
         SubscriptionPlan::updateOrCreate(
             ['is_trial' => true],
             [
+                'plan_code' => Str::random(24),
                 'name' => 'Free Trial',
                 'description' => 'Try Storify free for 7 days — full access to all features',
                 'amount' => 0.00,
@@ -40,6 +42,7 @@ class SubscriptionPlanSeeder extends Seeder
         SubscriptionPlan::updateOrCreate(
             ['is_default' => true],
             [
+                'plan_code' => Str::random(24),
                 'name' => 'Vendor Yearly Subscription',
                 'description' => 'Annual subscription plan for vendor services on the platform',
                 'amount' => 50000.00,

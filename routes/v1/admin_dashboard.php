@@ -2,6 +2,7 @@
 
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Admin\AdminDashboardController;
+use App\Http\Controllers\Admin\ExecutiveDashboardController;
 use App\Http\Controllers\Admin\AdminSettingsController;
 use App\Http\Controllers\Admin\ActivityLogController;
 use App\Http\Controllers\Admin\VendorController;
@@ -32,6 +33,7 @@ use App\Http\Controllers\Admin\SubscriptionPlanController;
 // Admin Dashboard Routes (protected by auth middleware)
 Route::middleware(['auth'])->group(function () {
     Route::get('/superadmin/dashboard', [AdminDashboardController::class, 'index'])->name('admin.dashboard');
+    Route::get('/superadmin/executive', [ExecutiveDashboardController::class, 'index'])->name('admin.executive');
 
     Route::get('/superadmin/settings', [AdminSettingsController::class, 'edit'])->name('admin.settings.edit');
     Route::post('/superadmin/settings', [AdminSettingsController::class, 'update'])->name('admin.settings.update');

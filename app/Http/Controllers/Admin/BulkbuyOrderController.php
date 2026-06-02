@@ -63,6 +63,6 @@ class BulkbuyOrderController extends Controller
             'total_revenue' => (clone $statsBase)->where('payment_status', 'paid')->sum('total'),
         ];
 
-        return view('admin.order_management.bulkbuy_orders', compact('orders', 'stores', 'stats'));
+        return view('admin.orders.bulkbuy_orders', compact('orders', 'stores', 'stats'));
     }
 }

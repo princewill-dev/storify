@@ -4,11 +4,12 @@ namespace App\Enums;
 
 enum TransactionStatus: string
 {
-    case PENDING = 'pending';
-    case PAID = 'paid';
+    case PENDING   = 'pending';
+    case PAID      = 'paid';
     case CONFIRMED = 'confirmed';
-    case REFUNDED = 'refunded';
-    case CANCELED = 'cancelled';
+    case REFUNDED  = 'refunded';
+    case REFUND_PENDING = 'refund_pending';
+    case CANCELED  = 'cancelled';
 
     public function label(): string
     {

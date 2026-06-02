@@ -120,7 +120,7 @@ class OrderController extends Controller
         
         $stats['total_revenue'] = Order::whereHas('transactions', fn($q) => $q->where('status', \App\Enums\TransactionStatus::CONFIRMED->value))->sum('total');
 
-        return view('admin.order_management.index', compact('orders', 'stores', 'stats'))->with([
+        return view('admin.orders.index', compact('orders', 'stores', 'stats'))->with([
             'orderStatusBadges' => OrderStatus::badgeData(),
         ]);
     }
@@ -146,7 +146,7 @@ class OrderController extends Controller
             ->latest()
             ->get();
 
-        return view('admin.order_management.show', compact('order', 'activityLogs'));
+        return view('admin.orders.show', compact('order', 'activityLogs'));
     }
 
     /**
@@ -156,7 +156,7 @@ class OrderController extends Controller
     {
         $order->load(['customer', 'store', 'items.product', 'deliveryRoute']);
         
-        return view('admin.order_management.edit', compact('order'));
+        return view('admin.orders.edit', compact('order'));
     }
 
     /**

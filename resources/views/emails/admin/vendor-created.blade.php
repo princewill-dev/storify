@@ -35,19 +35,19 @@
                 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;color:#0f172a;">
                   <tr>
                     <td style="padding:6px 0;width:160px;color:#64748b;">Vendor Name</td>
-                    <td style="padding:6px 0;">{{ $vendor->name }}</td>
+                    <td style="padding:6px 0;">{{ $user->name }}</td>
                   </tr>
                   <tr>
                     <td style="padding:6px 0;width:160px;color:#64748b;">Email</td>
-                    <td style="padding:6px 0;">{{ $vendor->email ?? '—' }}</td>
+                    <td style="padding:6px 0;">{{ $user->email ?? '—' }}</td>
                   </tr>
                   <tr>
                     <td style="padding:6px 0;width:160px;color:#64748b;">Phone</td>
-                    <td style="padding:6px 0;">{{ $vendor->phone ?? '—' }}</td>
+                    <td style="padding:6px 0;">{{ $user->phone ?? '—' }}</td>
                   </tr>
                   <tr>
                     <td style="padding:6px 0;width:160px;color:#64748b;">Status</td>
-                    <td style="padding:6px 0;"><span style="background:#eef2ff;color:#1e40af;padding:2px 8px;border-radius:999px;">{{ $vendor->status }}</span></td>
+                    <td style="padding:6px 0;"><span style="background:#eef2ff;color:#1e40af;padding:2px 8px;border-radius:999px;">{{ $user->status }}</span></td>
                   </tr>
                 </table>
               </div>
@@ -55,8 +55,8 @@
           </tr>
           <tr>
             <td style="padding:0 32px 28px;">
-              @php($vendorsUrl = app('router')->has('admin.vendors.index') ? route('admin.vendors.index') : url('/superadmin/vendors'))
-              <a href="{{ $vendorsUrl }}" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;border-radius:8px;padding:10px 16px;font-weight:600;font-size:14px;">View vendors</a>
+              @php($usersUrl = app('router')->has('admin.vendors.index') ? route('admin.vendors.index') : url('/superadmin/vendors'))
+              <a href="{{ $usersUrl }}" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;border-radius:8px;padding:10px 16px;font-weight:600;font-size:14px;">View vendors</a>
             </td>
           </tr>
           <tr>

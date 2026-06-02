@@ -10,7 +10,6 @@ use App\Models\Setting;
 use App\Models\Store;
 use App\Models\Customer;
 use App\Models\Order;
-use App\Models\Vendor;
 use App\Models\Product;
 use App\Models\Transaction;
 use Illuminate\Http\Request;
@@ -56,8 +55,8 @@ class AdminDashboardController extends Controller
                 ->count(),
             
             // Vendor & Store metrics
-            'total_vendors' => Vendor::count(),
-            'active_vendors' => Vendor::where('status', 'active')->count(),
+            'total_vendors' => User::where('role', 'business_owner')->count(),
+            'active_vendors' => User::where('role', 'business_owner')->where('status', 'active')->count(),
             'total_stores' => Store::count(),
             'active_stores' => Store::where('status', 'active')->count(),
             
