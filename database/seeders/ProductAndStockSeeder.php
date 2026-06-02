@@ -87,11 +87,25 @@ class ProductAndStockSeeder extends Seeder
         'High-Value Cage — Secure Storage',
     ];
 
-    public function run(?int $businessId = null): void
+    public function run(?int $businessId = null, ?int $warehouseId = null): void
     {
-        $business = $businessId
-            ? Business::find($businessId)
-            : Business::first();
+        $warehouse = null;
+        $business = null;
+
+        if ($warehouseId) {
+            $warehouse = Warehouse::find($warehouseId);
+            if (!$warehouse) {
+                $this->command?->warn("Warehouse ID {$warehouseId} not found.");
+                return;
+            }
+            $business = $warehouse->business;
+        }
+
+        if (!$business) {
+            $business = $businessId
+                ? Business::find($businessId)
+                : Business::first();
+        }
 
         if (!$business) {
             $this->command?->warn('No business found. Ensure BusinessSeeder has run first.');
@@ -104,7 +118,10 @@ class ProductAndStockSeeder extends Seeder
             return;
         }
 
-        $warehouse = Warehouse::where('business_id', $business->id)->first();
+        if (!$warehouse) {
+            $warehouse = Warehouse::where('business_id', $business->id)->first();
+        }
+
         if (!$warehouse) {
             $this->command?->warn("No warehouse found for business [{$business->name}]. Skipping warehouse stock.");
         }
