@@ -28,11 +28,11 @@
                             </tr>
                         </thead>
                         <tbody>
-                            @forelse($vendors as $vendor)
+                            @forelse($users as $user)
                                 <tr>
-                                    <td>{{ $vendor->name }}</td>
+                                    <td>{{ $user->name }}</td>
                                     <td>
-                                        @php($kyc = $vendor->kycApplication)
+                                        @php($kyc = $user->kycApplication)
                                         @php($kycBadge = $kyc ? ($kycStatusBadgeData[$kyc->status] ?? null) : null)
                                         @if($kyc)
                                             <span class="badge {{ $kycBadge['class'] ?? 'bg-secondary' }}">
@@ -43,24 +43,24 @@
                                             <span class="text-muted small">Not started</span>
                                         @endif
                                     </td>
-                                    <td>{{ $vendor->email }}</td>
-                                    <td>{{ $vendor->phone }}</td>
+                                    <td>{{ $user->email }}</td>
+                                    <td>{{ $user->phone }}</td>
                                     <td>
-                                        @php($shownStores = $vendor->stores ?? collect())
+                                        @php($shownStores = $user->stores ?? collect())
                                         @forelse($shownStores as $s)
                                             <a href="{{ route('admin.stores.show', $s) }}" class="badge bg-light text-dark text-decoration-none me-1">{{ $s->name }}</a>
                                         @empty
                                             <span class="text-muted">—</span>
                                         @endforelse
-                                        @php($extraCount = max(0, (int)($vendor->stores_count ?? 0) - $shownStores->count()))
+                                        @php($extraCount = max(0, (int)($user->stores_count ?? 0) - $shownStores->count()))
                                         @if($extraCount > 0)
-                                            <a href="{{ route('admin.vendors.show', $vendor) }}" class="small text-muted">+{{ $extraCount }} more</a>
+                                            <a href="{{ route('admin.vendors.show', $user) }}" class="small text-muted">+{{ $extraCount }} more</a>
                                         @endif
                                     </td>
                                     <td>
-                                        @php($vendorBadge = $vendorStatusBadgeData[strtolower($vendor->status)] ?? null)
-                                        <span class="badge {{ $vendorBadge['class'] ?? 'bg-secondary' }}">
-                                            {{ $vendorBadge['label'] ?? ucfirst($vendor->status) }}
+                                        @php($userBadge = $userStatusBadgeData[strtolower($user->status)] ?? null)
+                                        <span class="badge {{ $userBadge['class'] ?? 'bg-secondary' }}">
+                                            {{ $userBadge['label'] ?? ucfirst($user->status) }}
                                         </span>
                                     </td>
                                     <td class="text-end">
@@ -70,39 +70,39 @@
                                             </button>
                                             <ul class="dropdown-menu dropdown-menu-end">
                                                 <li>
-                                                    <a class="dropdown-item" href="{{ route('admin.vendors.show', $vendor) }}">
+                                                    <a class="dropdown-item" href="{{ route('admin.vendors.show', $user) }}">
                                                         <i class="fa fa-eye me-2 text-muted"></i>View
                                                     </a>
                                                 </li>
                                                 <li>
                                                     <button class="dropdown-item d-flex align-items-center" type="button" data-bs-toggle="modal" data-bs-target="#editVendorModal"
-                                                            data-action="{{ route('admin.vendors.update', $vendor) }}"
-                                                            data-name="{{ $vendor->name }}"
-                                                            data-slug="{{ $vendor->slug }}"
-                                                            data-email="{{ $vendor->email }}"
-                                                            data-phone="{{ $vendor->phone }}"
-                                                            data-status="{{ $vendor->status }}">
+                                                            data-action="{{ route('admin.vendors.update', $user) }}"
+                                                            data-name="{{ $user->name }}"
+                                                            data-slug="{{ $user->slug }}"
+                                                            data-email="{{ $user->email }}"
+                                                            data-phone="{{ $user->phone }}"
+                                                            data-status="{{ $user->status }}">
                                                         <i class="fa fa-pen me-2 text-muted"></i>Edit
                                                     </button>
                                                 </li>
                                                 <li>
                                                     <button class="dropdown-item d-flex align-items-center" type="button" data-bs-toggle="modal" data-bs-target="#activateVendorModal"
-                                                            data-action="{{ route('admin.vendors.activate', $vendor) }}"
-                                                            data-vendor-name="{{ $vendor->name }}">
+                                                            data-action="{{ route('admin.vendors.activate', $user) }}"
+                                                            data-vendor-name="{{ $user->name }}">
                                                         <i class="fa fa-check me-2 text-muted"></i>Activate
                                                     </button>
                                                 </li>
                                                 <li>
                                                     <button class="dropdown-item d-flex align-items-center" type="button" data-bs-toggle="modal" data-bs-target="#suspendVendorModal"
-                                                            data-action="{{ route('admin.vendors.suspend', $vendor) }}"
-                                                            data-vendor-name="{{ $vendor->name }}">
+                                                            data-action="{{ route('admin.vendors.suspend', $user) }}"
+                                                            data-vendor-name="{{ $user->name }}">
                                                         <i class="fa fa-ban me-2 text-muted"></i>Suspend
                                                     </button>
                                                 </li>
                                                 <li>
                                                     <button class="dropdown-item d-flex align-items-center" type="button" data-bs-toggle="modal" data-bs-target="#deleteVendorModal"
-                                                            data-action="{{ route('admin.vendors.destroy', $vendor) }}"
-                                                            data-vendor-name="{{ $vendor->name }}">
+                                                            data-action="{{ route('admin.vendors.destroy', $user) }}"
+                                                            data-vendor-name="{{ $user->name }}">
                                                         <i class="fa fa-trash me-2 text-muted"></i>Delete
                                                     </button>
                                                 </li>
@@ -116,7 +116,7 @@
                         </tbody>
                     </table>
                 </div>
-                <div class="mt-2">{{ $vendors->links() }}</div>
+                <div class="mt-2">{{ $users->links() }}</div>
             </div>
         </div>
     </div>

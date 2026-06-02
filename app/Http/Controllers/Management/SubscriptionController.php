@@ -68,7 +68,7 @@ class SubscriptionController extends Controller
         ]);
 
         return view('management.subscription.plan', [
-            'vendor' => $user,
+            'user' => $user,
             'plans' => $plans,
             'defaultPlan' => $defaultPlan,
             'paystackPublicKey' => $this->paystackService->getPublicKey(),
@@ -633,7 +633,7 @@ class SubscriptionController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Early access activated! Redirecting...',
-                'redirect_url' => route('management.store.success', ['vendor' => $user]),
+                'redirect_url' => route('management.store.success', ['user' => $user]),
             ]);
 
         } catch (\Throwable $e) {
@@ -656,12 +656,12 @@ class SubscriptionController extends Controller
      */
     public function showPlans(Request $request): View|RedirectResponse
     {
-        $vendor = $request->user();
-        if (!$vendor) return redirect()->route('management.auth.login');
-        if (!$vendor->is_verified) return redirect()->route('management.auth.verify-otp', ['vendor' => $vendor]);
+        $user = $request->user();
+        if (!$user) return redirect()->route('management.auth.login');
+        if (!$user->is_verified) return redirect()->route('management.auth.verify-otp', ['user' => $user]);
 
         $plans = SubscriptionPlan::active()->orderBy('sort_order')->get();
-        return view('auth.business.plans', compact('vendor', 'plans'));
+        return view('auth.business.plans', compact('user', 'plans'));
     }
 
     public function validateCoupon(Request $request): JsonResponse
@@ -689,8 +689,8 @@ class SubscriptionController extends Controller
 
     public function showCheckout(Request $request, SubscriptionPlan $plan): View|RedirectResponse
     {
-        $vendor = $request->user();
-        if (!$vendor) return redirect()->route('management.auth.login');
+        $user = $request->user();
+        if (!$user) return redirect()->route('management.auth.login');
 
         $couponCode = session('applied_coupon_code', $request->coupon_code);
         $discount = 0;
@@ -704,7 +704,7 @@ class SubscriptionController extends Controller
 
         $total = max(0, (float) $plan->amount - $discount);
 
-        return view('auth.business.checkout', compact('vendor', 'plan', 'couponCode', 'discount', 'total'));
+        return view('auth.business.checkout', compact('user', 'plan', 'couponCode', 'discount', 'total'));
     }
 
     private function sendStoreActivationEmails(User $user): void

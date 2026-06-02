@@ -11,6 +11,7 @@ use App\Models\User;
 class SpatiePermissionSeeder extends Seeder
 {
     protected array $permissionGroups = [
+        'dashboard'     => ['view'],
         'warehouses'    => ['view', 'create', 'edit', 'delete', 'transfer', 'receive', 'approve_transfer'],
         'products'      => ['view', 'create', 'edit', 'delete', 'stock_adjust'],
         'orders'        => ['view', 'create', 'edit', 'status_update', 'refund', 'cancel', 'assign_delivery'],
@@ -33,10 +34,53 @@ class SpatiePermissionSeeder extends Seeder
             'description' => 'Full unrestricted access to everything.',
             'permissions' => 'all',
         ],
+        'managing_director' => [
+            'name' => 'Managing Director',
+            'description' => 'Strategic oversight: branch performance, sales, stock analytics, executive dashboard.',
+            'permissions' => [
+                'dashboard'    => ['view'],
+                'stores'       => ['view'],
+                'products'     => ['view'],
+                'orders'       => ['view'],
+                'pos'          => ['view_history'],
+                'staff'        => ['view'],
+                'customers'    => ['view'],
+                'warehouses'   => ['view'],
+                'transactions' => ['view', 'export'],
+                'transfers'    => ['view'],
+                'reports'      => ['view_sales', 'view_inventory', 'view_staff', 'view_finance', 'export'],
+                'settings'     => ['view'],
+                'deliveries'   => ['view'],
+                'support'      => ['view_tickets'],
+                'coupons'      => ['view'],
+            ],
+        ],
+        'chief_financial_officer' => [
+            'name' => 'Chief Financial Officer',
+            'description' => 'Financial control: transactions, revenue, payment settings, GL reconciliation, refund approvals.',
+            'permissions' => [
+                'dashboard'    => ['view'],
+                'transactions' => ['view', 'confirm', 'reject', 'refund', 'export'],
+                'reports'      => ['view_sales', 'view_finance', 'export'],
+                'settings'     => ['view', 'payment', 'subscription'],
+                'orders'       => ['view', 'refund'],
+                'coupons'      => ['view', 'create', 'edit', 'delete'],
+                'stores'       => ['view'],
+                'customers'    => ['view'],
+                'pos'          => ['view_history'],
+                'staff'        => ['view'],
+                'products'     => ['view'],
+                'warehouses'   => ['view'],
+                'transfers'    => ['view'],
+                'deliveries'   => ['view'],
+                'support'      => ['view_tickets'],
+            ],
+        ],
         'manager' => [
             'name' => 'Manager',
             'description' => 'Oversees all store operations, staff, warehouses, orders, and reports.',
             'permissions' => [
+                'dashboard'    => ['view'],
                 'stores'       => ['view', 'create', 'edit', 'suspend', 'settings'],
                 'products'     => ['view', 'create', 'edit', 'delete', 'stock_adjust'],
                 'orders'       => ['view', 'status_update', 'refund', 'cancel', 'assign_delivery'],
@@ -57,8 +101,9 @@ class SpatiePermissionSeeder extends Seeder
             'name' => 'Store Manager',
             'description' => 'Manages a store: products, orders, POS, staff, and reports.',
             'permissions' => [
+                'dashboard'    => ['view'],
                 'products'     => ['view', 'create', 'edit', 'delete', 'stock_adjust'],
-                'orders'       => ['view', 'status_update', 'refund', 'assign_delivery'],
+                'orders'       => ['view', 'status_update', 'assign_delivery'],
                 'pos'          => ['open_session', 'process_sale', 'close_session', 'view_history', 'void_sale'],
                 'staff'        => ['view'],
                 'stores'       => ['view', 'edit', 'settings'],
@@ -72,18 +117,20 @@ class SpatiePermissionSeeder extends Seeder
             'name' => 'Warehouse Manager',
             'description' => 'Oversees warehouse operations: receive goods, approve transfers, manage stock.',
             'permissions' => [
+                'dashboard'    => ['view'],
                 'warehouses'   => ['view', 'create', 'edit', 'transfer', 'receive', 'approve_transfer'],
                 'products'     => ['view', 'stock_adjust'],
                 'reports'      => ['view_inventory'],
                 'deliveries'   => ['view', 'update_status'],
-                'staff'        => ['view'],
-                'transfers'    => ['view', 'approve', 'dispatch'],
+                // 'staff'        => ['view'],
+                'transfers'    => ['view', 'create', 'approve', 'dispatch'],
             ],
         ],
         'accountant' => [
             'name' => 'Accountant',
             'description' => 'Handles all financial operations: transactions, reports, payment settings.',
             'permissions' => [
+                'dashboard'    => ['view'],
                 'transactions' => ['view', 'confirm', 'reject', 'refund', 'export'],
                 'reports'      => ['view_sales', 'view_finance', 'export'],
                 'settings'     => ['view', 'payment'],
@@ -96,6 +143,7 @@ class SpatiePermissionSeeder extends Seeder
             'name' => 'Cashier',
             'description' => 'Processes POS sales, handles walk-in customers, and views products.',
             'permissions' => [
+                'dashboard'    => ['view'],
                 'products'     => ['view'],
                 'pos'          => ['open_session', 'process_sale', 'close_session', 'view_history'],
                 'orders'       => ['view', 'create'],
@@ -106,6 +154,7 @@ class SpatiePermissionSeeder extends Seeder
             'name' => 'Inventory Clerk',
             'description' => 'Manages stock levels, performs stock counts, and executes transfers.',
             'permissions' => [
+                'dashboard'    => ['view'],
                 'warehouses'   => ['view', 'edit', 'transfer', 'receive'],
                 'products'     => ['view', 'stock_adjust'],
                 'reports'      => ['view_inventory'],
@@ -116,6 +165,7 @@ class SpatiePermissionSeeder extends Seeder
             'name' => 'Customer Support',
             'description' => 'Handles customer inquiries, support tickets, order issues, and refunds.',
             'permissions' => [
+                'dashboard'    => ['view'],
                 'orders'       => ['view', 'status_update', 'refund', 'cancel'],
                 'customers'    => ['view', 'edit', 'suspend', 'message'],
                 'support'      => ['view_tickets', 'reply', 'close'],
@@ -128,6 +178,7 @@ class SpatiePermissionSeeder extends Seeder
             'name' => 'Delivery Agent',
             'description' => 'Views assigned deliveries and updates delivery status for orders.',
             'permissions' => [
+                'dashboard'    => ['view'],
                 'deliveries'   => ['view', 'update_status'],
                 'orders'       => ['view', 'status_update'],
                 'products'     => ['view'],
@@ -142,6 +193,7 @@ class SpatiePermissionSeeder extends Seeder
             'name' => 'Auditor',
             'description' => 'Read-only access to all reports, transactions, and logs for compliance.',
             'permissions' => [
+                'dashboard'    => ['view'],
                 'warehouses'   => ['view'],
                 'products'     => ['view'],
                 'orders'       => ['view'],
@@ -161,6 +213,7 @@ class SpatiePermissionSeeder extends Seeder
             'name' => 'Store Associate',
             'description' => 'Helps customers, processes basic POS sales, and views products.',
             'permissions' => [
+                'dashboard'    => ['view'],
                 'products'     => ['view'],
                 'pos'          => ['process_sale', 'view_history'],
                 'orders'       => ['view'],
@@ -255,7 +308,9 @@ class SpatiePermissionSeeder extends Seeder
 
             foreach ($staff as $user) {
                 setPermissionsTeamId($business->id);
-                $user->assignRole($storeAssociateRole);
+                if ($user->roles()->count() === 0) {
+                    $user->assignRole($storeAssociateRole);
+                }
             }
         }
 

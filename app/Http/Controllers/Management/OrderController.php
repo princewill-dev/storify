@@ -16,11 +16,11 @@ class OrderController extends Controller
 
     public function index(Request $request): View|RedirectResponse
     {
-        $vendor = $request->user();
+        $user = $request->user();
 
         $query = Order::query()
             ->with(['customer', 'store', 'items'])
-            ->where('user_id', $vendor->id);
+            ->where('user_id', $user->id);
 
         if ($request->filled('status')) {
             $query->where('status', $request->status);
@@ -70,7 +70,7 @@ class OrderController extends Controller
         $selectedPublicStoreId = $request->query('store_id');
         $selectedStore = null;
         if ($selectedPublicStoreId) {
-            $selectedStore = $vendor->stores()
+            $selectedStore = $user->stores()
                 ->where('store_id', $selectedPublicStoreId)
                 ->first();
             
@@ -82,28 +82,28 @@ class OrderController extends Controller
         $orders = $query->latest()->paginate(20)->withQueryString();
 
         $stats = [
-            'total' => Order::where('user_id', $vendor->id)->count(),
-            'pending' => Order::where('user_id', $vendor->id)->where('status', 'pending')->count(),
-            'processing' => Order::where('user_id', $vendor->id)->where('status', 'processing')->count(),
-            'dispatched' => Order::where('user_id', $vendor->id)->where('status', 'dispatched')->count(),
-            'delivered' => Order::where('user_id', $vendor->id)->where('status', 'delivered')->count(),
-            'completed' => Order::where('user_id', $vendor->id)->where('status', 'completed')->count(),
-            'cancelled' => Order::where('user_id', $vendor->id)->where('status', 'cancelled')->count(),
-            'returned' => Order::where('user_id', $vendor->id)->where('status', 'returned')->count(),
-            'total_revenue' => Order::where('user_id', $vendor->id)
+            'total' => Order::where('user_id', $user->id)->count(),
+            'pending' => Order::where('user_id', $user->id)->where('status', 'pending')->count(),
+            'processing' => Order::where('user_id', $user->id)->where('status', 'processing')->count(),
+            'dispatched' => Order::where('user_id', $user->id)->where('status', 'dispatched')->count(),
+            'delivered' => Order::where('user_id', $user->id)->where('status', 'delivered')->count(),
+            'completed' => Order::where('user_id', $user->id)->where('status', 'completed')->count(),
+            'cancelled' => Order::where('user_id', $user->id)->where('status', 'cancelled')->count(),
+            'returned' => Order::where('user_id', $user->id)->where('status', 'returned')->count(),
+            'total_revenue' => Order::where('user_id', $user->id)
                 ->whereHas('transactions', fn($q) => $q->where('status', \App\Enums\TransactionStatus::CONFIRMED))
                 ->sum('total'),
         ];
 
-        $stores = $vendor->stores()->orderBy('name')->get();
+        $stores = $user->stores()->orderBy('name')->get();
 
-        return view('management.orders.index', compact('orders', 'stats', 'vendor', 'stores', 'selectedStore'));
+        return view('management.orders.index', compact('orders', 'stats', 'user', 'stores', 'selectedStore'));
     }
 
     public function show(Request $request, Order $order): View|RedirectResponse
     {
-        $vendor = $request->user();
-        if (!$vendor || $order->user_id !== $vendor->id) {
+        $user = $request->user();
+        if (!$user || $order->user_id !== $user->id) {
             return redirect()->route('management.auth.login');
         }
 
@@ -114,24 +114,24 @@ class OrderController extends Controller
             ->latest()
             ->get();
 
-        return view('management.orders.show', compact('order', 'activityLogs', 'vendor'));
+        return view('management.orders.show', compact('order', 'activityLogs', 'user'));
     }
 
     public function edit(Request $request, Order $order): View|RedirectResponse
     {
-        $vendor = $request->user();
-        if (!$vendor || $order->user_id !== $vendor->id) {
+        $user = $request->user();
+        if (!$user || $order->user_id !== $user->id) {
             return redirect()->route('management.auth.login');
         }
 
         $order->load(['items', 'customer', 'deliveryRoute']);
-        return view('management.orders.edit', compact('order', 'vendor'));
+        return view('management.orders.edit', compact('order', 'user'));
     }
 
     public function update(Request $request, Order $order): RedirectResponse
     {
-        $vendor = $request->user();
-        if (!$vendor || $order->user_id !== $vendor->id) {
+        $user = $request->user();
+        if (!$user || $order->user_id !== $user->id) {
             return redirect()->route('management.auth.login');
         }
 
@@ -152,8 +152,8 @@ class OrderController extends Controller
 
     public function updateStatus(Request $request, Order $order): RedirectResponse
     {
-        $vendor = $request->user();
-        if (!$vendor || $order->user_id !== $vendor->id) {
+        $user = $request->user();
+        if (!$user || $order->user_id !== $user->id) {
             return redirect()->route('management.auth.login');
         }
 
@@ -166,8 +166,8 @@ class OrderController extends Controller
 
     public function updatePaymentStatus(Request $request, Order $order): RedirectResponse
     {
-        $vendor = $request->user();
-        if (!$vendor || $order->user_id !== $vendor->id) {
+        $user = $request->user();
+        if (!$user || $order->user_id !== $user->id) {
             return redirect()->route('management.auth.login');
         }
 
@@ -217,13 +217,13 @@ class OrderController extends Controller
 
     public function destroy(Request $request, Order $order): RedirectResponse
     {
-        $vendor = $request->user();
-        if (!$vendor || $order->user_id !== $vendor->id) {
+        $user = $request->user();
+        if (!$user || $order->user_id !== $user->id) {
             return redirect()->route('management.auth.login');
         }
 
         $order->delete();
 
-        return redirect()->route('management.orders.index', ['vendor' => $vendor])->with('success', 'Order deleted.');
+        return redirect()->route('management.orders.index', ['user' => $user])->with('success', 'Order deleted.');
     }
 }

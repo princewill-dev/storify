@@ -1,7 +1,7 @@
 <!-- {{-- Onboarding Progress Stepper --}}
 @php
-    $vendor = $vendor ?? auth()->user();
-    $progress = $vendor ? $vendor->getOnboardingProgress() : ['step_number' => 1, 'step' => 'store'];
+    $user = $user ?? auth()->user();
+    $progress = $user ? $user->getOnboardingProgress() : ['step_number' => 1, 'step' => 'store'];
     $currentStep = $progress['step_number'];
     
     $steps = [

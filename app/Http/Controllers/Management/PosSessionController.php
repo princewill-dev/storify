@@ -13,26 +13,26 @@ class PosSessionController extends Controller
 {
     public function index(Request $request, Store $store): View
     {
-        $vendor = $request->user();
-        if (!$vendor || $store->user_id !== $vendor->id) {
+        $user = $request->user();
+        if (!$user || $store->user_id !== $user->id) {
             abort(403);
         }
 
         $sessions = $store->posSessions()->with('staff')->latest()->paginate(20);
 
-        return view('management.pos.sessions.index', compact('vendor', 'store', 'sessions'));
+        return view('management.pos.sessions.index', compact('user', 'store', 'sessions'));
     }
 
     public function show(Request $request, Store $store, PosSession $session): View
     {
-        $vendor = $request->user();
-        if (!$vendor || $store->user_id !== $vendor->id || $session->store_id !== $store->id) {
+        $user = $request->user();
+        if (!$user || $store->user_id !== $user->id || $session->store_id !== $store->id) {
             abort(403);
         }
 
         $session->load('orders.items', 'staff');
 
-        return view('management.pos.sessions.show', compact('vendor', 'store', 'session'));
+        return view('management.pos.sessions.show', compact('user', 'store', 'session'));
     }
 
     public function open(Request $request, Store $store): RedirectResponse

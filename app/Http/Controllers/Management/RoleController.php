@@ -13,24 +13,24 @@ class RoleController extends Controller
 {
     public function index(Request $request): View|RedirectResponse
     {
-        $vendor = $request->user();
-        if (!$vendor) {
+        $user = $request->user();
+        if (!$user) {
             return redirect()->route('management.auth.login');
         }
 
-        $roles = Role::where('business_id', $vendor->business_id)
+        $roles = Role::where('business_id', $user->business_id)
             ->withCount('users')
             ->with('permissions')
             ->latest()
             ->get();
 
-        return view('management.roles.index', compact('vendor', 'roles'));
+        return view('management.roles.index', compact('user', 'roles'));
     }
 
     public function create(Request $request): View|RedirectResponse
     {
-        $vendor = $request->user();
-        if (!$vendor) {
+        $user = $request->user();
+        if (!$user) {
             return redirect()->route('management.auth.login');
         }
 
@@ -38,25 +38,25 @@ class RoleController extends Controller
             return explode(' ', $p->name, 2)[0];
         });
 
-        return view('management.roles.create', compact('vendor', 'availablePermissions'));
+        return view('management.roles.create', compact('user', 'availablePermissions'));
     }
 
     public function store(Request $request): RedirectResponse
     {
-        $vendor = $request->user();
-        if (!$vendor) {
+        $user = $request->user();
+        if (!$user) {
             return redirect()->route('management.auth.login');
         }
 
         $validated = $request->validate([
-            'name' => 'required|string|max:255|unique:roles,name,NULL,id,business_id,' . $vendor->business_id,
+            'name' => 'required|string|max:255|unique:roles,name,NULL,id,business_id,' . $user->business_id,
             'permissions' => 'required|array',
             'permissions.*' => 'exists:permissions,name',
         ]);
 
         $role = Role::create([
             'name' => $validated['name'],
-            'business_id' => $vendor->business_id,
+            'business_id' => $user->business_id,
             'guard_name' => 'web',
         ]);
         $role->syncPermissions($validated['permissions']);
@@ -67,12 +67,12 @@ class RoleController extends Controller
 
     public function edit(Request $request, Role $role): View|RedirectResponse
     {
-        $vendor = $request->user();
-        if (!$vendor) {
+        $user = $request->user();
+        if (!$user) {
             return redirect()->route('management.auth.login');
         }
 
-        if ($role->business_id !== $vendor->business_id) {
+        if ($role->business_id !== $user->business_id) {
             abort(404);
         }
 
@@ -80,22 +80,22 @@ class RoleController extends Controller
             return explode(' ', $p->name, 2)[0];
         });
 
-        return view('management.roles.edit', compact('vendor', 'role', 'availablePermissions'));
+        return view('management.roles.edit', compact('user', 'role', 'availablePermissions'));
     }
 
     public function update(Request $request, Role $role): RedirectResponse
     {
-        $vendor = $request->user();
-        if (!$vendor) {
+        $user = $request->user();
+        if (!$user) {
             return redirect()->route('management.auth.login');
         }
 
-        if ($role->business_id !== $vendor->business_id) {
+        if ($role->business_id !== $user->business_id) {
             abort(404);
         }
 
         $validated = $request->validate([
-            'name' => 'required|string|max:255|unique:roles,name,' . $role->id . ',id,business_id,' . $vendor->business_id,
+            'name' => 'required|string|max:255|unique:roles,name,' . $role->id . ',id,business_id,' . $user->business_id,
             'permissions' => 'required|array',
             'permissions.*' => 'exists:permissions,name',
         ]);
@@ -109,12 +109,12 @@ class RoleController extends Controller
 
     public function destroy(Request $request, Role $role): RedirectResponse
     {
-        $vendor = $request->user();
-        if (!$vendor) {
+        $user = $request->user();
+        if (!$user) {
             return redirect()->route('management.auth.login');
         }
 
-        if ($role->business_id !== $vendor->business_id) {
+        if ($role->business_id !== $user->business_id) {
             abort(404);
         }
 

@@ -1,361 +1,334 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>Staff POS - {{ $activeStore?->name ?? 'No Store' }}</title>
+    <title>POS · {{ $activeStore?->name ?? 'No Store' }}</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    @vite('resources/css/app.css')
+    <link rel="stylesheet" href="{{ asset('vendor_files/assets/vendor/@flaticon/flaticon-uicons/css/all/all.css') }}">
+    @if($paystackKey)<script src="https://js.paystack.co/v1/inline.js"></script>@endif
     <style>
-        body { background: #f1f3f5; }
-        .pos-container { height: 100vh; display: flex; flex-direction: column; }
-        .pos-header { background: #fff; border-bottom: 1px solid #dee2e6; padding: 10px 20px; }
-        .pos-body { flex: 1; display: flex; overflow: hidden; }
-        .pos-products { flex: 1; padding: 15px; overflow-y: auto; }
-        .pos-cart { width: 380px; background: #fff; border-left: 1px solid #dee2e6; display: flex; flex-direction: column; }
-        .cart-items { flex: 1; overflow-y: auto; padding: 15px; }
-        .cart-footer { border-top: 1px solid #dee2e6; padding: 15px; }
-        .product-card { cursor: pointer; transition: transform 0.1s; }
-        .product-card:hover { transform: translateY(-2px); }
-        .search-box { position: relative; }
-        .search-results { position: absolute; top: 100%; left: 0; right: 0; background: #fff; border: 1px solid #dee2e6; border-radius: 0 0 8px 8px; max-height: 300px; overflow-y: auto; z-index: 1000; display: none; }
-        .cart-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid #f1f3f5; }
-        .modal-pos .modal-dialog { max-width: 500px; }
+        .pos-page { display: flex; flex-direction: column; height: 100vh; background: #f8fafc; }
+        .pos-header { flex-shrink: 0; padding: 0.5rem 1rem; background: #fff; border-bottom: 1px solid #e2e8f0; }
+        .pos-body { flex: 1; display: flex; overflow: hidden; min-height: 0; }
+        .pos-main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+        .pos-cart { width: 360px; flex-shrink: 0; display: flex; flex-direction: column; background: #fff; border-left: 1px solid #e2e8f0; }
+        .pos-products { flex: 1; overflow-y: auto; padding: 1rem; }
+        .pos-cart-items { flex: 1; overflow-y: auto; padding: 1rem; min-height: 0; }
+        .pos-cart-footer { flex-shrink: 0; border-top: 1px solid #e2e8f0; padding: 1rem; }
+        .tab-btn.active { border-bottom: 2px solid #1e293b; color: #1e293b; }
+        .product-card { cursor: pointer; transition: all 0.12s; }
+        .product-card:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+        .product-card:active { transform: scale(0.97); }
+        @media (max-width: 768px) {
+            .pos-cart { width: 100%; max-height: 45vh; border-left: none; border-top: 1px solid #e2e8f0; }
+            .pos-body { flex-direction: column; }
+        }
     </style>
 </head>
 <body>
-<div class="pos-container">
-    <div class="pos-header d-flex justify-content-between align-items-center">
-        <div>
-            <h5 class="mb-0">{{ $activeStore?->name ?? 'No Store' }}</h5>
-            <small class="text-muted">{{ $user->name }}</small>
+<div class="pos-page">
+    <div class="pos-header flex items-center justify-between gap-3 flex-wrap">
+        <div class="flex items-center gap-2 min-w-0">
+            <span class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-slate-100 text-slate-500 shrink-0"><i class="fi fi-rr-shop text-sm"></i></span>
+            <div class="min-w-0">
+                <p class="text-sm font-semibold text-slate-800 truncate">{{ $activeStore?->name ?? 'No Store' }}</p>
+                <p class="text-[11px] text-slate-400 truncate">{{ $user->name }}</p>
+            </div>
         </div>
-        <div class="d-flex align-items-center gap-3">
+        <div class="flex items-center gap-2 flex-wrap">
             @if($assignedStores->count() > 1)
-            <form method="POST" action="{{ route('staff.pos.switch-store') }}" class="d-flex align-items-center gap-2">
+            <form method="POST" action="{{ route('staff.pos.switch-store') }}" class="flex items-center">
                 @csrf
-                <select name="store_id" class="form-select form-select-sm" onchange="this.form.submit()" style="width: auto;">
+                <select name="store_id" onchange="this.form.submit()" class="rounded-lg border-slate-300 text-xs shadow-sm focus:border-slate-500 focus:ring-slate-500 py-1.5">
                     @foreach($assignedStores as $s)
-                        <option value="{{ $s->id }}" {{ ($activeStore && $activeStore->id === $s->id) ? 'selected' : '' }}>{{ $s->name }}</option>
+                    <option value="{{ $s->id }}" {{ ($activeStore && $activeStore->id === $s->id) ? 'selected' : '' }}>{{ $s->name }}</option>
                     @endforeach
                 </select>
             </form>
             @endif
-
             @if($activeSession)
-                <span class="badge bg-success">Session #{{ $activeSession->session_code }}</span>
-                @if($canCloseSession)
-                <button class="btn btn-outline-danger btn-sm" data-bs-toggle="modal" data-bs-target="#closeSessionModal">Close Session</button>
-                @endif
-            @else
-                @if($canOpenSession)
-                <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#openSessionModal">Open Session</button>
-                @endif
+            <span class="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[11px] font-medium text-emerald-700 ring-1 ring-inset ring-emerald-600/20"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> {{ $activeSession->session_code }}</span>
+            @if($canCloseSession)
+            <button onclick="document.getElementById('closeSessionModal').classList.remove('hidden')" class="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors">Close</button>
             @endif
-
-            <form method="POST" action="{{ route('management.auth.logout') }}" class="d-inline">
+            @elseif($canOpenSession)
+            <button onclick="document.getElementById('openSessionModal').classList.remove('hidden')" class="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition-colors">Open Session</button>
+            @endif
+            <form method="POST" action="{{ route('management.auth.logout') }}" class="inline">
                 @csrf
-                <button class="btn btn-outline-secondary btn-sm">Logout</button>
+                <button class="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium text-slate-500 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors">Logout</button>
             </form>
         </div>
     </div>
 
     <div class="pos-body">
         @if(!$activeStore)
-        <div class="flex-fill d-flex align-items-center justify-content-center">
-            <div class="text-center">
-                <h3>No Store Assigned</h3>
-                <p class="text-muted">You are not assigned to any store with POS enabled. Contact your administrator.</p>
-            </div>
-        </div>
+        <div class="flex-1 flex items-center justify-center"><div class="text-center"><p class="text-slate-500">No store assigned.</p></div></div>
         @else
-        <div class="pos-products">
-            @if($canProcessSale)
-            <div class="search-box mb-3">
-                <input type="text" id="productSearch" class="form-control form-control-lg" placeholder="Search products by name or code..." autofocus>
-                <div id="searchResults" class="search-results"></div>
+        <div class="pos-main">
+            <div class="flex items-center border-b border-slate-200 bg-white px-4">
+                <button class="tab-btn active px-4 py-2.5 text-sm font-medium text-slate-500 hover:text-slate-700" onclick="switchTab('products')" id="tabProducts">Products</button>
+                <button class="tab-btn px-4 py-2.5 text-sm font-medium text-slate-500 hover:text-slate-700" onclick="switchTab('history')" id="tabHistory">Sales History</button>
             </div>
-            @endif
 
-            <div id="productGrid" class="row g-3">
-                @foreach($products as $product)
-                <div class="col-md-3 col-sm-4 col-6">
-                    <div class="product-card card h-100 shadow-sm border-0" @if($canProcessSale) onclick="addToCart('{{ $product->id }}', '{{ addslashes($product->name) }}', {{ $product->amount }}, 1)" @endif>
-                        <div class="card-body text-center p-3">
-                            <h6 class="card-title mb-1" style="font-size: 0.9rem;">{{ $product->name }}</h6>
-                            <p class="text-primary fw-bold mb-0">₦{{ number_format($product->amount, 2) }}</p>
-                            <small class="text-muted">Qty: {{ $product->quantity }}</small>
+            <div id="tabContentProducts" class="flex-1 flex overflow-hidden min-h-0">
+                <div class="pos-products">
+                    @if($canProcessSale)
+                    <input type="text" id="productSearch" class="w-full rounded-lg border-slate-300 px-3.5 py-2.5 shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500 text-sm mb-3" placeholder="Search products..." autofocus>
+                    @endif
+                    <div id="productGrid" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                        @foreach($products as $product)
+                        @php $img = $product->images->first(); @endphp
+                        <div class="product-card bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm" @if($canProcessSale) onclick="addToCart(@js($product->only(['id','name','amount','quantity'])))" @endif>
+                            <div class="aspect-[4/3] bg-slate-100 flex items-center justify-center overflow-hidden">
+                                @if($img && $img->path)
+                                <img src="{{ asset('storage/' . $img->path) }}" alt="{{ $product->name }}" class="w-full h-full object-cover">
+                                @else
+                                <i class="fi fi-rr-cube text-slate-300 text-2xl"></i>
+                                @endif
+                            </div>
+                            <div class="p-2.5">
+                                <p class="text-xs font-semibold text-slate-800 truncate">{{ $product->name }}</p>
+                                <div class="flex items-center justify-between mt-1">
+                                    <span class="text-sm font-bold text-slate-700">₦{{ number_format($product->amount, 2) }}</span>
+                                    <span class="text-[10px] text-slate-400">{{ $product->quantity }} left</span>
+                                </div>
+                            </div>
                         </div>
+                        @endforeach
                     </div>
                 </div>
-                @endforeach
-            </div>
-        </div>
 
-        @if($canProcessSale)
-        <div class="pos-cart">
-            <div class="cart-header p-3 border-bottom">
-                <h6 class="mb-0">Current Sale</h6>
-            </div>
-            <div id="cartItems" class="cart-items">
-                <div class="text-center text-muted py-4">
-                    <p class="mb-1">Cart is empty</p>
-                    <small>Search or click a product to add it</small>
+                @if($canProcessSale)
+                <div class="pos-cart">
+                    <div class="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+                        <h3 class="text-sm font-semibold text-slate-800">Current Sale</h3>
+                        <button onclick="clearCart()" class="text-xs text-slate-400 hover:text-red-500">Clear</button>
+                    </div>
+                    <div id="cartItems" class="pos-cart-items"><div class="text-center text-slate-400 py-6 text-sm">Cart is empty — click a product</div></div>
+                    <div class="pos-cart-footer">
+                        <div class="flex justify-between text-sm mb-1"><span class="text-slate-500">Subtotal</span><span id="cartSubtotal" class="font-semibold">₦0.00</span></div>
+                        <div class="flex justify-between text-lg font-bold mb-4"><span>Total</span><span id="cartTotal">₦0.00</span></div>
+                        <button onclick="openCheckout()" id="checkoutBtn" disabled class="w-full py-2.5 bg-slate-900 text-white text-sm font-semibold rounded-lg hover:bg-slate-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">Process Sale</button>
+                    </div>
                 </div>
+                @endif
             </div>
-            <div class="cart-footer">
-                <div class="d-flex justify-content-between mb-2">
-                    <span>Subtotal:</span>
-                    <span id="cartSubtotal" class="fw-semibold">₦0.00</span>
+
+            <div id="tabContentHistory" class="hidden flex-1 overflow-y-auto p-4">
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                    <table class="w-full text-sm">
+                        <thead><tr class="border-b border-slate-100">
+                            <th class="px-4 py-3 text-left text-[11px] font-semibold text-slate-400 uppercase">Order</th>
+                            <th class="px-4 py-3 text-center text-[11px] font-semibold text-slate-400 uppercase hidden sm:table-cell">Items</th>
+                            <th class="px-4 py-3 text-right text-[11px] font-semibold text-slate-400 uppercase">Total</th>
+                            <th class="px-4 py-3 text-center text-[11px] font-semibold text-slate-400 uppercase hidden sm:table-cell">Status</th>
+                            <th class="px-4 py-3 text-right text-[11px] font-semibold text-slate-400 uppercase hidden md:table-cell">Time</th>
+                            <th class="px-4 py-3 text-right text-[11px] font-semibold text-slate-400 uppercase"></th>
+                        </tr></thead>
+                        <tbody class="divide-y divide-slate-50">
+                            @forelse($recentOrders as $order)
+                            @php $tx = $order->transactions->first(); @endphp
+                            <tr class="hover:bg-slate-50/50">
+                                <td class="px-4 py-3"><span class="text-xs font-medium text-slate-800">#{{ $order->order_number ?? $order->id }}</span></td>
+                                <td class="px-4 py-3 text-center hidden sm:table-cell"><span class="text-xs text-slate-600">{{ $order->items->count() }}</span></td>
+                                <td class="px-4 py-3 text-right"><span class="text-xs font-semibold text-slate-800">₦{{ number_format($order->total, 2) }}</span></td>
+                                <td class="px-4 py-3 text-center hidden sm:table-cell">
+                                    @if($tx)
+                                    @if($tx->status === 'confirmed') <span class="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">Paid</span>
+                                    @elseif($tx->status === 'refund_pending') <span class="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">Refund Pending</span>
+                                    @elseif($tx->status === 'refunded') <span class="inline-flex items-center rounded-full bg-purple-50 px-2 py-0.5 text-[10px] font-medium text-purple-700">Refunded</span>
+                                    @else <span class="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600">{{ ucfirst($tx->status) }}</span>
+                                    @endif
+                                    @else <span class="text-[10px] text-slate-400">—</span> @endif
+                                </td>
+                                <td class="px-4 py-3 text-right hidden md:table-cell"><span class="text-[11px] text-slate-400">{{ $order->created_at->format('h:i A') }}</span></td>
+                                <td class="px-4 py-3 text-right">
+                                    <div class="flex items-center justify-end gap-1">
+                                        @if($tx && $tx->status === 'confirmed')
+                                        <button onclick="openRefundModal(@js($order->only(['id','order_number','total'])))" class="px-2 py-1 text-[10px] font-medium text-amber-600 bg-amber-50 hover:bg-amber-100 rounded">Refund</button>
+                                        @endif
+                                        <a href="{{ route('staff.pos.receipt', ['store' => $activeStore, 'order' => $order]) }}" class="px-2 py-1 text-[10px] font-medium text-slate-500 bg-slate-100 hover:bg-slate-200 rounded">View</a>
+                                    </div>
+                                </td>
+                            </tr>
+                            @empty
+                            <tr><td colspan="6" class="px-4 py-12 text-center text-sm text-slate-400">No sales recorded yet.</td></tr>
+                            @endforelse
+                        </tbody>
+                    </table>
                 </div>
-                <div class="d-flex justify-content-between mb-3">
-                    <span class="fw-bold fs-5">Total:</span>
-                    <span id="cartTotal" class="fw-bold fs-5 text-primary">₦0.00</span>
-                </div>
-                <button class="btn btn-success w-100 py-2" onclick="showCheckoutModal()" id="checkoutBtn" disabled>
-                    Process Sale
-                </button>
-            </div>
-        </div>
-        @else
-        <div class="pos-cart d-flex align-items-center justify-content-center">
-            <div class="text-center p-4">
-                <p class="text-muted mb-0">View-only mode</p>
-                <small class="text-muted">You do not have permission to process sales.</small>
             </div>
         </div>
         @endif
-        @endif
     </div>
-    </div>
-@if($activeSession)
-<!-- Close Session Modal -->
-<div class="modal fade" id="closeSessionModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <form method="POST" action="{{ route('staff.pos.session.close', ['store' => $activeStore]) }}">
+</div>
+
+{{-- Open Session Modal --}}
+<div id="openSessionModal" class="hidden fixed inset-0 z-50 overflow-y-auto">
+    <div class="flex min-h-full items-center justify-center p-4">
+        <div class="fixed inset-0 bg-slate-900/50" onclick="document.getElementById('openSessionModal').classList.add('hidden')"></div>
+        <div class="relative w-full max-w-sm bg-white rounded-2xl shadow-xl">
+            <div class="px-6 py-4 border-b border-slate-100"><h3 class="text-base font-semibold text-slate-800">Open POS Session</h3></div>
+            <form method="POST" action="{{ route('staff.pos.session.open', ['store' => $activeStore]) }}" class="p-6 space-y-4">
                 @csrf
-                <div class="modal-header">
-                    <h5 class="modal-title">Close POS Session</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                <div><label class="block text-sm font-medium text-slate-700">Opening Cash Float (in kobo)</label><input type="number" name="opening_balance" class="w-full rounded-lg border-slate-300 px-3.5 py-2.5 shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500 text-sm" min="0" placeholder="0" required></div>
+                <div class="flex items-center gap-3"><button type="submit" class="flex-1 py-2.5 bg-slate-900 text-white text-sm font-semibold rounded-lg hover:bg-slate-800">Open</button><button type="button" onclick="document.getElementById('openSessionModal').classList.add('hidden')" class="flex-1 py-2 border border-slate-200 text-sm rounded-lg hover:bg-slate-50">Cancel</button></div>
+            </form>
+        </div>
+    </div>
+</div>
+
+{{-- Close Session Modal --}}
+@if($activeSession)
+<div id="closeSessionModal" class="hidden fixed inset-0 z-50 overflow-y-auto">
+    <div class="flex min-h-full items-center justify-center p-4">
+        <div class="fixed inset-0 bg-slate-900/50" onclick="document.getElementById('closeSessionModal').classList.add('hidden')"></div>
+        <div class="relative w-full max-w-sm bg-white rounded-2xl shadow-xl">
+            <div class="px-6 py-4 border-b border-slate-100"><h3 class="text-base font-semibold text-slate-800">Close POS Session</h3></div>
+            <form method="POST" action="{{ route('staff.pos.session.close', ['store' => $activeStore]) }}" class="p-6 space-y-4">
+                @csrf
+                <div class="bg-slate-50 rounded-lg p-3 text-xs space-y-1">
+                    <div class="flex justify-between"><span>Opening:</span><span class="font-semibold">₦{{ number_format($activeSession->opening_balance / 100, 2) }}</span></div>
+                    <div class="flex justify-between"><span>Expected:</span><span id="expectedClose" class="font-semibold">--</span></div>
                 </div>
-                <div class="modal-body">
-                    <div class="alert alert-info">
-                        <small>Opening Balance: ₦{{ number_format($activeSession->opening_balance / 100, 2) }}</small><br>
-                        <small>Expected Closing: ₦<span id="expectedClosing">--</span></small>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Actual Cash Counted (in kobo)</label>
-                        <input type="number" name="closing_balance_actual" class="form-control form-control-lg" required min="0" placeholder="Enter cash amount in kobo">
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Notes (optional)</label>
-                        <textarea name="notes" class="form-control" rows="2"></textarea>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-danger">Close Session</button>
-                </div>
+                <div><label class="block text-sm font-medium text-slate-700">Actual Cash Counted (in kobo)</label><input type="number" name="closing_balance_actual" class="w-full rounded-lg border-slate-300 px-3.5 py-2.5 shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500 text-sm" min="0" placeholder="0" required></div>
+                <div><label class="block text-sm font-medium text-slate-700">Notes</label><textarea name="notes" class="w-full rounded-lg border-slate-300 px-3.5 py-2.5 shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500 text-sm" rows="2"></textarea></div>
+                <div class="flex items-center gap-3"><button type="submit" class="flex-1 py-2.5 bg-red-600 text-white text-sm font-semibold rounded-lg hover:bg-red-700">Close Session</button><button type="button" onclick="document.getElementById('closeSessionModal').classList.add('hidden')" class="flex-1 py-2 border border-slate-200 text-sm rounded-lg hover:bg-slate-50">Cancel</button></div>
             </form>
         </div>
     </div>
 </div>
 @endif
 
-@if($activeStore)
-<!-- Open Session Modal -->
-<div class="modal fade" id="openSessionModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <form method="POST" action="{{ route('staff.pos.session.open', ['store' => $activeStore]) }}">
-                @csrf
-                <div class="modal-header">
-                    <h5 class="modal-title">Open POS Session</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <div class="mb-3">
-                        <label class="form-label">Opening Cash Float (in kobo)</label>
-                        <input type="number" name="opening_balance" class="form-control form-control-lg" required min="0" placeholder="Enter starting cash amount in kobo">
-                        <small class="text-muted">Enter the initial cash in the register in kobo (e.g. 500000 = ₦5,000)</small>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-primary">Open Session</button>
-                </div>
-            </form>
-        </div>
-    </div>
-    </div>
-@endif
-
-{{-- Modals and JS only needed for users who can process sales --}}
-@if($canProcessSale)
-@if($activeStore)
-<!-- Checkout Modal -->
-<div class="modal fade modal-pos" id="checkoutModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <form id="checkoutForm" method="POST" action="{{ route('staff.pos.checkout', ['store' => $activeStore]) }}">
+@if($canProcessSale && $activeStore)
+{{-- Checkout Modal --}}
+<div id="checkoutModal" class="hidden fixed inset-0 z-50 overflow-y-auto">
+    <div class="flex min-h-full items-center justify-center p-4">
+        <div class="fixed inset-0 bg-slate-900/50" onclick="document.getElementById('checkoutModal').classList.add('hidden')"></div>
+        <div class="relative w-full max-w-md bg-white rounded-2xl shadow-xl">
+            <div class="flex items-center justify-between px-6 py-4 border-b border-slate-100"><h3 class="text-base font-semibold text-slate-800">Complete Sale</h3><button onclick="document.getElementById('checkoutModal').classList.add('hidden')" class="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100">&times;</button></div>
+            <form id="checkoutForm" method="POST" action="{{ route('staff.pos.checkout', ['store' => $activeStore]) }}" class="p-6 space-y-4">
                 @csrf
                 <input type="hidden" name="items" id="checkoutItems">
-                <div class="modal-header">
-                    <h5 class="modal-title">Complete Sale</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <div class="mb-3 text-center">
-                        <h4>Total: <span id="modalTotal" class="text-primary">₦0.00</span></h4>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Payment Method</label>
-                        <div class="d-flex gap-2">
-                            <input type="radio" class="btn-check" name="payment_method" id="payCash" value="cash" checked>
-                            <label class="btn btn-outline-primary flex-fill" for="payCash">Cash</label>
-                            <input type="radio" class="btn-check" name="payment_method" id="payCard" value="card">
-                            <label class="btn btn-outline-primary flex-fill" for="payCard">Card</label>
-                            <input type="radio" class="btn-check" name="payment_method" id="payTransfer" value="transfer">
-                            <label class="btn btn-outline-primary flex-fill" for="payTransfer">Transfer</label>
-                        </div>
-                    </div>
-                    <div id="cashFields" class="mb-3">
-                        <label class="form-label">Amount Tendered (in kobo)</label>
-                        <input type="number" name="amount_tendered" class="form-control form-control-lg" min="0" placeholder="Enter amount in kobo">
-                    </div>
-                    <hr>
-                    <div class="mb-3">
-                        <label class="form-label">Customer Name (optional)</label>
-                        <input type="text" name="customer_name" class="form-control">
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Customer Phone (optional)</label>
-                        <input type="text" name="customer_phone" class="form-control">
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Notes</label>
-                        <textarea name="notes" class="form-control" rows="2"></textarea>
+                <div class="text-center py-3 bg-slate-50 rounded-lg"><span class="text-xs text-slate-500">Total</span><p id="modalTotal" class="text-2xl font-bold text-slate-900"></p></div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1.5">Payment Method</label>
+                    <div class="flex flex-wrap gap-2">
+                        <input type="radio" name="payment_method" id="payCash" value="cash" checked class="hidden peer">
+                        <label for="payCash" class="flex-1 text-center px-3 py-2 rounded-lg text-sm font-medium border-2 cursor-pointer transition-colors peer-checked:border-slate-900 peer-checked:bg-slate-50 border-slate-200 text-slate-600 hover:border-slate-300" onclick="selectPayTab('cash')"><i class="fi fi-rr-money-bill-wave text-xs mr-1"></i> Cash</label>
+                        @foreach($paymentMethods as $pm)
+                        <input type="radio" name="payment_method" id="pay{{ ucfirst($pm['id']) }}" value="{{ $pm['id'] }}" class="hidden peer">
+                        <label for="pay{{ ucfirst($pm['id']) }}" class="flex-1 text-center px-3 py-2 rounded-lg text-sm font-medium border-2 cursor-pointer transition-colors peer-checked:border-slate-900 peer-checked:bg-slate-50 border-slate-200 text-slate-600 hover:border-slate-300" onclick="selectPayTab('{{ $pm['id'] }}')"><i class="fi fi-rr-{{ $pm['icon'] }} text-xs mr-1"></i> {{ $pm['label'] }}</label>
+                        @endforeach
                     </div>
                 </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="button" class="btn btn-success btn-lg" onclick="submitCheckout()">Complete Sale</button>
-                </div>
+                <div id="cashFields"><label class="block text-sm font-medium text-slate-700">Amount Tendered (₦)</label><input type="number" id="amountTendered" class="w-full rounded-lg border-slate-300 px-3.5 py-2.5 shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500 text-sm" min="0" step="0.01" placeholder="0.00"><p class="text-xs mt-1">Change: <span id="changeDue" class="font-bold text-emerald-600">₦0.00</span></p></div>
+                <div id="bankFields" class="hidden space-y-2"><label class="block text-sm font-medium text-slate-700">Bank Account</label>@foreach($bankAccounts as $bank)<div class="border rounded-lg p-2.5 bg-slate-50 text-sm"><p class="font-semibold">{{ $bank->bank_name }}</p><p class="text-slate-500 text-xs">{{ $bank->account_number }} — {{ $bank->account_name }}</p></div>@endforeach</div>
+                <div id="cardNotice" class="hidden"><div class="rounded-lg bg-blue-50 border border-blue-100 p-3 text-sm text-blue-700"><i class="fi fi-rr-info mr-1"></i> Paystack will open in a popup.</div></div>
+                <div class="grid grid-cols-2 gap-3"><div><label class="block text-sm font-medium text-slate-700">Customer Name</label><input type="text" name="customer_name" class="w-full rounded-lg border-slate-300 px-3 py-2 shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500 text-sm" placeholder="Optional"></div><div><label class="block text-sm font-medium text-slate-700">Phone</label><input type="text" name="customer_phone" class="w-full rounded-lg border-slate-300 px-3 py-2 shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500 text-sm" placeholder="Optional"></div></div>
+                <div class="flex items-center gap-3 pt-2"><button type="button" onclick="submitCheckout()" class="flex-1 py-2.5 bg-slate-900 text-white text-sm font-semibold rounded-lg hover:bg-slate-800">Complete Sale</button><button type="button" onclick="document.getElementById('checkoutModal').classList.add('hidden')" class="flex-1 py-2 border border-slate-200 text-sm rounded-lg hover:bg-slate-50">Cancel</button></div>
+            </form>
+        </div>
+    </div>
+</div>
+
+{{-- Refund Modal --}}
+<div id="refundModal" class="hidden fixed inset-0 z-50 overflow-y-auto">
+    <div class="flex min-h-full items-center justify-center p-4">
+        <div class="fixed inset-0 bg-slate-900/50" onclick="document.getElementById('refundModal').classList.add('hidden')"></div>
+        <div class="relative w-full max-w-sm bg-white rounded-2xl shadow-xl">
+            <div class="px-6 py-4 border-b border-slate-100"><h3 class="text-base font-semibold text-slate-800">Request Refund</h3></div>
+            <form id="refundForm" method="POST" class="p-6 space-y-4">
+                @csrf
+                <div class="text-center py-2 bg-slate-50 rounded-lg"><span class="text-xs text-slate-500">Order</span><p id="refundOrderNum" class="text-sm font-bold text-slate-800"></p><p id="refundOrderTotal" class="text-xs text-slate-500"></p></div>
+                <div><label class="block text-sm font-medium text-slate-700">Reason <span class="text-red-500">*</span></label><textarea name="reason" class="w-full rounded-lg border-slate-300 px-3.5 py-2.5 shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500 text-sm" rows="3" required placeholder="Why is this being refunded?"></textarea></div>
+                <p class="text-xs text-slate-400">Refund will be pending until an admin reviews and approves it.</p>
+                <div class="flex items-center gap-3"><button type="submit" class="flex-1 py-2.5 bg-amber-600 text-white text-sm font-semibold rounded-lg hover:bg-amber-700">Request Refund</button><button type="button" onclick="document.getElementById('refundModal').classList.add('hidden')" class="flex-1 py-2 border border-slate-200 text-sm rounded-lg hover:bg-slate-50">Cancel</button></div>
             </form>
         </div>
     </div>
 </div>
 @endif
 
+@if($canProcessSale && $activeStore)
 <script>
-    let cart = [];
-    const csrf = document.querySelector('meta[name="csrf-token"]').content;
+let cart = [];
+const csrf = '{{ csrf_token() }}';
 
-    function addToCart(id, name, price, qty = 1) {
-        price = parseFloat(price);
-        let existing = cart.find(i => i.product_id === id);
-        if (existing) {
-            existing.quantity += qty;
-        } else {
-            cart.push({ product_id: id, name, price, quantity: qty });
-        }
-        renderCart();
-    }
-
-    function removeFromCart(index) {
-        cart.splice(index, 1);
-        renderCart();
-    }
-
-    function renderCart() {
-        let html = '';
-        let total = 0;
-        cart.forEach((item, i) => {
-            let itemTotal = item.price * item.quantity;
-            total += itemTotal;
-            html += `<div class="cart-item">
-                <div>
-                    <div class="fw-semibold" style="font-size: 0.9rem;">${item.name}</div>
-                    <div class="d-flex align-items-center gap-2 mt-1">
-                        <button class="btn btn-sm btn-outline-secondary px-2 py-0" onclick="updateQty(${i}, -1)">-</button>
-                        <span>${item.quantity}</span>
-                        <button class="btn btn-sm btn-outline-secondary px-2 py-0" onclick="updateQty(${i}, 1)">+</button>
-                    </div>
-                </div>
-                <div class="text-end">
-                    <div class="fw-semibold">₦${itemTotal.toFixed(2)}</div>
-                    <button class="btn btn-sm btn-link text-danger p-0" onclick="removeFromCart(${i})">&times;</button>
-                </div>
-            </div>`;
-        });
-        document.getElementById('cartItems').innerHTML = html || '<div class="text-center text-muted py-4"><p class="mb-1">Cart is empty</p><small>Search or click a product to add it</small></div>';
-        document.getElementById('cartSubtotal').textContent = '₦' + total.toFixed(2);
-        document.getElementById('cartTotal').textContent = '₦' + total.toFixed(2);
-        document.getElementById('checkoutBtn').disabled = cart.length === 0;
-    }
-
-    function updateQty(index, delta) {
-        cart[index].quantity += delta;
-        if (cart[index].quantity <= 0) {
-            cart.splice(index, 1);
-        }
-        renderCart();
-    }
-
-    function showCheckoutModal() {
-        document.getElementById('modalTotal').textContent = document.getElementById('cartTotal').textContent;
-        new bootstrap.Modal(document.getElementById('checkoutModal')).show();
-    }
-
-    function submitCheckout() {
-        document.getElementById('checkoutItems').value = JSON.stringify(cart);
-        document.getElementById('checkoutForm').submit();
-    }
-
-    document.getElementById('productSearch').addEventListener('input', function () {
-        let query = this.value.trim();
-        if (query.length < 2) {
-            document.getElementById('searchResults').style.display = 'none';
-            return;
-        }
-        fetch(`{{ $activeStore ? route('staff.pos.product.search', ['store' => $activeStore]) : '#' }}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrf },
-            body: JSON.stringify({ q: query })
-        })
-        .then(r => r.json())
-        .then(data => {
-            let results = document.getElementById('searchResults');
-            if (data.products && data.products.length) {
-                results.innerHTML = data.products.map(p =>
-                    `<div class="p-2 border-bottom" style="cursor:pointer" onclick="addToCart('${p.id}','${p.name.replace(/'/g, "\\'")}',${p.amount},1);document.getElementById('searchResults').style.display='none';document.getElementById('productSearch').value='';">
-                        <div class="fw-semibold">${p.name}</div>
-                        <small class="text-primary">₦${parseFloat(p.amount).toFixed(2)} | Qty: ${p.quantity}</small>
-                    </div>`
-                ).join('');
-                results.style.display = 'block';
-            } else {
-                results.innerHTML = '<div class="p-2 text-muted">No products found</div>';
-                results.style.display = 'block';
-            }
-        });
+function addToCart(product) {
+    let ex = cart.find(i => i.product_id === product.id);
+    if (ex) { ex.quantity += 1; } else { cart.push({ product_id: product.id, name: product.name, price: parseFloat(product.amount), quantity: 1 }); }
+    renderCart();
+}
+function removeFromCart(i) { cart.splice(i, 1); renderCart(); }
+function clearCart() { cart = []; renderCart(); }
+function updateQty(i, d) { cart[i].quantity += d; if (cart[i].quantity <= 0) cart.splice(i, 1); renderCart(); }
+function renderCart() {
+    let h = '', t = 0;
+    cart.forEach((item, i) => {
+        let it = item.price * item.quantity; t += it;
+        h += `<div class="flex items-center justify-between py-2 border-b border-slate-50"><div class="flex-1 min-w-0"><p class="text-sm font-medium text-slate-800 truncate">${item.name}</p><div class="flex items-center gap-2 mt-1"><button class="w-5 h-5 rounded bg-slate-100 text-slate-500 text-xs flex items-center justify-center" onclick="updateQty(${i},-1)">−</button><span class="text-xs w-5 text-center">${item.quantity}</span><button class="w-5 h-5 rounded bg-slate-100 text-slate-500 text-xs flex items-center justify-center" onclick="updateQty(${i},1)">+</button></div></div><div class="text-right shrink-0 ml-3"><p class="text-sm font-semibold">₦${it.toFixed(2)}</p><button class="text-[10px] text-slate-400 hover:text-red-500 mt-0.5" onclick="removeFromCart(${i})">Remove</button></div></div>`;
     });
-
-    document.addEventListener('click', function(e) {
-        if (!e.target.closest('.search-box')) {
-            document.getElementById('searchResults').style.display = 'none';
-        }
-    });
-
-    document.querySelectorAll('input[name="payment_method"]').forEach(el => {
-        el.addEventListener('change', function () {
-            document.getElementById('cashFields').style.display = this.value === 'cash' ? 'block' : 'none';
-        });
-    });
+    document.getElementById('cartItems').innerHTML = h || '<div class="text-center text-slate-400 py-6 text-sm">Cart is empty — click a product</div>';
+    document.getElementById('cartSubtotal').textContent = '₦' + t.toFixed(2);
+    document.getElementById('cartTotal').textContent = '₦' + t.toFixed(2);
+    document.getElementById('checkoutBtn').disabled = cart.length === 0;
+}
+function openCheckout() {
+    const t = cart.reduce((s,i) => s + i.price * i.quantity, 0);
+    document.getElementById('modalTotal').textContent = '₦' + t.toFixed(2);
+    document.getElementById('amountTendered').value = '';
+    document.getElementById('changeDue').textContent = '₦0.00';
+    document.getElementById('payCash').checked = true;
+    selectPayTab('cash');
+    document.getElementById('checkoutModal').classList.remove('hidden');
+}
+function selectPayTab(m) {
+    document.querySelectorAll('#checkoutModal label[for^="pay"]').forEach(l => { l.classList.remove('border-slate-900','bg-slate-50'); l.classList.add('border-slate-200'); });
+    const lb = document.querySelector(`label[for="pay${m.charAt(0).toUpperCase()+m.slice(1)}"]`);
+    if (lb) { lb.classList.add('border-slate-900','bg-slate-50'); lb.classList.remove('border-slate-200'); }
+    document.getElementById('cashFields').classList.toggle('hidden', m !== 'cash');
+    document.getElementById('bankFields').classList.toggle('hidden', m !== 'transfer');
+    document.getElementById('cardNotice').classList.toggle('hidden', m !== 'card');
+}
+document.getElementById('amountTendered')?.addEventListener('input', function() {
+    const t = cart.reduce((s,i) => s + i.price * i.quantity, 0);
+    document.getElementById('changeDue').textContent = '₦' + Math.max(0, (parseFloat(this.value)||0) - t).toFixed(2);
+});
+function submitCheckout() {
+    const f = document.getElementById('checkoutForm');
+    document.getElementById('checkoutItems').value = JSON.stringify(cart);
+    const m = document.querySelector('input[name="payment_method"]:checked')?.value;
+    @if($paystackKey)
+    if (m === 'card') {
+        const t = cart.reduce((s,i) => s + i.price * i.quantity, 0);
+        PaystackPop.setup({ key:'{{ $paystackKey }}', email:'{{ $user->email }}', amount:Math.round(t*100), currency:'NGN', ref:'POS-'+Date.now(), metadata:{store_id:'{{ $activeStore->id }}'}, onClose(){}, callback(r){ const i=document.createElement('input'); i.type='hidden'; i.name='paystack_reference'; i.value=r.reference; f.appendChild(i); f.submit(); }}).openIframe();
+        return;
+    }
+    @endif
+    f.submit();
+}
+function switchTab(t) {
+    document.getElementById('tabContentProducts').classList.toggle('hidden', t !== 'products');
+    document.getElementById('tabContentProducts').classList.toggle('flex', t === 'products');
+    document.getElementById('tabContentHistory').classList.toggle('hidden', t !== 'history');
+    document.getElementById('tabProducts').classList.toggle('active', t === 'products');
+    document.getElementById('tabHistory').classList.toggle('active', t === 'history');
+}
+function openRefundModal(order) {
+    document.getElementById('refundForm').action = '/staff/pos/{{ $activeStore->id }}/refund/' + order.id;
+    document.getElementById('refundOrderNum').textContent = '#' + (order.order_number || order.id);
+    document.getElementById('refundOrderTotal').textContent = '₦' + parseFloat(order.total).toFixed(2);
+    document.getElementById('refundModal').classList.remove('hidden');
+}
+document.getElementById('productSearch')?.addEventListener('input', function() {
+    const q = this.value.toLowerCase(); let v = 0;
+    document.querySelectorAll('#productGrid .product-card').forEach(c => { const m = c.querySelector('p').textContent.toLowerCase().includes(q); c.style.display = m?'':'none'; if(m) v++; });
+});
 </script>
 @endif
-
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

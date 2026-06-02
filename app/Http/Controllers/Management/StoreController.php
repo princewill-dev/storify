@@ -13,7 +13,7 @@ use App\Models\Product;
 use App\Models\Store;
 use App\Models\StoreBank;
 use App\Models\User;
-use App\Models\VendorKycApplication;
+use App\Models\KycApplication;
 use App\Http\Requests\Management\CreateStoreRequest;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;

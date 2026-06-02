@@ -18,18 +18,18 @@ class StaffController extends Controller
 {
     public function index(Request $request): View|RedirectResponse
     {
-        $vendor = $request->user();
-        if (!$vendor) {
+        $user = $request->user();
+        if (!$user) {
             return redirect()->route('management.auth.login');
         }
 
-        $query = User::where('business_id', $vendor->business_id)
+        $query = User::where('business_id', $user->business_id)
             ->whereIn('role', ['staff', 'business_owner'])
             ->with('roles', 'assignedStores', 'assignedWarehouses');
 
         $store = null;
         if ($request->filled('store_id')) {
-            $store = $vendor->stores()->where('store_id', $request->query('store_id'))->first();
+            $store = $user->stores()->where('store_id', $request->query('store_id'))->first();
             if ($store) {
                 $query->whereHas('assignedStores', fn($q) => $q->where('assignmentable_id', $store->id));
             }
@@ -37,27 +37,27 @@ class StaffController extends Controller
 
         $staff = $query->latest()->get();
 
-        return view('management.staff.index', compact('vendor', 'staff', 'store'));
+        return view('management.staff.index', compact('user', 'staff', 'store'));
     }
 
     public function create(Request $request): View|RedirectResponse
     {
-        $vendor = $request->user();
-        if (!$vendor) {
+        $user = $request->user();
+        if (!$user) {
             return redirect()->route('management.auth.login');
         }
 
         $roles = Role::all();
-        $stores = $vendor->stores()->get();
-        $warehouses = $vendor->warehouses()->where('is_active', true)->get();
+        $stores = $user->stores()->get();
+        $warehouses = $user->warehouses()->where('is_active', true)->get();
 
-        return view('management.staff.create', compact('vendor', 'roles', 'stores', 'warehouses'));
+        return view('management.staff.create', compact('user', 'roles', 'stores', 'warehouses'));
     }
 
     public function store(Request $request): RedirectResponse
     {
-        $vendor = $request->user();
-        if (!$vendor) {
+        $user = $request->user();
+        if (!$user) {
             return redirect()->route('management.auth.login');
         }
 
@@ -83,7 +83,7 @@ class StaffController extends Controller
             'email' => $validated['email'],
             'phone' => $validated['phone'] ?? null,
             'role' => 'staff',
-            'business_id' => $vendor->business_id,
+            'business_id' => $user->business_id,
             'invitation_token' => Str::random(64),
             'invited_at' => now(),
             'status' => 'invited',
@@ -102,16 +102,16 @@ class StaffController extends Controller
             $plainPassword = $validated['password'];
         }
 
-        $user = User::create($staffData);
+        $staffUser = User::create($staffData);
 
-        setPermissionsTeamId($vendor->business_id);
-        $user->assignRole($validated['role']);
+        setPermissionsTeamId($staffUser->business_id);
+        $staffUser->assignRole($validated['role']);
 
         if ($request->hasFile('documents')) {
             $tags = $request->input('document_tags', []);
             foreach ($request->file('documents') as $index => $file) {
                 $path = $file->store('staff-documents', 'public');
-                $user->documents()->create([
+                $staffUser->documents()->create([
                     'file_name' => $file->hashName(),
                     'file_path' => $path,
                     'original_name' => $file->getClientOriginalName(),
@@ -123,15 +123,15 @@ class StaffController extends Controller
         }
 
         if (!empty($validated['store_ids'])) {
-            $user->assignedStores()->sync($validated['store_ids']);
+            $staffUser->assignedStores()->sync($validated['store_ids']);
         }
 
         if (!empty($validated['warehouse_ids'])) {
-            $user->assignedWarehouses()->sync($validated['warehouse_ids']);
+            $staffUser->assignedWarehouses()->sync($validated['warehouse_ids']);
         }
 
         if (class_exists(\App\Mail\StaffInvitationMail::class)) {
-            \Mail::to($user->email)->queue(new \App\Mail\StaffInvitationMail($user, $plainPassword));
+            \Mail::to($staffUser->email)->queue(new \App\Mail\StaffInvitationMail($staffUser, $plainPassword));
         }
 
         return redirect()->route('management.staff.index')
@@ -140,34 +140,34 @@ class StaffController extends Controller
 
     public function show(Request $request, User $staff): View|RedirectResponse
     {
-        $vendor = $request->user();
-        if (!$vendor || ($staff->role !== 'staff' && !$staff->isBusinessOwner()) || $staff->business_id !== $vendor->business_id) {
+        $user = $request->user();
+        if (!$user || ($staff->role !== 'staff' && !$staff->isBusinessOwner()) || $staff->business_id !== $user->business_id) {
             abort(403);
         }
 
         $staff->load('roles', 'assignedStores', 'assignedWarehouses');
 
-        return view('management.staff.show', compact('vendor', 'staff'));
+        return view('management.staff.show', compact('user', 'staff'));
     }
 
     public function edit(Request $request, User $staff): View|RedirectResponse
     {
-        $vendor = $request->user();
-        if (!$vendor || $staff->role !== 'staff' || $staff->business_id !== $vendor->business_id) {
+        $user = $request->user();
+        if (!$user || $staff->role !== 'staff' || $staff->business_id !== $user->business_id) {
             abort(403);
         }
 
-        $roles = Role::where('business_id', $vendor->business_id)->with('permissions')->get();
+        $roles = Role::where('business_id', $user->business_id)->with('permissions')->get();
         $staff->load('roles', 'documents');
         $assignedRoles = $staff->getRoleNames()->toArray();
 
-        return view('management.staff.edit', compact('vendor', 'staff', 'roles', 'assignedRoles'));
+        return view('management.staff.edit', compact('user', 'staff', 'roles', 'assignedRoles'));
     }
 
     public function update(Request $request, User $staff): RedirectResponse
     {
-        $vendor = $request->user();
-        if (!$vendor || $staff->role !== 'staff' || $staff->business_id !== $vendor->business_id) {
+        $user = $request->user();
+        if (!$user || $staff->role !== 'staff' || $staff->business_id !== $user->business_id) {
             abort(403);
         }
 
@@ -212,7 +212,7 @@ class StaffController extends Controller
 
         $staff->update($data);
 
-        setPermissionsTeamId($vendor->business_id);
+        setPermissionsTeamId($user->business_id);
         $rolesToSync = $validated['roles'] ?? [$validated['role'] ?? null];
         $rolesToSync = array_filter($rolesToSync);
         $staff->syncRoles($rolesToSync);
@@ -251,8 +251,8 @@ class StaffController extends Controller
 
     public function resendInvite(Request $request, User $staff): RedirectResponse
     {
-        $vendor = $request->user();
-        if (!$vendor || $staff->role !== 'staff' || $staff->business_id !== $vendor->business_id) {
+        $user = $request->user();
+        if (!$user || $staff->role !== 'staff' || $staff->business_id !== $user->business_id) {
             abort(403);
         }
 
@@ -274,8 +274,8 @@ class StaffController extends Controller
 
     public function suspend(Request $request, User $staff): RedirectResponse
     {
-        $vendor = $request->user();
-        if (!$vendor || $staff->role !== 'staff' || $staff->business_id !== $vendor->business_id) {
+        $user = $request->user();
+        if (!$user || $staff->role !== 'staff' || $staff->business_id !== $user->business_id) {
             abort(403);
         }
 
@@ -286,8 +286,8 @@ class StaffController extends Controller
 
     public function activate(Request $request, User $staff): RedirectResponse
     {
-        $vendor = $request->user();
-        if (!$vendor || $staff->role !== 'staff' || $staff->business_id !== $vendor->business_id) {
+        $user = $request->user();
+        if (!$user || $staff->role !== 'staff' || $staff->business_id !== $user->business_id) {
             abort(403);
         }
 
@@ -298,8 +298,8 @@ class StaffController extends Controller
 
     public function destroy(Request $request, User $staff): RedirectResponse
     {
-        $vendor = $request->user();
-        if (!$vendor || $staff->role !== 'staff' || $staff->business_id !== $vendor->business_id) {
+        $user = $request->user();
+        if (!$user || $staff->role !== 'staff' || $staff->business_id !== $user->business_id) {
             abort(403);
         }
 

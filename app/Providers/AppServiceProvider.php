@@ -31,7 +31,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        Route::bind('vendor', fn ($value) => Vendor::where('account_id', $value)->first() ?? abort(404));
+        Route::bind('vendor', fn ($value) => User::where('account_id', $value)->first() ?? abort(404));
         // Force HTTPS in production (for Cloudflare proxy)
         if ($this->app->environment('production')) {
             \URL::forceScheme('https');
@@ -47,12 +47,6 @@ class AppServiceProvider extends ServiceProvider
 
         Paginator::useBootstrapFive();
 
-        $this->app->resolving(\Spatie\Permission\PermissionRegistrar::class, function ($registrar) {
-            $registrar->setPermissionsTeamId(
-                auth()->check() ? auth()->user()->business_id : null
-            );
-        });
-        
         // Wrap in try-catch to handle missing cache table during migrations
         try {
             $company = Cache::remember('company_settings', 600, function () {
@@ -289,7 +283,49 @@ class AppServiceProvider extends ServiceProvider
             $company = $data['company'] ?? (object) [];
 
             $user = Auth::user();
-            if (!$user || !$user->isBusinessOwner()) {
+            if (!$user) {
+                $view->with([
+                    'headerVendor' => null,
+                    'headerStores' => collect(),
+                    'sidebarUser' => null,
+                    'sidebarStores' => collect(),
+                    'sidebarStoreCount' => 0,
+                    'sidebarWarehouses' => collect(),
+                ]);
+                return;
+            }
+
+            if ($user->isStaff()) {
+                $stores = $user->assignedStores;
+                $warehouses = $user->assignedWarehouses()->with('sections')->get();
+                $activeStore = $stores->find(session('active_store_id')) ?? $stores->first();
+                $posStores = $user->assignedStores()->where('pos_enabled', true)
+                    ->withCount(['posSessions as active_pos_sessions_count' => fn($q) => $q->where('status', 'open')])
+                    ->orderBy('name')->get();
+                $posOpenCount = $posStores->sum('active_pos_sessions_count');
+                $store = $stores->first();
+                $brandLogo = $store?->logo_path ? asset('storage/' . $store->logo_path) : ($company->favicon ?? asset('vendor_files/assets/images/logo.png'));
+                $brandName = $store?->name ?? $user->name ?? ($company->name ?? config('app.name'));
+
+                $view->with([
+                    'vendorBrandLogo' => $brandLogo,
+                    'vendorBrandName' => $brandName,
+                    'vendorBrandStore' => $store,
+                    'vendorBrandVendor' => $user,
+                    'headerVendor' => $user,
+                    'headerStores' => $stores,
+                    'headerActiveStore' => $activeStore,
+                    'sidebarUser' => $user,
+                    'sidebarStores' => $stores,
+                    'sidebarStoreCount' => $stores->count(),
+                    'sidebarWarehouses' => $warehouses,
+                    'sidebarPosStores' => $posStores,
+                    'sidebarPosOpenCount' => $posOpenCount,
+                ]);
+                return;
+            }
+
+            if (!$user->isBusinessOwner()) {
                 $view->with([
                     'headerVendor' => $user,
                     'headerStores' => collect(),
@@ -304,6 +340,12 @@ class AppServiceProvider extends ServiceProvider
     $stores = $user->stores;
     $warehouses = $user->warehouses()->with('sections')->get();
     $activeStore = $stores->find(session('active_store_id')) ?? $stores->first();
+
+    $posStores = $user->stores()->where('pos_enabled', true)
+        ->withCount(['posSessions as active_pos_sessions_count' => fn($q) => $q->where('status', 'open')])
+        ->orderBy('name')
+        ->get();
+    $posOpenCount = $posStores->sum('active_pos_sessions_count');
 
     $store = $user->stores()->first();
     $brandLogo = $store?->logo_path
@@ -323,6 +365,8 @@ class AppServiceProvider extends ServiceProvider
         'sidebarStores' => $stores,
         'sidebarStoreCount' => $stores->count(),
                 'sidebarWarehouses' => $warehouses,
+                'sidebarPosStores' => $posStores,
+                'sidebarPosOpenCount' => $posOpenCount,
             ]);
         });
         // Share categories for storefront header

@@ -20,7 +20,7 @@
                 <h3 class="fw-bold">Accept Invitation</h3>
                 <p class="text-muted">
                     Welcome, <strong>{{ $user->name }}</strong>!<br>
-                    You've been invited to join <strong>{{ $user->vendor?->name ?? 'the team' }}</strong>.
+                    You've been invited to join <strong>{{ $user->business?->name ?? 'the team' }}</strong>.
                 </p>
                 <p class="small text-muted">Set your password to activate your account.</p>
             </div>

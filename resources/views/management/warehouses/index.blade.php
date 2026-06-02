@@ -2,7 +2,7 @@
 @section('subtitle', 'Warehouses')
 
 @section('content')
-<div x-data="warehouseManager()">
+<div x-data="warehouseManager()" @warehouse-edit="editing = $event.detail" @warehouse-delete="deleting = $event.detail">
 <x-management.page-header title="Warehouses" subtitle="Manage inventory storage locations">
     <x-slot:actions>
         <button @click="showCreateModal = true" class="inline-flex items-center gap-1.5 px-4 py-2 bg-slate-900 text-white text-sm font-medium rounded-lg hover:bg-slate-800 transition-colors">
@@ -38,10 +38,10 @@
                         <a href="{{ route('management.sections.index', $warehouse) }}" class="flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">
                             <i class="fi fi-rr-cube w-4 text-slate-400"></i> Sections
                         </a>
-                        <button onclick="editWarehouse(@js($warehouse->only(['id','warehouse_code','name','contact_person','contact_phone','is_active'])))" class="flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 w-full text-left">
+                        <button @click.stop="$dispatch('warehouse-edit', { id: '{{ $warehouse->id }}', warehouse_code: '{{ $warehouse->warehouse_code }}', name: '{{ addslashes($warehouse->name) }}', contact_person: '{{ addslashes($warehouse->contact_person ?? '') }}', contact_phone: '{{ $warehouse->contact_phone ?? '' }}', is_active: {{ $warehouse->is_active ? 'true' : 'false' }} })" class="flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 w-full text-left">
                             <i class="fi fi-rr-edit w-4 text-slate-400"></i> Edit
                         </button>
-                        <button onclick="deleteWarehouse(@js($warehouse->only(['id','warehouse_code','name'])))" class="flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 w-full text-left">
+                        <button @click.stop="$dispatch('warehouse-delete', { id: '{{ $warehouse->id }}', warehouse_code: '{{ $warehouse->warehouse_code }}', name: '{{ addslashes($warehouse->name) }}' })" class="flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 w-full text-left">
                             <i class="fi fi-rr-trash w-4"></i> Delete
                         </button>
                     </div>
@@ -54,6 +54,19 @@
                 <span>{{ $warehouse->stockLocations->sum('quantity') }} items</span>
                 <span>{{ $warehouse->sections->count() }} sections</span>
             </div>
+            @if($warehouse->assignedStaff->isNotEmpty())
+            <div class="mt-2 pt-2 border-t border-slate-100">
+                <p class="text-[10px] text-slate-400 uppercase tracking-wider mb-1">Assigned Staff</p>
+                <div class="flex flex-wrap gap-1">
+                    @foreach($warehouse->assignedStaff->take(4) as $staff)
+                    <span class="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600">{{ $staff->name }}</span>
+                    @endforeach
+                    @if($warehouse->assignedStaff->count() > 4)
+                    <span class="text-[10px] text-slate-400">+{{ $warehouse->assignedStaff->count() - 4 }} more</span>
+                    @endif
+                </div>
+            </div>
+            @endif
         </div>
     </div>
     @empty
@@ -74,11 +87,20 @@
             </div>
             <form :action="'/management/warehouses/' + editing?.warehouse_code" method="POST" class="p-6 space-y-4">
                 @csrf @method('PUT')
-                <x-management.form-input name="name" label="Warehouse Name" required />
-                <x-management.form-input name="contact_person" label="Contact Person" />
-                <x-management.form-input name="contact_phone" label="Contact Phone" />
+                <div class="space-y-1.5">
+                    <label class="block text-sm font-medium text-slate-700">Warehouse Name <span class="text-red-500">*</span></label>
+                    <input type="text" name="name" :value="editing?.name" class="block w-full rounded-lg border-slate-300 px-3.5 py-2.5 shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500 text-sm" required>
+                </div>
+                <div class="space-y-1.5">
+                    <label class="block text-sm font-medium text-slate-700">Contact Person</label>
+                    <input type="text" name="contact_person" :value="editing?.contact_person" class="block w-full rounded-lg border-slate-300 px-3.5 py-2.5 shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500 text-sm">
+                </div>
+                <div class="space-y-1.5">
+                    <label class="block text-sm font-medium text-slate-700">Contact Phone</label>
+                    <input type="text" name="contact_phone" :value="editing?.contact_phone" class="block w-full rounded-lg border-slate-300 px-3.5 py-2.5 shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500 text-sm">
+                </div>
                 <div class="flex items-center gap-2">
-                    <input type="checkbox" name="is_active" value="1" class="rounded border-slate-300 text-slate-900">
+                    <input type="checkbox" name="is_active" value="1" :checked="editing?.is_active" class="rounded border-slate-300 text-slate-900">
                     <span class="text-sm text-slate-700">Active</span>
                 </div>
                 <div class="flex items-center gap-3 pt-2">
@@ -109,6 +131,6 @@
 </div>
 </div>
 @push('scripts')
-<script>window.editWarehouse=function(d){var e=document.querySelector('[x-data="warehouseManager"]');if(e)Alpine.$data(e).editing=d};window.deleteWarehouse=function(d){var e=document.querySelector('[x-data="warehouseManager"]');if(e)Alpine.$data(e).deleting=d};document.addEventListener('alpine:init',()=>{Alpine.data('warehouseManager',()=>({editing:null,deleting:null}))});</script>
+<script>document.addEventListener('alpine:init',()=>{Alpine.data('warehouseManager',()=>({editing:null,deleting:null}))});</script>
 @endpush
 @endsection

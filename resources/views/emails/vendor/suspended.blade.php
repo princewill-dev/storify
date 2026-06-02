@@ -23,7 +23,7 @@
           <tr>
             <td style="padding:24px;">
               <h2 style="margin:0 0 12px;font-size:18px;">Vendor Account Suspended</h2>
-              <p style="margin:0 0 12px;">Hello {{ $vendor->name }},</p>
+              <p style="margin:0 0 12px;">Hello {{ $user->name }},</p>
               <p style="margin:0 0 16px;">Your vendor account has been suspended. See details below:</p>
 
               <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:12px 14px;margin-bottom:16px;">

@@ -34,19 +34,19 @@ class VendorController extends Controller
         $from = $request->query('from');
         $to = $request->query('to');
 
-        $vendorsQuery = Vendor::query()
+        $usersQuery = User::query()
             ->with(['stores' => function($q){
                 $q->select(['id','store_id','name','user_id'])->limit(3);
             }, 'kycApplication'])
             ->withCount('stores');
         if (in_array(strtolower((string)$status), ['active','suspended','deleted'], true)) {
-            $vendorsQuery->where('status', strtolower($status));
+            $usersQuery->where('status', strtolower($status));
         } else {
             // Default: hide deleted vendors unless explicitly filtered
-            $vendorsQuery->where('status', '!=', 'deleted');
+            $usersQuery->where('status', '!=', 'deleted');
         }
         if ($q !== '') {
-            $vendorsQuery->where(function($x) use ($q) {
+            $usersQuery->where(function($x) use ($q) {
                 $x->where('name', 'like', "%$q%")
                   ->orWhere('email', 'like', "%$q%")
                   ->orWhere('phone', 'like', "%$q%");
@@ -56,23 +56,27 @@ class VendorController extends Controller
             $start = $from ? date('Y-m-d 00:00:00', strtotime($from)) : null;
             $end = $to ? date('Y-m-d 23:59:59', strtotime($to)) : null;
             if ($start && $end) {
-                $vendorsQuery->whereBetween('created_at', [$start, $end]);
+                $usersQuery->whereBetween('created_at', [$start, $end]);
             } elseif ($start) {
-                $vendorsQuery->where('created_at', '>=', $start);
+                $usersQuery->where('created_at', '>=', $start);
             } elseif ($end) {
-                $vendorsQuery->where('created_at', '<=', $end);
+                $usersQuery->where('created_at', '<=', $end);
             }
         }
 
-        $vendors = $vendorsQuery->latest()->paginate(15)->withQueryString();
+        $users = $usersQuery->latest()->paginate(15)->withQueryString();
         return view('admin.vendors.index', [
-            'vendors' => $vendors,
+            'vendors' => $users,
             'status' => $status,
             'q' => $q,
             'from' => $from,
             'to' => $to,
             'kycStatusBadgeData' => KycApplication::statusBadgeData(),
-            'vendorStatusBadgeData' => Vendor::statusBadgeData(),
+            'vendorStatusBadgeData' => [
+                ['label' => 'Active', 'class' => 'bg-green-100 text-green-800'],
+                ['label' => 'Suspended', 'class' => 'bg-red-100 text-red-800'],
+                ['label' => 'Deleted', 'class' => 'bg-gray-100 text-gray-800'],
+            ],
         ]);
     }
 
@@ -81,7 +85,7 @@ class VendorController extends Controller
         Log::info('vendor_create_viewed', ['user_id' => auth()->id()]);
         $allow = (int) env('ALLOW_MS_SETUP', 0) === 1;
         $superadminEmails = \App\Models\User::where('role','superadmin')->pluck('email');
-        $superadminVendorExists = Vendor::whereIn('email', $superadminEmails)->exists();
+        $superadminVendorExists = User::whereIn('email', $superadminEmails)->exists();
         if ($superadminVendorExists && !$allow) {
             return redirect()->back()->with('error', 'multi-vendor crontrols is incomplete');
         }
@@ -94,7 +98,7 @@ class VendorController extends Controller
         // Guard: if superadmin vendor already exists and ALLOW_MS_SETUP != 1, refuse creation
         $allow = (int) env('ALLOW_MS_SETUP', 0) === 1;
         $superadminEmails = \App\Models\User::where('role','superadmin')->pluck('email');
-        $superadminVendorExists = Vendor::whereIn('email', $superadminEmails)->exists();
+        $superadminVendorExists = User::whereIn('email', $superadminEmails)->exists();
         if ($superadminVendorExists && !$allow) {
             return redirect()->route('admin.vendors.index')->with('error', 'multi-vendor crontrols is incomplete');
         }
@@ -104,60 +108,60 @@ class VendorController extends Controller
             ->trim()
             ->lower()
             ->replace(' ', '_');
-        $vendor = Vendor::create($data);
-        Log::info('vendor_created', ['user_id' => auth()->id(), 'user_id' => $vendor->id]);
+        $user = User::create($data);
+        Log::info('vendor_created', ['user_id' => auth()->id(), 'user_id' => $user->id]);
 
         try {
             $admins = $this->adminRecipients();
             if (!empty($admins)) {
-                Mail::to($admins)->queue(new AdminVendorCreated($vendor));
+                Mail::to($admins)->queue(new AdminVendorCreated($user));
             }
         } catch (\Throwable $e) {
-            Log::error('vendor_created_mail_queue_failed', ['user_id' => $vendor->id, 'error' => $e->getMessage()]);
+            Log::error('vendor_created_mail_queue_failed', ['user_id' => $user->id, 'error' => $e->getMessage()]);
         }
         return redirect()->route('admin.vendors.index')->with('success', 'Vendor created');
     }
 
-    public function edit(Vendor $vendor)
+    public function edit(User $user)
     {
-        Log::info('vendor_edit_viewed', ['user_id' => auth()->id(), 'user_id' => $vendor->id]);
-        return view('admin.vendors.edit', compact('vendor'));
+        Log::info('vendor_edit_viewed', ['user_id' => auth()->id(), 'user_id' => $user->id]);
+        return view('admin.vendors.edit', compact('user'));
     }
 
-    public function update(VendorRequest $request, Vendor $vendor)
+    public function update(VendorRequest $request, User $user)
     {
-        Log::info('vendor_update_requested', ['user_id' => auth()->id(), 'user_id' => $vendor->id, 'ip' => $request->ip()]);
+        Log::info('vendor_update_requested', ['user_id' => auth()->id(), 'user_id' => $user->id, 'ip' => $request->ip()]);
         $data = $request->validated();
         if (empty($data['slug']) && !empty($data['name'])) {
             $data['slug'] = Str::of($data['name'])->trim()->lower()->replace(' ', '_');
         } else if (!empty($data['slug'])) {
             $data['slug'] = Str::of($data['slug'])->trim()->lower()->replace(' ', '_');
         }
-        $vendor->update($data);
-        $vendor->refresh(); // Refresh to get updated data
-        Log::info('vendor_updated', ['user_id' => auth()->id(), 'user_id' => $vendor->id]);
+        $user->update($data);
+        $user->refresh(); // Refresh to get updated data
+        Log::info('vendor_updated', ['user_id' => auth()->id(), 'user_id' => $user->id]);
         
         // Check if redirect parameter is set to show page
         if ($request->query('redirect') === 'show') {
-            return redirect()->route('admin.vendors.show', $vendor->account_id)->with('success', 'Vendor updated');
+            return redirect()->route('admin.vendors.show', $user->account_id)->with('success', 'Vendor updated');
         }
         
         return redirect()->route('admin.vendors.index')->with('success', 'Vendor updated');
     }
 
-    public function destroy(Vendor $vendor)
+    public function destroy(User $user)
     {
-        Log::info('vendor_delete_requested', ['user_id' => auth()->id(), 'user_id' => $vendor->id]);
+        Log::info('vendor_delete_requested', ['user_id' => auth()->id(), 'user_id' => $user->id]);
         
         // Check if vendor owns the main store
         $mainStoreId = Setting::value('main_store_id');
-        if ($mainStoreId && $vendor->stores()->where('id', $mainStoreId)->exists()) {
-            Log::warning('vendor_delete_blocked_main_store_owner', ['user_id' => $vendor->id, 'main_store_id' => $mainStoreId]);
+        if ($mainStoreId && $user->stores()->where('id', $mainStoreId)->exists()) {
+            Log::warning('vendor_delete_blocked_main_store_owner', ['user_id' => $user->id, 'main_store_id' => $mainStoreId]);
             return back()->with('error', 'This vendor owns the main store and cannot be deleted.');
         }
 
         // Get all store IDs belonging to this vendor
-        $storeIds = $vendor->stores()->pluck('id')->toArray();
+        $storeIds = $user->stores()->pluck('id')->toArray();
 
         if (!empty($storeIds)) {
             // Check if any order associated with the vendor's stores is not completed
@@ -168,10 +172,10 @@ class VendorController extends Controller
             if ($incompleteOrders) {
                 Log::warning('vendor_delete_rejected_incomplete_orders', [
                     'user_id' => auth()->id(),
-                    'user_id' => $vendor->id,
-                    'vendor_name' => $vendor->name
+                    'user_id' => $user->id,
+                    'vendor_name' => $user->name
                 ]);
-                return back()->with('error', "Deletion rejected: {$vendor->name} has stores with incomplete orders");
+                return back()->with('error', "Deletion rejected: {$user->name} has stores with incomplete orders");
             }
 
             // Check if any transaction associated with the vendor's stores is not completed
@@ -184,61 +188,61 @@ class VendorController extends Controller
             if ($incompleteTransactions) {
                 Log::warning('vendor_delete_rejected_incomplete_transactions', [
                     'user_id' => auth()->id(),
-                    'user_id' => $vendor->id,
-                    'vendor_name' => $vendor->name
+                    'user_id' => $user->id,
+                    'vendor_name' => $user->name
                 ]);
-                return back()->with('error', "Deletion rejected: {$vendor->name} has stores with incomplete transactions");
+                return back()->with('error', "Deletion rejected: {$user->name} has stores with incomplete transactions");
             }
         }
 
         // If all validations pass, mark vendor as deleted
-        $vendor->update(['status' => 'deleted']);
-        Log::info('vendor_marked_deleted', ['user_id' => auth()->id(), 'user_id' => $vendor->id]);
-        return back()->with('success', "Vendor '{$vendor->name}' has been deleted successfully.");
+        $user->update(['status' => 'deleted']);
+        Log::info('vendor_marked_deleted', ['user_id' => auth()->id(), 'user_id' => $user->id]);
+        return back()->with('success', "Vendor '{$user->name}' has been deleted successfully.");
     }
 
-    public function show(Vendor $vendor)
+    public function show(User $user)
     {
-        Log::info('vendor_show_viewed', ['user_id' => auth()->id(), 'user_id' => $vendor->id]);
-        $vendor->load(['stores' => function($q){ $q->with(['ownershipType','businessType']); }]);
-        return view('admin.vendors.show', compact('vendor'));
+        Log::info('vendor_show_viewed', ['user_id' => auth()->id(), 'user_id' => $user->id]);
+        $user->load(['stores' => function($q){ $q->with(['ownershipType','businessType']); }]);
+        return view('admin.vendors.show', compact('user'));
     }
 
-    public function suspend(Request $request, Vendor $vendor)
+    public function suspend(Request $request, User $user)
     {
         $data = $request->validate([
             'reason' => 'required|string|max:2000',
         ]);
         $mainStoreId = Setting::value('main_store_id');
-        if ($mainStoreId && $vendor->stores()->where('id', $mainStoreId)->exists()) {
-            Log::warning('vendor_suspend_blocked_main_store_owner', ['user_id' => $vendor->id, 'main_store_id' => $mainStoreId]);
+        if ($mainStoreId && $user->stores()->where('id', $mainStoreId)->exists()) {
+            Log::warning('vendor_suspend_blocked_main_store_owner', ['user_id' => $user->id, 'main_store_id' => $mainStoreId]);
             return back()->with('error', 'This vendor owns the main store and cannot be suspended.');
         }
-        Log::info('vendor_suspend_requested', ['user_id' => auth()->id(), 'user_id' => $vendor->id, 'reason' => $data['reason']]);
-        $vendor->update(['status' => 'suspended']);
+        Log::info('vendor_suspend_requested', ['user_id' => auth()->id(), 'user_id' => $user->id, 'reason' => $data['reason']]);
+        $user->update(['status' => 'suspended']);
 
         try {
-            if ($vendor->email) {
-                Mail::to($vendor->email)->queue(new VendorSuspended($vendor, $data['reason']));
+            if ($user->email) {
+                Mail::to($user->email)->queue(new VendorSuspended($user, $data['reason']));
             }
         } catch (\Throwable $e) {
-            Log::error('vendor_suspended_mail_queue_failed', ['user_id' => $vendor->id, 'error' => $e->getMessage()]);
+            Log::error('vendor_suspended_mail_queue_failed', ['user_id' => $user->id, 'error' => $e->getMessage()]);
         }
 
-        Log::info('vendor_suspended', ['user_id' => auth()->id(), 'user_id' => $vendor->id]);
+        Log::info('vendor_suspended', ['user_id' => auth()->id(), 'user_id' => $user->id]);
         return back()->with('success', 'Vendor suspended');
     }
 
-    public function activate(Request $request, Vendor $vendor)
+    public function activate(Request $request, User $user)
     {
         $data = $request->validate([
             'reason' => 'required|string|max:2000',
         ]);
-        Log::info('vendor_activate_requested', ['user_id' => auth()->id(), 'user_id' => $vendor->id, 'reason' => $data['reason']]);
-        $vendor->update(['status' => 'active']);
+        Log::info('vendor_activate_requested', ['user_id' => auth()->id(), 'user_id' => $user->id, 'reason' => $data['reason']]);
+        $user->update(['status' => 'active']);
 
         // Approve KYC application if it exists
-        $kycApplication = $vendor->kycApplication;
+        $kycApplication = $user->kycApplication;
         if ($kycApplication && $kycApplication->status !== 'approved') {
             $kycApplication->update([
                 'status' => 'approved',
@@ -248,20 +252,20 @@ class VendorController extends Controller
             ]);
             Log::info('vendor_kyc_auto_approved', [
                 'user_id' => auth()->id(),
-                'user_id' => $vendor->id,
+                'user_id' => $user->id,
                 'kyc_application_id' => $kycApplication->id
             ]);
         }
 
         try {
-            if ($vendor->email) {
-                Mail::to($vendor->email)->queue(new VendorReactivated($vendor, $data['reason']));
+            if ($user->email) {
+                Mail::to($user->email)->queue(new VendorReactivated($user, $data['reason']));
             }
         } catch (\Throwable $e) {
-            Log::error('vendor_reactivated_mail_queue_failed', ['user_id' => $vendor->id, 'error' => $e->getMessage()]);
+            Log::error('vendor_reactivated_mail_queue_failed', ['user_id' => $user->id, 'error' => $e->getMessage()]);
         }
 
-        Log::info('vendor_activated', ['user_id' => auth()->id(), 'user_id' => $vendor->id]);
+        Log::info('vendor_activated', ['user_id' => auth()->id(), 'user_id' => $user->id]);
         
         $message = 'Vendor activated';
         if ($kycApplication && $kycApplication->status === 'approved') {

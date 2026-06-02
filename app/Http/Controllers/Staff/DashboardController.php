@@ -15,7 +15,6 @@ class DashboardController extends Controller
 
         if ($user->hasRole('Cashier')) {
             $hasPosStore = $user->assignedStores()->where('pos_enabled', true)->exists();
-
             if ($hasPosStore) {
                 return redirect()->route('staff.pos');
             }
@@ -24,10 +23,39 @@ class DashboardController extends Controller
         $hasPosStore = $user->assignedStores()->where('pos_enabled', true)->exists();
         $hasStore = $user->assignedStores()->exists();
 
+        $storeIds = $user->assignedStores()->pluck('stores.id');
+
+        $todaySales = \App\Models\Order::whereIn('store_id', $storeIds)
+            ->where('source', 'pos')
+            ->whereDate('created_at', today())
+            ->sum('total');
+
+        $todayOrders = \App\Models\Order::whereIn('store_id', $storeIds)
+            ->where('source', 'pos')
+            ->whereDate('created_at', today())
+            ->count();
+
+        $recentActivity = \App\Models\Order::whereIn('store_id', $storeIds)
+            ->where('source', 'pos')
+            ->with(['items', 'transactions.paymentMethod', 'store'])
+            ->latest()
+            ->take(8)
+            ->get();
+
+        $activeSession = \App\Models\PosSession::whereIn('store_id', $storeIds)
+            ->where('staff_id', $user->id)
+            ->where('status', 'open')
+            ->with('store')
+            ->latest()
+            ->first();
+
         $modules = $this->buildModules($user, $hasPosStore, $hasStore);
         $hasAnyPermission = !empty($modules);
 
-        return view('staff.dashboard', compact('user', 'modules', 'hasAnyPermission'));
+        return view('staff.dashboard', compact(
+            'user', 'modules', 'hasAnyPermission',
+            'todaySales', 'todayOrders', 'recentActivity', 'activeSession',
+        ));
     }
 
     private function buildModules($user, bool $hasPosStore, bool $hasStore): array

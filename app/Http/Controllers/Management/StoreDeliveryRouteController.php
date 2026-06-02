@@ -14,12 +14,12 @@ class StoreDeliveryRouteController extends Controller
 {
     public function store(Request $request, Store $store): RedirectResponse
     {
-        /** @var User|null $vendor */
-        $vendor = $request->user();
+        /** @var User|null $user */
+        $user = $request->user();
 
         
 
-        if ($store->user_id !== $vendor->id) {
+        if ($store->user_id !== $user->id) {
             return back()->with('error', 'Unauthorized action.');
         }
 
@@ -39,7 +39,7 @@ class StoreDeliveryRouteController extends Controller
         DeliveryRoute::create($validated);
 
         Log::info('vendor.delivery_route.created', [
-            'user_id' => $vendor->id,
+            'user_id' => $user->id,
             'store_id' => $store->id,
         ]);
 
@@ -48,12 +48,12 @@ class StoreDeliveryRouteController extends Controller
 
     public function update(Request $request, Store $store, DeliveryRoute $deliveryRoute): RedirectResponse
     {
-        /** @var User|null $vendor */
-        $vendor = $request->user();
+        /** @var User|null $user */
+        $user = $request->user();
 
         
 
-        if ($store->user_id !== $vendor->id || $deliveryRoute->store_id !== $store->id) {
+        if ($store->user_id !== $user->id || $deliveryRoute->store_id !== $store->id) {
             return back()->with('error', 'Unauthorized action.');
         }
 
@@ -72,7 +72,7 @@ class StoreDeliveryRouteController extends Controller
         $deliveryRoute->update($validated);
 
         Log::info('vendor.delivery_route.updated', [
-            'user_id' => $vendor->id,
+            'user_id' => $user->id,
             'store_id' => $store->id,
             'route_id' => $deliveryRoute->id,
         ]);
@@ -82,19 +82,19 @@ class StoreDeliveryRouteController extends Controller
 
     public function destroy(Request $request, Store $store, DeliveryRoute $deliveryRoute): RedirectResponse
     {
-        /** @var User|null $vendor */
-        $vendor = $request->user();
+        /** @var User|null $user */
+        $user = $request->user();
 
         
 
-        if ($store->user_id !== $vendor->id || $deliveryRoute->store_id !== $store->id) {
+        if ($store->user_id !== $user->id || $deliveryRoute->store_id !== $store->id) {
             return back()->with('error', 'Unauthorized action.');
         }
 
         $deliveryRoute->delete();
 
         Log::info('vendor.delivery_route.deleted', [
-            'user_id' => $vendor->id,
+            'user_id' => $user->id,
             'store_id' => $store->id,
             'route_id' => $deliveryRoute->id,
         ]);

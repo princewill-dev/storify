@@ -281,9 +281,9 @@ class PaystackController extends Controller
                         Mail::to($adminEmail)->send(new NewOrderAdminMail($order));
                     }
 
-                    $vendorEmail = $order->vendor?->email;
-                    if ($vendorEmail) {
-                        Mail::to($vendorEmail)->send(new VendorOrderNotificationMail($order));
+                    $userEmail = User::find($order->user_id)?->email;
+                    if ($userEmail) {
+                        Mail::to($userEmail)->send(new VendorOrderNotificationMail($order));
                     }
                     
                     Log::info('paystack.callback.emails_sent', [
@@ -423,9 +423,9 @@ class PaystackController extends Controller
                         Mail::to($adminEmail)->send(new NewOrderAdminMail($transaction->order));
                     }
 
-                    $vendorEmail = $transaction->order->vendor?->email;
-                    if ($vendorEmail) {
-                        Mail::to($vendorEmail)->send(new VendorOrderNotificationMail($transaction->order));
+                    $userEmail = User::find($transaction->order->user_id)?->email;
+                    if ($userEmail) {
+                        Mail::to($userEmail)->send(new VendorOrderNotificationMail($transaction->order));
                     }
                     
                     Log::info('paystack.webhook.emails_sent', [

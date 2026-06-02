@@ -59,9 +59,20 @@ class InvitationController extends Controller
 
         Auth::guard('web')->login($user);
 
-        $routeName = $user->hasRole('Cashier') ? 'staff.pos' : 'management.dashboard';
+        setPermissionsTeamId($user->business_id);
 
-        return redirect()->route($routeName)
+        $route = $this->staffRedirectRoute($user);
+
+        return redirect()->to($route)
             ->with('success', 'Welcome aboard! Your account has been activated.');
+    }
+
+    private function staffRedirectRoute(\App\Models\User $user): string
+    {
+        if ($user->hasRole('Cashier')) {
+            $hasPosStore = $user->assignedStores()->where('pos_enabled', true)->exists();
+            return $hasPosStore ? route('staff.pos') : route('staff.dashboard');
+        }
+        return route('management.dashboard');
     }
 }

@@ -143,7 +143,7 @@ class ProductController extends Controller
         if (!$allow) {
             $superadmin = User::where('role', 'superadmin')->orderBy('id')->first();
             if ($superadmin) {
-                $saVendor = Vendor::where('email', $superadmin->email)->first();
+                $saVendor = User::where('email', $superadmin->email)->first();
                 if ($saVendor) {
                     $stores = Store::where('user_id', $saVendor->id)->orderBy('name')->get();
                 } else {
@@ -188,7 +188,7 @@ class ProductController extends Controller
                 if (!$allow) {
                     $superadmin = User::where('role', 'superadmin')->orderBy('id')->first();
                     if ($superadmin) {
-                        $saVendor = Vendor::where('email', $superadmin->email)->first();
+                        $saVendor = User::where('email', $superadmin->email)->first();
                         if ($saVendor) {
                             $storeIds = Store::where('user_id', $saVendor->id)->pluck('id')->all();
                             if (!in_array($data['store_id'], $storeIds, true)) {
@@ -213,6 +213,33 @@ class ProductController extends Controller
                 $product->slug = null;
                 $product->product_code = null;
                 $product->save();
+
+                if ($product->quantity > 0) {
+                    \App\Models\StockMovement::create([
+                        'product_id' => $product->id,
+                        'to_location_type' => \App\Models\Store::class,
+                        'to_location_id' => $product->store_id,
+                        'quantity' => $product->quantity,
+                        'type' => \App\Enums\StockMovementType::ADDED->value,
+                        'performed_by_type' => \App\Models\User::class,
+                        'performed_by_id' => auth()->id(),
+                        'notes' => 'Initial stock — Product created (Admin)',
+                    ]);
+                }
+
+                if ($product->section_id && $product->quantity > 0) {
+                    $section = \App\Models\Section::find($product->section_id);
+                    if ($section && $section->warehouse_id) {
+                        \App\Models\StockLocation::updateOrCreate(
+                            [
+                                'product_id' => $product->id,
+                                'locationable_type' => \App\Models\Warehouse::class,
+                                'locationable_id' => $section->warehouse_id,
+                            ],
+                            ['quantity' => $product->quantity, 'min_quantity' => 0]
+                        );
+                    }
+                }
 
                 Log::info('product_created_debug', [
                     'product_id' => $product->id,

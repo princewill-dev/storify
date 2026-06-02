@@ -3,7 +3,7 @@
 namespace App\Mail;
 
 use App\Models\Setting;
-use App\Models\Vendor;
+use App\Models\User;
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
 use Illuminate\Queue\SerializesModels;
@@ -12,13 +12,13 @@ class VendorReactivated extends Mailable
 {
     use Queueable, SerializesModels;
 
-    public Vendor $vendor;
+    public User $user;
     public string $reason;
     public array $company;
 
-    public function __construct(Vendor $vendor, string $reason)
+    public function __construct(User $user, string $reason)
     {
-        $this->vendor = $vendor;
+        $this->user = $user;
         $this->reason = $reason;
         $s = Setting::first();
         $this->company = [
@@ -36,7 +36,7 @@ class VendorReactivated extends Mailable
         return $this->subject('Vendor Account Reactivated')
             ->view('emails.vendor.reactivated')
             ->with([
-                'vendor' => $this->vendor,
+                'user' => $this->user,
                 'reason' => $this->reason,
                 'company' => (object) $this->company,
             ]);

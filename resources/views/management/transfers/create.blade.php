@@ -31,7 +31,7 @@
                     <x-management.form-input name="from_warehouse_id" label="From Warehouse" type="select" required :error="$errors->first('from_warehouse_id')">
                         <option value="">Select warehouse</option>
                         @foreach($warehouses as $wh)
-                        <option value="{{ $wh->id }}" @selected(old('from_warehouse_id') == $wh->id)>{{ $wh->name }}</option>
+                        <option value="{{ $wh->id }}" @selected(old('from_warehouse_id', $preSelectedWarehouse?->id) == $wh->id)>{{ $wh->name }}</option>
                         @endforeach
                     </x-management.form-input>
                     <x-management.form-input name="to_store_id" label="To Store" type="select" required :error="$errors->first('to_store_id')">

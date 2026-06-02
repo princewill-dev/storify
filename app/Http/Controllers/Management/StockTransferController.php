@@ -35,15 +35,28 @@ class StockTransferController extends Controller
     {
         $user = $request->user();
 
-        $warehouses = \App\Models\Warehouse::where('user_id', $user->id)->where('is_active', true)->orderBy('name')->get();
-        $stores = $user->stores()->orderBy('name')->get();
+        if ($user->isStaff()) {
+            $warehouseIds = \Illuminate\Support\Facades\DB::table('staff_assignments')
+                ->where('user_id', $user->id)
+                ->where('assignmentable_type', \App\Models\Warehouse::class)
+                ->pluck('assignmentable_id');
+            $warehouses = \App\Models\Warehouse::whereIn('id', $warehouseIds)->where('is_active', true)->orderBy('name')->get();
+        } else {
+            $warehouses = \App\Models\Warehouse::where('user_id', $user->id)->where('is_active', true)->orderBy('name')->get();
+        }
+        $stores = ($user->isStaff() ? $user->assignedStores() : $user->stores())->orderBy('name')->get();
 
         $products = \App\Models\Product::whereIn('store_id', $stores->pluck('id'))
             ->where('status', 'active')
             ->orderBy('name')
             ->get(['id', 'product_code', 'name', 'store_id']);
 
-        return view('management.transfers.create', compact('user', 'warehouses', 'stores', 'products'));
+        $preSelectedWarehouse = null;
+        if ($request->filled('from_warehouse')) {
+            $preSelectedWarehouse = $warehouses->where('warehouse_code', $request->from_warehouse)->first();
+        }
+
+        return view('management.transfers.create', compact('user', 'warehouses', 'stores', 'products', 'preSelectedWarehouse'));
     }
 
     public function store(Request $request): RedirectResponse
@@ -149,8 +162,13 @@ class StockTransferController extends Controller
                 $item->update(['approved_quantity' => min($approved, $item->quantity)]);
             }
 
+            $anyAdjusted = $transfer->items()->whereColumn('approved_quantity', '<', 'quantity')->exists();
+            $newStatus = $transfer->isPending() && $anyAdjusted
+                ? TransferStatus::AWAITING_ACKNOWLEDGMENT
+                : TransferStatus::APPROVED;
+
             $transfer->update([
-                'status' => TransferStatus::APPROVED,
+                'status' => $newStatus,
                 'approved_by' => $request->user()->id,
             ]);
 
@@ -159,14 +177,36 @@ class StockTransferController extends Controller
             Log::info('transfer.approved', [
                 'transfer_id' => $transfer->id,
                 'approved_by' => $request->user()->id,
+                'status' => $newStatus->value,
+                'adjusted' => $anyAdjusted,
             ]);
 
-            return back()->with('success', 'Transfer approved.');
+            $message = $anyAdjusted
+                ? 'Quantities adjusted and sent for acknowledgement.'
+                : 'Transfer approved.';
+
+            return back()->with('success', $message);
 
         } catch (\Throwable $e) {
             DB::rollBack();
             return back()->with('error', 'Failed to approve transfer.');
         }
+    }
+
+    public function acknowledge(Request $request, StockTransfer $transfer): RedirectResponse
+    {
+        if (!$transfer->canBeAcknowledged()) {
+            return back()->with('error', 'This transfer is not awaiting acknowledgement.');
+        }
+
+        $transfer->update(['status' => TransferStatus::APPROVED]);
+
+        Log::info('transfer.acknowledged', [
+            'transfer_id' => $transfer->id,
+            'acknowledged_by' => $request->user()->id,
+        ]);
+
+        return back()->with('success', 'Quantities acknowledged. Transfer is now approved.');
     }
 
     public function dispatch(Request $request, StockTransfer $transfer): RedirectResponse

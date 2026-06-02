@@ -6,6 +6,7 @@
 {{-- Page Header --}}
 <x-management.page-header title="Dashboard" subtitle="{{ $activeStoreObj ? $activeStoreObj->name . ' · Store Overview' : 'Business Overview' }}">
     <x-slot:actions>
+        @can('stores view')
         @if($stats['total_stores'] > 0)
         <div class="relative" x-data="{ open: false }">
             <button @click="open = !open" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors">
@@ -18,7 +19,7 @@
                 <a href="{{ route('management.dashboard') }}" class="flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">
                     <i class="fi fi-rr-apps w-4 text-center text-slate-400"></i> All Stores (Combined)
                 </a>
-                @foreach($vendor->stores as $st)
+                @foreach($user->stores as $st)
                 <a href="javascript:void(0)" onclick="event.preventDefault(); document.getElementById('ds-switch-{{ $st->id }}').submit();"
                    class="flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 {{ ($activeStoreObj && (int)$activeStoreObj->id === (int)$st->id) ? 'bg-blue-50 text-blue-700' : '' }}">
                     <i class="fi fi-rr-shop w-4 text-center {{ ($activeStoreObj && (int)$activeStoreObj->id === (int)$st->id) ? 'text-blue-500' : 'text-slate-300' }}"></i>
@@ -29,56 +30,124 @@
             </div>
         </div>
         @endif
-        @unless($vendor->stores()->exists())
-        <a href="{{ route('management.stores.create') }}" class="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors">
-            <i class="fi fi-rr-plus text-xs"></i> Create Store
-        </a>
-        @endunless
+        @endcan
     </x-slot:actions>
 </x-management.page-header>
 
 {{-- Metric Cards --}}
-<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+<div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+    @can('transactions view')
     <x-management.metric-card 
         label="Total Revenue" value="₦{{ number_format($stats['total_revenue'], 2) }}"
         subtitle="{{ $stats['revenue_change_percent'] > 0 ? '+' : '' }}{{ $stats['revenue_change_percent'] }}% vs last month"
         icon="fi fi-rr-usd-circle" />
+    @endcan
+    @can('products view')
     <x-management.metric-card 
         label="Products" :value="number_format($stats['total_products'])"
         subtitle="{{ number_format($stats['total_stock']) }} in stock"
         icon="fi fi-rr-cube" />
+    <x-management.metric-card 
+        label="Stock Value" value="₦{{ number_format($stats['stock_value'], 2) }}"
+        subtitle="Active inventory valuation"
+        icon="fi fi-rr-chart-histogram" />
+    @endcan
+    @can('orders view')
     <x-management.metric-card label="Orders" :value="number_format($stats['total_orders'])"
         subtitle="{{ $stats['pending_orders'] }} pending · {{ $stats['orders_this_month'] }} this month"
         icon="fi fi-rr-shopping-cart" />
+    @endcan
+    @can('customers view')
     <x-management.metric-card label="Customers" :value="number_format($stats['total_customers'])"
         subtitle="{{ $stats['active_customers'] }} active"
         icon="fi fi-rr-users-alt" />
-</div>
-
-<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+    @endcan
+    @can('warehouses view')
     <x-management.metric-card 
         label="Warehouses" :value="$stats['total_warehouses']"
         subtitle="{{ number_format($stats['warehouse_total_stock']) }} items stocked"
         icon="fi fi-rr-warehouse-alt" />
+    @endcan
+    @can('transfers view')
+    <x-management.metric-card 
+        label="Transfer Requests" :value="$stats['pending_transfers']"
+        subtitle="Pending approval"
+        icon="fi fi-rr-truck-loading" />
+    @endcan
+    @can('pos view_history')
     <x-management.metric-card label="Open POS" :value="$stats['open_pos_sessions']->count()"
         subtitle="{{ $stats['active_pos_stores'] }} stores enabled"
         icon="fi fi-rr-terminal" />
+    @endcan
+    @can('stores view')
     @if($stats['web_visits'] > 0)
     <x-management.metric-card label="Web Visits" :value="$stats['web_visits']"
         subtitle="Online stores"
         icon="fi fi-rr-globe" />
     @endif
+    @endcan
+    @can('staff view')
     <x-management.metric-card 
         label="Total Staff" :value="$stats['total_staff']"
         subtitle="{{ $stats['active_staff'] }} active"
         icon="fi fi-rr-users" />
+    @endcan
+    @can('stores view')
     <x-management.metric-card 
         label="Stores" :value="$stats['total_stores']"
         subtitle="{{ $stats['active_stores'] }} active"
         icon="fi fi-rr-shop" />
+    @endcan
 </div>
 
+{{-- Stock Transfer Requests Table --}}
+@can('transfers view')
+@if($stats['pending_transfer_list']->isNotEmpty())
+<div class="mb-6">
+    <x-management.card>
+        <x-slot:header>
+            <h3 class="text-sm font-semibold text-slate-800">Stock Transfer Requests</h3>
+            <a href="{{ route('management.transfers.index', ['status' => 'pending']) }}" class="text-xs text-blue-600 hover:text-blue-700 font-medium">View all</a>
+        </x-slot:header>
+        <x-management.data-table>
+            <x-slot:header>
+                <th class="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Code</th>
+                <th class="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">From</th>
+                <th class="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">To</th>
+                <th class="px-5 py-3 text-center text-xs font-semibold text-slate-500 uppercase tracking-wider hidden sm:table-cell">Items</th>
+                <th class="px-5 py-3 text-center text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
+                <th class="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider hidden md:table-cell">Requested</th>
+            </x-slot:header>
+            @foreach($stats['pending_transfer_list'] as $transfer)
+            <tr class="hover:bg-slate-50 transition-colors">
+                <td class="px-5 py-3">
+                    <a href="{{ route('management.transfers.show', $transfer) }}" class="text-sm font-medium text-blue-600 hover:text-blue-700">{{ $transfer->transfer_code }}</a>
+                </td>
+                <td class="px-5 py-3">
+                    <span class="text-sm text-slate-700">{{ $transfer->fromLocation?->name ?? '—' }}</span>
+                </td>
+                <td class="px-5 py-3">
+                    <span class="text-sm text-slate-700">{{ $transfer->toLocation?->name ?? '—' }}</span>
+                </td>
+                <td class="px-5 py-3 text-center hidden sm:table-cell">
+                    <span class="text-sm text-slate-600">{{ $transfer->items->count() }}</span>
+                </td>
+                <td class="px-5 py-3 text-center">
+                    <x-management.status-badge :status="$transfer->status->value" />
+                </td>
+                <td class="px-5 py-3 hidden md:table-cell">
+                    <span class="text-xs text-slate-400">{{ $transfer->created_at->diffForHumans() }}</span>
+                </td>
+            </tr>
+            @endforeach
+        </x-management.data-table>
+    </x-management.card>
+</div>
+@endif
+@endcan
+
 {{-- Charts + Recent Orders Row --}}
+@can('transactions view')
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
     {{-- Revenue Chart --}}
     <div class="lg:col-span-2">
@@ -95,6 +164,7 @@
     </div>
 
     {{-- Recent Orders --}}
+    @can('orders view')
     <div>
         <x-management.card header="Recent Orders">
             <x-slot:header>
@@ -119,7 +189,9 @@
             </div>
         </x-management.card>
     </div>
+    @endcan
 </div>
+@endcan
 
 {{-- Low Stock, Staff, Warehouses Row --}}
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
@@ -147,6 +219,7 @@
     </x-management.card>
 
     {{-- Staff --}}
+    @can('staff view')
     <x-management.card header="Staff">
         <x-slot:header>
             <h3 class="text-sm font-semibold text-slate-800">Staff</h3>
@@ -176,6 +249,7 @@
             @endforelse
         </div>
     </x-management.card>
+    @endcan
 
     {{-- Warehouses --}}
     <x-management.card header="Warehouses">
@@ -206,6 +280,7 @@
 </div>
 
 {{-- Transactions Table --}}
+@can('transactions view')
 <div class="mb-6">
     <x-management.card>
         <x-slot:header>
@@ -248,6 +323,7 @@
         </x-management.data-table>
     </x-management.card>
 </div>
+@endcan
 @endsection
 
 @push('scripts')

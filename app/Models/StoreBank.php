@@ -12,6 +12,7 @@ class StoreBank extends Model
 
     protected $fillable = [
         'store_id',
+        'business_id',
         'bank_name',
         'bank_code',
         'account_number',

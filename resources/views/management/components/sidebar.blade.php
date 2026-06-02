@@ -17,6 +17,8 @@ if (request()->routeIs('management.stores.*') || request()->routeIs('management.
     $activeSidebarGroup = 'products';
 } elseif (request()->routeIs('management.warehouses.*') || request()->routeIs('management.sections.*')) {
     $activeSidebarGroup = 'warehouses';
+} elseif (request()->routeIs('management.pos.*')) {
+    $activeSidebarGroup = 'pos';
 }
 @endphp
 
@@ -200,6 +202,34 @@ if (request()->routeIs('management.stores.*') || request()->routeIs('management.
         </a>
         @endcan
 
+        {{-- POS --}}
+        @can('pos view_history')
+        <div>
+            <button @click="openGroup = openGroup === 'pos' ? null : 'pos'"
+                    class="flex items-center gap-3 px-3 py-2.5 rounded-lg w-full transition-colors {{ request()->routeIs('management.pos.*') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
+                <i class="fi fi-rr-terminal text-base w-5 text-center"></i>
+                <span class="flex-1 text-left text-xs font-semibold uppercase tracking-wider">POS</span>
+                <span class="text-[10px] text-slate-500">{{ $sidebarPosOpenCount ?? 0 }}</span>
+                <i class="fi fi-rr-angle-small-down text-xs transition-transform" :class="{ 'rotate-180': openGroup === 'pos' }"></i>
+            </button>
+            <div x-show="openGroup === 'pos'" x-collapse class="ml-5 mt-1 space-y-1 border-l border-slate-700 pl-3">
+                <a href="{{ route('management.pos.index') }}"
+                   class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors {{ request()->routeIs('management.pos.index') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white hover:bg-slate-800' }}">
+                    <i class="fi fi-rr-plus text-xs"></i>
+                    <span>Create New POS</span>
+                </a>
+                @forelse($sidebarPosStores ?? [] as $ps)
+                <a href="{{ route('management.pos.terminal', $ps) }}"
+                   class="block px-3 py-2 rounded-lg text-sm transition-colors {{ request()->route('store')?->id == $ps->id ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white hover:bg-slate-800' }}">
+                    <span class="truncate block">{{ $ps->name }}</span>
+                    <span class="text-[10px] text-slate-500">{{ $ps->active_pos_sessions_count ?? 0 }} active</span>
+                </a>
+                @empty
+                @endforelse
+            </div>
+        </div>
+        @endcan
+
         {{-- Finance --}}
         @if($authUser?->can('transactions view') || $authUser?->can('settings payment'))
         <div class="pt-3 mt-1 border-t border-slate-800">
@@ -235,11 +265,13 @@ if (request()->routeIs('management.stores.*') || request()->routeIs('management.
             <i class="fi fi-rr-user text-base w-5 text-center"></i>
             <span>Profile</span>
         </a>
+        @if(auth()->user()?->isBusinessOwner())
         <a href="{{ route('management.kyc.show') }}" 
            class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('management.kyc.*') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
             <i class="fi fi-rr-document text-base w-5 text-center"></i>
             <span>KYC Verification</span>
         </a>
+        @endif
         @can('support view_tickets')
         <a href="{{ route('management.support-messages.index') }}" 
            class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('management.support-messages.*') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">

@@ -20,18 +20,18 @@ class CustomerController extends Controller
 {
 
 
-    private function customerBelongsToVendor(Customer $customer, User $vendor): bool
+    private function customerBelongsToUser(Customer $customer, User $user): bool
     {
-        return $customer->business_id === $vendor->business_id;
+        return $customer->business_id === $user->business_id;
     }
 
     public function index(Request $request): View|RedirectResponse
     {
-        $vendor = $request->user();
+        $user = $request->user();
 
         $query = Customer::query()
             ->with('deliveryAddresses')
-            ->withCount(['orders as orders_count' => fn($q) => $q->where('user_id', $vendor->id)]);
+            ->withCount(['orders as orders_count' => fn($q) => $q->where('user_id', $user->id)]);
 
         if ($request->filled('search')) {
             $search = $request->search;
@@ -57,19 +57,19 @@ class CustomerController extends Controller
         $customers = $query->latest('created_at')->paginate(20)->withQueryString();
 
         $baseCustomers = Customer::query()
-            ->whereHas('orders', fn($q) => $q->where('user_id', $vendor->id));
+            ->whereHas('orders', fn($q) => $q->where('user_id', $user->id));
 
         $stats = [
             'total' => (clone $baseCustomers)->count(),
             'active' => (clone $baseCustomers)->where('status', Customer::STATUS_ACTIVE)->count(),
             'suspended' => (clone $baseCustomers)->where('status', Customer::STATUS_SUSPENDED)->count(),
-            'total_orders' => Order::where('user_id', $vendor->id)->count(),
+            'total_orders' => Order::where('user_id', $user->id)->count(),
         ];
 
         $countries = DB::table('delivery_addresses as da')
             ->join('orders', 'da.id', '=', 'orders.delivery_address_id')
             ->join('delivery_routes as dr', 'da.delivery_route_id', '=', 'dr.id')
-            ->where('orders.user_id', $vendor->id)
+            ->where('orders.user_id', $user->id)
             ->whereNotNull('dr.country')
             ->where('dr.country', '!=', '')
             ->distinct()
@@ -81,15 +81,15 @@ class CustomerController extends Controller
 
     public function show(Request $request, Customer $customer): View|RedirectResponse
     {
-        $vendor = $request->user();
-        if (!$vendor || !$this->customerBelongsToVendor($customer, $vendor)) {
+        $user = $request->user();
+        if (!$user || !$this->customerBelongsToUser($customer, $user)) {
             return redirect()->route('management.auth.login');
         }
 
         $customer->load([
             'deliveryAddresses',
-            'orders' => function ($query) use ($vendor) {
-                $query->where('user_id', $vendor->id)
+            'orders' => function ($query) use ($user) {
+                $query->where('user_id', $user->id)
                     ->with(['store', 'items'])
                     ->latest()
                     ->limit(10);
@@ -97,17 +97,17 @@ class CustomerController extends Controller
         ]);
 
         $stats = [
-            'total_orders' => $customer->orders()->where('user_id', $vendor->id)->count(),
-            'completed_orders' => $customer->orders()->where('user_id', $vendor->id)->where('status', 'completed')->count(),
-            'total_spent' => $customer->orders()->where('user_id', $vendor->id)->sum('total'),
-            'pending_orders' => $customer->orders()->where('user_id', $vendor->id)->where('status', 'pending')->count(),
+            'total_orders' => $customer->orders()->where('user_id', $user->id)->count(),
+            'completed_orders' => $customer->orders()->where('user_id', $user->id)->where('status', 'completed')->count(),
+            'total_spent' => $customer->orders()->where('user_id', $user->id)->sum('total'),
+            'pending_orders' => $customer->orders()->where('user_id', $user->id)->where('status', 'pending')->count(),
         ];
 
         $transactions = DB::table('transactions')
             ->join('orders', 'transactions.order_id', '=', 'orders.id')
             ->join('payment_methods', 'transactions.payment_method_id', '=', 'payment_methods.id')
             ->where('orders.customer_id', $customer->id)
-            ->where('orders.user_id', $vendor->id)
+            ->where('orders.user_id', $user->id)
             ->select(
                 'transactions.*',
                 'orders.order_number',
@@ -129,8 +129,8 @@ class CustomerController extends Controller
 
     public function edit(Request $request, Customer $customer): View|RedirectResponse
     {
-        $vendor = $request->user();
-        if (!$vendor || !$this->customerBelongsToVendor($customer, $vendor)) {
+        $user = $request->user();
+        if (!$user || !$this->customerBelongsToUser($customer, $user)) {
             return redirect()->route('management.auth.login');
         }
 
@@ -145,8 +145,8 @@ class CustomerController extends Controller
 
     public function update(Request $request, Customer $customer): RedirectResponse
     {
-        $vendor = $request->user();
-        if (!$vendor || !$this->customerBelongsToVendor($customer, $vendor)) {
+        $user = $request->user();
+        if (!$user || !$this->customerBelongsToUser($customer, $user)) {
             return redirect()->route('management.auth.login');
         }
 
@@ -178,14 +178,14 @@ class CustomerController extends Controller
             $customer->save();
         }
 
-        return redirect()->route('management.customers.show', ['vendor' => $vendor, 'customer' => $customer])
+        return redirect()->route('management.customers.show', ['user' => $user, 'customer' => $customer])
             ->with('success', 'Customer updated successfully.');
     }
 
     public function suspend(Request $request, Customer $customer): RedirectResponse
     {
-        $vendor = $request->user();
-        if (!$vendor || !$this->customerBelongsToVendor($customer, $vendor)) {
+        $user = $request->user();
+        if (!$user || !$this->customerBelongsToUser($customer, $user)) {
             return redirect()->route('management.auth.login');
         }
 
@@ -214,13 +214,13 @@ class CustomerController extends Controller
                 'old_values' => json_encode(['email_verified_at' => $oldVerifiedAt]),
                 'new_values' => json_encode(['email_verified_at' => null, 'reason' => $request->reason]),
                 'ip_address' => $request->ip(),
-                'metadata' => ['user_id' => $vendor->id],
+                'metadata' => ['user_id' => $user->id],
             ]);
 
             Log::info('vendor_customer_suspended', [
                 'customer_id' => $customer->id,
                 'account_id' => $customer->account_id,
-                'user_id' => $vendor->id,
+                'user_id' => $user->id,
                 'reason' => $request->reason,
             ]);
 
@@ -232,7 +232,7 @@ class CustomerController extends Controller
 
             Log::error('vendor_customer_suspension_failed', [
                 'customer_id' => $customer->id,
-                'user_id' => $vendor->id,
+                'user_id' => $user->id,
                 'error' => $e->getMessage(),
             ]);
 
@@ -242,8 +242,8 @@ class CustomerController extends Controller
 
     public function activate(Request $request, Customer $customer): RedirectResponse
     {
-        $vendor = $request->user();
-        if (!$vendor || !$this->customerBelongsToVendor($customer, $vendor)) {
+        $user = $request->user();
+        if (!$user || !$this->customerBelongsToUser($customer, $user)) {
             return redirect()->route('management.auth.login');
         }
 
@@ -271,13 +271,13 @@ class CustomerController extends Controller
                 'old_values' => json_encode(['email_verified_at' => $oldVerifiedAt]),
                 'new_values' => json_encode(['email_verified_at' => $customer->email_verified_at]),
                 'ip_address' => $request->ip(),
-                'metadata' => ['user_id' => $vendor->id],
+                'metadata' => ['user_id' => $user->id],
             ]);
 
             Log::info('vendor_customer_activated', [
                 'customer_id' => $customer->id,
                 'account_id' => $customer->account_id,
-                'user_id' => $vendor->id,
+                'user_id' => $user->id,
             ]);
 
             DB::commit();
@@ -288,7 +288,7 @@ class CustomerController extends Controller
 
             Log::error('vendor_customer_activation_failed', [
                 'customer_id' => $customer->id,
-                'user_id' => $vendor->id,
+                'user_id' => $user->id,
                 'error' => $e->getMessage(),
             ]);
 

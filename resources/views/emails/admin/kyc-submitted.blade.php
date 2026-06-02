@@ -26,7 +26,7 @@
           </tr>
           <tr>
             <td style="padding:0 32px 16px;">
-              <p style="margin:0;color:#334155;font-size:14px;line-height:20px;">{{ $vendor?->name ?? 'A vendor' }} just submitted KYC information. Review and take action when you can.</p>
+              <p style="margin:0;color:#334155;font-size:14px;line-height:20px;">{{ $user?->name ?? 'A vendor' }} just submitted KYC information. Review and take action when you can.</p>
             </td>
           </tr>
           <tr>
@@ -35,11 +35,11 @@
                 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;color:#0f172a;">
                   <tr>
                     <td style="padding:6px 0;width:170px;color:#64748b;">Vendor</td>
-                    <td style="padding:6px 0;">{{ $vendor?->name ?? '—' }}</td>
+                    <td style="padding:6px 0;">{{ $user?->name ?? '—' }}</td>
                   </tr>
                   <tr>
                     <td style="padding:6px 0;width:170px;color:#64748b;">Email</td>
-                    <td style="padding:6px 0;">{{ $vendor?->email ?? '—' }}</td>
+                    <td style="padding:6px 0;">{{ $user?->email ?? '—' }}</td>
                   </tr>
                   <tr>
                     <td style="padding:6px 0;width:170px;color:#64748b;">Document type</td>

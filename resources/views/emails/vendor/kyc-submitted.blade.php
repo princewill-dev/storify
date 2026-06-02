@@ -26,7 +26,7 @@
           </tr>
           <tr>
             <td style="padding:0 32px 16px;">
-              <p style="margin:0;color:#334155;font-size:14px;line-height:20px;">Hi {{ $vendor->name }}, thanks for submitting your KYC details. Our compliance team will review the information and get back to you shortly.</p>
+              <p style="margin:0;color:#334155;font-size:14px;line-height:20px;">Hi {{ $user->name }}, thanks for submitting your KYC details. Our compliance team will review the information and get back to you shortly.</p>
             </td>
           </tr>
           <tr>

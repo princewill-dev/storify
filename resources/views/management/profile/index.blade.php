@@ -4,7 +4,7 @@
 @section('content')
 <x-management.page-header title="Profile" subtitle="Manage your account and photo" />
 
-<div x-data="photoUpload('{{ $vendor->photoUrl() }}', {{ json_encode((bool) $vendor->photo_path) }})">
+<div x-data="photoUpload('{{ $user->photoUrl() }}', {{ json_encode((bool) $user->photo_path) }})">
     @if(session('success'))
     <div class="mb-5 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{{ session('success') }}</div>
     @endif
@@ -19,9 +19,9 @@
                 <h3 class="text-sm font-semibold text-slate-800 mb-5">Personal Information</h3>
                 <form action="{{ route('management.profile.update') }}" method="POST" enctype="multipart/form-data" class="space-y-4">
                     @csrf @method('PUT')
-                    <x-management.form-input name="name" label="Full Name" :value="old('name', $vendor->name)" required :error="$errors->first('name')" />
-                    <x-management.form-input name="phone" label="Phone Number" :value="old('phone', $vendor->phone)" />
-                    <x-management.form-input name="email" label="Email Address" type="email" :value="$vendor->email" disabled />
+                    <x-management.form-input name="name" label="Full Name" :value="old('name', $user->name)" required :error="$errors->first('name')" />
+                    <x-management.form-input name="phone" label="Phone Number" :value="old('phone', $user->phone)" />
+                    <x-management.form-input name="email" label="Email Address" type="email" :value="$user->email" disabled />
                     {{-- hidden inputs for photo upload --}}
                     <input type="file" name="photo" accept="image/jpeg,image/png,image/webp" class="hidden" x-ref="photoInput" @change="handleFile($event)">
                     <input type="hidden" name="remove_photo" x-model="removePhotoFlag">
@@ -62,8 +62,8 @@
                         </label>
                     </div>
                     <div class="text-center">
-                        <p class="text-sm font-semibold text-slate-800">{{ $vendor->name }}</p>
-                        <p class="text-xs text-slate-400 mt-0.5">{{ $vendor->email }}</p>
+                        <p class="text-sm font-semibold text-slate-800">{{ $user->name }}</p>
+                        <p class="text-xs text-slate-400 mt-0.5">{{ $user->email }}</p>
                     </div>
                     <div class="flex items-center gap-2" x-show="hasPhoto">
                         <button type="button" @click="removePhoto()" class="text-xs text-red-500 hover:text-red-700 font-medium">Remove photo</button>
@@ -111,7 +111,7 @@ document.addEventListener('alpine:init', () => {
         },
 
         removePhoto() {
-            this.preview = 'https://www.gravatar.com/avatar/{{ md5($vendor->email ?: $vendor->name) }}?d=mp&s=200';
+            this.preview = 'https://www.gravatar.com/avatar/{{ md5($user->email ?: $user->name) }}?d=mp&s=200';
             this.hasPhoto = false;
             this.removePhotoFlag = '1';
             if (this.$refs.photoInput) this.$refs.photoInput.value = '';

@@ -51,6 +51,44 @@
                 <p class="mt-1 text-sm text-slate-500">Here's what you have access to based on your permissions.</p>
             </div>
 
+            @if($todayOrders > 0)
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+                <div class="rounded-xl border border-slate-200 bg-white p-4">
+                    <p class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Today's Sales</p>
+                    <p class="text-xl font-bold text-emerald-600 mt-1">₦{{ number_format($todaySales, 0) }}</p>
+                </div>
+                <div class="rounded-xl border border-slate-200 bg-white p-4">
+                    <p class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Today's Orders</p>
+                    <p class="text-xl font-bold text-blue-600 mt-1">{{ $todayOrders }}</p>
+                </div>
+                <div class="rounded-xl border border-slate-200 bg-white p-4">
+                    <p class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Active Session</p>
+                    <p class="text-xl font-bold {{ $activeSession ? 'text-teal-600' : 'text-slate-400' }} mt-1">{{ $activeSession ? $activeSession->store->name : 'None' }}</p>
+                </div>
+            </div>
+
+            @if($recentActivity->isNotEmpty())
+            <div class="rounded-xl border border-slate-200 bg-white overflow-hidden mb-8">
+                <div class="px-5 py-3 border-b border-slate-100"><h3 class="text-sm font-semibold text-slate-800">Recent POS Activity</h3></div>
+                <div class="divide-y divide-slate-50">
+                    @foreach($recentActivity as $order)
+                    @php $tx = $order->transactions->first(); @endphp
+                    <div class="px-5 py-3 flex items-center justify-between text-sm hover:bg-slate-50/50">
+                        <div class="min-w-0 flex-1">
+                            <p class="text-xs font-medium text-slate-800">{{ $order->store->name }}</p>
+                            <p class="text-[10px] text-slate-400">#{{ $order->order_number ?? $order->id }} · {{ $order->created_at->diffForHumans() }}</p>
+                        </div>
+                        <div class="text-right shrink-0 ml-3">
+                            <p class="text-sm font-semibold text-slate-800">₦{{ number_format($order->total, 2) }}</p>
+                            <p class="text-[10px] {{ $tx && $tx->status === 'confirmed' ? 'text-emerald-600' : 'text-amber-600' }}">{{ $tx ? ucfirst($tx->status) : '—' }}</p>
+                        </div>
+                    </div>
+                    @endforeach
+                </div>
+            </div>
+            @endif
+            @endif
+
             @if(!$hasAnyPermission)
                 <div class="rounded-xl border border-slate-200 bg-white p-12 text-center">
                     <svg class="mx-auto h-12 w-12 text-slate-300" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor">

@@ -216,6 +216,16 @@
                 </form>
                 @endif
 
+                @if($transfer->canBeAcknowledged())
+                <form method="POST" action="{{ route('management.transfers.acknowledge', $transfer) }}">
+                    @csrf @method('PATCH')
+                    <button type="submit" class="block w-full py-2 bg-orange-600 text-white text-xs font-semibold rounded-lg hover:bg-orange-700 transition-colors text-center">
+                        <i class="fi fi-rr-check-circle mr-1"></i> Acknowledge Adjusted Quantities
+                    </button>
+                </form>
+                <div class="text-center text-[11px] text-slate-400 py-1">Review the approved quantities above, then confirm.</div>
+                @endif
+
                 @if($transfer->canBeDispatched() && auth()->user()->can('transfers dispatch'))
                 <form method="POST" action="{{ route('management.transfers.dispatch', $transfer) }}" onsubmit="return confirm('Confirm dispatch? Warehouse stock will be decremented.')">
                     @csrf @method('PATCH')

@@ -15,10 +15,10 @@ class StoreBankController extends Controller
     /**
      * Store a new bank account for the store.
      */
-    public function store(Request $request, Vendor $vendor, Store $store): RedirectResponse
+    public function store(Request $request, User $user, Store $store): RedirectResponse
     {
         \Log::info('[Bank Store] Request received', [
-            'user_id' => $vendor->id,
+            'user_id' => $user->id,
             'store_id' => $store->id,
             'request_data' => $request->all()
         ]);
@@ -83,7 +83,7 @@ class StoreBankController extends Controller
     /**
      * Update the specified bank account.
      */
-    public function update(Request $request, Vendor $vendor, Store $store, StoreBank $bank): RedirectResponse
+    public function update(Request $request, User $user, Store $store, StoreBank $bank): RedirectResponse
     {
         $validated = $request->validate([
             'bank_name' => 'required|string|max:255',
@@ -109,7 +109,7 @@ class StoreBankController extends Controller
     /**
      * Remove the specified bank account.
      */
-    public function destroy(Vendor $vendor, Store $store, StoreBank $bank): RedirectResponse
+    public function destroy(User $user, Store $store, StoreBank $bank): RedirectResponse
     {
         if ($bank->is_primary) {
             return redirect()->back()->with('error', 'Cannot delete the primary bank account. Set another account as primary first.');
@@ -123,7 +123,7 @@ class StoreBankController extends Controller
     /**
      * Set the specified bank account as primary.
      */
-    public function setPrimary(Vendor $vendor, Store $store, StoreBank $bank): RedirectResponse
+    public function setPrimary(User $user, Store $store, StoreBank $bank): RedirectResponse
     {
         DB::transaction(function () use ($store, $bank) {
             $store->banks()->update(['is_primary' => false]);

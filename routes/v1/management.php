@@ -17,14 +17,15 @@ use App\Http\Controllers\Management\ProfileController;
 use App\Http\Controllers\Management\StoreBankController;
 use App\Http\Controllers\Management\StoreDeliveryRouteController;
 use App\Http\Controllers\Management\PaymentSettingsController;
-use App\Http\Controllers\Management\BusinessGatewayController;
 use App\Http\Controllers\Management\StaffController;
 use App\Http\Controllers\Management\RoleController;
 use App\Http\Controllers\Management\WarehouseController;
+use App\Http\Controllers\Management\WarehouseTransferController;
 use App\Http\Controllers\Management\SectionController;
 use App\Http\Controllers\Management\StockTransferController;
 use App\Http\Controllers\Management\SetupController;
 use App\Http\Controllers\Management\PosSessionController;
+use App\Http\Controllers\Management\PosController;
 use App\Http\Controllers\Staff\InvitationController;
 
 Route::prefix('management')->name('management.')->group(function () {
@@ -44,7 +45,7 @@ Route::prefix('management')->name('management.')->group(function () {
     Route::get('/staff/invitation/{token}', [InvitationController::class, 'showAccept'])->name('staff.invitation.accept');
     Route::post('/staff/invitation/{token}', [InvitationController::class, 'accept'])->name('staff.invitation.accept.store');
 
-    Route::middleware('auth')->group(function () {
+    Route::middleware(['auth', 'team.context'])->group(function () {
         Route::post('/logout', [BusinessAuthController::class, 'logout'])->name('auth.logout');
         Route::get('/logout', fn() => redirect()->route('management.auth.login'))->name('auth.logout.get');
         
@@ -78,7 +79,7 @@ Route::prefix('management')->name('management.')->group(function () {
             Route::get('/setup', [SetupController::class, 'show'])->name('setup');
             Route::post('/setup', [SetupController::class, 'store'])->name('setup.store');
 
-            Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
+            Route::get('/', [DashboardController::class, 'index'])->middleware('permission:dashboard view')->name('dashboard');
             Route::post('/switch-store', [DashboardController::class, 'switchStore'])->name('stores.switch');
             
             Route::get('/profile', [ProfileController::class, 'index'])->name('profile.index');
@@ -127,21 +128,22 @@ Route::prefix('management')->name('management.')->group(function () {
 
             // Payment Settings
             Route::middleware('permission:settings payment')->group(function () {
-                Route::get('/payment-settings', [BusinessGatewayController::class, 'index'])->name('payment-settings.index');
-
-                // Business Gateways
-                Route::post('/payment-settings/gateways', [BusinessGatewayController::class, 'store'])->name('payment-settings.gateways.store');
-                Route::put('/payment-settings/gateways/{gateway}', [BusinessGatewayController::class, 'update'])->name('payment-settings.gateways.update');
-                Route::delete('/payment-settings/gateways/{gateway}', [BusinessGatewayController::class, 'destroy'])->name('payment-settings.gateways.destroy');
-                Route::patch('/payment-settings/gateways/{gateway}/toggle', [BusinessGatewayController::class, 'toggle'])->name('payment-settings.gateways.toggle');
-                Route::post('/payment-settings/gateways/{gateway}/test', [BusinessGatewayController::class, 'test'])->name('payment-settings.gateways.test');
-                Route::post('/payment-settings/gateways/{gateway}/webhook', [BusinessGatewayController::class, 'configureWebhook'])->name('payment-settings.gateways.webhook');
+                Route::get('/payment-settings', [PaymentSettingsController::class, 'index'])->name('payment-settings.index');
 
                 // Bank Accounts
                 Route::post('/payment-settings/bank-accounts', [PaymentSettingsController::class, 'storeBankAccount'])->name('payment-settings.bank-accounts.store');
                 Route::put('/payment-settings/bank-accounts/{bank}', [PaymentSettingsController::class, 'updateBankAccount'])->name('payment-settings.bank-accounts.update');
                 Route::delete('/payment-settings/bank-accounts/{bank}', [PaymentSettingsController::class, 'destroyBankAccount'])->name('payment-settings.bank-accounts.destroy');
                 Route::post('/payment-settings/verify-bank', [PaymentSettingsController::class, 'verifyBankAccount'])->name('payment-settings.verify-bank');
+
+                // Store Payment Gateways
+                Route::post('/payment-settings/gateways', [PaymentSettingsController::class, 'storePaystackKeys'])->name('payment-settings.gateways.store');
+                Route::put('/payment-settings/gateways/{gateway}', [PaymentSettingsController::class, 'updatePaystackKeys'])->name('payment-settings.gateways.update');
+                Route::delete('/payment-settings/gateways/{gateway}', [PaymentSettingsController::class, 'destroyPaystackKeys'])->name('payment-settings.gateways.destroy');
+                Route::patch('/payment-settings/gateways/{gateway}/toggle', [PaymentSettingsController::class, 'togglePaystackKeys'])->name('payment-settings.gateways.toggle');
+                Route::post('/payment-settings/gateways/{gateway}/test', [PaymentSettingsController::class, 'testGateway'])->name('payment-settings.gateways.test');
+
+                // Payment Mode
                 Route::post('/payment-settings/stores/{store}/toggle-mode', [PaymentSettingsController::class, 'togglePaymentMode'])->name('payment-settings.toggle-mode');
             });
 
@@ -300,6 +302,14 @@ Route::prefix('management')->name('management.')->group(function () {
                 Route::post('/transfers', [StockTransferController::class, 'store'])->name('transfers.store');
                 Route::patch('/transfers/{transfer}/submit', [StockTransferController::class, 'submit'])->name('transfers.submit');
                 Route::patch('/transfers/{transfer}/cancel', [StockTransferController::class, 'cancel'])->name('transfers.cancel');
+                Route::patch('/transfers/{transfer}/acknowledge', [StockTransferController::class, 'acknowledge'])->name('transfers.acknowledge');
+
+                // Warehouse-specific transfer flows
+                Route::get('/warehouses/{warehouse}/send', [WarehouseTransferController::class, 'sendForm'])->name('warehouses.send');
+                Route::post('/warehouses/{warehouse}/send', [WarehouseTransferController::class, 'initSend'])->name('warehouses.send.store');
+                Route::get('/warehouses/{warehouse}/receive', [WarehouseTransferController::class, 'receiveForm'])->name('warehouses.receive');
+                Route::post('/warehouses/{warehouse}/receive', [WarehouseTransferController::class, 'initReceive'])->name('warehouses.receive.store');
+                Route::get('/warehouses/{warehouse}/products-json', [WarehouseTransferController::class, 'productsJson'])->name('warehouses.products-json');
             });
             Route::middleware('permission:transfers view')->group(function () {
                 Route::get('/transfers', [StockTransferController::class, 'index'])->name('transfers.index');
@@ -316,10 +326,19 @@ Route::prefix('management')->name('management.')->group(function () {
                 Route::patch('/transfers/{transfer}/receive', [StockTransferController::class, 'receive'])->name('transfers.receive');
             });
 
-            // POS Sessions
+            // POS Sessions - per-store history
             Route::middleware('permission:pos view_history')->group(function () {
                 Route::get('/pos/{store}/sessions', [PosSessionController::class, 'index'])->name('pos.sessions.index');
                 Route::get('/pos/{store}/sessions/{session}', [PosSessionController::class, 'show'])->name('pos.sessions.show');
+            });
+
+            // POS Management
+            Route::middleware('permission:pos view_history')->group(function () {
+                Route::get('/pos', [PosController::class, 'index'])->name('pos.index');
+                Route::get('/pos/{store}/terminal', [PosController::class, 'terminal'])->name('pos.terminal');
+                Route::get('/pos/{session}', [PosController::class, 'show'])->name('pos.show');
+                Route::post('/pos/{store}/checkout', [PosController::class, 'checkout'])->name('pos.checkout');
+                Route::get('/pos/{store}/receipt/{order}', [PosController::class, 'receipt'])->name('pos.receipt');
             });
             Route::middleware('permission:pos open_session')->group(function () {
                 Route::post('/stores/{store}/pos/open', [PosSessionController::class, 'open'])->name('pos.open');

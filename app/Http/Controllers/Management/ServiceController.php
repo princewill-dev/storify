@@ -21,25 +21,25 @@ class ServiceController extends Controller
 {
 
 
-    private function vendorStoreIds(Vendor $vendor): array
+    private function userStoreIds(User $user): array
     {
-        return $vendor->stores()->pluck('id')->all();
+        return $user->stores()->pluck('id')->all();
     }
 
     public function index(Request $request): View|RedirectResponse
     {
-        $vendor = $request->user();
+        $user = $request->user();
 
         $status = strtolower((string)$request->query('status', ''));
         $q = trim((string)$request->query('q', ''));
 
-        $storeIds = $this->vendorStoreIds($vendor);
+        $storeIds = $this->vendorStoreIds($user);
         $selectedPublicStoreId = $request->query('store_id');
         $selectedStoreId = null;
         $selectedStore = null;
 
         if ($selectedPublicStoreId) {
-            $selectedStore = $vendor->stores()
+            $selectedStore = $user->stores()
                 ->where('store_id', $selectedPublicStoreId)
                 ->first();
             
@@ -79,7 +79,7 @@ class ServiceController extends Controller
         }
 
         return view('management.services.index', [
-            'vendor' => $vendor,
+            'user' => $user,
             'services' => $services,
             'status' => $status,
             'q' => $q,
@@ -89,9 +89,9 @@ class ServiceController extends Controller
 
     public function create(Request $request): View|RedirectResponse
     {
-        $vendor = $request->user();
+        $user = $request->user();
 
-        $stores = $vendor->stores()->orderBy('name')->get();
+        $stores = $user->stores()->orderBy('name')->get();
         $currencies = Currency::orderBy('name')->get();
         $defaultCurrencyId = Currency::where('is_default', true)->value('id');
 
@@ -99,17 +99,17 @@ class ServiceController extends Controller
         $selectedStoreId = null;
 
         if ($selectedPublicStoreId) {
-            $selectedStoreId = $vendor->stores()
+            $selectedStoreId = $user->stores()
                 ->where('store_id', $selectedPublicStoreId)
                 ->value('id');
         }
 
-        return view('management.services.create', compact('vendor', 'stores', 'currencies', 'defaultCurrencyId', 'selectedStoreId'));
+        return view('management.services.create', compact('user', 'stores', 'currencies', 'defaultCurrencyId', 'selectedStoreId'));
     }
 
     public function store(Request $request): RedirectResponse
     {
-        $vendor = $request->user();
+        $user = $request->user();
 
         $request->validate([
             'store_id' => 'required',
@@ -118,7 +118,7 @@ class ServiceController extends Controller
             'images.*' => 'image|mimes:jpeg,png,jpg,gif|max:2048'
         ]);
 
-        $store = $vendor->stores()->where('id', $request->input('store_id'))->first();
+        $store = $user->stores()->where('id', $request->input('store_id'))->first();
         if (!$store) {
             return back()->with('error', 'Invalid store selected.');
         }
@@ -154,12 +154,12 @@ class ServiceController extends Controller
                 'action' => 'vendor_create_service',
                 'description' => 'Vendor created a service',
                 'metadata' => [
-                    'user_id' => $vendor->id,
+                    'user_id' => $user->id,
                     'service_id' => $service->id,
                 ],
             ]);
 
-            return redirect()->route('management.services.index', ['vendor' => $vendor, 'store_id' => $store->store_id])->with('success', 'Service created successfully.');
+            return redirect()->route('management.services.index', ['user' => $user, 'store_id' => $store->store_id])->with('success', 'Service created successfully.');
         } catch (QueryException $e) {
             Log::error('vendor.service.create_failed', ['error' => $e->getMessage()]);
             return back()->withInput()->with('error', 'Unable to create service. Please try again.');
@@ -168,24 +168,24 @@ class ServiceController extends Controller
 
     public function edit(Request $request, Service $service): View|RedirectResponse
     {
-        $vendor = $request->user();
-        if (!$vendor || !$this->ownsService($service, $vendor)) {
+        $user = $request->user();
+        if (!$user || !$this->ownsService($service, $user)) {
             return redirect()->route('management.auth.login');
         }
 
-        $stores = $vendor->stores()->orderBy('name')->get();
+        $stores = $user->stores()->orderBy('name')->get();
         $currencies = Currency::orderBy('name')->get();
         $defaultCurrencyId = Currency::where('is_default', true)->value('id');
         $service->load('images', 'store'); // Eager load 'store' relationship
         $store = $service->store; // Resolve the store object
 
-        return view('management.services.edit', compact('vendor', 'service', 'stores', 'currencies', 'defaultCurrencyId', 'store'));
+        return view('management.services.edit', compact('user', 'service', 'stores', 'currencies', 'defaultCurrencyId', 'store'));
     }
 
     public function update(Request $request, Service $service): RedirectResponse
     {
-        $vendor = $request->user();
-        if (!$vendor || !$this->ownsService($service, $vendor)) {
+        $user = $request->user();
+        if (!$user || !$this->ownsService($service, $user)) {
             return redirect()->route('management.auth.login');
         }
 
@@ -231,11 +231,11 @@ class ServiceController extends Controller
                     'user_id' => null,
                     'action' => 'vendor_update_service',
                     'description' => 'Vendor updated a service',
-                    'metadata' => ['user_id' => $vendor->id, 'service_id' => $service->id],
+                    'metadata' => ['user_id' => $user->id, 'service_id' => $service->id],
                 ]);
             });
 
-            return redirect()->route('management.services.index', ['vendor' => $vendor, 'store_id' => $service->store->store_id])->with('success', 'Service updated.');
+            return redirect()->route('management.services.index', ['user' => $user, 'store_id' => $service->store->store_id])->with('success', 'Service updated.');
         } catch (\Throwable $e) {
             Log::error('vendor.service.update_failed', ['error' => $e->getMessage()]);
             return back()->with('error', 'Unable to update service.')->withInput();
@@ -244,8 +244,8 @@ class ServiceController extends Controller
 
     public function destroy(Request $request, Service $service): RedirectResponse
     {
-        $vendor = $request->user();
-        if (!$vendor || !$this->ownsService($service, $vendor)) {
+        $user = $request->user();
+        if (!$user || !$this->ownsService($service, $user)) {
             return redirect()->route('management.auth.login');
         }
 
@@ -253,11 +253,11 @@ class ServiceController extends Controller
             try { Storage::disk('public')->delete($img->path); } catch (\Throwable $e) {}
         }
         $service->delete();
-        return redirect()->route('management.services.index', ['vendor' => $vendor])->with('success', 'Service deleted.');
+        return redirect()->route('management.services.index', ['user' => $user])->with('success', 'Service deleted.');
     }
 
-    private function ownsService(Service $service, Vendor $vendor): bool
+    private function ownsService(Service $service, User $user): bool
     {
-        return in_array((int)$service->store_id, $this->vendorStoreIds($vendor), true);
+        return in_array((int)$service->store_id, $this->userStoreIds($user), true);
     }
 }

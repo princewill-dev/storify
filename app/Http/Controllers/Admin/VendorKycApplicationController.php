@@ -51,7 +51,7 @@ class VendorKycApplicationController extends Controller
         ]);
     }
 
-    public function show(VendorKycApplication $application): View
+    public function show(KycApplication $application): View
     {
         $application->load(['vendor', 'reviewer']);
 
@@ -64,7 +64,7 @@ class VendorKycApplicationController extends Controller
         ]);
     }
 
-    public function approve(Request $request, VendorKycApplication $application): RedirectResponse
+    public function approve(Request $request, KycApplication $application): RedirectResponse
     {
         $data = $request->validate([
             'review_notes' => ['nullable', 'string', 'max:2000'],
@@ -79,8 +79,8 @@ class VendorKycApplicationController extends Controller
                 'rejected_at' => null,
             ])->save();
 
-            $application->vendor->forceFill([
-                'status' => Vendor::STATUS_ACTIVE,
+            User::find($application->user_id)->forceFill([
+                'status' => 'active',
             ])->save();
         });
 
@@ -94,7 +94,7 @@ class VendorKycApplicationController extends Controller
             ->with('success', 'KYC application approved successfully.');
     }
 
-    public function reject(Request $request, VendorKycApplication $application): RedirectResponse
+    public function reject(Request $request, KycApplication $application): RedirectResponse
     {
         $data = $request->validate([
             'review_notes' => ['required', 'string', 'max:2000'],
@@ -109,8 +109,8 @@ class VendorKycApplicationController extends Controller
                 'rejected_at' => now(),
             ])->save();
 
-            $application->vendor->forceFill([
-                'status' => Vendor::STATUS_PENDING,
+            User::find($application->user_id)->forceFill([
+                'status' => 'pending',
             ])->save();
         });
 

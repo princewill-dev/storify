@@ -13,6 +13,7 @@ class StorePaymentGateway extends Model
 
     protected $fillable = [
         'store_id',
+        'business_id',
         'gateway',
         'public_key',
         'secret_key',

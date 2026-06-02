@@ -12,31 +12,31 @@ class SetupController extends Controller
 {
     public function show(Request $request): View|RedirectResponse
     {
-        $vendor = $request->user();
+        $user = $request->user();
 
-        if (!$vendor) {
+        if (!$user) {
             return redirect()->route('management.auth.login');
         }
 
-        if (!$vendor->is_verified) {
-            return redirect()->route('management.auth.verify-otp', ['vendor' => $vendor])
+        if (!$user->is_verified) {
+            return redirect()->route('management.auth.verify-otp', ['user' => $user])
                 ->with('warning', 'Please verify your email first.');
         }
 
-        if ($vendor->business_id) {
+        if ($user->business_id) {
             return redirect()->route('management.dashboard');
         }
 
         $countries = \App\Data\Countries::business();
 
-        return view('auth.business.setup', compact('vendor', 'countries'));
+        return view('auth.business.setup', compact('user', 'countries'));
     }
 
     public function store(Request $request): RedirectResponse
     {
-        $vendor = $request->user();
+        $user = $request->user();
 
-        if (!$vendor) {
+        if (!$user) {
             return redirect()->route('management.auth.login');
         }
 
@@ -48,14 +48,14 @@ class SetupController extends Controller
         ]);
 
         $business = Business::create([
-            'user_id' => $vendor->id,
+            'user_id' => $user->id,
             'name' => $validated['name'],
             'description' => $validated['description'] ?? null,
             'business_location' => $validated['business_location'] ?? null,
             'status' => 'active',
         ]);
 
-        $vendor->update(['business_id' => $business->id]);
+        $user->update(['business_id' => $business->id]);
 
         $seeder = new \Database\Seeders\SpatiePermissionSeeder();
         $seeder->createRolesForBusiness($business);

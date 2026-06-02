@@ -2,7 +2,7 @@
 
 namespace App\Mail;
 
-use App\Models\Vendor;
+use App\Models\User;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Mail\Mailable;
@@ -12,13 +12,13 @@ class VendorLoginAlert extends Mailable implements ShouldQueue
 {
     use Queueable, SerializesModels;
 
-    public Vendor $vendor;
+    public User $user;
     public string $ipAddress;
     public string $userAgent;
 
-    public function __construct(Vendor $vendor, string $ipAddress, string $userAgent)
+    public function __construct(User $user, string $ipAddress, string $userAgent)
     {
-        $this->vendor = $vendor;
+        $this->user = $user;
         $this->ipAddress = $ipAddress;
         $this->userAgent = $userAgent;
     }
@@ -28,7 +28,7 @@ class VendorLoginAlert extends Mailable implements ShouldQueue
         return $this->subject('New login to your vendor account')
             ->view('emails.vendor.login-alert')
             ->with([
-                'vendor' => $this->vendor,
+                'user' => $this->user,
                 'ipAddress' => $this->ipAddress,
                 'userAgent' => $this->userAgent,
             ]);

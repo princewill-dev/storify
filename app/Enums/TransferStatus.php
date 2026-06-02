@@ -7,6 +7,7 @@ enum TransferStatus: string
     case DRAFT = 'draft';
     case PENDING = 'pending';
     case APPROVED = 'approved';
+    case AWAITING_ACKNOWLEDGMENT = 'awaiting_acknowledgment';
     case DISPATCHED = 'dispatched';
     case RECEIVED = 'received';
     case REJECTED = 'rejected';
@@ -18,6 +19,7 @@ enum TransferStatus: string
             self::DRAFT => 'Draft',
             self::PENDING => 'Pending',
             self::APPROVED => 'Approved',
+            self::AWAITING_ACKNOWLEDGMENT => 'Awaiting Acknowledgement',
             self::DISPATCHED => 'Dispatched',
             self::RECEIVED => 'Received',
             self::REJECTED => 'Rejected',
@@ -38,8 +40,9 @@ enum TransferStatus: string
     {
         return match ($this) {
             self::DRAFT => $target === self::PENDING,
-            self::PENDING => in_array($target, [self::APPROVED, self::REJECTED]),
+            self::PENDING => in_array($target, [self::APPROVED, self::AWAITING_ACKNOWLEDGMENT, self::REJECTED]),
             self::APPROVED => in_array($target, [self::DISPATCHED, self::CANCELLED]),
+            self::AWAITING_ACKNOWLEDGMENT => $target === self::APPROVED,
             self::DISPATCHED => $target === self::RECEIVED,
             self::RECEIVED => false,
             self::REJECTED => false,

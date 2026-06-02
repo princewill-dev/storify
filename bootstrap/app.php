@@ -21,6 +21,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'management.onboarding' => \App\Http\Middleware\RedirectIfOnboardingIncomplete::class,
             'permission' => \Spatie\Permission\Middleware\PermissionMiddleware::class,
             'role' => \Spatie\Permission\Middleware\RoleMiddleware::class,
+            'team.context' => \App\Http\Middleware\SetPermissionsTeamId::class,
         ]);
         
         // Configure authentication redirects for customer guard

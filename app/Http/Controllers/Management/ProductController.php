@@ -23,29 +23,29 @@ class ProductController extends Controller
 {
 
 
-    private function vendorStoreIds(User $vendor): array
+    private function userStoreIds(User $user): array
     {
-        return $vendor->stores()->pluck('id')->all();
+        return $user->stores()->pluck('id')->all();
     }
 
     public function index(Request $request): View|RedirectResponse
     {
-        $vendor = $request->user();
+        $user = $request->user();
 
-        Log::info('vendor.products.viewed', ['user_id' => $vendor->id]);
+        Log::info('vendor.products.viewed', ['user_id' => $user->id]);
 
         $status = strtolower((string)$request->query('status', ''));
         $q = trim((string)$request->query('q', ''));
         $from = $request->query('from');
         $to = $request->query('to');
 
-        $storeIds = $this->vendorStoreIds($vendor);
+        $storeIds = $this->userStoreIds($user);
         $selectedPublicStoreId = $request->query('store_id');
         $selectedStoreId = null;
         $selectedStore = null;
 
         if ($selectedPublicStoreId) {
-            $selectedStore = $vendor->stores()
+            $selectedStore = $user->stores()
                 ->where('store_id', $selectedPublicStoreId)
                 ->first();
             
@@ -153,7 +153,7 @@ class ProductController extends Controller
         }
 
         return view('management.products.index', [
-            'vendor' => $vendor,
+            'user' => $user,
             'products' => $products,
             'status' => $status,
             'q' => $q,
@@ -162,15 +162,15 @@ class ProductController extends Controller
             'perPage' => $perPage,
             'productImages' => $productImages,
             'displayPrices' => $displayPrices,
-            'stores' => $vendor->stores()->orderBy('name')->get(),
+            'stores' => $user->stores()->orderBy('name')->get(),
         ]);
     }
 
     public function create(Request $request): View|RedirectResponse
     {
-        $vendor = $request->user();
+        $user = $request->user();
 
-        $stores = $vendor->stores()->orderBy('name')->get();
+        $stores = $user->stores()->orderBy('name')->get();
         $sizeUnits = DB::table('size_units')->orderBy('name')->get();
         $weightUnits = DB::table('weight_units')->orderBy('name')->get();
         $currencies = Currency::orderBy('name')->get();
@@ -179,12 +179,12 @@ class ProductController extends Controller
         $selectedStoreIdString = $request->query('store_id');
         $selectedStoreId = null;
         if ($selectedStoreIdString) {
-            $selectedStoreId = $vendor->stores()
+            $selectedStoreId = $user->stores()
                 ->where('store_id', $selectedStoreIdString)
                 ->value('id');
         }
 
-        $storeIds = $this->vendorStoreIds($vendor);
+        $storeIds = $this->userStoreIds($user);
 
         $categories = Category::whereIn('store_id', $storeIds)->orderBy('name')->get();
 
@@ -195,25 +195,25 @@ class ProductController extends Controller
                 ? (int) $sectionParam
                 : \App\Models\Section::where('section_code', $sectionParam)->value('id');
         }
-        $sections = \App\Models\Section::whereHas('warehouse', function ($q) use ($vendor) {
-            $q->where('user_id', $vendor->id);
+        $sections = \App\Models\Section::whereHas('warehouse', function ($q) use ($user) {
+            $q->where('user_id', $user->id);
         })->orderBy('name')->get();
 
-        return view('management.products.create', compact('vendor', 'stores', 'categories', 'sizeUnits', 'weightUnits', 'currencies', 'defaultCurrencyId', 'selectedStoreId', 'selectedSectionId', 'sections'));
+        return view('management.products.create', compact('user', 'stores', 'categories', 'sizeUnits', 'weightUnits', 'currencies', 'defaultCurrencyId', 'selectedStoreId', 'selectedSectionId', 'sections'));
     }
 
     public function store(ProductRequest $request): RedirectResponse
     {
-        $vendor = $request->user();
+        $user = $request->user();
 
-        $store = $vendor->stores()->where('id', $request->input('store_id'))->first();
+        $store = $user->stores()->where('id', $request->input('store_id'))->first();
         if (!$store) {
             return back()->with('error', 'Invalid store selected.');
         }
 
         $data = $request->validated();
         $data['store_id'] = $store->id;
-        $data['business_id'] = $vendor->business_id;
+        $data['business_id'] = $user->business_id;
 
         try {
             $product = DB::transaction(function () use ($request, $data) {
@@ -226,6 +226,33 @@ class ProductController extends Controller
                 $product->featured = $request->boolean('featured');
                 $product->has_variants = $request->boolean('has_variants');
                 $product->save();
+
+                if ($product->quantity > 0) {
+                    \App\Models\StockMovement::create([
+                        'product_id' => $product->id,
+                        'to_location_type' => \App\Models\Store::class,
+                        'to_location_id' => $product->store_id,
+                        'quantity' => $product->quantity,
+                        'type' => \App\Enums\StockMovementType::ADDED->value,
+                        'performed_by_type' => \App\Models\User::class,
+                        'performed_by_id' => $user->id,
+                        'notes' => 'Initial stock — Product created',
+                    ]);
+                }
+
+                if ($product->section_id && $product->quantity > 0) {
+                    $section = \App\Models\Section::find($product->section_id);
+                    if ($section && $section->warehouse_id) {
+                        \App\Models\StockLocation::updateOrCreate(
+                            [
+                                'product_id' => $product->id,
+                                'locationable_type' => \App\Models\Warehouse::class,
+                                'locationable_id' => $section->warehouse_id,
+                            ],
+                            ['quantity' => $product->quantity, 'min_quantity' => 0]
+                        );
+                    }
+                }
 
                 if ($request->hasFile('images')) {
                     // Validate media files
@@ -295,7 +322,7 @@ class ProductController extends Controller
                 return $product;
             });
 
-            Log::info('vendor.product.created', ['user_id' => $vendor->id, 'product_id' => $product->id]);
+            Log::info('vendor.product.created', ['user_id' => $user->id, 'product_id' => $product->id]);
             ActivityLog::create([
                 'user_id' => null,
                 'action' => 'vendor_create_product',
@@ -303,14 +330,14 @@ class ProductController extends Controller
                 'ip_address' => $request->ip(),
                 'user_agent' => substr((string)$request->userAgent(), 0, 255),
                 'metadata' => [
-                    'user_id' => $vendor->id,
+                    'user_id' => $user->id,
                     'product_id' => $product->id,
                     'has_variants' => (bool)$product->has_variants,
                     'store_id' => $product->store_id,
                 ],
             ]);
 
-            return redirect()->route('management.products.index', ['vendor' => $vendor, 'store_id' => $store->store_id])->with('success', 'Product created successfully.');
+            return redirect()->route('management.products.index', ['user' => $user, 'store_id' => $store->store_id])->with('success', 'Product created successfully.');
         } catch (QueryException $e) {
             Log::error('vendor.product.create_failed', ['error' => $e->getMessage()]);
             return back()->withInput()->with('error', 'Unable to create product. Please try again.');
@@ -319,12 +346,12 @@ class ProductController extends Controller
 
     public function edit(Request $request, Product $product): View|RedirectResponse
     {
-        $vendor = $request->user();
-        if (!$vendor || !$this->ownsProduct($product, $vendor)) {
+        $user = $request->user();
+        if (!$user || !$this->ownsProduct($product, $user)) {
             return redirect()->route('management.auth.login');
         }
 
-        $stores = $vendor->stores()->orderBy('name')->get();
+        $stores = $user->stores()->orderBy('name')->get();
         $categories = Category::orderBy('name')->get();
         $sizeUnits = DB::table('size_units')->orderBy('name')->get();
         $weightUnits = DB::table('weight_units')->orderBy('name')->get();
@@ -332,15 +359,15 @@ class ProductController extends Controller
         $defaultCurrencyId = Currency::where('is_default', true)->value('id');
         $product->load(['images', 'variants']);
 
-        $storeIds = $this->vendorStoreIds($vendor);
+        $storeIds = $this->userStoreIds($user);
         $categories = Category::whereIn('store_id', $storeIds)->orderBy('name')->get();
 
-        $sections = \App\Models\Section::whereHas('warehouse', function ($q) use ($vendor) {
-            $q->where('user_id', $vendor->id);
+        $sections = \App\Models\Section::whereHas('warehouse', function ($q) use ($user) {
+            $q->where('user_id', $user->id);
         })->orderBy('name')->get();
 
         return view('management.products.edit', [
-            'vendor' => $vendor,
+            'user' => $user,
             'product' => $product,
             'stores' => $stores,
             'categories' => $categories,
@@ -349,18 +376,18 @@ class ProductController extends Controller
             'weightUnits' => $weightUnits,
             'currencies' => $currencies,
             'defaultCurrencyId' => $defaultCurrencyId,
-            'backUrl' => route('management.products.index', ['vendor' => $vendor]),
+            'backUrl' => route('management.products.index', ['user' => $user]),
         ]);
     }
 
     public function update(ProductRequest $request, Product $product): RedirectResponse
     {
-        $vendor = $request->user();
-        if (!$vendor || !$this->ownsProduct($product, $vendor)) {
+        $user = $request->user();
+        if (!$user || !$this->ownsProduct($product, $user)) {
             return redirect()->route('management.auth.login');
         }
 
-        $stores = $vendor->stores()->pluck('id')->all();
+        $stores = $user->stores()->pluck('id')->all();
         if (!in_array((int)$request->input('store_id'), $stores, true)) {
             return back()->with('error', 'Invalid store selection.')->withInput();
         }
@@ -456,10 +483,10 @@ class ProductController extends Controller
                 'description' => 'Vendor updated a product',
                 'ip_address' => $request->ip(),
                 'user_agent' => substr((string)$request->userAgent(), 0, 255),
-                'metadata' => ['user_id' => $vendor->id, 'product_id' => $product->id, 'has_variants' => (bool)$product->has_variants],
+                'metadata' => ['user_id' => $user->id, 'product_id' => $product->id, 'has_variants' => (bool)$product->has_variants],
             ]);
 
-            return redirect()->route('management.products.index', ['vendor' => $vendor, 'store_id' => $product->store->store_id])->with('success', 'Product updated.');
+            return redirect()->route('management.products.index', ['user' => $user, 'store_id' => $product->store->store_id])->with('success', 'Product updated.');
         } catch (\Throwable $e) {
             Log::error('vendor.product.update_failed', ['error' => $e->getMessage(), 'product_id' => $product->id]);
             return back()->with('error', 'Unable to update product.')->withInput();
@@ -468,8 +495,8 @@ class ProductController extends Controller
 
     public function show(Request $request, Product $product): View|RedirectResponse
     {
-        $vendor = $request->user();
-        if (!$vendor || !$this->ownsProduct($product, $vendor)) {
+        $user = $request->user();
+        if (!$user || !$this->ownsProduct($product, $user)) {
             return redirect()->route('management.auth.login');
         }
 
@@ -490,27 +517,27 @@ class ProductController extends Controller
             }
         }
 
-        $backUrl = route('management.products.index', ['vendor' => $vendor]);
-        return view('management.products.show', compact('vendor', 'product', 'priceInfo', 'priceInfoSymbol', 'backUrl', 'currencySymbols'));
+        $backUrl = route('management.products.index', ['user' => $user]);
+        return view('management.products.show', compact('user', 'product', 'priceInfo', 'priceInfoSymbol', 'backUrl', 'currencySymbols'));
     }
 
     public function updateStatus(Request $request, Product $product): RedirectResponse
     {
-        $vendor = $request->user();
-        if (!$vendor || !$this->ownsProduct($product, $vendor)) {
+        $user = $request->user();
+        if (!$user || !$this->ownsProduct($product, $user)) {
             return redirect()->route('management.auth.login');
         }
 
         $data = $request->validate(['status' => 'required|in:active,inactive']);
         $product->update(['status' => $data['status']]);
         $message = $data['status'] === 'active' ? 'Product activated' : 'Product deactivated';
-        return redirect()->route('management.products.index', ['vendor' => $vendor, 'store_id' => $product->store->store_id])->with('success', $message);
+        return redirect()->route('management.products.index', ['user' => $user, 'store_id' => $product->store->store_id])->with('success', $message);
     }
 
     public function destroy(Request $request, Product $product): RedirectResponse
     {
-        $vendor = $request->user();
-        if (!$vendor || !$this->ownsProduct($product, $vendor)) {
+        $user = $request->user();
+        if (!$user || !$this->ownsProduct($product, $user)) {
             return redirect()->route('management.auth.login');
         }
 
@@ -518,11 +545,11 @@ class ProductController extends Controller
             try { Storage::disk('public')->delete($img->path); } catch (\Throwable $e) {}
         }
         $product->delete();
-        return redirect()->route('management.products.index', ['vendor' => $vendor, 'store_id' => $product->store->store_id])->with('success', 'Product deleted.');
+        return redirect()->route('management.products.index', ['user' => $user, 'store_id' => $product->store->store_id])->with('success', 'Product deleted.');
     }
 
-    private function ownsProduct(Product $product, User $vendor): bool
+    private function ownsProduct(Product $product, User $user): bool
     {
-        return in_array((int)$product->store_id, $this->vendorStoreIds($vendor), true);
+        return in_array((int)$product->store_id, $this->userStoreIds($user), true);
     }
 }

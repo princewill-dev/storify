@@ -12,14 +12,14 @@ class ProfileController extends Controller
 {
     public function index(Request $request)
     {
-        $vendor = $request->user();
+        $user = $request->user();
 
-        return view('management.profile.index', compact('vendor'));
+        return view('management.profile.index', compact('user'));
     }
 
     public function update(Request $request)
     {
-        $vendor = $request->user();
+        $user = $request->user();
 
         $validated = $request->validate([
             'name' => 'required|string|max:255',
@@ -34,30 +34,30 @@ class ProfileController extends Controller
         ];
 
         if ($request->hasFile('photo')) {
-            if ($vendor->photo_path) {
-                Storage::disk('public')->delete($vendor->photo_path);
+            if ($user->photo_path) {
+                Storage::disk('public')->delete($user->photo_path);
             }
             $data['photo_path'] = $request->file('photo')->store('photos', 'public');
-        } elseif ($request->boolean('remove_photo') && $vendor->photo_path) {
-            Storage::disk('public')->delete($vendor->photo_path);
+        } elseif ($request->boolean('remove_photo') && $user->photo_path) {
+            Storage::disk('public')->delete($user->photo_path);
             $data['photo_path'] = null;
         }
 
-        $vendor->update($data);
+        $user->update($data);
 
         return back()->with('success', 'Profile updated successfully.');
     }
 
     public function updatePassword(Request $request)
     {
-        $vendor = $request->user();
+        $user = $request->user();
 
         $request->validate([
             'current_password' => ['required', 'current_password:web'],
             'password' => ['required', 'confirmed', Password::defaults()],
         ]);
 
-        $vendor->update([
+        $user->update([
             'password' => Hash::make($request->password),
         ]);
 

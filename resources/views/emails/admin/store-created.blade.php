@@ -43,7 +43,7 @@
                   </tr>
                   <tr>
                     <td style="padding:6px 0;width:160px;color:#64748b;">Vendor</td>
-                    <td style="padding:6px 0;">{{ $vendor?->name ?? '—' }}</td>
+                    <td style="padding:6px 0;">{{ $user?->name ?? '—' }}</td>
                   </tr>
                   <tr>
                     <td style="padding:6px 0;width:160px;color:#64748b;">Status</td>

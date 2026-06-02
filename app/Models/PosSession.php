@@ -20,6 +20,7 @@ class PosSession extends Model
     protected $fillable = [
         'session_code',
         'store_id',
+        'business_id',
         'staff_id',
         'opened_at',
         'closed_at',

@@ -17,10 +17,10 @@ class TransactionController extends Controller
 
     public function index(Request $request): View|RedirectResponse
     {
-        $vendor = $request->user();
+        $user = $request->user();
 
         $query = Transaction::with(['order.customer', 'paymentMethod'])
-            ->whereHas('order', fn ($q) => $q->where('user_id', $vendor->id));
+            ->whereHas('order', fn ($q) => $q->where('user_id', $user->id));
 
         if ($request->filled('reference')) {
             $query->where('reference', 'like', '%' . $request->reference . '%');
@@ -33,7 +33,7 @@ class TransactionController extends Controller
         $transactions = $query->latest()->paginate(15)->withQueryString();
 
         return view('management.transactions.index', [
-            'vendor' => $vendor,
+            'user' => $user,
             'transactions' => $transactions,
             'statusOptions' => TransactionStatus::cases(),
         ]);
@@ -41,15 +41,15 @@ class TransactionController extends Controller
 
     public function show(Request $request, Transaction $transaction): View|RedirectResponse
     {
-        $vendor = $request->user();
-        if (!$vendor || !$transaction->order || $transaction->order->user_id !== $vendor->id) {
+        $user = $request->user();
+        if (!$user || !$transaction->order || $transaction->order->user_id !== $user->id) {
             return redirect()->route('management.auth.login');
         }
 
         $transaction->load(['order.customer', 'order.store', 'paymentMethod']);
 
         return view('management.transactions.show', [
-            'vendor' => $vendor,
+            'user' => $user,
             'transaction' => $transaction,
             'statusOptions' => TransactionStatus::cases(),
         ]);
@@ -58,8 +58,8 @@ class TransactionController extends Controller
 
     public function confirmPayment(Request $request, Transaction $transaction): RedirectResponse
     {
-        $vendor = $request->user();
-        if (!$vendor || !$transaction->order || $transaction->order->user_id !== $vendor->id) {
+        $user = $request->user();
+        if (!$user || !$transaction->order || $transaction->order->user_id !== $user->id) {
             return redirect()->route('management.auth.login');
         }
 
@@ -136,8 +136,8 @@ class TransactionController extends Controller
 
     public function rejectPayment(Request $request, Transaction $transaction): RedirectResponse
     {
-        $vendor = $request->user();
-        if (!$vendor || !$transaction->order || $transaction->order->user_id !== $vendor->id) {
+        $user = $request->user();
+        if (!$user || !$transaction->order || $transaction->order->user_id !== $user->id) {
             return redirect()->route('management.auth.login');
         }
 
@@ -156,7 +156,7 @@ class TransactionController extends Controller
         $metadata = $transaction->metadata ?? [];
         $metadata['rejection_reason'] = $reason;
         $metadata['rejected_at'] = now()->toDateTimeString();
-        $metadata['rejected_by'] = $vendor->id;
+        $metadata['rejected_by'] = $user->id;
 
         $transaction->update([
             'status' => TransactionStatus::CANCELED->value,
@@ -166,7 +166,7 @@ class TransactionController extends Controller
         \Log::info('payment_rejected', [
             'transaction_id' => $transaction->id,
             'reason' => $reason,
-            'user_id' => $vendor->id,
+            'user_id' => $user->id,
         ]);
 
         // Send rejection email to customer (queued)
@@ -195,8 +195,8 @@ class TransactionController extends Controller
 
     public function refundPayment(Request $request, Transaction $transaction): RedirectResponse
     {
-        $vendor = $request->user();
-        if (!$vendor || !$transaction->order || $transaction->order->user_id !== $vendor->id) {
+        $user = $request->user();
+        if (!$user || !$transaction->order || $transaction->order->user_id !== $user->id) {
             return redirect()->route('management.auth.login');
         }
 
@@ -219,7 +219,7 @@ class TransactionController extends Controller
 
         // Use transaction for atomic operation
         try {
-            \DB::transaction(function () use ($transaction, $reason, $vendor) {
+            \DB::transaction(function () use ($transaction, $reason, $user) {
                 $store = $transaction->order->store;
                 $amountInKobo = (int) ($transaction->amount * 100);
                 
@@ -235,7 +235,7 @@ class TransactionController extends Controller
                     $metadata = $transaction->metadata ?? [];
                     $metadata['refund_reason'] = $reason;
                     $metadata['refunded_at'] = now()->toDateTimeString();
-                    $metadata['refunded_by'] = $vendor->id;
+                    $metadata['refunded_by'] = $user->id;
                     
                     $transaction->update([
                         'status' => TransactionStatus::REFUNDED->value,

@@ -7,7 +7,7 @@
 <body style="font-family: system-ui, 'Segoe UI', sans-serif; line-height: 1.6;">
   <h1 style="margin-bottom: 0.5rem;">New login detected</h1>
 
-  <p>Hey {{ $vendor->name }},</p>
+  <p>Hey {{ $user->name }},</p>
 
   <p>We detected a login to your vendor account. Here are the details we captured:</p>
 

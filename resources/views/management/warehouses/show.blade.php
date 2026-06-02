@@ -5,6 +5,22 @@
 <x-management.page-header :title="$warehouse->name" subtitle="Code: {{ $warehouse->warehouse_code }}">
     <x-slot:actions>
         <x-management.status-badge :status="$warehouse->is_active ? 'active' : 'inactive'" />
+        @can('transfers create')
+        <div class="relative" x-data="{ open: false }">
+            <button @click="open = !open" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white text-xs font-medium rounded-lg hover:bg-indigo-700 transition-colors">
+                <i class="fi fi-rr-truck-loading text-xs"></i> Move Inventory
+                <i class="fi fi-rr-angle-small-down text-xs"></i>
+            </button>
+            <div x-show="open" @click.outside="open = false" x-transition class="absolute right-0 mt-2 w-52 bg-white rounded-xl shadow-lg border border-slate-200 py-1 z-50">
+                <a href="{{ route('management.warehouses.send', $warehouse) }}" class="flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">
+                    <i class="fi fi-rr-paper-plane w-4 text-indigo-500"></i> Send Inventory
+                </a>
+                <a href="{{ route('management.warehouses.receive', $warehouse) }}" class="flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">
+                    <i class="fi fi-rr-truck-loading w-4 text-indigo-500"></i> Receive Inventory
+                </a>
+            </div>
+        </div>
+        @endcan
     </x-slot:actions>
 </x-management.page-header>
 

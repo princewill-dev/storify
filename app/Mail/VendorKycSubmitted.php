@@ -2,8 +2,8 @@
 
 namespace App\Mail;
 
-use App\Models\Vendor;
-use App\Models\VendorKycApplication;
+use App\Models\User;
+use App\Models\KycApplication;
 use App\Queue\WithQueueConfig;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -14,7 +14,7 @@ class VendorKycSubmitted extends Mailable implements ShouldQueue
 {
     use Queueable, SerializesModels, WithQueueConfig;
 
-    public function __construct(public Vendor $vendor, public VendorKycApplication $application)
+    public function __construct(public User $user, public KycApplication $application)
     {
         $this->initQueueConfig();
     }
@@ -24,7 +24,7 @@ class VendorKycSubmitted extends Mailable implements ShouldQueue
         return $this->subject('We received your KYC submission')
             ->view('emails.vendor.kyc-submitted')
             ->with([
-                'vendor' => $this->vendor,
+                'user' => $this->user,
                 'application' => $this->application,
             ]);
     }

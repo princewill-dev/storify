@@ -93,20 +93,16 @@ class BusinessAuthController extends Controller
 
             $user->forceFill(['last_login_at' => now()])->save();
 
+            setPermissionsTeamId($user->business_id);
+
             Log::info('staff.login.success', [
                 'user_id' => $user->id,
                 'email' => $user->email,
             ]);
 
-            if ($user->hasRole('Cashier')) {
-                $hasPosStore = $user->assignedStores()->where('pos_enabled', true)->exists();
+            $route = $this->staffRedirectRoute($user);
 
-                return redirect()->intended(
-                    $hasPosStore ? route('staff.pos') : route('staff.dashboard')
-                )->with('success', 'Welcome, ' . $user->name . '!');
-            }
-
-            return redirect()->intended(route('staff.dashboard'))
+            return redirect()->intended($route)
                 ->with('success', 'Welcome, ' . $user->name . '!');
         }
 
@@ -176,13 +172,13 @@ class BusinessAuthController extends Controller
     {
         $request->validate(['email' => ['required', 'email']]);
 
-        $vendor = User::where('email', $request->email)->first();
-        if (!$vendor) {
+        $user = User::where('email', $request->email)->first();
+        if (!$user) {
             return back()->with('status', 'If that email is registered, we will send a verification code.')->withInput();
         }
 
-        $this->sendOtp($vendor->email, 'vendor_password_reset');
-        session(['vendor_password_reset_email' => $vendor->email]);
+        $this->sendOtp($user->email, 'vendor_password_reset');
+        session(['vendor_password_reset_email' => $user->email]);
 
         return redirect()->route('management.auth.reset-password')
             ->with('success', 'Verification code sent. Please check your email.');
@@ -208,8 +204,8 @@ class BusinessAuthController extends Controller
             'password' => ['required', 'string', 'min:8', 'confirmed'],
         ]);
 
-        $vendor = User::where('email', $data['email'])->first();
-        if (!$vendor) {
+        $user = User::where('email', $data['email'])->first();
+        if (!$user) {
             return back()->with('error', 'Invalid reset request.')->withInput($request->except('password', 'password_confirmation'));
         }
 
@@ -218,7 +214,7 @@ class BusinessAuthController extends Controller
                 ->withInput($request->except('password', 'password_confirmation'));
         }
 
-        $vendor->forceFill(['password' => $data['password']])->save();
+        $user->forceFill(['password' => $data['password']])->save();
         session()->forget('vendor_password_reset_email');
 
         return redirect()->route('management.auth.login')->with('success', 'Password updated. You can now login.');
@@ -291,11 +287,9 @@ class BusinessAuthController extends Controller
         $user = auth()->user();
 
         if ($user && $user->isStaff()) {
-            if ($user->hasRole('Cashier')) {
-                $hasPosStore = $user->assignedStores()->where('pos_enabled', true)->exists();
-                return $hasPosStore ? route('staff.pos') : route('staff.dashboard');
-            }
-            return route('staff.dashboard');
+            setPermissionsTeamId($user->business_id);
+
+            return $this->staffRedirectRoute($user);
         }
 
         if ($user && !$user->business_id) {
@@ -325,5 +319,14 @@ class BusinessAuthController extends Controller
         } catch (\Throwable $e) {
             Log::error('vendor.otp.mail_failed', ['email' => $email, 'type' => $type, 'error' => $e->getMessage()]);
         }
+    }
+
+    private function staffRedirectRoute(\App\Models\User $user): string
+    {
+        if ($user->hasRole('Cashier')) {
+            $hasPosStore = $user->assignedStores()->where('pos_enabled', true)->exists();
+            return $hasPosStore ? route('staff.pos') : route('staff.dashboard');
+        }
+        return route('management.dashboard');
     }
 }

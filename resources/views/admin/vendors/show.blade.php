@@ -4,19 +4,19 @@
 @section('content')
 <div class="container-fluid">
   <div class="d-flex justify-content-between align-items-center mb-3">
-    <h4 class="mb-0">Vendor: {{ $vendor->name }}</h4>
+    <h4 class="mb-0">Vendor: {{ $user->name }}</h4>
     <div>
       <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#editVendorModal" 
-              data-vendor-id="{{ $vendor->id }}" data-vendor-name="{{ $vendor->name }}" 
-              data-vendor-account-id="{{ $vendor->account_id }}" data-vendor-slug="{{ $vendor->slug }}" 
-              data-vendor-email="{{ $vendor->email }}" data-vendor-phone="{{ $vendor->phone }}" 
-              data-vendor-status="{{ $vendor->status }}">
+              data-vendor-id="{{ $user->id }}" data-vendor-name="{{ $user->name }}" 
+              data-vendor-account-id="{{ $user->account_id }}" data-vendor-slug="{{ $user->slug }}" 
+              data-vendor-email="{{ $user->email }}" data-vendor-phone="{{ $user->phone }}" 
+              data-vendor-status="{{ $user->status }}">
         <i class="fa fa-edit"></i> Edit
       </button>
-      <button type="button" class="btn btn-outline-warning btn-sm" data-bs-toggle="modal" data-bs-target="#suspendVendorModal" data-vendor-account-id="{{ $vendor->account_id }}" data-vendor-name="{{ $vendor->name }}">
+      <button type="button" class="btn btn-outline-warning btn-sm" data-bs-toggle="modal" data-bs-target="#suspendVendorModal" data-vendor-account-id="{{ $user->account_id }}" data-vendor-name="{{ $user->name }}">
         <i class="fa fa-ban"></i> Suspend
       </button>
-      <button type="button" class="btn btn-outline-danger btn-sm" data-bs-toggle="modal" data-bs-target="#deleteVendorModal" data-vendor-account-id="{{ $vendor->account_id }}" data-vendor-name="{{ $vendor->name }}">
+      <button type="button" class="btn btn-outline-danger btn-sm" data-bs-toggle="modal" data-bs-target="#deleteVendorModal" data-vendor-account-id="{{ $user->account_id }}" data-vendor-name="{{ $user->name }}">
         <i class="fa fa-trash"></i> Delete
       </button>
     </div>
@@ -30,27 +30,27 @@
           <div class="row mb-2">
             <div class="col-md-6">
               <div class="text-muted small">Email</div>
-              <div>{{ $vendor->email ?? '—' }}</div>
+              <div>{{ $user->email ?? '—' }}</div>
             </div>
             <div class="col-md-6">
               <div class="text-muted small">Phone</div>
-              <div>{{ $vendor->phone ?? '—' }}</div>
+              <div>{{ $user->phone ?? '—' }}</div>
             </div>
           </div>
           <div class="row mb-2">
             <div class="col-md-6">
               <div class="text-muted small">Status</div>
-              <span class="badge bg-light text-dark">{{ $vendor->status }}</span>
+              <span class="badge bg-light text-dark">{{ $user->status }}</span>
             </div>
             <div class="col-md-6">
               <div class="text-muted small">Date Registered</div>
-              <div>{{ optional($vendor->created_at)->format('Y-m-d H:i') }}</div>
+              <div>{{ optional($user->created_at)->format('Y-m-d H:i') }}</div>
             </div>
           </div>
           <div class="row mb-2">
             <div class="col-md-6">
               <div class="text-muted small">Email Verification</div>
-              @if(isset($vendor->email_verified_at) && $vendor->email_verified_at)
+              @if(isset($user->email_verified_at) && $user->email_verified_at)
                 <span class="badge bg-success">Verified</span>
               @else
                 <span class="badge bg-secondary">Unverified</span>
@@ -64,11 +64,11 @@
     <div class="col-lg-6">
       <div class="card h-100">
         <div class="card-header d-flex justify-content-between align-items-center">
-          <strong>Stores ({{ $vendor->stores->count() }})</strong>
+          <strong>Stores ({{ $user->stores->count() }})</strong>
           <a href="{{ route('admin.stores.create') }}" class="btn btn-sm btn-outline-secondary">Add Store</a>
         </div>
         <div class="card-body">
-          @if($vendor->stores->isEmpty())
+          @if($user->stores->isEmpty())
             <div class="text-muted">No stores yet.</div>
           @else
             <div class="table-responsive">
@@ -83,7 +83,7 @@
                   </tr>
                 </thead>
                 <tbody>
-                  @foreach($vendor->stores as $s)
+                  @foreach($user->stores as $s)
                     <tr>
                       <td>
                         <a href="{{ route('admin.stores.show', $s) }}">{{ $s->name }}</a>

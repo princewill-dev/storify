@@ -111,16 +111,14 @@ class BankTransferController extends Controller
                 Mail::to($adminEmail)->send(new NewOrderAdminMail($order));
             }
 
-            $vendorEmail = $order->vendor?->email;
-            if ($vendorEmail) {
-                Mail::to($vendorEmail)->send(new VendorOrderNotificationMail($order));
+            $userEmail = User::find($order->user_id)?->email;
+            if ($userEmail) {
+                Mail::to($userEmail)->send(new VendorOrderNotificationMail($order));
             }
-            
-            Log::info('payment_confirmation_emails_sent', [
+
+            Log::info('bank_transfer_notification', [
                 'order_id' => $order->id,
-                'customer_email' => $order->customer->email,
-                'admin_email' => $adminEmail,
-                'vendor_email' => $vendorEmail,
+                'user_email' => $userEmail,
             ]);
         } catch (\Exception $e) {
             Log::error('payment_confirmation_email_failed', [

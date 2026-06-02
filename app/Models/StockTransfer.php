@@ -135,9 +135,19 @@ class StockTransfer extends Model
         return $this->isDraft() && $this->items()->count() > 0;
     }
 
+    public function isAwaitingAcknowledgment(): bool
+    {
+        return $this->status === TransferStatus::AWAITING_ACKNOWLEDGMENT;
+    }
+
     public function canBeApproved(): bool
     {
-        return $this->isPending();
+        return $this->isPending() || $this->isAwaitingAcknowledgment();
+    }
+
+    public function canBeAcknowledged(): bool
+    {
+        return $this->isAwaitingAcknowledgment();
     }
 
     public function canBeDispatched(): bool

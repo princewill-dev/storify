@@ -62,7 +62,7 @@
     </div>
 
     <div class="section" style="text-align:center;">
-        <a href="{{ route('management.orders.show', ['vendor' => $vendor, 'order' => $order]) }}" class="btn">View order in dashboard</a>
+        <a href="{{ route('management.orders.show', ['vendor' => $user, 'order' => $order]) }}" class="btn">View order in dashboard</a>
     </div>
 
     <div class="footer">

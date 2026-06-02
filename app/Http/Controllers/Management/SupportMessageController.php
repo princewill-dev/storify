@@ -20,10 +20,10 @@ class SupportMessageController extends Controller
      */
     public function index(Request $request)
     {
-        $vendor = $request->user();
+        $user = $request->user();
 
         // Get all store IDs that belong to this vendor
-        $storeIds = \App\Models\Store::where('user_id', $vendor->id)->pluck('id');
+        $storeIds = \App\Models\Store::where('user_id', $user->id)->pluck('id');
 
         $messages = SupportMessage::whereIn('store_id', $storeIds)
             ->with('store')
@@ -31,7 +31,7 @@ class SupportMessageController extends Controller
             ->orderBy('created_at', 'desc')
             ->get();
 
-        return view('management.support-messages.index', compact('vendor', 'messages'));
+        return view('management.support-messages.index', compact('user', 'messages'));
     }
 
     /**
@@ -39,10 +39,10 @@ class SupportMessageController extends Controller
      */
     public function reply(Request $request, SupportMessage $supportMessage)
     {
-        $vendor = $request->user();
+        $user = $request->user();
 
         // Ensure message belongs to one of vendor's stores
-        $storeIds = \App\Models\Store::where('user_id', $vendor->id)->pluck('id');
+        $storeIds = \App\Models\Store::where('user_id', $user->id)->pluck('id');
         if (!$storeIds->contains($supportMessage->store_id)) {
             abort(403, 'Unauthorized action.');
         }
@@ -61,13 +61,13 @@ class SupportMessageController extends Controller
                 'reply' => $request->reply,
                 'status' => 'replied',
                 'replied_by_type' => 'vendor',
-                'replied_by_id' => $vendor->id,
+                'replied_by_id' => $user->id,
                 'replied_at' => now(),
             ]);
 
             Log::info('support.message.replied_by_vendor', [
                 'message_id' => $supportMessage->id,
-                'user_id' => $vendor->id,
+                'user_id' => $user->id,
             ]);
 
             // Send reply email to customer
@@ -83,13 +83,13 @@ class SupportMessageController extends Controller
                 ]);
             }
 
-            return redirect()->route('management.support-messages.index', ['vendor' => $vendor])
+            return redirect()->route('management.support-messages.index', ['user' => $user])
                 ->with('success', 'Reply sent successfully to the customer.');
 
         } catch (\Exception $e) {
             Log::error('support.message.reply_failed', [
                 'message_id' => $supportMessage->id,
-                'user_id' => $vendor->id,
+                'user_id' => $user->id,
                 'error' => $e->getMessage(),
             ]);
 

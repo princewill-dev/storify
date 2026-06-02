@@ -63,10 +63,11 @@ class AdminAuthController extends Controller
 
             // Automatically create the first vendor account
             try {
-                Vendor::create([
+                User::create([
                     'name' => $user->name,
                     'email' => $user->email,
                     'phone' => $user->phone,
+                    'role' => 'business_owner',
                     'status' => 'active',
                 ]);
             } catch (\Throwable $ve) {

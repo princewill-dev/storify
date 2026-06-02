@@ -14,6 +14,7 @@ class Order extends Model
     use BelongsToBusiness;
 
     protected $fillable = [
+        'business_id',
         'order_number',
         'customer_id',
         'store_id',

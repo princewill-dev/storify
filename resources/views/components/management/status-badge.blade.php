@@ -1,6 +1,9 @@
 @props(['status'])
 
 @php
+if ($status instanceof \BackedEnum) {
+    $status = $status->value;
+}
 $map = [
     'active'     => 'bg-emerald-50 text-emerald-700 ring-emerald-600/20',
     'inactive'   => 'bg-slate-100 text-slate-600 ring-slate-500/20',
@@ -22,6 +25,8 @@ $map = [
     'closed'     => 'bg-slate-100 text-slate-600 ring-slate-500/20',
     'confirmed'  => 'bg-emerald-50 text-emerald-700 ring-emerald-600/20',
     'refunded'   => 'bg-purple-50 text-purple-700 ring-purple-600/20',
+    'refund_pending' => 'bg-amber-50 text-amber-700 ring-amber-600/20',
+    'awaiting_acknowledgment' => 'bg-orange-50 text-orange-700 ring-orange-600/20',
     'failed'     => 'bg-red-50 text-red-700 ring-red-600/20',
     'unpaid'     => 'bg-amber-50 text-amber-700 ring-amber-600/20',
     'paid'       => 'bg-emerald-50 text-emerald-700 ring-emerald-600/20',
