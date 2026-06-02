@@ -140,6 +140,7 @@ class ProductAndStockSeeder extends Seeder
                     $product = Product::create([
                         'store_id' => $store->id,
                         'business_id' => $business->id,
+                        'product_code' => 'prd_' . strtoupper(Str::random(8)),
                         'category_id' => $cat->id,
                         'section_id' => $assignedSection?->id,
                         'name' => $name,
@@ -169,6 +170,7 @@ class ProductAndStockSeeder extends Seeder
                             ProductVariant::create([
                                 'product_id' => $product->id,
                                 'business_id' => $business->id,
+                                'variant_code' => 'var_' . strtoupper(Str::random(10)),
                                 'sku' => strtoupper(substr($brand, 0, 3)) . '-' . Str::random(5),
                                 'color' => $color,
                                 'quantity' => rand(5, 50),
@@ -259,6 +261,7 @@ class ProductAndStockSeeder extends Seeder
                 ],
                 [
                     'business_id' => $business->id,
+                    'section_code' => 'sec_' . Str::lower(Str::random(10)),
                     'description' => $this->sectionDescriptions()[$i] ?? null,
                     'is_active' => true,
                 ]

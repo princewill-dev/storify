@@ -126,6 +126,7 @@ class MainStoreProductSeeder extends Seeder
                 Product::create([
                     'store_id' => $store->id,
                     'category_id' => $cat->id,
+                    'product_code' => 'prd_' . strtoupper(Str::random(8)),
                     'name' => $name,
                     'brand' => 'EcoBrand',
                     'slug' => Str::slug($name) . '-' . substr((string) Str::uuid(), 0, 8),
