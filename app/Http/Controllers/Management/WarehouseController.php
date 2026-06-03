@@ -7,6 +7,7 @@ use App\Models\Warehouse;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
 
 class WarehouseController extends Controller
@@ -53,6 +54,8 @@ class WarehouseController extends Controller
 
         $validated['user_id'] = $user->id;
         $validated['business_id'] = $user->business_id;
+        $validated['status'] = $request->boolean('is_active') ? 'active' : 'inactive';
+        unset($validated['is_active']);
         $warehouse = Warehouse::create($validated);
 
         if ($request->filled('staff_ids')) {
@@ -76,7 +79,155 @@ class WarehouseController extends Controller
         $warehouse->load(['stockLocations.product', 'sections', 'assignedStaff']);
         $lowStockCount = $warehouse->stockLocations->filter->isLowStock()->count();
 
-        return view('management.warehouses.show', compact('user', 'warehouse', 'lowStockCount'));
+        $productCount = \App\Models\Product::where('warehouse_id', $warehouse->id)->count();
+        $productStockQty = \App\Models\Product::where('warehouse_id', $warehouse->id)->sum('quantity');
+        $locationStockQty = $warehouse->stockLocations->sum('quantity');
+        $totalStock = max($locationStockQty, $productStockQty);
+
+        $products = \App\Models\Product::where('warehouse_id', $warehouse->id)
+            ->with(['section', 'images'])
+            ->orderBy('name')
+            ->get();
+
+        $recentMovements = \App\Models\StockMovement::whereIn('stock_location_id', $warehouse->stockLocations->pluck('id'))
+            ->with(['product', 'performedBy'])
+            ->latest()
+            ->take(20)
+            ->get();
+
+        $stores = ($user->isStaff() ? $user->assignedStores() : $user->stores())
+            ->where('status', '!=', 'deleted')
+            ->orderBy('name')->get();
+
+        $warehousesList = Warehouse::where('business_id', $warehouse->business_id)
+            ->orderBy('name')
+            ->get();
+
+        return view('management.warehouses.show', compact(
+            'user', 'warehouse', 'lowStockCount', 'productCount', 'totalStock',
+            'products', 'recentMovements', 'stores', 'warehousesList'
+        ));
+    }
+
+    public function moveProducts(Request $request, Warehouse $warehouse): RedirectResponse
+    {
+        $user = $request->user();
+        if (!$user) abort(403);
+        if ($user->isStaff()) {
+            if (!$user->assignedWarehouses()->where('warehouses.id', $warehouse->id)->exists()) abort(403);
+        } elseif ($warehouse->user_id !== $user->id) abort(403);
+
+        $canAutoComplete = $user->can('transfers create') && $user->can('transfers approve')
+            && $user->can('transfers dispatch') && $user->can('transfers receive');
+
+        $validated = $request->validate([
+            'product_ids' => 'required|array',
+            'product_ids.*' => 'exists:products,id',
+            'destination_type' => 'required|in:store,warehouse',
+            'destination_id' => 'required|integer',
+            'notes' => 'nullable|string|max:1000',
+            'complete_immediately' => 'nullable|boolean',
+        ]);
+
+        $destination = $request->input('destination_type') === 'store'
+            ? ($user->isStaff() ? $user->assignedStores() : $user->stores())->where('status', '!=', 'deleted')->findOrFail($validated['destination_id'])
+            : Warehouse::where('business_id', $warehouse->business_id)->findOrFail($validated['destination_id']);
+
+        $productIds = $validated['product_ids'];
+        $products = \App\Models\Product::whereIn('id', $productIds)
+            ->where('warehouse_id', $warehouse->id)
+            ->get();
+
+        if ($products->isEmpty()) {
+            return back()->with('error', 'No valid products selected for this warehouse.');
+        }
+
+        $destinationType = $request->input('destination_type') === 'store'
+            ? \App\Models\Store::class
+            : \App\Models\Warehouse::class;
+
+        $shouldAutoComplete = $canAutoComplete && $request->boolean('complete_immediately');
+
+        try {
+            DB::beginTransaction();
+
+            $transfer = \App\Models\StockTransfer::create([
+                'business_id' => $warehouse->business_id,
+                'from_location_type' => \App\Models\Warehouse::class,
+                'from_location_id' => $warehouse->id,
+                'to_location_type' => $destinationType,
+                'to_location_id' => $destination->id,
+                'requested_by' => $user->id,
+                'status' => \App\Enums\TransferStatus::PENDING,
+                'notes' => $validated['notes'] ?? null,
+            ]);
+
+            foreach ($products as $product) {
+                $qty = max(1, (int) $product->quantity);
+                \App\Models\StockTransferItem::create([
+                    'stock_transfer_id' => $transfer->id,
+                    'product_id' => $product->id,
+                    'quantity' => $qty,
+                    'approved_quantity' => $shouldAutoComplete ? $qty : null,
+                ]);
+            }
+
+            if ($shouldAutoComplete) {
+                $transfer->update([
+                    'status' => \App\Enums\TransferStatus::APPROVED,
+                    'approved_by' => $user->id,
+                ]);
+
+                $ledger = app(\App\Services\StockLedgerService::class);
+
+                foreach ($transfer->items as $item) {
+                    $sourceStock = \App\Models\StockLocation::where('product_id', $item->product_id)
+                        ->where('locationable_type', \App\Models\Warehouse::class)
+                        ->where('locationable_id', $warehouse->id)
+                        ->first();
+
+                    if ($sourceStock) {
+                        $ledger->recordRemoval($sourceStock, $item->quantity, $transfer, $user,
+                            'Transfer dispatched to ' . $destination->name);
+                    }
+
+                    $destStock = \App\Models\StockLocation::firstOrCreate([
+                        'product_id' => $item->product_id,
+                        'locationable_type' => $destinationType,
+                        'locationable_id' => $destination->id,
+                    ], ['quantity' => 0, 'min_quantity' => 0, 'business_id' => $warehouse->business_id]);
+
+                    $ledger->recordAddition($destStock, $item->quantity, $transfer, $user,
+                        'Transfer received from ' . $warehouse->name);
+
+                    if ($request->input('destination_type') === 'store') {
+                        \App\Models\Product::where('id', $item->product_id)
+                            ->update(['store_id' => $destination->id]);
+                    }
+                }
+
+                $transfer->update([
+                    'status' => \App\Enums\TransferStatus::RECEIVED,
+                    'dispatched_by' => $user->id,
+                    'received_by' => $user->id,
+                ]);
+
+                DB::commit();
+
+                return redirect()->route('management.transfers.show', $transfer)
+                    ->with('success', count($products) . ' product(s) moved to ' . $destination->name . '. Transfer completed.');
+            }
+
+            DB::commit();
+
+            return redirect()->route('management.transfers.show', $transfer)
+                ->with('success', 'Transfer created. Awaiting approval for ' . count($products) . ' product(s) to ' . $destination->name . '.');
+
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            \Log::error('warehouse.move_products_failed', ['error' => $e->getMessage()]);
+            return back()->with('error', 'Failed to create transfer: ' . $e->getMessage());
+        }
     }
 
     public function edit(Request $request, Warehouse $warehouse): View|RedirectResponse
@@ -116,6 +267,8 @@ class WarehouseController extends Controller
             'staff_ids' => 'nullable|array',
         ]);
 
+        $validated['status'] = $request->boolean('is_active') ? 'active' : 'inactive';
+        unset($validated['is_active']);
         $warehouse->update($validated);
 
         if ($request->has('staff_ids')) {
@@ -133,7 +286,7 @@ class WarehouseController extends Controller
             if (!$user->assignedWarehouses()->where('warehouses.id', $warehouse->id)->exists()) abort(403);
         } elseif ($warehouse->user_id !== $user->id) abort(403);
 
-        $warehouse->delete();
+        $warehouse->update(['status' => 'deleted']);
         return redirect()->route('management.warehouses.index')->with('success', 'Warehouse deleted.');
     }
 }

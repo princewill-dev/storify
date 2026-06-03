@@ -15,6 +15,9 @@ afterEach(function () {
 function makeStaffUser(string $role): User
 {
     $business = Business::first();
+    if (!$business) {
+        $business = Business::factory()->create(['status' => 'active']);
+    }
     $user = User::create([
         'name' => 'Test ' . \Illuminate\Support\Str::random(6),
         'email' => \Illuminate\Support\Str::random(8) . '@rbac.test',

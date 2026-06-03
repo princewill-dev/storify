@@ -52,8 +52,8 @@
             {{-- Organization --}}
             <x-management.card header="Organization">
                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <x-management.form-input name="store_id" label="Store" type="select" required :error="$errors->first('store_id')">
-                        <option value="">Select store</option>
+                    <x-management.form-input name="store_id" label="Store" type="select" :error="$errors->first('store_id')">
+                        <option value="">None (warehouse-only)</option>
                         @foreach($stores as $s)
                         <option value="{{ $s->id }}" @selected(old('store_id', $selectedStoreId) == $s->id)>{{ $s->name }}</option>
                         @endforeach
@@ -68,6 +68,12 @@
                         <option value="">None</option>
                         @foreach($sections as $sec)
                         <option value="{{ $sec->id }}" @selected(old('section_id', $selectedSectionId) == $sec->id)>{{ $sec->name }} ({{ $sec->warehouse?->name }})</option>
+                        @endforeach
+                    </x-management.form-input>
+                    <x-management.form-input name="warehouse_id" label="Warehouse" type="select" :error="$errors->first('warehouse_id')">
+                        <option value="">None (auto-set from section)</option>
+                        @foreach($warehouses as $wh)
+                        <option value="{{ $wh->id }}" @selected(old('warehouse_id') == $wh->id)>{{ $wh->name }}</option>
                         @endforeach
                     </x-management.form-input>
                 </div>

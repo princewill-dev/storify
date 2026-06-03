@@ -25,6 +25,7 @@ class StaffController extends Controller
 
         $query = User::where('business_id', $user->business_id)
             ->whereIn('role', ['staff', 'business_owner'])
+            ->where('status', '!=', 'deleted')
             ->with('roles', 'assignedStores', 'assignedWarehouses');
 
         $store = null;
@@ -48,8 +49,8 @@ class StaffController extends Controller
         }
 
         $roles = Role::all();
-        $stores = $user->stores()->get();
-        $warehouses = $user->warehouses()->where('is_active', true)->get();
+        $stores = $user->stores()->where('status', '!=', 'deleted')->get();
+        $warehouses = $user->warehouses()->where('status', '!=', 'deleted')->get();
 
         return view('management.staff.create', compact('user', 'roles', 'stores', 'warehouses'));
     }
@@ -100,6 +101,9 @@ class StaffController extends Controller
             $staffData['password'] = $validated['password'];
             $staffData['force_password_change'] = true;
             $plainPassword = $validated['password'];
+        } else {
+            $staffData['password'] = bcrypt(Str::random(32));
+            $staffData['force_password_change'] = false;
         }
 
         $staffUser = User::create($staffData);
@@ -303,7 +307,7 @@ class StaffController extends Controller
             abort(403);
         }
 
-        $staff->delete();
+        $staff->update(['status' => 'deleted']);
 
         return redirect()->route('management.staff.index')
             ->with('success', 'Staff member removed.');

@@ -5,28 +5,22 @@
 <div x-data="warehouseManager()" @warehouse-edit="editing = $event.detail" @warehouse-delete="deleting = $event.detail">
 <x-management.page-header title="Warehouses" subtitle="Manage inventory storage locations">
     <x-slot:actions>
-        <button @click="showCreateModal = true" class="inline-flex items-center gap-1.5 px-4 py-2 bg-slate-900 text-white text-sm font-medium rounded-lg hover:bg-slate-800 transition-colors">
+        <a href="{{ route('management.warehouses.create') }}" class="inline-flex items-center gap-1.5 px-4 py-2 bg-slate-900 text-white text-sm font-medium rounded-lg hover:bg-slate-800 transition-colors">
             <i class="fi fi-rr-plus text-xs"></i> Add Warehouse
-        </button>
+        </a>
     </x-slot:actions>
 </x-management.page-header>
 
 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
     @forelse($warehouses as $warehouse)
     <div class="relative group bg-white rounded-xl shadow-sm border border-slate-200 p-5 hover:shadow hover:border-slate-300 transition-all">
-        <a href="{{ route('management.warehouses.show', $warehouse) }}" class="absolute inset-0 z-0" aria-label="{{ $warehouse->name }}"></a>
-        <div class="flex items-start justify-between mb-3 relative z-10">
-            <div class="flex items-center gap-2.5 min-w-0 pointer-events-none">
-                <span class="inline-flex items-center justify-center w-10 h-10 rounded-xl {{ $warehouse->is_active ? 'bg-amber-50 text-amber-600' : 'bg-slate-100 text-slate-400' }} shrink-0">
-                    <i class="fi fi-rr-warehouse-alt"></i>
-                </span>
-                <div class="min-w-0">
-                    <h3 class="text-sm font-semibold text-slate-800 truncate">{{ $warehouse->name }}</h3>
-                    <p class="text-xs text-slate-400">{{ $warehouse->warehouse_code }}</p>
-                </div>
-            </div>
-            <div class="flex items-center gap-1 shrink-0 pointer-events-auto">
-                <x-management.status-badge :status="$warehouse->is_active ? 'active' : 'inactive'" />
+        <div class="flex items-start justify-between mb-3">
+            <div class="flex items-center gap-2.5 min-w-0">
+                <span class="inline-flex items-center justify-center w-10 h-10 rounded-xl {{ $warehouse->isActive() ? 'bg-amber-50 text-amber-600' : 'bg-slate-100 text-slate-400' }} shrink-0">
+
+  ...
+
+                <x-management.status-badge :status="$warehouse->isActive() ? 'active' : 'inactive'" />
                 <div class="relative" x-data="{ open: false }" @click.outside="open = false">
                     <button @click.stop.prevent="open = !open" class="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg">
                         <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
@@ -38,7 +32,7 @@
                         <a href="{{ route('management.sections.index', $warehouse) }}" class="flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">
                             <i class="fi fi-rr-cube w-4 text-slate-400"></i> Sections
                         </a>
-                        <button @click.stop="$dispatch('warehouse-edit', { id: '{{ $warehouse->id }}', warehouse_code: '{{ $warehouse->warehouse_code }}', name: '{{ addslashes($warehouse->name) }}', contact_person: '{{ addslashes($warehouse->contact_person ?? '') }}', contact_phone: '{{ $warehouse->contact_phone ?? '' }}', is_active: {{ $warehouse->is_active ? 'true' : 'false' }} })" class="flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 w-full text-left">
+                        <button @click.stop="$dispatch('warehouse-edit', { id: '{{ $warehouse->id }}', warehouse_code: '{{ $warehouse->warehouse_code }}', name: '{{ addslashes($warehouse->name) }}', contact_person: '{{ addslashes($warehouse->contact_person ?? '') }}', contact_phone: '{{ $warehouse->contact_phone ?? '' }}', is_active: {{ $warehouse->isActive() ? 'true' : 'false' }} })" class="flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 w-full text-left">
                             <i class="fi fi-rr-edit w-4 text-slate-400"></i> Edit
                         </button>
                         <button @click.stop="$dispatch('warehouse-delete', { id: '{{ $warehouse->id }}', warehouse_code: '{{ $warehouse->warehouse_code }}', name: '{{ addslashes($warehouse->name) }}' })" class="flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 w-full text-left">
@@ -48,7 +42,7 @@
                 </div>
             </div>
         </div>
-        <div class="relative z-10">
+        <div class="mt-2">
             @if($warehouse->location)<p class="text-xs text-slate-500 mb-2"><i class="fi fi-rr-marker mr-1 opacity-50"></i>{{ $warehouse->location->name }}</p>@endif
             <div class="flex items-center gap-3 text-xs text-slate-400">
                 <span>{{ $warehouse->stockLocations->sum('quantity') }} items</span>

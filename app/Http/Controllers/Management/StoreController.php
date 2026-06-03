@@ -228,6 +228,8 @@ class StoreController extends Controller
 
         if (in_array($status, ['active', 'inactive', 'suspended', 'deleted'], true)) {
             $storesQuery->where('status', $status);
+        } else {
+            $storesQuery->where('status', '!=', 'deleted');
         }
 
         if ($q !== '') {
@@ -428,20 +430,22 @@ class StoreController extends Controller
         }
 
         $request->validate([
-            'reason' => 'required|string|max:2000',
+            'reason' => 'nullable|string|max:2000',
         ]);
+
+        $reason = $request->reason ?? 'Suspended by store owner';
 
         Log::info('store.suspend_requested', [
             'user_id' => $user->id,
             'store_id' => $store->id,
-            'reason' => $request->reason
+            'reason' => $reason
         ]);
 
         $store->update(['status' => 'suspended']);
 
         try {
             if ($user->email) {
-                Mail::to($user->email)->queue(new VendorStoreSuspended($store, $request->reason));
+                Mail::to($user->email)->queue(new VendorStoreSuspended($store, $reason));
             }
         } catch (\Throwable $e) {
             Log::error('store.suspended_mail_failed', [
@@ -463,20 +467,22 @@ class StoreController extends Controller
         }
 
         $request->validate([
-            'reason' => 'required|string|max:2000',
+            'reason' => 'nullable|string|max:2000',
         ]);
+
+        $reason = $request->reason ?? 'Reactivated by store owner';
 
         Log::info('store.activate_requested', [
             'user_id' => $user->id,
             'store_id' => $store->id,
-            'reason' => $request->reason
+            'reason' => $reason
         ]);
 
         $store->update(['status' => 'active']);
 
         try {
             if ($user->email) {
-                Mail::to($user->email)->queue(new VendorStoreReactivated($store, $request->reason));
+                Mail::to($user->email)->queue(new VendorStoreReactivated($store, $reason));
             }
         } catch (\Throwable $e) {
             Log::error('store.activated_mail_failed', [
@@ -486,6 +492,36 @@ class StoreController extends Controller
         }
 
         return back()->with('success', 'Store activated successfully.');
+    }
+
+    public function destroy(Request $request, Store $store): RedirectResponse
+    {
+        $user = $request->user();
+
+        if ((int) $store->user_id !== (int) $user->id) {
+            return back()->with('error', 'Unauthorized action.');
+        }
+
+        $incompleteOrders = \App\Models\Order::where('store_id', $store->id)
+            ->where('status', '!=', \App\Enums\OrderStatus::COMPLETED->value)
+            ->exists();
+        if ($incompleteOrders) {
+            return back()->with('error', 'Cannot delete: store has incomplete orders.');
+        }
+
+        $incompleteTransactions = \App\Models\Transaction::whereHas('order', fn($q) => $q->where('store_id', $store->id))
+            ->where('status', '!=', \App\Enums\TransactionStatus::CONFIRMED->value)
+            ->exists();
+        if ($incompleteTransactions) {
+            return back()->with('error', 'Cannot delete: store has incomplete transactions.');
+        }
+
+        $store->update(['status' => 'deleted']);
+
+        Log::info('store.deleted', ['user_id' => $user->id, 'store_id' => $store->id]);
+
+        return redirect()->route('management.stores.index')
+            ->with('success', "Store '{$store->name}' has been deleted.");
     }
 
     public function webMetrics(Request $request, Store $store): View|RedirectResponse

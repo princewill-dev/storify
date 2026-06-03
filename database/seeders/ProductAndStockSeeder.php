@@ -117,6 +117,22 @@ class ProductAndStockSeeder extends Seeder
         }
 
         $stores = $business->stores;
+
+        if ($warehouseId) {
+            if (!$warehouse) {
+                $msg = "Warehouse '{$warehouseId}' not found.";
+                if ($this->command) $this->command->warn($msg); else echo $msg . PHP_EOL;
+                return;
+            }
+            $sections = $this->seedSections($warehouse, $business);
+            $sizeUnitIds = \DB::table('size_units')->pluck('id')->all();
+            $weightUnitIds = \DB::table('weight_units')->pluck('id')->all();
+            $currencyId = \DB::table('currencies')->where('is_default', true)->value('id') ?? 1;
+            $total = $this->seedWarehouseProducts($warehouse, $business, $sections, $sizeUnitIds, $weightUnitIds, $currencyId);
+            $this->info("Done: {$total} warehouse-only products created for [{$warehouse->name}].");
+            return;
+        }
+
         if ($stores->isEmpty()) {
             $store = Store::firstOrCreate(
                 ['business_id' => $business->id, 'slug' => Str::slug($business->name)],
@@ -169,6 +185,7 @@ class ProductAndStockSeeder extends Seeder
                     $product = Product::create([
                         'store_id' => $store->id,
                         'business_id' => $business->id,
+                        'warehouse_id' => $warehouse?->id,
                         'product_code' => 'prd_' . strtoupper(Str::random(8)),
                         'category_id' => $cat->id,
                         'section_id' => $assignedSection?->id,
@@ -247,6 +264,8 @@ class ProductAndStockSeeder extends Seeder
                         ]
                     );
 
+                    $this->attachImage($product, $totalProducts);
+
                     $totalProducts++;
                     $totalStock += $quantity;
                 }
@@ -256,6 +275,79 @@ class ProductAndStockSeeder extends Seeder
         }
 
         $this->info("Done: {$totalProducts} products across " . $stores->count() . " stores, warehouse stock created for [{$warehouse?->name}].");
+    }
+
+    protected function seedWarehouseProducts(Warehouse $warehouse, Business $business, $sections, array $sizeUnitIds, array $weightUnitIds, $currencyId): int
+    {
+        $existingCount = Product::where('warehouse_id', $warehouse->id)->whereNull('store_id')->count();
+        if ($existingCount > 0) {
+            $this->line("  Warehouse [{$warehouse->name}] already has {$existingCount} warehouse-only products. Skipping.");
+
+            // Attach images to existing products if they don't have any
+            $productsWithoutImages = Product::where('warehouse_id', $warehouse->id)
+                ->whereNull('store_id')
+                ->whereDoesntHave('images')
+                ->get();
+
+            $imgCount = 0;
+            foreach ($productsWithoutImages as $product) {
+                $this->attachImage($product, $imgCount);
+                $imgCount++;
+            }
+            if ($imgCount > 0) {
+                $this->line("  Attached images to {$imgCount} existing products.");
+            }
+
+            return $existingCount;
+        }
+
+        $totalProducts = 0;
+
+        foreach ($this->categoryNames as $categoryName) {
+            $products = $this->productCatalog[$categoryName] ?? [];
+            foreach ($products as $index => $pData) {
+                [$name, $brand, $amount, $weight, $quantity] = $pData;
+                $assignedSection = $sections->isNotEmpty() ? $sections[$index % $sections->count()] : null;
+
+                $product = Product::create([
+                    'store_id' => null,
+                    'warehouse_id' => $warehouse->id,
+                    'business_id' => $business->id,
+                    'product_code' => 'prd_' . strtoupper(Str::random(8)),
+                    'category_id' => null,
+                    'section_id' => $assignedSection?->id,
+                    'name' => $name,
+                    'brand' => $brand,
+                    'slug' => Str::slug($name) . '-' . substr((string) Str::uuid(), 0, 8),
+                    'description' => "Warehouse stock: {$name} by {$brand}.",
+                    'quantity' => $quantity * 10,
+                    'stock_quantity' => $quantity * 15,
+                    'size' => !empty($sizeUnitIds) ? rand(10, 500) : null,
+                    'size_unit_id' => !empty($sizeUnitIds) ? Arr::random($sizeUnitIds) : null,
+                    'weight' => $weight,
+                    'weight_unit_id' => !empty($weightUnitIds) ? Arr::random($weightUnitIds) : null,
+                    'amount' => $amount,
+                    'currency_id' => $currencyId,
+                    'discount_percentage' => rand(0, 3) === 0 ? rand(5, 25) : null,
+                    'status' => 'active',
+                    'featured' => $index < 3,
+                    'cod_available' => false,
+                    'has_variants' => false,
+                    'color' => Arr::random(['Black', 'White', 'Navy', 'Forest Green', 'Charcoal', 'Beige']),
+                ]);
+
+                StockLocation::firstOrCreate(
+                    ['product_id' => $product->id, 'product_variant_id' => null, 'locationable_type' => Warehouse::class, 'locationable_id' => $warehouse->id],
+                    ['quantity' => $quantity * 10, 'min_quantity' => $quantity * 2, 'business_id' => $business->id]
+                );
+
+                $this->attachImage($product, $totalProducts);
+
+                $totalProducts++;
+            }
+        }
+
+        return $totalProducts;
     }
 
     protected function seedCategories(Store $store): array
@@ -328,5 +420,46 @@ class ProductAndStockSeeder extends Seeder
             'Excess stock and seasonal items temporarily stored here.',
             'Restricted-access cage for expensive items and sensitive inventory.',
         ];
+    }
+
+    public static function wipe($warehouseId): void
+    {
+        $warehouse = is_numeric($warehouseId)
+            ? Warehouse::find($warehouseId)
+            : Warehouse::where('warehouse_code', $warehouseId)->first();
+
+        if (!$warehouse) {
+            echo "Warehouse '{$warehouseId}' not found." . PHP_EOL;
+            return;
+        }
+
+        $productCount = Product::where('warehouse_id', $warehouse->id)->delete();
+        $sectionCount = Section::where('warehouse_id', $warehouse->id)->delete();
+        $stockCount = StockLocation::where('locationable_type', Warehouse::class)
+            ->where('locationable_id', $warehouse->id)->delete();
+
+        echo "Wiped warehouse [{$warehouse->name}]: {$productCount} products, {$sectionCount} sections, {$stockCount} stock locations." . PHP_EOL;
+    }
+
+    protected function attachImage(Product $product, int $seed): void
+    {
+        $url = 'https://picsum.photos/seed/' . ($seed * 9973 + $product->id) . '/400/300';
+        try {
+            \Storage::disk('public')->makeDirectory('products/seeds');
+            $response = \Illuminate\Support\Facades\Http::timeout(10)->get($url);
+            if ($response->successful()) {
+                $filename = 'products/seeds/' . $product->product_code . '.jpg';
+                \Storage::disk('public')->put($filename, $response->body());
+                \App\Models\ProductImage::create([
+                    'product_id' => $product->id,
+                    'business_id' => $product->business_id,
+                    'path' => $filename,
+                    'is_primary' => true,
+                    'position' => 0,
+                ]);
+            }
+        } catch (\Throwable $e) {
+            // Silently skip — seed images are optional
+        }
     }
 }

@@ -34,7 +34,7 @@ class BusinessGatewayController extends Controller
             ->orderBy('gateway')
             ->get();
 
-        $stores = $user->stores()->orderBy('name')->get();
+        $stores = $user->stores()->where('status', '!=', 'deleted')->orderBy('name')->get();
         $storeBanks = \App\Models\StoreBank::whereHas('store', function ($q) use ($user) {
             $q->where('user_id', $user->id);
         })->with('store')->get();

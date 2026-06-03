@@ -40,11 +40,11 @@ class StockTransferController extends Controller
                 ->where('user_id', $user->id)
                 ->where('assignmentable_type', \App\Models\Warehouse::class)
                 ->pluck('assignmentable_id');
-            $warehouses = \App\Models\Warehouse::whereIn('id', $warehouseIds)->where('is_active', true)->orderBy('name')->get();
+            $warehouses = \App\Models\Warehouse::whereIn('id', $warehouseIds)->where('status', '!=', 'deleted')->orderBy('name')->get();
         } else {
-            $warehouses = \App\Models\Warehouse::where('user_id', $user->id)->where('is_active', true)->orderBy('name')->get();
+            $warehouses = \App\Models\Warehouse::where('user_id', $user->id)->where('status', '!=', 'deleted')->orderBy('name')->get();
         }
-        $stores = ($user->isStaff() ? $user->assignedStores() : $user->stores())->orderBy('name')->get();
+        $stores = ($user->isStaff() ? $user->assignedStores() : $user->stores())->where('status', '!=', 'deleted')->orderBy('name')->get();
 
         $products = \App\Models\Product::whereIn('store_id', $stores->pluck('id'))
             ->where('status', 'active')

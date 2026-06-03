@@ -39,7 +39,8 @@ class StoreController extends Controller
         $from = $request->query('from');
         $to = $request->query('to');
 
-        $storesQuery = Store::query()->with(['vendor','ownershipType','businessType']);
+        $storesQuery = Store::query()->with(['vendor','ownershipType','businessType'])
+            ->where('status', '!=', 'deleted');
         if (in_array(strtolower((string)$status), ['active','inactive','suspended','deleted'], true)) {
             $storesQuery->where('status', strtolower($status));
         }

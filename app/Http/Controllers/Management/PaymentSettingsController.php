@@ -26,7 +26,7 @@ class PaymentSettingsController extends Controller
     {
         $user = $request->user();
 
-        $stores = $user->stores()->with(['banks', 'paymentGateways'])->orderBy('name')->get();
+        $stores = $user->stores()->with(['banks', 'paymentGateways'])->where('status', '!=', 'deleted')->orderBy('name')->get();
 
         $banks = $this->paystackService->getBanks()['data'] ?? [];
 

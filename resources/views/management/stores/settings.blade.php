@@ -149,14 +149,23 @@
                 <a href="{{ route('management.pos.sessions.index', $store) }}" class="block w-full py-2 bg-white border border-slate-200 text-slate-700 text-xs font-semibold rounded-lg hover:bg-slate-50 transition-colors text-center">POS Session History</a>
 
                 @if($store->status === 'active')
-                <form method="POST" action="{{ route('management.stores.suspend', $store) }}" onsubmit="return confirm('Suspend this store?')">
+                <form method="POST" action="{{ route('management.stores.suspend', $store) }}" onsubmit="return confirm('Suspend this store? It will be hidden from customers.')">
                     @csrf @method('PATCH')
+                    <input type="hidden" name="reason" value="Suspended via settings">
                     <button type="submit" class="w-full py-2 bg-amber-50 border border-amber-200 text-amber-700 text-xs font-semibold rounded-lg hover:bg-amber-100 transition-colors">Suspend Store</button>
                 </form>
                 @elseif($store->status === 'suspended')
                 <form method="POST" action="{{ route('management.stores.activate', $store) }}">
                     @csrf @method('PATCH')
+                    <input type="hidden" name="reason" value="Reactivated via settings">
                     <button type="submit" class="w-full py-2 bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-semibold rounded-lg hover:bg-emerald-100 transition-colors">Reactivate Store</button>
+                </form>
+                @endif
+
+                @if($store->status !== 'deleted')
+                <form method="POST" action="{{ route('management.stores.destroy', $store) }}" onsubmit="return confirm('Delete this store? This cannot be undone. All orders and transactions must be completed first.')">
+                    @csrf @method('DELETE')
+                    <button type="submit" class="w-full py-2 bg-red-50 border border-red-200 text-red-700 text-xs font-semibold rounded-lg hover:bg-red-100 transition-colors"><i class="fi fi-rr-trash mr-1 text-xs"></i> Delete Store</button>
                 </form>
                 @endif
             </div>

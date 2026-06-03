@@ -296,10 +296,10 @@ class AppServiceProvider extends ServiceProvider
             }
 
             if ($user->isStaff()) {
-                $stores = $user->assignedStores;
+                $stores = $user->assignedStores->where('status', '!=', 'deleted');
                 $warehouses = $user->assignedWarehouses()->with('sections')->get();
                 $activeStore = $stores->find(session('active_store_id')) ?? $stores->first();
-                $posStores = $user->assignedStores()->where('pos_enabled', true)
+                $posStores = $user->assignedStores()->where('pos_enabled', true)->where('status', '!=', 'deleted')
                     ->withCount(['posSessions as active_pos_sessions_count' => fn($q) => $q->where('status', 'open')])
                     ->orderBy('name')->get();
                 $posOpenCount = $posStores->sum('active_pos_sessions_count');
@@ -337,17 +337,17 @@ class AppServiceProvider extends ServiceProvider
         return;
     }
 
-    $stores = $user->stores;
-    $warehouses = $user->warehouses()->with('sections')->get();
+    $stores = $user->stores->where('status', '!=', 'deleted');
+    $warehouses = $user->warehouses()->with('sections')->where('status', '!=', 'deleted')->get();
     $activeStore = $stores->find(session('active_store_id')) ?? $stores->first();
 
-    $posStores = $user->stores()->where('pos_enabled', true)
+    $posStores = $user->stores()->where('pos_enabled', true)->where('status', '!=', 'deleted')
         ->withCount(['posSessions as active_pos_sessions_count' => fn($q) => $q->where('status', 'open')])
         ->orderBy('name')
         ->get();
     $posOpenCount = $posStores->sum('active_pos_sessions_count');
 
-    $store = $user->stores()->first();
+    $store = $user->stores()->where('status', '!=', 'deleted')->first();
     $brandLogo = $store?->logo_path
         ? asset('storage/' . $store->logo_path)
         : ($company->favicon ?? asset('vendor_files/assets/images/logo.png'));

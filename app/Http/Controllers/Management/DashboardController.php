@@ -36,7 +36,7 @@ class DashboardController extends Controller
         $activeStoreId = session('active_store_id');
         if (!$activeStoreId) {
             $storeRelation = $user->isStaff() ? $user->assignedStores() : $user->stores();
-            $firstStore = $storeRelation->first();
+            $firstStore = $storeRelation->where('status', '!=', 'deleted')->first();
             $activeStoreId = $firstStore?->id;
             if ($activeStoreId) {
                 session(['active_store_id' => $activeStoreId]);
@@ -44,8 +44,8 @@ class DashboardController extends Controller
         }
 
         $storeIds = $user->isStaff()
-            ? $user->assignedStores()->pluck('stores.id')
-            : $user->stores()->pluck('id');
+            ? $user->assignedStores()->where('status', '!=', 'deleted')->pluck('stores.id')
+            : $user->stores()->where('status', '!=', 'deleted')->pluck('id');
 
         $now = Carbon::now();
         $startOfMonth = $now->copy()->startOfMonth();
@@ -99,7 +99,7 @@ class DashboardController extends Controller
         })->count();
 
         // ── Stores ──
-        $allStores = $user->isStaff() ? $user->assignedStores : $user->stores;
+        $allStores = ($user->isStaff() ? $user->assignedStores : $user->stores)->where('status', '!=', 'deleted');
         $totalStores = $allStores->count();
         $activeStores = $allStores->where('status', 'active')->count();
         $activeStoreObj = $allStores->find($activeStoreId);
@@ -124,7 +124,8 @@ class DashboardController extends Controller
             ->count();
 
         // ── Staff ──
-        $staffQuery = User::where('role', 'staff')->where('business_id', $user->business_id);
+        $staffQuery = User::where('role', 'staff')->where('business_id', $user->business_id)
+            ->where('status', '!=', 'deleted');
         $totalStaff = (clone $staffQuery)->count();
         $activeStaff = (clone $staffQuery)->where('status', 'active')->count();
         $invitedStaff = (clone $staffQuery)->where('status', 'invited')->count();
@@ -134,7 +135,7 @@ class DashboardController extends Controller
         // ── Warehouses ──
         $warehouseQuery = $user->isStaff() ? $user->assignedWarehouses() : $user->warehouses();
         $totalWarehouses = (clone $warehouseQuery)->count();
-        $activeWarehouses = (clone $warehouseQuery)->where('is_active', true)->count();
+        $activeWarehouses = (clone $warehouseQuery)->where('status', '!=', 'deleted')->count();
         $warehouseTotalStock = StockLocation::whereIn('locationable_id', (clone $warehouseQuery)->pluck('warehouses.id'))
             ->where('locationable_type', Warehouse::class)
             ->sum('quantity');
@@ -243,7 +244,7 @@ class DashboardController extends Controller
         $user = $request->user();
 
         $storeRelation = $user->isStaff() ? $user->assignedStores() : $user->stores();
-        if (!$storeRelation->where('id', $request->store_id)->exists()) {
+        if (!$storeRelation->where('status', '!=', 'deleted')->where('id', $request->store_id)->exists()) {
             return back()->with('error', 'Unauthorized store access.');
         }
 

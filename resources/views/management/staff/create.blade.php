@@ -26,9 +26,14 @@
                     <div>
                         <div class="flex items-center gap-2 mb-3">
                             <h3 class="text-sm font-semibold text-slate-800">Account Password</h3>
-                            <span class="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">Optional — staff can set their own</span>
+                            <span class="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">Optional — staff sets their own via invitation</span>
                         </div>
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <button type="button" @click="showPassword = !showPassword" class="inline-flex items-center gap-1.5 text-sm font-medium text-indigo-600 hover:text-indigo-700 transition-colors">
+                            <i class="fi text-xs" :class="showPassword ? 'fi-rr-minus-circle' : 'fi-rr-plus-circle'"></i>
+                            <span x-show="!showPassword">Set a password now</span>
+                            <span x-show="showPassword">Remove password</span>
+                        </button>
+                        <div x-show="showPassword" x-collapse class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-3">
                             <x-management.form-input name="password" label="Password" type="password" placeholder="Min. 8 characters" />
                             <x-management.form-input name="password_confirmation" label="Confirm Password" type="password" placeholder="Re-enter password" />
                         </div>
@@ -37,13 +42,11 @@
                     <hr class="border-slate-100">
 
                     <div>
-                        <h3 class="text-sm font-semibold text-slate-800 mb-3">Role</h3>
-                        <select name="role" class="w-full rounded-lg border-slate-300 text-sm shadow-sm focus:border-slate-500 focus:ring-slate-500">
+                        <x-management.form-input name="role" label="Role" type="select" :error="$errors->first('role')">
                             @foreach($roles as $role)
                             <option value="{{ $role->name }}">{{ $role->name }}</option>
                             @endforeach
-                        </select>
-                        @error('role')<p class="text-xs text-red-500 mt-1">{{ $message }}</p>@enderror
+                        </x-management.form-input>
                     </div>
 
                     <hr class="border-slate-100">
@@ -171,6 +174,7 @@ document.addEventListener('alpine:init', () => {
         documents: [],
         dragging: false,
         docId: 0,
+        showPassword: false,
 
         handlePhoto(event) {
             const file = event.target.files[0];

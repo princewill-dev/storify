@@ -44,7 +44,7 @@ class PosController extends Controller
             ->whereNotNull('pos_session_id')
             ->whereDate('created_at', today())->sum('total');
 
-        $allStores = ($user->isStaff() ? $user->assignedStores : $user->stores)->sortBy('name');
+        $allStores = ($user->isStaff() ? $user->assignedStores : $user->stores)->where('status', '!=', 'deleted')->sortBy('name');
 
         return view('management.pos.index', compact(
             'user', 'sessions', 'openSessionsCount', 'todaySales', 'allStores',

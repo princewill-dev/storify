@@ -114,7 +114,7 @@ class ExecutiveDashboardController extends Controller
             ->where('type', StockMovement::TYPE_REMOVED)
             ->whereDate('created_at', $today)->sum('quantity');
 
-        $stores = Store::with(['user', 'activePosSession'])
+        $stores = Store::where('status', '!=', 'deleted')->with(['user', 'activePosSession'])
             ->withCount(['products', 'orders as orders_today' => fn($q) => $q->whereDate('created_at', $today)])
             ->withSum(['orders as revenue_today' => fn($q) => $q->whereDate('created_at', $today)], 'total')
             ->withSum(['orders as revenue_mtd' => fn($q) => $q->whereBetween('created_at', [$startOfMonth, $now])], 'total')
@@ -127,7 +127,7 @@ class ExecutiveDashboardController extends Controller
                 return $store;
             });
 
-        $allStores = Store::orderBy('name')->get();
+        $allStores = Store::where('status', '!=', 'deleted')->orderBy('name')->get();
 
         $dailyRevenue = (clone $txnQuery)->where('status', 'confirmed')
             ->where('created_at', '>=', $thirtyDaysAgo)

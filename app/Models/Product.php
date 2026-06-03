@@ -20,6 +20,7 @@ class Product extends Model
         'business_id',
         'category_id',
         'section_id',
+        'warehouse_id',
         'product_code',
         'name',
         'brand',
@@ -56,6 +57,18 @@ class Product extends Model
             }
         });
         static::saving(function ($model) {
+            // Auto-sync warehouse_id from section
+            if ($model->isDirty('section_id') && $model->section_id) {
+                $section = \App\Models\Section::find($model->section_id);
+                if ($section && $section->warehouse_id) {
+                    $model->warehouse_id = $section->warehouse_id;
+                }
+            }
+
+            // Only validate quantity/amount when product is assigned to a store
+            if (!$model->store_id) {
+                return;
+            }
             // When product has variants, base amount/quantity are optional
             if ($model->has_variants) {
                 return;
@@ -91,6 +104,11 @@ class Product extends Model
     public function section(): BelongsTo
     {
         return $this->belongsTo(Section::class);
+    }
+
+    public function warehouse(): BelongsTo
+    {
+        return $this->belongsTo(Warehouse::class);
     }
 
     public function currency(): BelongsTo

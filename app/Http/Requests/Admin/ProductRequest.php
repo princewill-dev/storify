@@ -20,9 +20,10 @@ class ProductRequest extends FormRequest
         $hasVariants = (bool) $this->input('has_variants', false);
 
         $base = [
-            'store_id' => 'required|exists:stores,id',
+            'store_id' => 'nullable|exists:stores,id',
             'category_id' => 'nullable|exists:categories,id',
             'section_id' => 'nullable|exists:sections,id',
+            'warehouse_id' => 'nullable|exists:warehouses,id',
             'name' => 'required|string|max:255',
             'brand' => 'nullable|string|max:255',
             'description' => 'nullable|string',

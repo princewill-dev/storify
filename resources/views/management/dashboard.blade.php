@@ -19,7 +19,7 @@
                 <a href="{{ route('management.dashboard') }}" class="flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">
                     <i class="fi fi-rr-apps w-4 text-center text-slate-400"></i> All Stores (Combined)
                 </a>
-                @foreach($user->stores as $st)
+                @foreach($user->stores->where('status', '!=', 'deleted') as $st)
                 <a href="javascript:void(0)" onclick="event.preventDefault(); document.getElementById('ds-switch-{{ $st->id }}').submit();"
                    class="flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 {{ ($activeStoreObj && (int)$activeStoreObj->id === (int)$st->id) ? 'bg-blue-50 text-blue-700' : '' }}">
                     <i class="fi fi-rr-shop w-4 text-center {{ ($activeStoreObj && (int)$activeStoreObj->id === (int)$st->id) ? 'text-blue-500' : 'text-slate-300' }}"></i>
@@ -262,7 +262,7 @@
             <a href="{{ route('management.warehouses.show', $wh) }}" class="flex items-center justify-between px-5 py-3 hover:bg-slate-50 transition-colors">
                 <div class="min-w-0">
                     <div class="flex items-center gap-2">
-                        <span class="w-2 h-2 rounded-full {{ $wh->is_active ? 'bg-emerald-500' : 'bg-slate-300' }}"></span>
+                        <span class="w-2 h-2 rounded-full {{ $wh->isActive() ? 'bg-emerald-500' : 'bg-slate-300' }}"></span>
                         <span class="text-sm text-slate-700 font-medium truncate">{{ $wh->name }}</span>
                     </div>
                     <p class="text-xs text-slate-400 mt-0.5">{{ $wh->city }}{{ $wh->city && $wh->state ? ', ' : '' }}{{ $wh->state }}</p>

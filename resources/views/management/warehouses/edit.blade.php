@@ -25,7 +25,7 @@
             <x-management.form-input name="contact_phone" label="Contact Phone" :value="$warehouse->contact_phone" />
             <x-management.form-input name="description" label="Description" type="textarea" :value="$warehouse->description" />
             <div class="flex items-center gap-2">
-                <input type="checkbox" name="is_active" value="1" {{ $warehouse->is_active ? 'checked' : '' }} class="rounded border-slate-300 text-slate-900 focus:ring-slate-500">
+                <input type="checkbox" name="is_active" value="1" {{ $warehouse->isActive() ? 'checked' : '' }} class="rounded border-slate-300 text-slate-900 focus:ring-slate-500">
                 <span class="text-sm text-slate-700">Active</span>
             </div>
 

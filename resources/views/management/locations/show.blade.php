@@ -23,7 +23,7 @@
                         <p class="text-sm font-medium text-slate-800">{{ $wh->name }}</p>
                         <p class="text-xs text-slate-400">{{ $wh->sections->count() }} sections · {{ $wh->stockLocations->sum('quantity') }} items</p>
                     </div>
-                    <x-management.status-badge :status="$wh->is_active ? 'active' : 'inactive'" />
+                    <x-management.status-badge :status="$wh->isActive() ? 'active' : 'inactive'" />
                 </a>
                 @empty
                 <div class="px-5 py-6 text-center text-sm text-slate-400">No warehouses at this location yet</div>

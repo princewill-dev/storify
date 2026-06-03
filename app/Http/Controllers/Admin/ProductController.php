@@ -145,15 +145,15 @@ class ProductController extends Controller
             if ($superadmin) {
                 $saVendor = User::where('email', $superadmin->email)->first();
                 if ($saVendor) {
-                    $stores = Store::where('user_id', $saVendor->id)->orderBy('name')->get();
+                    $stores = Store::where('user_id', $saVendor->id)->where('status', '!=', 'deleted')->orderBy('name')->get();
                 } else {
-                    $stores = Store::orderBy('name')->get();
+                    $stores = Store::where('status', '!=', 'deleted')->orderBy('name')->get();
                 }
             } else {
-                $stores = Store::orderBy('name')->get();
+                $stores = Store::where('status', '!=', 'deleted')->orderBy('name')->get();
             }
         } else {
-            $stores = Store::orderBy('name')->get();
+            $stores = Store::where('status', '!=', 'deleted')->orderBy('name')->get();
         }
         $categories = Category::orderBy('name')->get();
         $sizeUnits = \DB::table('size_units')->orderBy('name')->get();
@@ -241,6 +241,13 @@ class ProductController extends Controller
                     }
                 }
 
+                if ($product->warehouse_id && $product->quantity > 0) {
+                    \App\Models\StockLocation::firstOrCreate(
+                        ['product_id' => $product->id, 'locationable_type' => \App\Models\Warehouse::class, 'locationable_id' => $product->warehouse_id],
+                        ['quantity' => 0, 'min_quantity' => 0, 'business_id' => $product->business_id]
+                    );
+                }
+
                 Log::info('product_created_debug', [
                     'product_id' => $product->id,
                     'bulk_quantity' => $product->bulk_quantity,
@@ -320,7 +327,7 @@ class ProductController extends Controller
     public function edit(Product $product)
     {
         Log::info('product_edit_viewed', ['user_id' => auth()->id(), 'product_id' => $product->id]);
-        $stores = Store::orderBy('name')->get();
+        $stores = Store::where('status', '!=', 'deleted')->orderBy('name')->get();
         $categories = Category::orderBy('name')->get();
         $sizeUnits = \DB::table('size_units')->orderBy('name')->get();
         $weightUnits = \DB::table('weight_units')->orderBy('name')->get();

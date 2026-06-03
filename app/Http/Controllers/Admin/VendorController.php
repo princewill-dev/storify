@@ -160,8 +160,7 @@ class VendorController extends Controller
             return back()->with('error', 'This vendor owns the main store and cannot be deleted.');
         }
 
-        // Get all store IDs belonging to this vendor
-        $storeIds = $user->stores()->pluck('id')->toArray();
+        $storeIds = $user->stores()->where('status', '!=', 'deleted')->pluck('id')->toArray();
 
         if (!empty($storeIds)) {
             // Check if any order associated with the vendor's stores is not completed

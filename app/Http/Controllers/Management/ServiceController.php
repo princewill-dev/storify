@@ -23,7 +23,7 @@ class ServiceController extends Controller
 
     private function userStoreIds(User $user): array
     {
-        return $user->stores()->pluck('id')->all();
+        return $user->stores()->where('status', '!=', 'deleted')->pluck('id')->all();
     }
 
     public function index(Request $request): View|RedirectResponse
@@ -91,7 +91,7 @@ class ServiceController extends Controller
     {
         $user = $request->user();
 
-        $stores = $user->stores()->orderBy('name')->get();
+        $stores = $user->stores()->where('status', '!=', 'deleted')->orderBy('name')->get();
         $currencies = Currency::orderBy('name')->get();
         $defaultCurrencyId = Currency::where('is_default', true)->value('id');
 
@@ -173,7 +173,7 @@ class ServiceController extends Controller
             return redirect()->route('management.auth.login');
         }
 
-        $stores = $user->stores()->orderBy('name')->get();
+        $stores = $user->stores()->where('status', '!=', 'deleted')->orderBy('name')->get();
         $currencies = Currency::orderBy('name')->get();
         $defaultCurrencyId = Currency::where('is_default', true)->value('id');
         $service->load('images', 'store'); // Eager load 'store' relationship

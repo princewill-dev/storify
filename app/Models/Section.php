@@ -8,16 +8,23 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Str;
 use App\Models\Concerns\BelongsToBusiness;
+use App\Enums\SectionStatus;
 
 class Section extends Model
 {
     use HasFactory, BelongsToBusiness;
 
+    public const STATUS_ACTIVE = SectionStatus::ACTIVE->value;
+    public const STATUS_INACTIVE = SectionStatus::INACTIVE->value;
+    public const STATUS_DELETED = SectionStatus::DELETED->value;
+
     protected $fillable = [
-        'section_code', 'warehouse_id', 'business_id', 'name', 'description', 'is_active',
+        'section_code', 'warehouse_id', 'business_id', 'name', 'description', 'status',
     ];
 
-    protected $casts = ['is_active' => 'boolean'];
+    protected $casts = [
+        'status' => SectionStatus::class,
+    ];
 
     protected static function boot()
     {
@@ -42,5 +49,20 @@ class Section extends Model
     public function products(): HasMany
     {
         return $this->hasMany(Product::class);
+    }
+
+    public function scopeNotDeleted($query)
+    {
+        return $query->where('status', '!=', self::STATUS_DELETED);
+    }
+
+    public function scopeActive($query)
+    {
+        return $query->where('status', self::STATUS_ACTIVE);
+    }
+
+    public function isActive(): bool
+    {
+        return $this->status === SectionStatus::ACTIVE;
     }
 }

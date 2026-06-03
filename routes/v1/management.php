@@ -107,6 +107,7 @@ Route::prefix('management')->name('management.')->group(function () {
                 Route::get('/stores/{store}/settings', [StoreController::class, 'settings'])->name('stores.settings');
                 Route::patch('/stores/{store}/suspend', [StoreController::class, 'suspend'])->name('stores.suspend');
                 Route::patch('/stores/{store}/activate', [StoreController::class, 'activate'])->name('stores.activate');
+                Route::delete('/stores/{store}', [StoreController::class, 'destroy'])->name('stores.destroy');
 
                 Route::post('/stores/{store}/assign-staff', [StoreController::class, 'assignStaff'])->name('stores.assign-staff');
                 Route::delete('/stores/{store}/remove-staff/{user}', [StoreController::class, 'removeStaff'])->name('stores.remove-staff');
@@ -163,6 +164,7 @@ Route::prefix('management')->name('management.')->group(function () {
             });
             Route::middleware('permission:products delete')->group(function () {
                 Route::delete('/products/{product}', [ProductController::class, 'destroy'])->name('products.destroy');
+                Route::post('/products/bulk-delete', [ProductController::class, 'bulkDestroy'])->name('products.bulk-destroy');
             });
 
             // Services & Categories (products scope)
@@ -283,6 +285,7 @@ Route::prefix('management')->name('management.')->group(function () {
             Route::middleware('permission:warehouses edit')->group(function () {
                 Route::get('/warehouses/{warehouse}/edit', [WarehouseController::class, 'edit'])->name('warehouses.edit');
                 Route::put('/warehouses/{warehouse}', [WarehouseController::class, 'update'])->name('warehouses.update');
+                Route::post('/warehouses/{warehouse}/move-products', [WarehouseController::class, 'moveProducts'])->name('warehouses.move-products');
             });
             Route::middleware('permission:warehouses delete')->group(function () {
                 Route::delete('/warehouses/{warehouse}', [WarehouseController::class, 'destroy'])->name('warehouses.destroy');

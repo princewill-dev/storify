@@ -9,10 +9,15 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Support\Str;
 use App\Models\Concerns\BelongsToBusiness;
+use App\Enums\WarehouseStatus;
 
 class Warehouse extends Model
 {
     use HasFactory, BelongsToBusiness;
+
+    public const STATUS_ACTIVE = WarehouseStatus::ACTIVE->value;
+    public const STATUS_INACTIVE = WarehouseStatus::INACTIVE->value;
+    public const STATUS_DELETED = WarehouseStatus::DELETED->value;
 
     protected $fillable = [
         'warehouse_code',
@@ -26,11 +31,11 @@ class Warehouse extends Model
         'contact_person',
         'contact_phone',
         'description',
-        'is_active',
+        'status',
     ];
 
     protected $casts = [
-        'is_active' => 'boolean',
+        'status' => WarehouseStatus::class,
     ];
 
     protected static function boot()
@@ -66,5 +71,20 @@ class Warehouse extends Model
     public function assignedStaff()
     {
         return $this->morphToMany(User::class, 'assignmentable', 'staff_assignments');
+    }
+
+    public function scopeNotDeleted($query)
+    {
+        return $query->where('status', '!=', self::STATUS_DELETED);
+    }
+
+    public function scopeActive($query)
+    {
+        return $query->where('status', self::STATUS_ACTIVE);
+    }
+
+    public function isActive(): bool
+    {
+        return $this->status === WarehouseStatus::ACTIVE;
     }
 }

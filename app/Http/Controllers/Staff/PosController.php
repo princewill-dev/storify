@@ -19,7 +19,7 @@ class PosController extends Controller
             return redirect()->route('staff.password.change');
         }
 
-        $assignedStores = $user->assignedStores()->where('pos_enabled', true)->get();
+        $assignedStores = $user->assignedStores()->where('pos_enabled', true)->where('status', '!=', 'deleted')->get();
 
         if ($assignedStores->isEmpty()) {
             return view('staff.pos.no-store');
@@ -116,7 +116,7 @@ class PosController extends Controller
 
         $user = $request->user();
 
-        $assignedStore = $user->assignedStores()->where('stores.id', $request->store_id)->exists();
+        $assignedStore = $user->assignedStores()->where('stores.id', $request->store_id)->where('status', '!=', 'deleted')->exists();
 
         if (!$assignedStore) {
             return back()->with('error', 'You are not assigned to this store.');

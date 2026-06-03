@@ -28,7 +28,7 @@ class AdminSettingsController extends Controller
             'role' => auth()->user()->role ?? null,
         ]);
         $settings = Setting::query()->first();
-        $stores = Store::orderBy('name')->get();
+        $stores = Store::where('status', '!=', 'deleted')->orderBy('name')->get();
         $currencies = Currency::orderBy('name')->get();
         $defaultCurrencyId = Currency::where('is_default', true)->value('id');
         $apiKeys = is_array($settings?->api_keys) ? $settings->api_keys : [];

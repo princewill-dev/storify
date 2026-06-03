@@ -14,16 +14,16 @@ class DashboardController extends Controller
         $user = $request->user();
 
         if ($user->hasRole('Cashier')) {
-            $hasPosStore = $user->assignedStores()->where('pos_enabled', true)->exists();
+            $hasPosStore = $user->assignedStores()->where('pos_enabled', true)->where('status', '!=', 'deleted')->exists();
             if ($hasPosStore) {
                 return redirect()->route('staff.pos');
             }
         }
 
-        $hasPosStore = $user->assignedStores()->where('pos_enabled', true)->exists();
-        $hasStore = $user->assignedStores()->exists();
+        $hasPosStore = $user->assignedStores()->where('pos_enabled', true)->where('status', '!=', 'deleted')->exists();
+        $hasStore = $user->assignedStores()->where('status', '!=', 'deleted')->exists();
 
-        $storeIds = $user->assignedStores()->pluck('stores.id');
+        $storeIds = $user->assignedStores()->where('status', '!=', 'deleted')->pluck('stores.id');
 
         $todaySales = \App\Models\Order::whereIn('store_id', $storeIds)
             ->where('source', 'pos')

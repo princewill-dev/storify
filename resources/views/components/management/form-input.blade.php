@@ -17,7 +17,7 @@
     @elseif($type === 'select')
         <select 
             id="{{ $name }}" name="{{ $name }}"
-            {{ $attributes->merge(['class' => 'block w-full rounded-lg border-slate-300 px-3.5 py-2.5 shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-sm ' . ($error ? 'border-red-300' : '')]) }}
+            {{ $attributes->merge(['class' => 'block w-full appearance-none rounded-lg border-slate-300 px-3.5 py-2.5 shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-sm ' . ($error ? 'border-red-300' : '')]) }}
         >
             {{ $slot }}
         </select>

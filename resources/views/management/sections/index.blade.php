@@ -36,7 +36,7 @@
         </td>
         <td class="px-5 py-3 hidden sm:table-cell"><span class="text-sm text-slate-400">{{ $section->description ?? '—' }}</span></td>
         <td class="px-5 py-3 text-center"><span class="inline-flex items-center justify-center min-w-[2rem] px-2 py-0.5 text-sm font-semibold rounded-full bg-blue-50 text-blue-600">{{ $section->products_count }}</span></td>
-        <td class="px-5 py-3 text-center hidden sm:table-cell"><x-management.status-badge :status="$section->is_active ? 'active' : 'inactive'" /></td>
+        <td class="px-5 py-3 text-center hidden sm:table-cell"><x-management.status-badge :status="$section->isActive() ? 'active' : 'inactive'" /></td>
         <td class="px-5 py-3 text-right hidden md:table-cell"><span class="text-xs text-slate-400 font-mono">{{ $section->section_code }}</span></td>
         <td class="px-5 py-3 text-right">
             <div class="flex items-center justify-end gap-1">

@@ -25,7 +25,7 @@ class ProductController extends Controller
 
     private function userStoreIds(User $user): array
     {
-        return $user->stores()->pluck('id')->all();
+        return $user->stores()->where('status', '!=', 'deleted')->pluck('id')->all();
     }
 
     public function index(Request $request): View|RedirectResponse
@@ -162,7 +162,7 @@ class ProductController extends Controller
             'perPage' => $perPage,
             'productImages' => $productImages,
             'displayPrices' => $displayPrices,
-            'stores' => $user->stores()->orderBy('name')->get(),
+            'stores' => $user->stores()->where('status', '!=', 'deleted')->orderBy('name')->get(),
         ]);
     }
 
@@ -170,7 +170,7 @@ class ProductController extends Controller
     {
         $user = $request->user();
 
-        $stores = $user->stores()->orderBy('name')->get();
+        $stores = $user->stores()->where('status', '!=', 'deleted')->orderBy('name')->get();
         $sizeUnits = DB::table('size_units')->orderBy('name')->get();
         $weightUnits = DB::table('weight_units')->orderBy('name')->get();
         $currencies = Currency::orderBy('name')->get();
@@ -199,172 +199,34 @@ class ProductController extends Controller
             $q->where('user_id', $user->id);
         })->orderBy('name')->get();
 
-        return view('management.products.create', compact('user', 'stores', 'categories', 'sizeUnits', 'weightUnits', 'currencies', 'defaultCurrencyId', 'selectedStoreId', 'selectedSectionId', 'sections'));
-    }
-
-    public function store(ProductRequest $request): RedirectResponse
-    {
-        $user = $request->user();
-
-        $store = $user->stores()->where('id', $request->input('store_id'))->first();
-        if (!$store) {
-            return back()->with('error', 'Invalid store selected.');
-        }
-
-        $data = $request->validated();
-        $data['store_id'] = $store->id;
-        $data['business_id'] = $user->business_id;
-
-        try {
-            $product = DB::transaction(function () use ($request, $data) {
-                $data['cod_available'] = $request->boolean('cod_available');
-                $data['featured'] = $request->boolean('featured');
-                $data['has_variants'] = $request->boolean('has_variants');
-                $product = Product::create($data);
-
-                $product->cod_available = $request->boolean('cod_available');
-                $product->featured = $request->boolean('featured');
-                $product->has_variants = $request->boolean('has_variants');
-                $product->save();
-
-                if ($product->quantity > 0) {
-                    $ledger = app(\App\Services\StockLedgerService::class);
-                    $storeLoc = \App\Models\StockLocation::firstOrCreate([
-                        'product_id' => $product->id,
-                        'locationable_type' => \App\Models\Store::class,
-                        'locationable_id' => $product->store_id,
-                    ], [
-                        'quantity' => 0,
-                        'business_id' => $product->business_id,
-                    ]);
-                    $ledger->recordAddition($storeLoc, $product->quantity, $product, $user, 'Product created — initial stock');
-                }
-
-                if ($product->section_id && $product->quantity > 0) {
-                    $section = \App\Models\Section::find($product->section_id);
-                    if ($section && $section->warehouse_id) {
-                        \App\Models\StockLocation::updateOrCreate(
-                            [
-                                'product_id' => $product->id,
-                                'locationable_type' => \App\Models\Warehouse::class,
-                                'locationable_id' => $section->warehouse_id,
-                            ],
-                            ['quantity' => $product->quantity, 'min_quantity' => 0]
-                        );
-                    }
-                }
-
-                if ($request->hasFile('images')) {
-                    // Validate media files
-                    $mediaFiles = $request->file('images');
-                    
-                    // Check max 5 files
-                    if (count($mediaFiles) > 5) {
-                        throw new \Exception('You can only upload up to 5 media files.');
-                    }
-                    
-                    // Validate each file
-                    foreach ($mediaFiles as $file) {
-                        // Check file size (300MB = 307200 KB)
-                        if ($file->getSize() > 314572800) { // 300MB in bytes
-                            throw new \Exception('Each media file must not exceed 300MB.');
-                        }
-                        
-                        // Check mime type (images and videos)
-                        $mimeType = $file->getMimeType();
-                        $allowedMimes = [
-                            'image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp',
-                            'video/mp4', 'video/mpeg', 'video/quicktime', 'video/x-msvideo', 'video/webm'
-                        ];
-                        
-                        if (!in_array($mimeType, $allowedMimes, true)) {
-                            throw new \Exception('Invalid file type. Only images (JPEG, PNG, GIF, WebP) and videos (MP4, MPEG, MOV, AVI, WebM) are allowed.');
-                        }
-                    }
-                    
-                    // Process and store media files
-                    $pos = 0;
-                    foreach ($mediaFiles as $idx => $file) {
-                        $path = $file->store('products/images', 'public');
-                        ProductImage::create([
-                            'product_id' => $product->id,
-                            'path' => $path,
-                            'is_primary' => (int)$request->input('primary_image') === $idx,
-                            'position' => $pos++,
-                        ]);
-                    }
-                    if (!$product->images()->where('is_primary', true)->exists()) {
-                        $first = $product->images()->orderBy('position')->first();
-                        if ($first) { $first->update(['is_primary' => true]); }
-                    }
-                }
-
-                if ($product->has_variants) {
-                    $variants = (array)$request->input('variants', []);
-                    foreach ($variants as $v) {
-                        ProductVariant::create([
-                            'product_id' => $product->id,
-                            'sku' => $v['sku'] ?? null,
-                            'size' => $v['size'] ?? null,
-                            'size_unit_id' => $v['size_unit_id'] ?? null,
-                            'weight' => $v['weight'] ?? null,
-                            'weight_unit_id' => $v['weight_unit_id'] ?? null,
-                            'color' => $v['color'] ?? null,
-                            'quantity' => $v['quantity'],
-                            'amount' => $v['amount'],
-                            'currency_id' => $v['currency_id'] ?? null,
-                            'status' => $v['status'] ?? 'active',
-                            'featured' => !empty($v['featured']),
-                        ]);
-                    }
-                }
-
-                return $product;
-            });
-
-            Log::info('vendor.product.created', ['user_id' => $user->id, 'product_id' => $product->id]);
-            ActivityLog::create([
-                'user_id' => null,
-                'action' => 'vendor_create_product',
-                'description' => 'Vendor created a product',
-                'ip_address' => $request->ip(),
-                'user_agent' => substr((string)$request->userAgent(), 0, 255),
-                'metadata' => [
-                    'user_id' => $user->id,
-                    'product_id' => $product->id,
-                    'has_variants' => (bool)$product->has_variants,
-                    'store_id' => $product->store_id,
-                ],
-            ]);
-
-            return redirect()->route('management.products.index', ['user' => $user, 'store_id' => $store->store_id])->with('success', 'Product created successfully.');
-        } catch (QueryException $e) {
-            Log::error('vendor.product.create_failed', ['error' => $e->getMessage()]);
-            return back()->withInput()->with('error', 'Unable to create product. Please try again.');
-        }
-    }
-
-    public function edit(Request $request, Product $product): View|RedirectResponse
-    {
-        $user = $request->user();
-        if (!$user || !$this->ownsProduct($product, $user)) {
-            return redirect()->route('management.auth.login');
-        }
-
-        $stores = $user->stores()->orderBy('name')->get();
-        $categories = Category::orderBy('name')->get();
+        $warehouses = ($user->isStaff()
+            ? $user->assignedWarehouses()
+            : \App\Models\Warehouse::where('user_id', $user->id))
+            ->where('status', '!=', 'deleted')->orderBy('name')->get();
         $sizeUnits = DB::table('size_units')->orderBy('name')->get();
         $weightUnits = DB::table('weight_units')->orderBy('name')->get();
         $currencies = Currency::orderBy('name')->get();
         $defaultCurrencyId = Currency::where('is_default', true)->value('id');
-        $product->load(['images', 'variants']);
+
+        $selectedStoreIdString = $request->query('store_id');
+        $selectedStoreId = null;
+        if ($selectedStoreIdString) {
+            $selectedStoreId = $user->stores()
+                ->where('store_id', $selectedStoreIdString)
+                ->value('id');
+        }
 
         $storeIds = $this->userStoreIds($user);
-        $categories = Category::whereIn('store_id', $storeIds)->orderBy('name')->get();
+
 
         $sections = \App\Models\Section::whereHas('warehouse', function ($q) use ($user) {
             $q->where('user_id', $user->id);
-        })->orderBy('name')->get();
+        })->where('status', '!=', 'deleted')->orderBy('name')->get();
+
+        $warehouses = ($user->isStaff()
+            ? $user->assignedWarehouses()
+            : \App\Models\Warehouse::where('user_id', $user->id))
+            ->where('status', '!=', 'deleted')->orderBy('name')->get();
 
         return view('management.products.edit', [
             'user' => $user,
@@ -372,6 +234,7 @@ class ProductController extends Controller
             'stores' => $stores,
             'categories' => $categories,
             'sections' => $sections,
+            'warehouses' => $warehouses,
             'sizeUnits' => $sizeUnits,
             'weightUnits' => $weightUnits,
             'currencies' => $currencies,
@@ -387,7 +250,7 @@ class ProductController extends Controller
             return redirect()->route('management.auth.login');
         }
 
-        $stores = $user->stores()->pluck('id')->all();
+        $stores = $user->stores()->where('status', '!=', 'deleted')->pluck('id')->all();
         if (!in_array((int)$request->input('store_id'), $stores, true)) {
             return back()->with('error', 'Invalid store selection.')->withInput();
         }
@@ -546,6 +409,32 @@ class ProductController extends Controller
         }
         $product->delete();
         return redirect()->route('management.products.index', ['user' => $user, 'store_id' => $product->store->store_id])->with('success', 'Product deleted.');
+    }
+
+    public function bulkDestroy(Request $request): RedirectResponse
+    {
+        $user = $request->user();
+        if (!$user) return redirect()->route('management.auth.login');
+
+        $ids = $request->input('product_ids', []);
+        if (empty($ids)) {
+            return back()->with('error', 'No products selected.');
+        }
+
+        $products = Product::whereIn('id', $ids)->get();
+        $deleted = 0;
+
+        foreach ($products as $product) {
+            if (!$this->ownsProduct($product, $user)) continue;
+
+            foreach ($product->images as $img) {
+                try { Storage::disk('public')->delete($img->path); } catch (\Throwable $e) {}
+            }
+            $product->delete();
+            $deleted++;
+        }
+
+        return back()->with('success', "{$deleted} product(s) deleted.");
     }
 
     private function ownsProduct(Product $product, User $user): bool

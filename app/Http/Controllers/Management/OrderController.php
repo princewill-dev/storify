@@ -95,7 +95,7 @@ class OrderController extends Controller
                 ->sum('total'),
         ];
 
-        $stores = $user->stores()->orderBy('name')->get();
+        $stores = $user->stores()->where('status', '!=', 'deleted')->orderBy('name')->get();
 
         return view('management.orders.index', compact('orders', 'stats', 'user', 'stores', 'selectedStore'));
     }

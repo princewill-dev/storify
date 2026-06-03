@@ -13,7 +13,7 @@
         </div>
     </div>
     <div class="flex items-center gap-3">
-        <x-management.status-badge :status="$section->is_active ? 'active' : 'inactive'" />
+        <x-management.status-badge :status="$section->isActive() ? 'active' : 'inactive'" />
         <a href="{{ route('management.sections.edit', [$warehouse, $section]) }}" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors">
             <i class="fi fi-rr-edit text-xs"></i> Edit
         </a>

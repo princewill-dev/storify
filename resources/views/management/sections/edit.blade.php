@@ -23,7 +23,7 @@
                 </div>
                 <div class="flex items-center gap-2">
                     <input type="hidden" name="is_active" value="0">
-                    <input type="checkbox" name="is_active" value="1" class="rounded border-slate-300 text-slate-900 focus:ring-slate-500" {{ old('is_active', $section->is_active) ? 'checked' : '' }}>
+                    <input type="checkbox" name="is_active" value="1" class="rounded border-slate-300 text-slate-900 focus:ring-slate-500" {{ old('is_active', $section->isActive()) ? 'checked' : '' }}>
                     <span class="text-sm text-slate-700">Active</span>
                 </div>
                 <div class="flex items-center gap-3 pt-2">

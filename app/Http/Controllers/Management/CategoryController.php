@@ -20,7 +20,7 @@ class CategoryController extends Controller
 
     private function businessStoreIds(User $user): array
     {
-        return $user->stores()->pluck('id')->all();
+        return $user->stores()->where('status', '!=', 'deleted')->pluck('id')->all();
     }
 
     public function index(Request $request): View|RedirectResponse
@@ -56,7 +56,7 @@ class CategoryController extends Controller
         return view('management.categories.index', [
             'user' => $user,
             'categories' => $categories,
-            'stores' => $user->stores()->orderBy('name')->get(),
+            'stores' => $user->stores()->where('status', '!=', 'deleted')->orderBy('name')->get(),
             'selectedStore' => $selectedStore,
         ]);
     }
@@ -65,7 +65,7 @@ class CategoryController extends Controller
     {
         $user = $request->user();
 
-        $stores = $user->stores()->orderBy('name')->get();
+        $stores = $user->stores()->where('status', '!=', 'deleted')->orderBy('name')->get();
         $selectedPublicStoreId = $request->query('store_id');
         $selectedStoreId = null;
 
@@ -130,7 +130,7 @@ class CategoryController extends Controller
             return redirect()->route('management.auth.login');
         }
 
-        $stores = $user->stores()->orderBy('name')->get();
+        $stores = $user->stores()->where('status', '!=', 'deleted')->orderBy('name')->get();
 
         return view('management.categories.edit', [
             'user' => $user,

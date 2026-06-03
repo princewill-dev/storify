@@ -376,11 +376,8 @@ class OrderController extends Controller
     public function destroy(Order $order)
     {
         try {
-            DB::beginTransaction();
-
             $orderNumber = $order->order_number;
 
-            // Log activity before deletion
             ActivityLog::create([
                 'user_id' => Auth::id(),
                 'action' => 'deleted',
@@ -392,12 +389,7 @@ class OrderController extends Controller
                 'ip_address' => request()->ip(),
             ]);
 
-            // Delete related records
-            $order->items()->delete();
-            $order->transactions()->delete();
             $order->delete();
-
-            DB::commit();
 
             Log::info('order_deleted', [
                 'order_id' => $order->id,
@@ -409,7 +401,6 @@ class OrderController extends Controller
                 ->with('success', "Order #{$orderNumber} deleted successfully!");
 
         } catch (\Exception $e) {
-            DB::rollBack();
             Log::error('order_deletion_failed', [
                 'order_id' => $order->id,
                 'error' => $e->getMessage()

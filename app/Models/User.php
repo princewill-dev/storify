@@ -167,6 +167,16 @@ class User extends Authenticatable
         return $this->business_id === null && $this->role === self::ROLE_SUPERADMIN;
     }
 
+    public function scopeNotDeleted($query)
+    {
+        return $query->where('status', '!=', 'deleted');
+    }
+
+    public function scopeActive($query)
+    {
+        return $query->where('status', 'active');
+    }
+
     public function photoUrl(): string
     {
         if ($this->photo_path) {
