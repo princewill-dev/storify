@@ -439,6 +439,19 @@ class ProductController extends Controller
 
     private function ownsProduct(Product $product, User $user): bool
     {
-        return in_array((int)$product->store_id, $this->userStoreIds($user), true);
+        if ($product->store_id && in_array((int) $product->store_id, $this->userStoreIds($user), true)) {
+            return true;
+        }
+
+        if ($product->warehouse_id) {
+            $warehouseIds = $user->isStaff()
+                ? $user->assignedWarehouses()->pluck('warehouses.id')->all()
+                : $user->warehouses()->pluck('id')->all();
+            if (in_array((int) $product->warehouse_id, array_map('intval', $warehouseIds), true)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

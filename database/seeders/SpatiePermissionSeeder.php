@@ -105,7 +105,6 @@ class SpatiePermissionSeeder extends Seeder
                 'products'     => ['view', 'create', 'edit', 'delete', 'stock_adjust'],
                 'orders'       => ['view', 'status_update', 'assign_delivery'],
                 'pos'          => ['open_session', 'process_sale', 'close_session', 'view_history', 'void_sale'],
-                'staff'        => ['view'],
                 'stores'       => ['view', 'edit', 'settings'],
                 'customers'    => ['view', 'message'],
                 'reports'      => ['view_sales', 'view_inventory', 'view_staff'],

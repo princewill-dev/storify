@@ -6,10 +6,12 @@ use App\Http\Controllers\Controller;
 use App\Models\Order;
 use App\Models\PosSession;
 use App\Models\Product;
+use App\Models\StockLocation;
 use App\Models\StockMovement;
 use App\Models\Store;
 use App\Models\Transaction;
 use App\Models\User;
+use App\Enums\StockMovementType;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -49,8 +51,16 @@ class ExecutiveDashboardController extends Controller
 
         $todayOrders = (clone $orderQuery)->whereDate('created_at', $today)->count();
 
-        $totalStock = Product::when($filterStoreId, fn($q) => $q->where('store_id', $filterStoreId))
-            ->sum('quantity');
+        $stockLocationQuery = StockLocation::join('products', 'products.id', '=', 'stock_locations.product_id')
+            ->where('products.status', 'active')
+            ->where('stock_locations.quantity', '>', 0);
+
+        if ($filterStoreId) {
+            $stockLocationQuery->where('stock_locations.locationable_type', Store::class)
+                ->where('stock_locations.locationable_id', $filterStoreId);
+        }
+
+        $totalStock = (clone $stockLocationQuery)->sum('stock_locations.quantity');
 
         $lowStockCount = Product::where('status', 'active')
             ->where('quantity', '<=', 10)->where('quantity', '>', 0)
@@ -66,9 +76,8 @@ class ExecutiveDashboardController extends Controller
 
         $openPosSessions = PosSession::where('status', 'open')->count();
 
-        $stockValue = Product::when($filterStoreId, fn($q) => $q->where('store_id', $filterStoreId))
-            ->where('status', 'active')
-            ->selectRaw('SUM(quantity * amount) as total_value')
+        $stockValue = (clone $stockLocationQuery)->whereNotNull('products.amount')
+            ->selectRaw('SUM(stock_locations.quantity * products.amount) as total_value')
             ->value('total_value') ?? 0;
 
         $totalCustomers = \App\Models\Customer::count();

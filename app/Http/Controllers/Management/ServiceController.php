@@ -30,10 +30,17 @@ class ServiceController extends Controller
     {
         $user = $request->user();
 
-        $status = strtolower((string)$request->query('status', ''));
-        $q = trim((string)$request->query('q', ''));
+        $storeIds = $this->userStoreIds($user);
 
-        $storeIds = $this->vendorStoreIds($user);
+        if (empty($storeIds)) {
+            return view('management.services.index', [
+                'user' => $user,
+                'services' => collect(),
+                'status' => '',
+                'q' => '',
+                'serviceImages' => [],
+            ])->with('warning', 'You need at least one store to create services.');
+        }
         $selectedPublicStoreId = $request->query('store_id');
         $selectedStoreId = null;
         $selectedStore = null;
@@ -92,6 +99,11 @@ class ServiceController extends Controller
         $user = $request->user();
 
         $stores = $user->stores()->where('status', '!=', 'deleted')->orderBy('name')->get();
+
+        if ($stores->isEmpty()) {
+            return redirect()->route('management.services.index')
+                ->with('warning', 'You need to create a store before adding services.');
+        }
         $currencies = Currency::orderBy('name')->get();
         $defaultCurrencyId = Currency::where('is_default', true)->value('id');
 
@@ -150,9 +162,9 @@ class ServiceController extends Controller
             });
 
             ActivityLog::create([
-                'user_id' => null,
-                'action' => 'vendor_create_service',
-                'description' => 'Vendor created a service',
+                'user_id' => $user->id,
+                'action' => 'service_created',
+                'description' => 'Service created',
                 'metadata' => [
                     'user_id' => $user->id,
                     'service_id' => $service->id,
@@ -161,7 +173,7 @@ class ServiceController extends Controller
 
             return redirect()->route('management.services.index', ['user' => $user, 'store_id' => $store->store_id])->with('success', 'Service created successfully.');
         } catch (QueryException $e) {
-            Log::error('vendor.service.create_failed', ['error' => $e->getMessage()]);
+            Log::error('service.create_failed', ['error' => $e->getMessage()]);
             return back()->withInput()->with('error', 'Unable to create service. Please try again.');
         }
     }
@@ -196,7 +208,7 @@ class ServiceController extends Controller
 
         try {
             DB::transaction(function () use ($request, $service) {
-                $service->update($request->only(['name', 'description', 'amount', 'currency_id', 'status']));
+                $service->update($request->only(['store_id', 'name', 'description', 'amount', 'currency_id', 'status']));
 
                 if ($request->filled('delete_image_ids')) {
                     $ids = $request->input('delete_image_ids');
@@ -228,16 +240,16 @@ class ServiceController extends Controller
                 }
                 
                 ActivityLog::create([
-                    'user_id' => null,
-                    'action' => 'vendor_update_service',
-                    'description' => 'Vendor updated a service',
+                    'user_id' => $user->id,
+                    'action' => 'service_updated',
+                    'description' => 'Service updated',
                     'metadata' => ['user_id' => $user->id, 'service_id' => $service->id],
                 ]);
             });
 
             return redirect()->route('management.services.index', ['user' => $user, 'store_id' => $service->store->store_id])->with('success', 'Service updated.');
         } catch (\Throwable $e) {
-            Log::error('vendor.service.update_failed', ['error' => $e->getMessage()]);
+            Log::error('service.update_failed', ['error' => $e->getMessage()]);
             return back()->with('error', 'Unable to update service.')->withInput();
         }
     }

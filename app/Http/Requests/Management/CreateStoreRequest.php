@@ -34,5 +34,6 @@ class CreateStoreRequest extends FormRequest
             'currency_id' => ['nullable', 'exists:currencies,id'],
             'business_id' => ['nullable', 'exists:businesses,id'],
             'staff_ids' => ['nullable', 'array'],
+        ];
     }
 }

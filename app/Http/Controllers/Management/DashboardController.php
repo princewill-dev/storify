@@ -15,6 +15,8 @@ use App\Models\Warehouse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\View\View;
 
 class DashboardController extends Controller
@@ -107,9 +109,33 @@ class DashboardController extends Controller
         $productsQuery = Product::whereIn('store_id', $storeIds);
         $totalProducts = (clone $productsQuery)->count();
         $activeProducts = (clone $productsQuery)->where('status', 'active')->count();
-        $totalStock = (clone $productsQuery)->sum('quantity');
-        $stockValue = (clone $productsQuery)->where('status', 'active')
-            ->selectRaw('SUM(quantity * amount) as total_value')->value('total_value') ?? 0;
+
+        $warehouseIds = $user->isStaff()
+            ? $user->assignedWarehouses()->where('status', '!=', 'deleted')->pluck('warehouses.id')
+            : $user->warehouses()->where('status', '!=', 'deleted')->pluck('id');
+
+        $stockLocationQuery = StockLocation::join('products', 'products.id', '=', 'stock_locations.product_id')
+            ->where('products.status', 'active')
+            ->where('stock_locations.quantity', '>', 0)
+            ->where(function ($q) use ($storeIds, $warehouseIds) {
+                if (!empty($storeIds)) {
+                    $q->orWhere(function ($sq) use ($storeIds) {
+                        $sq->where('stock_locations.locationable_type', Store::class)
+                           ->whereIn('stock_locations.locationable_id', $storeIds);
+                    });
+                }
+                if (!empty($warehouseIds)) {
+                    $q->orWhere(function ($wq) use ($warehouseIds) {
+                        $wq->where('stock_locations.locationable_type', Warehouse::class)
+                           ->whereIn('stock_locations.locationable_id', $warehouseIds);
+                    });
+                }
+            });
+
+        $totalStock = (clone $stockLocationQuery)->sum('stock_locations.quantity');
+        $stockValue = (clone $stockLocationQuery)->whereNotNull('products.amount')
+            ->selectRaw('SUM(stock_locations.quantity * products.amount) as total_value')
+            ->value('total_value') ?? 0;
         $lowStockProducts = Product::whereIn('store_id', $storeIds)
             ->where('status', 'active')
             ->where('quantity', '<=', 10)
@@ -124,13 +150,21 @@ class DashboardController extends Controller
             ->count();
 
         // ── Staff ──
-        $staffQuery = User::where('role', 'staff')->where('business_id', $user->business_id)
-            ->where('status', '!=', 'deleted');
-        $totalStaff = (clone $staffQuery)->count();
-        $activeStaff = (clone $staffQuery)->where('status', 'active')->count();
-        $invitedStaff = (clone $staffQuery)->where('status', 'invited')->count();
-        $suspendedStaff = (clone $staffQuery)->where('status', 'suspended')->count();
-        $recentStaff = (clone $staffQuery)->with('roles')->latest()->take(5)->get();
+        $totalStaff = 0;
+        $activeStaff = 0;
+        $invitedStaff = 0;
+        $suspendedStaff = 0;
+        $recentStaff = collect();
+
+        if ($user->can('staff view')) {
+            $staffQuery = User::where('role', 'staff')->where('business_id', $user->business_id)
+                ->where('status', '!=', 'deleted');
+            $totalStaff = (clone $staffQuery)->count();
+            $activeStaff = (clone $staffQuery)->where('status', 'active')->count();
+            $invitedStaff = (clone $staffQuery)->where('status', 'invited')->count();
+            $suspendedStaff = (clone $staffQuery)->where('status', 'suspended')->count();
+            $recentStaff = (clone $staffQuery)->with('roles')->latest()->take(5)->get();
+        }
 
         // ── Warehouses ──
         $warehouseQuery = $user->isStaff() ? $user->assignedWarehouses() : $user->warehouses();

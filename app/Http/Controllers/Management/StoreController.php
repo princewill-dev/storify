@@ -602,6 +602,7 @@ class StoreController extends Controller
             ->where('role', 'staff')
             ->where('status', 'active')
             ->whereNotIn('id', $store->assignedStaff->pluck('id'))
+            ->with('roles')
             ->get(['id', 'name', 'email']);
 
         return view('management.stores.settings', compact('user', 'store', 'availableStaff'));

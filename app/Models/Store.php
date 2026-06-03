@@ -87,6 +87,11 @@ class Store extends Model
         return $this->belongsTo(Business::class);
     }
 
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
+    }
+
     public function ownershipType(): BelongsTo
     {
         return $this->belongsTo(OwnershipType::class);

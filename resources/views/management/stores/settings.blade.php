@@ -75,7 +75,7 @@
                     <select name="user_id" class="flex-1 rounded-lg border-slate-300 text-sm shadow-sm focus:border-slate-500 focus:ring-slate-500">
                         <option value="">Add staff member...</option>
                         @foreach($availableStaff as $s)
-                        <option value="{{ $s->id }}">{{ $s->name }} ({{ $s->email }})</option>
+                        <option value="{{ $s->id }}">{{ $s->name }} · {{ $s->getRoleNames()->implode(', ') ?: 'No role' }}</option>
                         @endforeach
                     </select>
                     <button type="submit" class="shrink-0 inline-flex items-center gap-1 px-3 py-2 bg-slate-900 text-white text-xs font-semibold rounded-lg hover:bg-slate-800 transition-colors">Assign</button>

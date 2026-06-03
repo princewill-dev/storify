@@ -19,6 +19,7 @@ class StockLocation extends Model
         'locationable_id',
         'quantity',
         'min_quantity',
+        'business_id',
     ];
 
     protected $casts = [
