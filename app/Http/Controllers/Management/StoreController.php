@@ -184,7 +184,7 @@ class StoreController extends Controller
 
         
 
-        if ((int) $store->user_id !== (int) $user->id) {
+        if (!$this->canAccessStore($user, $store)) {
             Log::warning('store.success_unauthorized', [
                 'user_id' => $user->id,
                 'store_id' => $store->id,
@@ -274,7 +274,7 @@ class StoreController extends Controller
             return redirect()->route('management.auth.login');
         }
 
-        if ((int) $store->user_id !== (int) $user->id) {
+        if (!$this->canAccessStore($user, $store)) {
             return redirect()->route('management.stores.index')->with('error', 'You do not have access to that store.');
         }
 
@@ -356,7 +356,7 @@ class StoreController extends Controller
             return redirect()->route('management.auth.login');
         }
 
-        if ((int) $store->user_id !== (int) $user->id) {
+        if (!$this->canAccessStore($user, $store)) {
             return redirect()->route('management.stores.index')->with('error', 'You do not have access to that store.');
         }
 
@@ -425,7 +425,7 @@ class StoreController extends Controller
         /** @var User|null $user */
         $user = $request->user();
 
-        if ((int) $store->user_id !== (int) $user->id) {
+        if (!$this->canAccessStore($user, $store)) {
             return back()->with('error', 'Unauthorized action.');
         }
 
@@ -462,7 +462,7 @@ class StoreController extends Controller
         /** @var User|null $user */
         $user = $request->user();
 
-        if ((int) $store->user_id !== (int) $user->id) {
+        if (!$this->canAccessStore($user, $store)) {
             return back()->with('error', 'Unauthorized action.');
         }
 
@@ -498,7 +498,7 @@ class StoreController extends Controller
     {
         $user = $request->user();
 
-        if ((int) $store->user_id !== (int) $user->id) {
+        if (!$this->canAccessStore($user, $store)) {
             return back()->with('error', 'Unauthorized action.');
         }
 
@@ -529,7 +529,7 @@ class StoreController extends Controller
         /** @var User|null $user */
         $user = $request->user();
 
-        if (!$user || (int) $store->user_id !== (int) $user->id) {
+        if (!$this->canAccessStore($user, $store)) {
             abort(403);
         }
 
@@ -593,7 +593,7 @@ class StoreController extends Controller
         /** @var User|null $user */
         $user = $request->user();
 
-        if (!$user || (int) $store->user_id !== (int) $user->id) {
+        if (!$this->canAccessStore($user, $store)) {
             abort(403);
         }
 
@@ -612,7 +612,7 @@ class StoreController extends Controller
     {
         $user = $request->user();
 
-        if (!$user || (int) $store->user_id !== (int) $user->id) {
+        if (!$this->canAccessStore($user, $store)) {
             abort(403);
         }
 
@@ -637,7 +637,7 @@ class StoreController extends Controller
     {
         $user = $request->user();
 
-        if (!$user || (int) $store->user_id !== (int) $user->id) {
+        if (!$this->canAccessStore($user, $store)) {
             abort(403);
         }
 
@@ -650,7 +650,7 @@ class StoreController extends Controller
     {
         $user = $request->user();
 
-        if (!$user || (int) $store->user_id !== (int) $user->id) {
+        if (!$this->canAccessStore($user, $store)) {
             abort(403);
         }
 
@@ -694,12 +694,21 @@ class StoreController extends Controller
     {
         $user = $request->user();
 
-        if (!$user || (int) $store->user_id !== (int) $user->id) {
+        if (!$this->canAccessStore($user, $store)) {
             abort(403);
         }
 
         $store->assignedStaff()->detach($user->id);
 
         return back()->with('success', $user->name . ' removed from this store.');
+    }
+
+    private function canAccessStore(?User $user, Store $store): bool
+    {
+        if (!$user) return false;
+        if ($user->isStaff()) {
+            return $user->assignedStores()->where('stores.id', $store->id)->exists();
+        }
+        return (int) $store->user_id === (int) $user->id;
     }
 }

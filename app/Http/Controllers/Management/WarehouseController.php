@@ -79,12 +79,17 @@ class WarehouseController extends Controller
         $warehouse->load(['stockLocations.product', 'sections', 'assignedStaff']);
         $lowStockCount = $warehouse->stockLocations->filter->isLowStock()->count();
 
-        $productCount = \App\Models\Product::where('warehouse_id', $warehouse->id)->count();
-        $productStockQty = \App\Models\Product::where('warehouse_id', $warehouse->id)->sum('quantity');
-        $locationStockQty = $warehouse->stockLocations->sum('quantity');
-        $totalStock = max($locationStockQty, $productStockQty);
+        $productCount = $warehouse->stockLocations->where('quantity', '>', 0)->count();
+        $totalStock = $warehouse->stockLocations->sum('quantity');
+
+        // Products shown: those with positive StockLocation quantity, plus synced products
+        $stockLocationProductIds = $warehouse->stockLocations
+            ->where('quantity', '>', 0)
+            ->pluck('product_id')
+            ->toArray();
 
         $products = \App\Models\Product::where('warehouse_id', $warehouse->id)
+            ->where('quantity', '>', 0)
             ->with(['section', 'images'])
             ->orderBy('name')
             ->get();

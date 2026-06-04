@@ -8,6 +8,7 @@ use App\Models\StockMovement;
 use App\Models\StockTransfer;
 use App\Models\StockTransferItem;
 use App\Models\StockLocation;
+use App\Models\Warehouse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -21,7 +22,7 @@ class StockTransferController extends Controller
         $user = $request->user();
         $status = $request->query('status');
 
-        $transfers = StockTransfer::with(['fromLocation', 'toLocation', 'requester', 'items.product'])
+        $transfers = StockTransfer::with(['requester', 'items.product'])
             ->when($status, fn($q) => $q->where('status', $status))
             ->latest()
             ->get();
@@ -46,17 +47,112 @@ class StockTransferController extends Controller
         }
         $stores = ($user->isStaff() ? $user->assignedStores() : $user->stores())->where('status', '!=', 'deleted')->orderBy('name')->get();
 
-        $products = \App\Models\Product::whereIn('store_id', $stores->pluck('id'))
-            ->where('status', 'active')
-            ->orderBy('name')
-            ->get(['id', 'product_code', 'name', 'store_id']);
+        // Build stock data grouped by location type + ID
+        $allStockData = [];
 
-        $preSelectedWarehouse = null;
-        if ($request->filled('from_warehouse')) {
-            $preSelectedWarehouse = $warehouses->where('warehouse_code', $request->from_warehouse)->first();
+        // Warehouse stock
+        foreach ($warehouses as $wh) {
+            $key = 'warehouse_' . $wh->id;
+            $items = collect();
+
+            $locations = StockLocation::where('locationable_type', Warehouse::class)
+                ->where('locationable_id', $wh->id)
+                ->where('quantity', '>', 0)
+                ->with('product.images')
+                ->get();
+
+            $existingIds = $locations->pluck('product_id')->toArray();
+
+            foreach ($locations as $loc) {
+                $items->push([
+                    'product_id' => (string) $loc->product_id,
+                    'name' => $loc->product?->name ?? 'Unknown',
+                    'product_code' => $loc->product?->product_code ?? '',
+                    'available' => (int) $loc->quantity,
+                    'image' => $loc->product?->images?->first()?->path ?? null,
+                ]);
+            }
+
+            $whProducts = \App\Models\Product::where('warehouse_id', $wh->id)
+                ->where('quantity', '>', 0)
+                ->whereNotIn('id', $existingIds)
+                ->with('images')
+                ->get();
+
+            foreach ($whProducts as $p) {
+                $items->push([
+                    'product_id' => (string) $p->id,
+                    'name' => $p->name,
+                    'product_code' => $p->product_code,
+                    'available' => (int) $p->quantity,
+                    'image' => $p->images?->first()?->path ?? null,
+                ]);
+            }
+
+            $allStockData[$key] = $items->values()->toArray();
         }
 
-        return view('management.transfers.create', compact('user', 'warehouses', 'stores', 'products', 'preSelectedWarehouse'));
+        // Store stock
+        foreach ($stores as $store) {
+            $key = 'store_' . $store->id;
+            $items = collect();
+
+            $locations = StockLocation::where('locationable_type', \App\Models\Store::class)
+                ->where('locationable_id', $store->id)
+                ->where('quantity', '>', 0)
+                ->with('product.images')
+                ->get();
+
+            $existingIds = $locations->pluck('product_id')->toArray();
+
+            foreach ($locations as $loc) {
+                $items->push([
+                    'product_id' => (string) $loc->product_id,
+                    'name' => $loc->product?->name ?? 'Unknown',
+                    'product_code' => $loc->product?->product_code ?? '',
+                    'available' => (int) $loc->quantity,
+                    'image' => $loc->product?->images?->first()?->path ?? null,
+                ]);
+            }
+
+            $storeProducts = \App\Models\Product::where('store_id', $store->id)
+                ->where('status', 'active')
+                ->where('quantity', '>', 0)
+                ->whereNotIn('id', $existingIds)
+                ->with('images')
+                ->get();
+
+            foreach ($storeProducts as $p) {
+                $items->push([
+                    'product_id' => (string) $p->id,
+                    'name' => $p->name,
+                    'product_code' => $p->product_code,
+                    'available' => (int) $p->quantity,
+                    'image' => $p->images?->first()?->path ?? null,
+                ]);
+            }
+
+            $allStockData[$key] = $items->values()->toArray();
+        }
+
+        // Pre-selection via query params (?from_warehouse=CODE or ?to_warehouse=CODE)
+        $preSelectFromWarehouseId = null;
+        $preSelectToWarehouseId = null;
+        if ($request->filled('from_warehouse')) {
+            $preSelectFromWarehouseId = (string) $warehouses->where('warehouse_code', $request->from_warehouse)->first()?->id;
+        }
+        if ($request->filled('to_warehouse')) {
+            $preSelectToWarehouseId = (string) $warehouses->where('warehouse_code', $request->to_warehouse)->first()?->id;
+        }
+
+        // Simple arrays for JS
+        $warehouseList = $warehouses->map(fn($w) => ['id' => (string) $w->id, 'name' => $w->name, 'code' => $w->warehouse_code])->values()->toArray();
+        $storeList = $stores->map(fn($s) => ['id' => (string) $s->id, 'name' => $s->name, 'code' => $s->store_code])->values()->toArray();
+
+        return view('management.transfers.create', compact(
+            'user', 'warehouses', 'stores', 'allStockData', 'warehouseList', 'storeList',
+            'preSelectFromWarehouseId', 'preSelectToWarehouseId'
+        ));
     }
 
     public function store(Request $request): RedirectResponse
@@ -64,14 +160,50 @@ class StockTransferController extends Controller
         $user = $request->user();
 
         $validated = $request->validate([
-            'from_warehouse_id' => 'required|exists:warehouses,id',
-            'to_store_id' => 'required|exists:stores,id',
+            'from_location_type' => 'required|in:warehouse,store',
+            'from_location_id' => 'required|integer',
+            'to_location_type' => 'required|in:warehouse,store',
+            'to_location_id' => 'required|integer',
             'items' => 'required|array|min:1',
             'items.*.product_id' => 'required|exists:products,id',
             'items.*.quantity' => 'required|integer|min:1',
             'notes' => 'nullable|string|max:1000',
             'submitted' => 'nullable|boolean',
         ]);
+
+        $fromType = $validated['from_location_type'] === 'warehouse' ? Warehouse::class : \App\Models\Store::class;
+        $toType = $validated['to_location_type'] === 'warehouse' ? Warehouse::class : \App\Models\Store::class;
+
+        // Validate source exists and belongs to user
+        if ($fromType === Warehouse::class) {
+            $fromLocation = ($user->isStaff()
+                ? $user->assignedWarehouses()
+                : Warehouse::where('user_id', $user->id))
+                ->where('status', '!=', 'deleted')
+                ->findOrFail($validated['from_location_id']);
+        } else {
+            $fromLocation = ($user->isStaff() ? $user->assignedStores() : $user->stores())
+                ->where('status', '!=', 'deleted')
+                ->findOrFail($validated['from_location_id']);
+        }
+
+        // Validate destination exists and belongs to user
+        if ($toType === Warehouse::class) {
+            $toLocation = ($user->isStaff()
+                ? $user->assignedWarehouses()
+                : Warehouse::where('user_id', $user->id))
+                ->where('status', '!=', 'deleted')
+                ->findOrFail($validated['to_location_id']);
+        } else {
+            $toLocation = ($user->isStaff() ? $user->assignedStores() : $user->stores())
+                ->where('status', '!=', 'deleted')
+                ->findOrFail($validated['to_location_id']);
+        }
+
+        // Prevent same-source-as-destination
+        if ($fromType === $toType && (int) $validated['from_location_id'] === (int) $validated['to_location_id']) {
+            return back()->with('error', 'Source and destination cannot be the same location.')->withInput();
+        }
 
         $submitted = $request->boolean('submitted', false);
 
@@ -80,10 +212,10 @@ class StockTransferController extends Controller
 
             $transfer = StockTransfer::create([
                 'business_id' => $user->business_id,
-                'from_location_type' => \App\Models\Warehouse::class,
-                'from_location_id' => $validated['from_warehouse_id'],
-                'to_location_type' => \App\Models\Store::class,
-                'to_location_id' => $validated['to_store_id'],
+                'from_location_type' => $fromType,
+                'from_location_id' => $validated['from_location_id'],
+                'to_location_type' => $toType,
+                'to_location_id' => $validated['to_location_id'],
                 'requested_by' => $user->id,
                 'status' => $submitted ? TransferStatus::PENDING : TransferStatus::DRAFT,
                 'notes' => $validated['notes'] ?? null,
@@ -102,6 +234,10 @@ class StockTransferController extends Controller
             Log::info('transfer.created', [
                 'user_id' => $user->id,
                 'transfer_id' => $transfer->id,
+                'from_type' => $fromType,
+                'from_id' => $validated['from_location_id'],
+                'to_type' => $toType,
+                'to_id' => $validated['to_location_id'],
                 'submitted' => $submitted,
             ]);
 
@@ -125,7 +261,7 @@ class StockTransferController extends Controller
     public function show(Request $request, StockTransfer $transfer): View
     {
         $user = $request->user();
-        $transfer->load(['fromLocation', 'toLocation', 'requester', 'approver', 'dispatcher', 'receiver', 'items.product', 'items.variant']);
+        $transfer->load(['requester', 'approver', 'dispatcher', 'receiver', 'items.product', 'items.variant']);
 
         return view('management.transfers.show', compact('user', 'transfer'));
     }
@@ -229,13 +365,20 @@ class StockTransferController extends Controller
                     ->when($item->product_variant_id, fn($q) => $q->where('product_variant_id', $item->product_variant_id))
                     ->first();
 
-                if ($sourceStock) {
-                    $ledger = app(\App\Services\StockLedgerService::class);
-                    $ledger->recordRemoval(
-                        $sourceStock, $qty, $transfer, $user,
-                        'Transfer dispatched to ' . ($transfer->toLocation?->name ?? 'destination')
-                    );
+                if (!$sourceStock || $sourceStock->quantity < $qty) {
+                    $available = $sourceStock?->quantity ?? 0;
+                    $productName = $item->product?->name ?? 'Unknown';
+                    throw new \RuntimeException("Insufficient stock for \"{$productName}\": {$available} available, {$qty} requested.");
                 }
+
+                $ledger = app(\App\Services\StockLedgerService::class);
+                $ledger->recordRemoval(
+                    $sourceStock, $qty, $transfer, $user,
+                    'Transfer dispatched to ' . ($transfer->toLocation?->name ?? 'destination')
+                );
+
+                // Sync Product.quantity for source
+                $this->syncProductQuantity($item->product_id, $transfer->from_location_type, $transfer->from_location_id, $qty, 'remove');
             }
 
             $transfer->update([
@@ -273,21 +416,39 @@ class StockTransferController extends Controller
             foreach ($transfer->items as $item) {
                 $qty = $item->approved_quantity ?? $item->quantity;
 
-                $destStock = StockLocation::firstOrCreate(
-                    [
+                // Handle null product_variant_id properly (MySQL NULL != NULL)
+                $destQuery = StockLocation::where('product_id', $item->product_id)
+                    ->where('locationable_type', $transfer->to_location_type)
+                    ->where('locationable_id', $transfer->to_location_id);
+
+                if ($item->product_variant_id) {
+                    $destQuery->where('product_variant_id', $item->product_variant_id);
+                } else {
+                    $destQuery->whereNull('product_variant_id');
+                }
+
+                $destStock = $destQuery->first();
+
+                if (!$destStock) {
+                    $destStock = StockLocation::create([
+                        'business_id' => $transfer->business_id,
                         'product_id' => $item->product_id,
                         'locationable_type' => $transfer->to_location_type,
                         'locationable_id' => $transfer->to_location_id,
                         'product_variant_id' => $item->product_variant_id,
-                    ],
-                    ['quantity' => 0, 'min_quantity' => 0]
-                );
+                        'quantity' => 0,
+                        'min_quantity' => 0,
+                    ]);
+                }
 
                 $ledger = app(\App\Services\StockLedgerService::class);
                 $ledger->recordAddition(
                     $destStock, $qty, $transfer, $user,
                     'Transfer received from ' . ($transfer->fromLocation?->name ?? 'source')
                 );
+
+                // Sync Product.quantity for destination
+                $this->syncProductQuantity($item->product_id, $transfer->to_location_type, $transfer->to_location_id, $qty, 'add');
             }
 
             $transfer->update([
@@ -347,5 +508,45 @@ class StockTransferController extends Controller
         Log::info('transfer.cancelled', ['transfer_id' => $transfer->id]);
 
         return back()->with('success', 'Transfer cancelled.');
+    }
+
+    /**
+     * Sync the Product.quantity and location assignment after stock movement.
+     */
+    private function syncProductQuantity(int $productId, string $locationType, int $locationId, int $qty, string $action): void
+    {
+        if ($action === 'add') {
+            // Receiving: assign product to destination and increment quantity
+            $product = \App\Models\Product::find($productId);
+            if ($product) {
+                if ($locationType === Warehouse::class) {
+                    $product->update(['warehouse_id' => $locationId, 'store_id' => null]);
+                } else {
+                    $product->update(['store_id' => $locationId, 'warehouse_id' => null]);
+                }
+                $product->increment('quantity', $qty);
+            }
+        } else {
+            // Dispatching: decrement source product quantity, clear location if depleted
+            if ($locationType === Warehouse::class) {
+                $product = \App\Models\Product::where('id', $productId)
+                    ->where('warehouse_id', $locationId)
+                    ->first();
+            } else {
+                $product = \App\Models\Product::where('id', $productId)
+                    ->where('store_id', $locationId)
+                    ->first();
+            }
+            if ($product) {
+                $product->decrement('quantity', $qty);
+                $product->refresh();
+                if ($product->quantity <= 0) {
+                    $product->update([
+                        $locationType === Warehouse::class ? 'warehouse_id' : 'store_id' => null,
+                        'quantity' => 0,
+                    ]);
+                }
+            }
+        }
     }
 }

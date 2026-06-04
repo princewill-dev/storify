@@ -21,16 +21,9 @@
     <div class="flex-1"></div>
     <x-management.status-badge :status="$warehouse->isActive() ? 'active' : 'inactive'" />
     @can('transfers create')
-    <div class="relative" x-data="{ open: false }">
-        <button @click="open = !open" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white text-xs font-medium rounded-lg hover:bg-indigo-700 transition-colors">
-            <i class="fi fi-rr-truck-loading text-xs"></i> Move Inventory
-            <i class="fi fi-rr-angle-small-down text-xs"></i>
-        </button>
-        <div x-show="open" @click.outside="open = false" x-transition class="absolute right-0 mt-2 w-52 bg-white rounded-xl shadow-lg border border-slate-200 py-1 z-50">
-            <a href="{{ route('management.warehouses.send', $warehouse) }}" class="flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"><i class="fi fi-rr-paper-plane w-4 text-indigo-500"></i> Send Inventory</a>
-            <a href="{{ route('management.warehouses.receive', $warehouse) }}" class="flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"><i class="fi fi-rr-truck-loading w-4 text-indigo-500"></i> Receive Inventory</a>
-        </div>
-    </div>
+    <a href="{{ route('management.transfers.create', ['from_warehouse' => $warehouse->warehouse_code]) }}" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 transition-colors">
+        <i class="fi fi-rr-arrows-exchange text-xs"></i> Stock Adjustment
+    </a>
     @endcan
 </div>
 
@@ -79,11 +72,6 @@
                 <span x-show="selectAll">Deselect All</span>
             </button>
             <div class="flex-1"></div>
-            @if($stores->isNotEmpty() || $warehousesList->count() > 1)
-            <button @click="$dispatch('open-move-modal')" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white text-xs font-medium rounded-lg hover:bg-indigo-700 transition-colors">
-                <i class="fi fi-rr-truck-loading text-xs"></i> Move
-            </button>
-            @endif
             @can('products delete')
             <button @click="confirmingBulkDelete = true" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-red-600 text-white text-xs font-medium rounded-lg hover:bg-red-700 transition-colors">
                 <i class="fi fi-rr-trash text-xs"></i> Delete
@@ -260,79 +248,5 @@
         </div>
     </div>
 
-    {{-- Move Inventory Modal --}}
-    @php $canAutoComplete = auth()->user()->can('transfers create') && auth()->user()->can('transfers approve') && auth()->user()->can('transfers dispatch') && auth()->user()->can('transfers receive'); @endphp
-    <div x-data="{ openMove: false, destType: 'store', destId: '', notes: '', autoComplete: {{ $canAutoComplete ? 'true' : 'false' }} }" @open-move-modal.window="openMove = true" @keydown.escape.window="openMove = false">
-        <div x-show="openMove" class="fixed inset-0 z-50 overflow-y-auto" x-cloak>
-            <div class="flex min-h-full items-center justify-center p-4">
-                <div class="fixed inset-0 bg-slate-900/50" @click="openMove = false"></div>
-                <div class="relative w-full max-w-md bg-white rounded-2xl shadow-xl p-6" @click.outside="openMove = false">
-                    <h3 class="text-base font-semibold text-slate-800 mb-1">Move Inventory</h3>
-                    <p class="text-sm text-slate-500 mb-4"><strong x-text="selectedIds.length"></strong> selected products</p>
-
-                    <form method="POST" action="{{ route('management.warehouses.move-products', $warehouse) }}">
-                        @csrf
-                        <template x-for="id in selectedIds" :key="id"><input type="hidden" name="product_ids[]" :value="id"></template>
-
-                        <div class="space-y-4">
-                            <div class="flex gap-2">
-                                <label class="flex-1">
-                                    <input type="radio" name="destination_type" value="store" x-model="destType" class="hidden peer">
-                                    <span class="block text-center px-3 py-2 rounded-lg text-sm font-medium border-2 cursor-pointer transition-colors peer-checked:border-indigo-500 peer-checked:bg-indigo-50 peer-checked:text-indigo-700 border-slate-200 text-slate-500 hover:border-slate-300"><i class="fi fi-rr-shop mr-1"></i> Store</span>
-                                </label>
-                                <label class="flex-1">
-                                    <input type="radio" name="destination_type" value="warehouse" x-model="destType" class="hidden peer">
-                                    <span class="block text-center px-3 py-2 rounded-lg text-sm font-medium border-2 cursor-pointer transition-colors peer-checked:border-indigo-500 peer-checked:bg-indigo-50 peer-checked:text-indigo-700 border-slate-200 text-slate-500 hover:border-slate-300"><i class="fi fi-rr-warehouse-alt mr-1"></i> Warehouse</span>
-                                </label>
-                            </div>
-
-                            <div>
-                                <label class="block text-xs font-medium text-slate-500 mb-1">Destination</label>
-                                <select name="destination_id" x-model="destId" class="w-full rounded-lg border-slate-300 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500 py-2.5" required>
-                                    <option value="">Select destination</option>
-                                    <template x-if="destType === 'store'">
-                                        @foreach($stores as $s)
-                                        <option value="{{ $s->id }}">{{ $s->name }}</option>
-                                        @endforeach
-                                    </template>
-                                    <template x-if="destType === 'warehouse'">
-                                        @foreach($warehousesList as $wh)
-                                        @if($wh->id !== $warehouse->id)
-                                        <option value="{{ $wh->id }}">{{ $wh->name }}</option>
-                                        @endif
-                                        @endforeach
-                                    </template>
-                                </select>
-                            </div>
-
-                            <div>
-                                <label class="block text-xs font-medium text-slate-500 mb-1">Notes (optional)</label>
-                                <textarea name="notes" x-model="notes" class="w-full rounded-lg border-slate-300 px-3 py-2 shadow-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-sm" rows="2" placeholder="Add a note..."></textarea>
-                            </div>
-
-                            @if($canAutoComplete)
-                            <div class="flex items-center gap-2">
-                                <input type="checkbox" name="complete_immediately" value="1" x-model="autoComplete" class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500">
-                                <label class="text-sm text-slate-700">Complete immediately (auto-approve, dispatch, receive)</label>
-                            </div>
-                            @endif
-
-                            <div class="rounded-lg bg-amber-50 border border-amber-100 p-3 text-xs text-amber-700">
-                                <p x-show="!autoComplete">A stock transfer will be created. Both warehouse and store managers must approve before stock is moved.</p>
-                                <p x-show="autoComplete">Stock will be deducted from this warehouse and added to the destination immediately.</p>
-                            </div>
-                        </div>
-
-                        <div class="flex items-center gap-2 mt-4">
-                            <button type="submit" :disabled="!destId" class="flex-1 py-2.5 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
-                                <i class="fi fi-rr-truck-loading mr-1"></i> Submit Transfer
-                            </button>
-                            <button type="button" @click="openMove = false" class="flex-1 py-2.5 border border-slate-200 text-sm font-medium rounded-lg hover:bg-slate-50 transition-colors">Cancel</button>
-                        </div>
-                    </form>
-                </div>
-            </div>
-        </div>
-    </div>
 </div>
 @endsection

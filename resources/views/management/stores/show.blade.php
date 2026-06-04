@@ -14,7 +14,7 @@
 <div class="flex items-center gap-1 mb-6 border-b border-slate-200 overflow-x-auto">
     <a href="{{ route('management.stores.show', $store) }}" class="px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap {{ request()->routeIs('management.stores.show') && !request()->routeIs('management.stores.web-metrics') && !request()->routeIs('management.stores.settings') ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300' }} -mb-px transition-colors">Dashboard</a>
     @can('products view')
-    <a href="{{ route('management.products.index', ['store_id' => $store->store_id]) }}" class="px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap {{ request()->routeIs('management.products.*') && request()->query('store_id') == $store->store_id ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300' }} -mb-px transition-colors">Products</a>
+    <a href="{{ route('management.stores.products', $store) }}" class="px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap {{ request()->routeIs('management.stores.products') ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300' }} -mb-px transition-colors">Products</a>
     @endcan
     @can('orders view')
     <a href="{{ route('management.orders.index', ['store_id' => $store->store_id]) }}" class="px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap {{ request()->routeIs('management.orders.*') && request()->query('store_id') == $store->store_id ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300' }} -mb-px transition-colors">Orders</a>

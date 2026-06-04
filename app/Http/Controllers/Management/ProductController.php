@@ -349,7 +349,7 @@ class ProductController extends Controller
                 'metadata' => ['user_id' => $user->id, 'product_id' => $product->id, 'has_variants' => (bool)$product->has_variants],
             ]);
 
-            return redirect()->route('management.products.index', ['user' => $user, 'store_id' => $product->store->store_id])->with('success', 'Product updated.');
+            return redirect()->route('management.stores.products', $product->store)->with('success', 'Product updated.');
         } catch (\Throwable $e) {
             Log::error('vendor.product.update_failed', ['error' => $e->getMessage(), 'product_id' => $product->id]);
             return back()->with('error', 'Unable to update product.')->withInput();
@@ -394,7 +394,7 @@ class ProductController extends Controller
         $data = $request->validate(['status' => 'required|in:active,inactive']);
         $product->update(['status' => $data['status']]);
         $message = $data['status'] === 'active' ? 'Product activated' : 'Product deactivated';
-        return redirect()->route('management.products.index', ['user' => $user, 'store_id' => $product->store->store_id])->with('success', $message);
+        return redirect()->route('management.stores.products', $product->store)->with('success', $message);
     }
 
     public function destroy(Request $request, Product $product): RedirectResponse
@@ -408,7 +408,7 @@ class ProductController extends Controller
             try { Storage::disk('public')->delete($img->path); } catch (\Throwable $e) {}
         }
         $product->delete();
-        return redirect()->route('management.products.index', ['user' => $user, 'store_id' => $product->store->store_id])->with('success', 'Product deleted.');
+        return redirect()->route('management.stores.products', $product->store)->with('success', 'Product deleted.');
     }
 
     public function bulkDestroy(Request $request): RedirectResponse

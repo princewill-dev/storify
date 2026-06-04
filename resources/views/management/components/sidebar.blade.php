@@ -13,7 +13,7 @@ if (request()->routeIs('management.stores.*') || request()->routeIs('management.
         $resolvedStore = \App\Models\Store::where('store_id', request()->query('store_id'))->first();
         $activeSidebarStoreId = $resolvedStore?->id;
     }
-} elseif (request()->routeIs('management.products.*') || request()->routeIs('management.categories.*') || request()->routeIs('management.services.*')) {
+} elseif (request()->routeIs('management.products.*') || request()->routeIs('management.categories.*') || request()->routeIs('management.services.*') || request()->routeIs('management.stores.products')) {
     $activeSidebarGroup = 'products';
 } elseif (request()->routeIs('management.warehouses.*') || request()->routeIs('management.sections.*')) {
     $activeSidebarGroup = 'warehouses';

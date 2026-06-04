@@ -156,6 +156,10 @@ Route::prefix('management')->name('management.')->group(function () {
             Route::middleware('permission:products view')->group(function () {
                 Route::get('/products', [ProductController::class, 'index'])->name('products.index');
                 Route::get('/products/{product}', [ProductController::class, 'show'])->name('products.show');
+                Route::get('/stores/{store}/products', function (\App\Models\Store $store) {
+                    request()->merge(['store_id' => $store->store_id]);
+                    return app()->call([app(ProductController::class), 'index']);
+                })->name('stores.products');
             });
             Route::middleware('permission:products edit')->group(function () {
                 Route::get('/products/{product}/edit', [ProductController::class, 'edit'])->name('products.edit');
@@ -307,12 +311,9 @@ Route::prefix('management')->name('management.')->group(function () {
                 Route::patch('/transfers/{transfer}/cancel', [StockTransferController::class, 'cancel'])->name('transfers.cancel');
                 Route::patch('/transfers/{transfer}/acknowledge', [StockTransferController::class, 'acknowledge'])->name('transfers.acknowledge');
 
-                // Warehouse-specific transfer flows
-                Route::get('/warehouses/{warehouse}/send', [WarehouseTransferController::class, 'sendForm'])->name('warehouses.send');
-                Route::post('/warehouses/{warehouse}/send', [WarehouseTransferController::class, 'initSend'])->name('warehouses.send.store');
-                Route::get('/warehouses/{warehouse}/receive', [WarehouseTransferController::class, 'receiveForm'])->name('warehouses.receive');
-                Route::post('/warehouses/{warehouse}/receive', [WarehouseTransferController::class, 'initReceive'])->name('warehouses.receive.store');
-                Route::get('/warehouses/{warehouse}/products-json', [WarehouseTransferController::class, 'productsJson'])->name('warehouses.products-json');
+                // Warehouse send/receive — consolidated into transfers.create
+                Route::get('/warehouses/{warehouse}/send', fn (\App\Models\Warehouse $warehouse) => redirect()->route('management.transfers.create', ['from_warehouse' => $warehouse->warehouse_code]))->name('warehouses.send');
+                Route::get('/warehouses/{warehouse}/receive', fn (\App\Models\Warehouse $warehouse) => redirect()->route('management.transfers.create', ['to_warehouse' => $warehouse->warehouse_code]))->name('warehouses.receive');
             });
             Route::middleware('permission:transfers view')->group(function () {
                 Route::get('/transfers', [StockTransferController::class, 'index'])->name('transfers.index');

@@ -40,17 +40,26 @@ class WarehouseTransferController extends Controller
             ->with('product.images')
             ->get();
 
+        // Sync: create StockLocation records for products that have warehouse quantity
+        // but no StockLocation entry yet (one-time backfill per product)
         $existingProductIds = $stockLocations->pluck('product_id')->toArray();
 
-        $products = Product::where('warehouse_id', $warehouse->id)
+        $unsyncedProducts = Product::where('warehouse_id', $warehouse->id)
             ->where('quantity', '>', 0)
-            ->with(['images', 'section'])
+            ->whereNotIn('id', $existingProductIds)
             ->get();
 
-        foreach ($products as $product) {
-            if (!in_array($product->id, $existingProductIds, true)) {
-                $stockLocations->push($product);
-            }
+        foreach ($unsyncedProducts as $product) {
+            $loc = StockLocation::create([
+                'business_id' => $warehouse->business_id,
+                'product_id' => $product->id,
+                'locationable_type' => Warehouse::class,
+                'locationable_id' => $warehouse->id,
+                'quantity' => $product->quantity,
+                'min_quantity' => 0,
+            ]);
+            $loc->load('product.images');
+            $stockLocations->push($loc);
         }
 
         return view('management.warehouses.send', compact(

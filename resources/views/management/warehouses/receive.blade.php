@@ -40,8 +40,10 @@
         @csrf
         <input type="hidden" name="from_warehouse_id" :value="sourceId">
         <template x-for="(item, i) in cart" :key="i">
-            <input type="hidden" :name="'items['+i+'][product_id]'" :value="item.product_id">
-            <input type="hidden" :name="'items['+i+'][quantity]'" :value="item.quantity">
+            <div>
+                <input type="hidden" :name="'items['+i+'][product_id]'" :value="item.product_id">
+                <input type="hidden" :name="'items['+i+'][quantity]'" :value="item.quantity">
+            </div>
         </template>
 
         <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-4">
@@ -113,7 +115,7 @@
                         <div class="p-3">
                             <div class="flex items-start justify-between mb-2">
                                 <label class="flex items-center gap-2 cursor-pointer" @click.stop>
-                                    <input type="checkbox" :value="p.product_id.toString()" x-model="selectedIds" @change="onCheckChange(p)" class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4">
+                                    <input type="checkbox" :value="p.product_id.toString()" x-model="selectedIds" @change="onCheckChange(p, $event)" class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4">
                                 </label>
                             </div>
 
@@ -243,9 +245,8 @@ function receiveTransfer() {
             }
         },
 
-        onCheckChange(p) {
-            const pid = p.product_id.toString();
-            if (this.selectedIds.includes(pid)) {
+        onCheckChange(p, event) {
+            if (event.target.checked) {
                 if (!this.cart.find(i => i.product_id === p.product_id)) {
                     this.cart.push({ product_id: p.product_id, quantity: 1 });
                 }
