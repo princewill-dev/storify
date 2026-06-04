@@ -65,8 +65,18 @@ class BusinessAuthController extends Controller
 
     public function showLogin(): View|RedirectResponse
     {
+        // Only redirect if user is fully set up, not mid-onboarding
         if (auth()->check()) {
-            return redirect()->to($this->redirectAfterAuth());
+            $user = auth()->user();
+            if ($user && $user->is_verified && $user->business_id && $user->business?->hasActiveSubscription()) {
+                return redirect()->route('management.dashboard');
+            }
+            // User is mid-onboarding — log them out so they can start fresh
+            if ($user && !$user->business_id) {
+                Auth::guard('web')->logout();
+                session()->invalidate();
+                session()->regenerateToken();
+            }
         }
 
         return view('auth.business.login');

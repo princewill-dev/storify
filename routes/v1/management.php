@@ -47,7 +47,7 @@ Route::prefix('management')->name('management.')->group(function () {
 
     Route::middleware(['auth', 'team.context'])->group(function () {
         Route::post('/logout', [BusinessAuthController::class, 'logout'])->name('auth.logout');
-        Route::get('/logout', fn() => redirect()->route('management.auth.login'))->name('auth.logout.get');
+        Route::get('/logout', [BusinessAuthController::class, 'logout'])->name('auth.logout.get');
         
         Route::get('/subscription', [SubscriptionController::class, 'showSubscriptionPlan'])->name('subscription.plan');
         Route::post('/subscription/initialize', [SubscriptionController::class, 'initializePayment'])->name('subscription.initialize');
