@@ -188,37 +188,6 @@ class ProductController extends Controller
 
         $categories = Category::whereIn('store_id', $storeIds)->orderBy('name')->get();
 
-        $sectionParam = $request->query('section_id');
-        $selectedSectionId = null;
-        if ($sectionParam) {
-            $selectedSectionId = is_numeric($sectionParam)
-                ? (int) $sectionParam
-                : \App\Models\Section::where('section_code', $sectionParam)->value('id');
-        }
-        $sections = \App\Models\Section::whereHas('warehouse', function ($q) use ($user) {
-            $q->where('user_id', $user->id);
-        })->orderBy('name')->get();
-
-        $warehouses = ($user->isStaff()
-            ? $user->assignedWarehouses()
-            : \App\Models\Warehouse::where('user_id', $user->id))
-            ->where('status', '!=', 'deleted')->orderBy('name')->get();
-        $sizeUnits = DB::table('size_units')->orderBy('name')->get();
-        $weightUnits = DB::table('weight_units')->orderBy('name')->get();
-        $currencies = Currency::orderBy('name')->get();
-        $defaultCurrencyId = Currency::where('is_default', true)->value('id');
-
-        $selectedStoreIdString = $request->query('store_id');
-        $selectedStoreId = null;
-        if ($selectedStoreIdString) {
-            $selectedStoreId = $user->stores()
-                ->where('store_id', $selectedStoreIdString)
-                ->value('id');
-        }
-
-        $storeIds = $this->userStoreIds($user);
-
-
         $sections = \App\Models\Section::whereHas('warehouse', function ($q) use ($user) {
             $q->where('user_id', $user->id);
         })->where('status', '!=', 'deleted')->orderBy('name')->get();
@@ -228,9 +197,16 @@ class ProductController extends Controller
             : \App\Models\Warehouse::where('user_id', $user->id))
             ->where('status', '!=', 'deleted')->orderBy('name')->get();
 
-        return view('management.products.edit', [
+        $sectionParam = $request->query('section_id');
+        $selectedSectionId = null;
+        if ($sectionParam) {
+            $selectedSectionId = is_numeric($sectionParam)
+                ? (int) $sectionParam
+                : \App\Models\Section::where('section_code', $sectionParam)->value('id');
+        }
+
+        return view('management.products.create', [
             'user' => $user,
-            'product' => $product,
             'stores' => $stores,
             'categories' => $categories,
             'sections' => $sections,
@@ -239,6 +215,8 @@ class ProductController extends Controller
             'weightUnits' => $weightUnits,
             'currencies' => $currencies,
             'defaultCurrencyId' => $defaultCurrencyId,
+            'selectedStoreId' => $selectedStoreId,
+            'selectedSectionId' => $selectedSectionId,
             'backUrl' => route('management.products.index', ['user' => $user]),
         ]);
     }
