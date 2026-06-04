@@ -19,8 +19,9 @@
                             <tr>
                                 <th>S/N</th>
                                 <th>Name</th>
-                                <th>Vendor</th>
                                 <th>Business</th>
+                                <th>Owner</th>
+                                <th>Type</th>
                                 <th>Status</th>
                                 <th>Shop Link</th>
                                 <th class="text-end">Actions</th>
@@ -41,8 +42,16 @@
                                           @endif
                                         </div>
                                     </td>
-                                    <td>{{ $store->vendor?->name }}</td>
-                                    <td>{{ $store->businessType?->name }}</td>
+                                    <td>
+                                        @if($store->business)
+                                            <a href="{{ route('admin.vendors.show', $store->vendor) }}" class="text-dark text-decoration-none">{{ $store->business->name }}</a>
+                                            <div class="small text-muted font-monospace">{{ $store->business->business_code }}</div>
+                                        @else
+                                            <span class="text-muted">—</span>
+                                        @endif
+                                    </td>
+                                    <td>{{ $store->vendor?->name ?? '—' }}</td>
+                                    <td>{{ $store->businessType?->name ?? '—' }}</td>
                                     <td>
                                         @php($storeBadge = $storeStatusBadgeData[strtolower($store->status)] ?? null)
                                         <span class="badge {{ $storeBadge['class'] ?? 'bg-secondary' }}">
@@ -72,7 +81,7 @@
                                                 <li>
                                                     <button class="dropdown-item d-flex align-items-center" type="button" data-bs-toggle="modal" data-bs-target="#editStoreModal"
                                                             data-action="{{ route('admin.stores.update', $store) }}"
-                                                            data-vendor-id="{{ $store->vendor_id }}"
+                                                            data-business-id="{{ $store->business_id }}"
                                                             data-name="{{ $store->name }}"
                                                             data-slug="{{ $store->slug }}"
                                                             data-description="{{ $store->description }}"
@@ -142,12 +151,12 @@
         @csrf
         <div class="modal-body">
           <div class="row mb-3 align-items-center">
-            <div class="col-md-3"><label class="form-label mb-md-0">Vendor</label></div>
+            <div class="col-md-3"><label class="form-label mb-md-0">Business</label></div>
             <div class="col-md-9">
-              <select name="vendor_id" class="form-select" required>
-                <option value="">Select a vendor...</option>
-                @foreach(($users ?? []) as $v)
-                  <option value="{{ $v->id }}">{{ $v->name }}</option>
+              <select name="business_id" class="form-select" required>
+                <option value="">Select a business...</option>
+                @foreach(($businesses ?? []) as $b)
+                  <option value="{{ $b->id }}">{{ $b->name }} ({{ $b->owner?->name ?? 'No owner' }})</option>
                 @endforeach
               </select>
             </div>
@@ -260,11 +269,11 @@
         @method('PUT')
         <div class="modal-body">
           <div class="row mb-3 align-items-center">
-            <div class="col-md-3"><label class="form-label mb-md-0">Vendor</label></div>
+            <div class="col-md-3"><label class="form-label mb-md-0">Business</label></div>
             <div class="col-md-9">
-              <select name="vendor_id" id="editStoreVendor" class="form-select" required>
-                @foreach(($users ?? []) as $v)
-                  <option value="{{ $v->id }}">{{ $v->name }}</option>
+              <select name="business_id" id="editStoreBusiness" class="form-select" required>
+                @foreach(($businesses ?? []) as $b)
+                  <option value="{{ $b->id }}" {{ $store->business_id == $b->id ? 'selected' : '' }}>{{ $b->name }} ({{ $b->owner?->name ?? 'No owner' }})</option>
                 @endforeach
               </select>
             </div>
@@ -558,7 +567,7 @@ document.addEventListener('DOMContentLoaded', function() {
     var action = button.getAttribute('data-action');
     if (form && action) form.action = action;
 
-    var vendorId = button.getAttribute('data-vendor-id') || '';
+    var businessId = button.getAttribute('data-business-id') || '';
     var name = button.getAttribute('data-name') || '';
     var slug = button.getAttribute('data-slug') || '';
     var description = button.getAttribute('data-description') || '';
@@ -574,7 +583,7 @@ document.addEventListener('DOMContentLoaded', function() {
     var status = (button.getAttribute('data-status') || '').toLowerCase();
     var logoUrl = button.getAttribute('data-logo-url') || '';
 
-    document.getElementById('editStoreVendor').value = vendorId;
+    document.getElementById('editStoreBusiness').value = businessId;
     document.getElementById('editStoreName').value = name;
     document.getElementById('editStoreSlug').value = slug;
     document.getElementById('editStoreDescription').value = description;

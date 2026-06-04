@@ -8,9 +8,12 @@ Route::get('/login', function() {
     return redirect()->route('admin.login');
 })->name('login');
 
-// Superadmin Onboard Routes
-Route::get('/superadmin/onboard', [AdminAuthController::class, 'onboard'])->name('admin.onboard');
-Route::post('/superadmin/onboard', [AdminAuthController::class, 'processOnboard'])->name('admin.onboard.process');
+// Superadmin Setup / Onboard Routes
+Route::get('/superadmin/setup', [AdminAuthController::class, 'onboard'])->name('admin.setup');
+Route::post('/superadmin/setup', [AdminAuthController::class, 'processOnboard'])->name('admin.setup.process');
+// Legacy onboard route
+Route::get('/superadmin/onboard', fn() => redirect()->route('admin.setup'))->name('admin.onboard');
+Route::post('/superadmin/onboard', fn() => redirect()->route('admin.setup'))->name('admin.onboard.process');
 
 // Admin Login Routes
 Route::get('/superadmin', [AdminAuthController::class, 'login'])->name('admin.login');

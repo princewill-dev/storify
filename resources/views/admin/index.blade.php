@@ -93,9 +93,16 @@
                     </div>
                     <div class="col-sm-4 col-6 col-xl-4">
                         <div class="border rounded px-3 py-2">
-                            <span class="fs-sm text-gray-500">Total Vendors</span>
-                            <h4 class="mb-2 fw-semibold">{{ number_format($stats['total_vendors']) }}</h4>
-                            <span class="fs-sm text-muted">{{ $stats['active_vendors'] }} active</span>
+                            <span class="fs-sm text-gray-500">Total Businesses</span>
+                            <h4 class="mb-2 fw-semibold">{{ number_format($stats['total_businesses']) }}</h4>
+                            <span class="fs-sm text-muted">{{ $stats['active_businesses'] }} active</span>
+                        </div>
+                    </div>
+                    <div class="col-sm-4 col-12 col-xl-4">
+                        <div class="border rounded px-3 py-2">
+                            <span class="fs-sm text-gray-500">Total Warehouses</span>
+                            <h4 class="mb-2 fw-semibold">{{ number_format($stats['total_warehouses']) }}</h4>
+                            <span class="fs-sm text-muted">{{ $stats['total_staff'] }} staff</span>
                         </div>
                     </div>
                     <div class="col-sm-4 col-12 col-xl-4">

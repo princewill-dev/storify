@@ -31,7 +31,7 @@ class AdminAuthController extends Controller
         // Check if a superadmin already exists
         if (User::where('role', 'superadmin')->exists()) {
             return redirect()->route('admin.login')
-                ->with('error', 'Superadmin account already exists. Please login.');
+                ->with('error', 'Platform already set up. Please login.');
         }
 
         return view('admin.auth.onboard');
@@ -109,6 +109,11 @@ class AdminAuthController extends Controller
      */
     public function login(): View|RedirectResponse
     {
+        // If no superadmin exists, redirect to setup
+        if (!User::where('role', 'superadmin')->exists()) {
+            return redirect()->route('admin.setup');
+        }
+
         if (Auth::guard('web')->check() && Auth::user()->role === 'superadmin') {
             return redirect()->route('admin.dashboard');
         }

@@ -1,140 +1,138 @@
 @extends('admin.layout')
-@section('subtitle', 'Vendors')
+@section('subtitle', 'Businesses')
 
 @section('content')
 <div class="row">
     <div class="col-12">
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <h6 class="card-title mb-0">Vendors</h6>
+                <h6 class="card-title mb-0">Businesses</h6>
                 <div class="d-flex gap-2">
                     <button type="button" class="btn btn-light btn-sm" data-bs-toggle="modal" data-bs-target="#filterVendorsModal">Filter</button>
-                    <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#createVendorModal">Add Vendor</button>
+                    <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#createVendorModal">Add Business</button>
                 </div>
             </div>
             <div class="card-body">
-                
+
                 <div class="table-responsive">
                     <table class="table table-sm align-middle">
                         <thead>
                             <tr>
-                                <th>Name</th>
-                                <th>KYC Status</th>
-                                <th>Email</th>
-                                <th>Phone</th>
+                                <th>Business</th>
+                                <th>Owner</th>
                                 <th>Stores</th>
+                                <th>Warehouses</th>
+                                <th>Subscription</th>
                                 <th>Status</th>
                                 <th class="text-end">Actions</th>
                             </tr>
                         </thead>
                         <tbody>
-                            @forelse($users as $user)
+                            @forelse($businesses as $business)
+                                @php($owner = $business->owner)
                                 <tr>
-                                    <td>{{ $user->name }}</td>
                                     <td>
-                                        @php($kyc = $user->kycApplication)
-                                        @php($kycBadge = $kyc ? ($kycStatusBadgeData[$kyc->status] ?? null) : null)
-                                        @if($kyc)
-                                            <span class="badge {{ $kycBadge['class'] ?? 'bg-secondary' }}">
-                                                {{ $kycBadge['label'] ?? ucfirst(str_replace('_', ' ', $kyc->status)) }}
-                                            </span>
-                                            <a href="{{ route('admin.vendor-kyc.show', $kyc) }}" class="small ms-2"> <i class="fas fa-external-link-alt"></i></a>
+                                        <a href="{{ route('admin.vendors.show', $owner) }}" class="text-dark fw-semibold text-decoration-none">{{ $business->name }}</a>
+                                        <div class="small text-muted font-monospace">{{ $business->business_code }}</div>
+                                    </td>
+                                    <td>{{ $owner?->name ?? '—' }}<br><small class="text-muted">{{ $owner?->email ?? '' }}</small></td>
+                                    <td>
+                                        <span class="badge bg-light text-dark">{{ $business->stores_count }}</span>
+                                        @if($business->stores_count > 0)
+                                        <a href="{{ route('admin.stores.index') }}?q={{ $business->name }}" class="small ms-1">view</a>
+                                        @endif
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-light text-dark">{{ $business->warehouses_count }}</span>
+                                    </td>
+                                    <td>
+                                        @php($sub = $business->activeSubscription)
+                                        @if($sub)
+                                            <span class="badge bg-success">{{ $sub->subscriptionPlan?->name ?? 'Active' }}</span>
                                         @else
-                                            <span class="text-muted small">Not started</span>
-                                        @endif
-                                    </td>
-                                    <td>{{ $user->email }}</td>
-                                    <td>{{ $user->phone }}</td>
-                                    <td>
-                                        @php($shownStores = $user->stores ?? collect())
-                                        @forelse($shownStores as $s)
-                                            <a href="{{ route('admin.stores.show', $s) }}" class="badge bg-light text-dark text-decoration-none me-1">{{ $s->name }}</a>
-                                        @empty
-                                            <span class="text-muted">—</span>
-                                        @endforelse
-                                        @php($extraCount = max(0, (int)($user->stores_count ?? 0) - $shownStores->count()))
-                                        @if($extraCount > 0)
-                                            <a href="{{ route('admin.vendors.show', $user) }}" class="small text-muted">+{{ $extraCount }} more</a>
+                                            <span class="badge bg-secondary">None</span>
                                         @endif
                                     </td>
                                     <td>
-                                        @php($userBadge = $userStatusBadgeData[strtolower($user->status)] ?? null)
-                                        <span class="badge {{ $userBadge['class'] ?? 'bg-secondary' }}">
-                                            {{ $userBadge['label'] ?? ucfirst($user->status) }}
+                                        @php($bizBadge = $vendorStatusBadgeData[strtolower($business->status)] ?? null)
+                                        <span class="badge {{ $bizBadge['class'] ?? 'bg-secondary' }}">
+                                            {{ $bizBadge['label'] ?? ucfirst($business->status) }}
                                         </span>
                                     </td>
                                     <td class="text-end">
                                         <div class="dropdown d-inline-block">
-                                            <button class="btn btn-sm border-0 bg-transparent text-dark" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Vendor actions">
+                                            <button class="btn btn-sm border-0 bg-transparent text-dark" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Business actions">
                                                 <i class="fa-solid fa-ellipsis-vertical"></i>
                                             </button>
                                             <ul class="dropdown-menu dropdown-menu-end">
                                                 <li>
-                                                    <a class="dropdown-item" href="{{ route('admin.vendors.show', $user) }}">
+                                                    <a class="dropdown-item" href="{{ route('admin.vendors.show', $owner) }}">
                                                         <i class="fa fa-eye me-2 text-muted"></i>View
                                                     </a>
                                                 </li>
+                                                @if($owner)
                                                 <li>
                                                     <button class="dropdown-item d-flex align-items-center" type="button" data-bs-toggle="modal" data-bs-target="#editVendorModal"
-                                                            data-action="{{ route('admin.vendors.update', $user) }}"
-                                                            data-name="{{ $user->name }}"
-                                                            data-slug="{{ $user->slug }}"
-                                                            data-email="{{ $user->email }}"
-                                                            data-phone="{{ $user->phone }}"
-                                                            data-status="{{ $user->status }}">
-                                                        <i class="fa fa-pen me-2 text-muted"></i>Edit
+                                                            data-action="{{ route('admin.vendors.update', $owner) }}"
+                                                            data-name="{{ $owner->name }}"
+                                                            data-slug="{{ $owner->slug }}"
+                                                            data-email="{{ $owner->email }}"
+                                                            data-phone="{{ $owner->phone }}"
+                                                            data-status="{{ $owner->status }}">
+                                                        <i class="fa fa-pen me-2 text-muted"></i>Edit Owner
                                                     </button>
                                                 </li>
                                                 <li>
                                                     <button class="dropdown-item d-flex align-items-center" type="button" data-bs-toggle="modal" data-bs-target="#activateVendorModal"
-                                                            data-action="{{ route('admin.vendors.activate', $user) }}"
-                                                            data-vendor-name="{{ $user->name }}">
+                                                            data-action="{{ route('admin.vendors.activate', $owner) }}"
+                                                            data-vendor-name="{{ $business->name }}">
                                                         <i class="fa fa-check me-2 text-muted"></i>Activate
                                                     </button>
                                                 </li>
                                                 <li>
                                                     <button class="dropdown-item d-flex align-items-center" type="button" data-bs-toggle="modal" data-bs-target="#suspendVendorModal"
-                                                            data-action="{{ route('admin.vendors.suspend', $user) }}"
-                                                            data-vendor-name="{{ $user->name }}">
+                                                            data-action="{{ route('admin.vendors.suspend', $owner) }}"
+                                                            data-vendor-name="{{ $business->name }}">
                                                         <i class="fa fa-ban me-2 text-muted"></i>Suspend
                                                     </button>
                                                 </li>
                                                 <li>
                                                     <button class="dropdown-item d-flex align-items-center" type="button" data-bs-toggle="modal" data-bs-target="#deleteVendorModal"
-                                                            data-action="{{ route('admin.vendors.destroy', $user) }}"
-                                                            data-vendor-name="{{ $user->name }}">
+                                                            data-action="{{ route('admin.vendors.destroy', $owner) }}"
+                                                            data-vendor-name="{{ $business->name }}">
                                                         <i class="fa fa-trash me-2 text-muted"></i>Delete
                                                     </button>
                                                 </li>
+                                                @endif
                                             </ul>
                                         </div>
                                     </td>
                                 </tr>
                             @empty
-                                <tr><td colspan="5" class="text-center text-muted">No vendors yet.</td></tr>
+                                <tr><td colspan="7" class="text-center text-muted">No businesses yet.</td></tr>
                             @endforelse
                         </tbody>
                     </table>
                 </div>
-                <div class="mt-2">{{ $users->links() }}</div>
+                <div class="mt-2">{{ $businesses->links() }}</div>
             </div>
         </div>
     </div>
 </div>
 
-<!-- Delete Vendor Modal -->
+<!-- Delete Business Modal -->
 <div class="modal fade" id="deleteVendorModal" tabindex="-1" aria-labelledby="deleteVendorLabel" aria-hidden="true">
   <div class="modal-dialog">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title" id="deleteVendorLabel">Delete Vendor</h5>
+        <h5 class="modal-title" id="deleteVendorLabel">Delete Business</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <form id="deleteVendorForm" method="POST" action="#">
         @csrf
         @method('DELETE')
         <div class="modal-body">
-          <p class="mb-1">You're about to delete this vendor:</p>
+          <p class="mb-1">You're about to delete this business:</p>
           <input type="text" id="deleteVendorName" class="form-control" disabled>
           <p class="mt-3 mb-0 text-danger small">This action cannot be undone.</p>
         </div>
@@ -152,7 +150,7 @@
   <div class="modal-dialog">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title" id="createVendorLabel">Add Vendor</h5>
+        <h5 class="modal-title" id="createVendorLabel">Add Business</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <form action="{{ route('admin.vendors.store') }}" method="POST">
@@ -191,12 +189,12 @@
   </div>
 </div>
 
-<!-- Edit Vendor Modal -->
+<!-- Edit Business Modal -->
 <div class="modal fade" id="editVendorModal" tabindex="-1" aria-labelledby="editVendorLabel" aria-hidden="true">
   <div class="modal-dialog">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title" id="editVendorLabel">Edit Vendor</h5>
+        <h5 class="modal-title" id="editVendorLabel">Edit Business</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <form id="editVendorForm" action="#" method="POST">
@@ -237,12 +235,12 @@
     </div>
   </div>
 </div>
-<!-- Filter Vendors Modal -->
+<!-- Filter Businesses Modal -->
 <div class="modal fade" id="filterVendorsModal" tabindex="-1" aria-labelledby="filterVendorsLabel" aria-hidden="true">
   <div class="modal-dialog modal-lg">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title" id="filterVendorsLabel">Filter Vendors</h5>
+        <h5 class="modal-title" id="filterVendorsLabel">Filter Businesses</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <form method="GET">
@@ -280,19 +278,19 @@
   </div>
 </div>
 
-<!-- Suspend Vendor Modal -->
+<!-- Suspend Business Modal -->
 <div class="modal fade" id="suspendVendorModal" tabindex="-1" aria-labelledby="suspendVendorLabel" aria-hidden="true">
   <div class="modal-dialog">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title" id="suspendVendorLabel">Suspend Vendor</h5>
+        <h5 class="modal-title" id="suspendVendorLabel">Suspend Business</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <form id="suspendVendorForm" method="POST">
         @csrf
         <div class="modal-body">
           <div class="mb-3">
-            <label class="form-label">Vendor</label>
+            <label class="form-label">Business</label>
             <input type="text" class="form-control" id="suspendVendorName" disabled>
           </div>
           <div class="mb-3">
@@ -309,22 +307,22 @@
   </div>
   </div>
 
-<!-- Activate Vendor Modal -->
+<!-- Activate Business Modal -->
 <div class="modal fade" id="activateVendorModal" tabindex="-1" aria-labelledby="activateVendorLabel" aria-hidden="true">
   <div class="modal-dialog">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title" id="activateVendorLabel">Activate Vendor</h5>
+        <h5 class="modal-title" id="activateVendorLabel">Activate Business</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <form id="activateVendorForm" method="POST">
         @csrf
         <div class="modal-body">
           <div class="alert alert-info">
-            <strong>ℹ️ Note:</strong> Activating this vendor will also approve their KYC submission. This action means you are okay with the vendor's KYC submission.
+            <strong>ℹ️ Note:</strong> Activating this business will also approve their KYC submission. This action means you are okay with the vendor's KYC submission.
           </div>
           <div class="mb-3">
-            <label class="form-label">Vendor</label>
+            <label class="form-label">Business</label>
             <input type="text" class="form-control" id="activateVendorName" disabled>
           </div>
           <div class="mb-3">
@@ -358,7 +356,7 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 });
 
-// Delete Vendor modal population
+// Delete Business modal population
 document.addEventListener('DOMContentLoaded', function() {
   var modal = document.getElementById('deleteVendorModal');
   if (!modal) return;
@@ -373,7 +371,7 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 });
 
-// Edit Vendor modal population
+// Edit Business modal population
 document.addEventListener('DOMContentLoaded', function() {
   var modal = document.getElementById('editVendorModal');
   if (!modal) return;

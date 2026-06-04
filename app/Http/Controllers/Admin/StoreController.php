@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\Business;
 use App\Models\Store;
 use App\Models\User;
 use App\Models\OwnershipType;
@@ -39,7 +40,7 @@ class StoreController extends Controller
         $from = $request->query('from');
         $to = $request->query('to');
 
-        $storesQuery = Store::query()->with(['vendor','ownershipType','businessType'])
+        $storesQuery = Store::query()->with(['vendor', 'business', 'ownershipType', 'businessType'])
             ->where('status', '!=', 'deleted');
         if (in_array(strtolower((string)$status), ['active','inactive','suspended','deleted'], true)) {
             $storesQuery->where('status', strtolower($status));
@@ -66,26 +67,26 @@ class StoreController extends Controller
         $stores = $storesQuery->latest()->paginate(15)->withQueryString();
         $mainStoreId = Setting::value('main_store_id');
         // For create/edit modals
-        $users = User::where('role', 'business_owner')->orderBy('name')->get();
+        $businesses = Business::with('owner')->orderBy('name')->get();
         $ownershipTypes = OwnershipType::orderBy('name')->get();
         $businessTypes = BusinessType::orderBy('name')->get();
-        return view('admin.stores.index', compact('stores','mainStoreId','status','q','from','to','vendors','ownershipTypes','businessTypes'))
+        return view('admin.stores.index', compact('stores','mainStoreId','status','q','from','to','businesses','ownershipTypes','businessTypes'))
             ->with('storeStatusBadgeData', Store::statusBadgeData());
     }
 
     public function show(Store $store)
     {
         Log::info('store_show_viewed', ['user_id' => auth()->id(), 'store_id' => $store->id]);
-        $store->load(['vendor','ownershipType','businessType']);
+        $store->load(['vendor', 'business', 'ownershipType', 'businessType']);
         $productCount = Product::where('store_id', $store->id)->count();
         $recentProducts = Product::where('store_id', $store->id)->latest()->take(10)->get();
         $categories = Category::where('store_id', $store->id)->orderBy('name')->get();
         $packs = Pack::where('store_id', $store->id)->latest()->take(10)->get();
         // For inline modals on the show page
-        $users = User::where('role', 'business_owner')->orderBy('name')->get();
+        $businesses = Business::with('owner')->orderBy('name')->get();
         $ownershipTypes = OwnershipType::orderBy('name')->get();
         $businessTypes = BusinessType::orderBy('name')->get();
-        return view('admin.stores.show', compact('store','productCount','recentProducts','categories','packs','vendors','ownershipTypes','businessTypes'));
+        return view('admin.stores.show', compact('store','productCount','recentProducts','categories','packs','businesses','ownershipTypes','businessTypes'));
     }
 
     public function create()
@@ -105,10 +106,10 @@ class StoreController extends Controller
                 if ($lockedVendor) { $lockVendor = true; }
             }
         }
-        $users = User::where('role', 'business_owner')->orderBy('name')->get();
+        $businesses = Business::with('owner')->orderBy('name')->get();
         $ownershipTypes = OwnershipType::orderBy('name')->get();
         $businessTypes = BusinessType::orderBy('name')->get();
-        return view('admin.stores.create', compact('vendors','ownershipTypes','businessTypes','lockVendor','lockedVendor'));
+        return view('admin.stores.create', compact('businesses','ownershipTypes','businessTypes','lockVendor','lockedVendor'));
     }
 
     public function store(Request $request)
@@ -121,7 +122,7 @@ class StoreController extends Controller
             return redirect()->route('admin.stores.index')->with('error', 'multi-vendor crontrols is incomplete');
         }
         $data = $request->validate([
-            'user_id' => 'required|exists:vendors,id',
+            'business_id' => 'required|exists:businesses,id',
             'name' => 'required|string|max:255',
             'slug' => 'nullable|string|max:255',
             'description' => 'nullable|string',
@@ -146,6 +147,10 @@ class StoreController extends Controller
             $data['logo_path'] = $request->file('logo')->store('stores/logos', 'public');
         }
         unset($data['logo']);
+        // Resolve user_id from business
+        $business = Business::find($data['business_id']);
+        $data['user_id'] = $business?->user_id;
+        unset($data['business_id']);
         // If multi-vendor setup not allowed, always attach superadmin's vendor
         if (!$allow) {
             $superadmin = User::where('role', 'superadmin')->orderBy('id')->first();
@@ -196,17 +201,17 @@ class StoreController extends Controller
     public function edit(Store $store)
     {
         Log::info('store_edit_viewed', ['user_id' => auth()->id(), 'store_id' => $store->id]);
-        $users = User::where('role', 'business_owner')->orderBy('name')->get();
+        $businesses = Business::with('owner')->orderBy('name')->get();
         $ownershipTypes = OwnershipType::orderBy('name')->get();
         $businessTypes = BusinessType::orderBy('name')->get();
-        return view('admin.stores.edit', compact('store','vendors','ownershipTypes','businessTypes'));
+        return view('admin.stores.edit', compact('store','businesses','ownershipTypes','businessTypes'));
     }
 
     public function update(Request $request, Store $store)
     {
         Log::info('store_update_requested', ['user_id' => auth()->id(), 'store_id' => $store->id, 'ip' => $request->ip()]);
         $data = $request->validate([
-            'user_id' => 'required|exists:vendors,id',
+            'business_id' => 'required|exists:businesses,id',
             'name' => 'required|string|max:255',
             'slug' => 'nullable|string|max:255',
             'description' => 'nullable|string',
@@ -250,6 +255,10 @@ class StoreController extends Controller
             $data['logo_path'] = $request->file('logo')->store('stores/logos', 'public');
         }
         unset($data['logo']);
+        // Resolve user_id from business
+        $business = Business::find($data['business_id']);
+        $data['user_id'] = $business?->user_id;
+        unset($data['business_id']);
         // Prevent inactivating/suspending the main homepage store via edit form
         $blockedStatusChange = false;
         if (isset($data['status']) && in_array(strtolower($data['status']), ['inactive','suspended'], true)) {

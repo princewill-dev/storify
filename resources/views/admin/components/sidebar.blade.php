@@ -41,12 +41,12 @@
             <li>
                 <a class="has-arrow" href="javascript:void(0);" aria-expanded="false">
                     <div class="menu-icon">
-                        <i class="fi fi-rr-users-alt"></i>
-                    </div>	
-                    <span class="nav-text" data-i18n="Vendors">Vendors</span>
+                        <i class="fi fi-rr-building"></i>
+                    </div>
+                    <span class="nav-text" data-i18n="Businesses">Businesses</span>
                 </a>
                 <ul aria-expanded="false">
-                    <li><a href="{{ route('admin.vendors.index') }}" data-i18n="All">All</a></li>
+                    <li><a href="{{ route('admin.vendors.index') }}" data-i18n="All">All Businesses</a></li>
                     <li><a href="{{ route('admin.vendor-kyc.index') }}" data-i18n="KYC submissions">KYC submissions</a></li>
                     <li><a href="{{ route('admin.early-access.index') }}" data-i18n="Access code">Access code</a></li>
                 </ul>
@@ -58,6 +58,33 @@
                         <i class="fi fi-rr-store-alt"></i>
                     </div>
                     <span class="nav-text">Stores</span>
+                </a>
+            </li>
+
+            <li>
+                <a href="{{ route('admin.warehouses.index') }}" aria-expanded="false">
+                    <div class="menu-icon">
+                        <i class="fi fi-rr-warehouse-alt"></i>
+                    </div>
+                    <span class="nav-text">Warehouses</span>
+                </a>
+            </li>
+
+            <li>
+                <a href="{{ route('admin.transfers.index') }}" aria-expanded="false">
+                    <div class="menu-icon">
+                        <i class="fi fi-rr-arrows-exchange"></i>
+                    </div>
+                    <span class="nav-text">Stock Transfers</span>
+                </a>
+            </li>
+
+            <li>
+                <a href="{{ route('admin.subscriptions.index') }}" aria-expanded="false">
+                    <div class="menu-icon">
+                        <i class="fi fi-rr-credit-card"></i>
+                    </div>
+                    <span class="nav-text">Subscriptions</span>
                 </a>
             </li>
 

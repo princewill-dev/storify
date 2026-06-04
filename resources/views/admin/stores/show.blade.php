@@ -9,7 +9,7 @@
       <button type="button" class="btn btn-primary btn-sm"
               data-bs-toggle="modal" data-bs-target="#editStoreModal"
               data-action="{{ route('admin.stores.update', $store) }}"
-              data-vendor-id="{{ $store->vendor_id }}"
+              data-business-id="{{ $store->business_id }}"
               data-name="{{ $store->name }}"
               data-slug="{{ $store->slug }}"
               data-description="{{ $store->description }}"
@@ -103,13 +103,23 @@
             </div>
           </div>
           <div class="row mt-2">
-            <div class="col-md-6">
+            <div class="col-md-4">
               <div class="text-muted small">Ownership</div>
               <div>{{ $store->ownershipType?->name ?? '—' }}</div>
             </div>
-            <div class="col-md-6">
-              <div class="text-muted small">Business</div>
+            <div class="col-md-4">
+              <div class="text-muted small">Type</div>
               <div>{{ $store->businessType?->name ?? '—' }}</div>
+            </div>
+            <div class="col-md-4">
+              <div class="text-muted small">Business</div>
+              <div>
+                @if($store->business)
+                  <a href="{{ route('admin.vendors.show', $store->vendor) }}">{{ $store->business->name }}</a>
+                @else
+                  —
+                @endif
+              </div>
             </div>
           </div>
           <div class="mt-3">
@@ -142,14 +152,23 @@
 
     <div class="col-lg-6">
       <div class="card h-100">
-        <div class="card-header"><strong>Vendor</strong></div>
+        <div class="card-header"><strong>Business & Owner</strong></div>
         <div class="card-body">
-          @if($store->vendor)
+          @if($store->business)
+            <div class="fw-semibold">{{ $store->business->name }}</div>
+            <div class="text-muted small font-monospace">{{ $store->business->business_code }}</div>
+            <hr>
+            <div class="text-muted small">Owner</div>
+            <div>{{ $store->vendor?->name ?? '—' }}</div>
+            <div class="text-muted small">Email: {{ $store->vendor?->email ?? '—' }}</div>
+            <div class="text-muted small">Phone: {{ $store->vendor?->phone ?? '—' }}</div>
+          @elseif($store->vendor)
             <div class="fw-semibold">{{ $store->vendor->name }}</div>
-            <div class="text-muted">Email: {{ $store->vendor->email ?? '—' }}</div>
-            <div class="text-muted">Phone: {{ $store->vendor->phone ?? '—' }}</div>
+            <div class="text-muted small">Email: {{ $store->vendor->email ?? '—' }}</div>
+            <div class="text-muted small">Phone: {{ $store->vendor->phone ?? '—' }}</div>
+            <div class="alert alert-warning mt-2 mb-0 small">No Business record found.</div>
           @else
-            <div class="text-muted">No vendor assigned.</div>
+            <div class="text-muted">No business or vendor assigned.</div>
           @endif
         </div>
       </div>
@@ -227,11 +246,11 @@
         <input type="hidden" name="redirect_to" value="{{ route('admin.stores.show', $store) }}">
         <div class="modal-body">
           <div class="row mb-3 align-items-center">
-            <div class="col-md-3"><label class="form-label mb-md-0">Vendor</label></div>
+            <div class="col-md-3"><label class="form-label mb-md-0">Business</label></div>
             <div class="col-md-9">
-              <select name="vendor_id" id="editStoreVendor" class="form-select" required>
-                @foreach(($users ?? []) as $v)
-                  <option value="{{ $v->id }}" {{ (int)($store->vendor_id) === (int)($v->id) ? 'selected' : '' }}>{{ $v->name }}</option>
+              <select name="business_id" id="editStoreBusiness" class="form-select" required>
+                @foreach(($businesses ?? []) as $b)
+                  <option value="{{ $b->id }}" {{ (int)($store->business_id) === (int)($b->id) ? 'selected' : '' }}>{{ $b->name }} ({{ $b->owner?->name ?? 'No owner' }})</option>
                 @endforeach
               </select>
             </div>
@@ -435,7 +454,7 @@ document.addEventListener('DOMContentLoaded', function() {
     var action = button.getAttribute('data-action');
     if (form && action) form.action = action;
 
-    var vendorId = button.getAttribute('data-vendor-id') || '';
+    var businessId = button.getAttribute('data-business-id') || '';
     var name = button.getAttribute('data-name') || '';
     var slug = button.getAttribute('data-slug') || '';
     var description = button.getAttribute('data-description') || '';
@@ -451,7 +470,7 @@ document.addEventListener('DOMContentLoaded', function() {
     var status = (button.getAttribute('data-status') || '').toLowerCase();
     var logoUrl = button.getAttribute('data-logo-url') || '';
 
-    document.getElementById('editStoreVendor').value = vendorId;
+    document.getElementById('editStoreBusiness').value = businessId;
     document.getElementById('editStoreName').value = name;
     document.getElementById('editStoreSlug').value = slug;
     document.getElementById('editStoreDescription').value = description;

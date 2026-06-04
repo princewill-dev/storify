@@ -9,6 +9,9 @@ use App\Http\Controllers\Admin\VendorController;
 use App\Http\Controllers\Admin\VendorKycApplicationController;
 use App\Http\Controllers\Admin\LiveFirstController;
 use App\Http\Controllers\Admin\StoreController;
+use App\Http\Controllers\Admin\WarehouseController;
+use App\Http\Controllers\Admin\StockTransferController;
+use App\Http\Controllers\Admin\SubscriptionController;
 use App\Http\Controllers\Admin\ProductController;
 use App\Http\Controllers\Admin\CategoryController;
 use App\Http\Controllers\Admin\BusinessTypeController;
@@ -75,6 +78,19 @@ Route::middleware(['auth'])->group(function () {
         // Pretty category URLs scoped to a store
         Route::get('stores/{store}/categories', [CategoryController::class, 'index'])->name('stores.categories.index');
         Route::get('stores/{store}/categories/create', [CategoryController::class, 'create'])->name('stores.categories.create');
+
+        // Warehouses (admin overview)
+        Route::get('warehouses', [WarehouseController::class, 'index'])->name('warehouses.index');
+        Route::get('warehouses/{warehouse}', [WarehouseController::class, 'show'])->name('warehouses.show');
+
+        // Stock Transfers (admin overview)
+        Route::get('transfers', [StockTransferController::class, 'index'])->name('transfers.index');
+        Route::get('transfers/{transfer}', [StockTransferController::class, 'show'])->name('transfers.show');
+        Route::patch('transfers/{transfer}/approve', [StockTransferController::class, 'approve'])->name('transfers.approve');
+        Route::patch('transfers/{transfer}/reject', [StockTransferController::class, 'reject'])->name('transfers.reject');
+        Route::patch('transfers/{transfer}/dispatch', [StockTransferController::class, 'dispatch'])->name('transfers.dispatch');
+        Route::patch('transfers/{transfer}/receive', [StockTransferController::class, 'receive'])->name('transfers.receive');
+
         Route::resource('business-types', BusinessTypeController::class)->parameters(['business-types' => 'businessType'])->except(['show']);
         Route::resource('ownership-types', OwnershipTypeController::class)->parameters(['ownership-types' => 'ownershipType'])->except(['show']);
         // Company Services
@@ -174,6 +190,9 @@ Route::middleware(['auth'])->group(function () {
             ->parameters(['early-access' => 'earlyPass'])
             ->except(['create', 'edit']);
         Route::post('early-access/{earlyPass}/toggle-status', [\App\Http\Controllers\Admin\AdminEarlyPassController::class, 'toggleStatus'])->name('early-access.toggle-status');
+
+        // Subscriptions
+        Route::get('subscriptions', [SubscriptionController::class, 'index'])->name('subscriptions.index');
 
         // Subscription Plans
         Route::resource('subscription-plans', SubscriptionPlanController::class)->only(['index', 'store', 'update', 'destroy']);

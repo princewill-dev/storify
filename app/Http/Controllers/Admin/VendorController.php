@@ -28,45 +28,43 @@ class VendorController extends Controller
 
     public function index(Request $request)
     {
-        Log::info('vendors_viewed', ['user_id' => auth()->id()]);
+        Log::info('businesses_viewed', ['user_id' => auth()->id()]);
         $status = $request->query('status');
         $q = trim((string) $request->query('q', ''));
         $from = $request->query('from');
         $to = $request->query('to');
 
-        $usersQuery = User::query()
-            ->with(['stores' => function($q){
-                $q->select(['id','store_id','name','user_id'])->limit(3);
-            }, 'kycApplication'])
-            ->withCount('stores');
+        $businessQuery = \App\Models\Business::query()
+            ->with(['owner', 'stores', 'warehouses', 'activeSubscription'])
+            ->withCount(['stores', 'warehouses', 'users']);
+
         if (in_array(strtolower((string)$status), ['active','suspended','deleted'], true)) {
-            $usersQuery->where('status', strtolower($status));
+            $businessQuery->where('status', strtolower($status));
         } else {
-            // Default: hide deleted vendors unless explicitly filtered
-            $usersQuery->where('status', '!=', 'deleted');
+            $businessQuery->where('status', '!=', 'deleted');
         }
         if ($q !== '') {
-            $usersQuery->where(function($x) use ($q) {
+            $businessQuery->where(function($x) use ($q) {
                 $x->where('name', 'like', "%$q%")
-                  ->orWhere('email', 'like', "%$q%")
-                  ->orWhere('phone', 'like', "%$q%");
+                  ->orWhere('business_code', 'like', "%$q%")
+                  ->orWhereHas('owner', fn($o) => $o->where('name', 'like', "%$q%")->orWhere('email', 'like', "%$q%"));
             });
         }
         if ($from || $to) {
             $start = $from ? date('Y-m-d 00:00:00', strtotime($from)) : null;
             $end = $to ? date('Y-m-d 23:59:59', strtotime($to)) : null;
             if ($start && $end) {
-                $usersQuery->whereBetween('created_at', [$start, $end]);
+                $businessQuery->whereBetween('created_at', [$start, $end]);
             } elseif ($start) {
-                $usersQuery->where('created_at', '>=', $start);
+                $businessQuery->where('created_at', '>=', $start);
             } elseif ($end) {
-                $usersQuery->where('created_at', '<=', $end);
+                $businessQuery->where('created_at', '<=', $end);
             }
         }
 
-        $users = $usersQuery->latest()->paginate(15)->withQueryString();
+        $businesses = $businessQuery->latest()->paginate(15)->withQueryString();
         return view('admin.vendors.index', [
-            'vendors' => $users,
+            'businesses' => $businesses,
             'status' => $status,
             'q' => $q,
             'from' => $from,
@@ -202,9 +200,20 @@ class VendorController extends Controller
 
     public function show(User $user)
     {
-        Log::info('vendor_show_viewed', ['user_id' => auth()->id(), 'user_id' => $user->id]);
-        $user->load(['stores' => function($q){ $q->with(['ownershipType','businessType']); }]);
-        return view('admin.vendors.show', compact('user'));
+        Log::info('business_show_viewed', ['user_id' => auth()->id(), 'vendor_user_id' => $user->id]);
+        $business = \App\Models\Business::where('user_id', $user->id)->first();
+        if ($business) {
+            $business->load([
+                'owner',
+                'stores' => fn($q) => $q->with(['ownershipType', 'businessType']),
+                'warehouses' => fn($q) => $q->withCount('stockLocations'),
+                'users' => fn($q) => $q->with('roles'),
+                'activeSubscription.subscriptionPlan',
+                'kycApplications' => fn($q) => $q->latest(),
+            ]);
+            $business->loadCount(['stores', 'warehouses', 'users']);
+        }
+        return view('admin.vendors.show', compact('user', 'business'));
     }
 
     public function suspend(Request $request, User $user)

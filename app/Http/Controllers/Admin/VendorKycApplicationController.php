@@ -23,7 +23,7 @@ class VendorKycApplicationController extends Controller
         ];
 
         $query = KycApplication::query()
-            ->with(['vendor'])
+            ->with(['vendor', 'business'])
             ->latest('submitted_at')
             ->latest();
 

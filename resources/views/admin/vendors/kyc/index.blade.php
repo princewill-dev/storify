@@ -1,7 +1,7 @@
 @extends('admin.layout')
 
-@section('title', 'Vendor KYC Applications')
-@section('subtitle', 'Review and manage vendor verification requests')
+@section('title', 'Business KYC Applications')
+@section('subtitle', 'Review and manage business verification requests')
 
 @section('content')
     <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
@@ -37,7 +37,7 @@
                     <thead class="table-light">
                         <tr>
                             <th>#</th>
-                            <th>Vendor</th>
+                            <th>Business / Vendor</th>
                             <th>Legal Name</th>
                             <th>Submitted</th>
                             <th>Status</th>
@@ -50,10 +50,18 @@
                                 <td>{{ $application->id }}</td>
                                 <td>
                                     <div class="d-flex flex-column">
-                                        <a href="{{ route('admin.vendors.show', $application->vendor) }}" class="fw-semibold">
-                                            {{ $application->vendor->name }}
-                                        </a>
-                                        <span class="text-muted small">{{ $application->vendor->email }}</span>
+                                        @if($application->business)
+                                            <a href="{{ route('admin.vendors.show', $application->vendor) }}" class="fw-semibold">
+                                                {{ $application->business->name }}
+                                            </a>
+                                            <span class="text-muted small font-monospace">{{ $application->business->business_code }}</span>
+                                            <span class="text-muted small">Owner: {{ $application->vendor?->name }}</span>
+                                        @else
+                                            <a href="{{ route('admin.vendors.show', $application->vendor) }}" class="fw-semibold">
+                                                {{ $application->vendor->name }}
+                                            </a>
+                                            <span class="text-muted small">{{ $application->vendor->email }}</span>
+                                        @endif
                                     </div>
                                 </td>
                                 <td>{{ $application->legal_name }}</td>

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
+use App\Models\Business;
 use App\Models\User;
 use App\Services\ActivityLogger;
 use App\Models\Setting;
@@ -12,6 +13,7 @@ use App\Models\Customer;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\Transaction;
+use App\Models\Warehouse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -54,9 +56,11 @@ class AdminDashboardController extends Controller
                 ->whereYear('created_at', now()->year)
                 ->count(),
             
-            // Vendor & Store metrics
-            'total_vendors' => User::where('role', 'business_owner')->count(),
-            'active_vendors' => User::where('role', 'business_owner')->where('status', 'active')->count(),
+            // Business, Warehouse & Store metrics
+            'total_businesses' => Business::count(),
+            'active_businesses' => Business::where('status', 'active')->count(),
+            'total_warehouses' => Warehouse::where('status', '!=', 'deleted')->count(),
+            'total_staff' => User::whereNotNull('business_id')->where('role', '!=', 'business_owner')->count(),
             'total_stores' => Store::count(),
             'active_stores' => Store::where('status', 'active')->count(),
             
