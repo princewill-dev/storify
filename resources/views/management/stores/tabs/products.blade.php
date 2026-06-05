@@ -75,8 +75,20 @@
         </table>
         </div>
         @if($products->hasPages())
-        <div class="px-4 py-3 border-t border-slate-200 bg-slate-50">
-            {{ $products->links() }}
+        <div class="px-4 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
+            <span class="text-xs text-slate-400">Showing {{ $products->firstItem() }}–{{ $products->lastItem() }} of {{ $products->total() }}</span>
+            <div class="flex items-center gap-1">
+                @if($products->onFirstPage())
+                    <span class="px-3 py-1.5 text-xs text-slate-300 bg-slate-100 rounded-md cursor-not-allowed">Previous</span>
+                @else
+                    <a href="{{ $products->previousPageUrl() }}" class="px-3 py-1.5 text-xs font-medium text-slate-600 bg-white border border-slate-200 rounded-md hover:bg-slate-50">Previous</a>
+                @endif
+                @if($products->hasMorePages())
+                    <a href="{{ $products->nextPageUrl() }}" class="px-3 py-1.5 text-xs font-medium text-slate-600 bg-white border border-slate-200 rounded-md hover:bg-slate-50">Next</a>
+                @else
+                    <span class="px-3 py-1.5 text-xs text-slate-300 bg-slate-100 rounded-md cursor-not-allowed">Next</span>
+                @endif
+            </div>
         </div>
         @endif
     </div>

@@ -302,13 +302,14 @@ class StoreController extends Controller
         $lastMonthEnd = $now->copy()->subMonth()->endOfMonth();
 
         // Consolidated transaction revenue aggregates (1 query instead of 3)
+        // Use COALESCE(paid_at, created_at) because POS transactions don't set paid_at
         $txStats = \App\Models\Transaction::query()
             ->whereHas('order', fn($q) => $q->where('store_id', $store->id))
             ->where('status', 'confirmed')
             ->selectRaw("
                 COALESCE(SUM(amount), 0) as total_revenue,
-                COALESCE(SUM(CASE WHEN paid_at BETWEEN ? AND ? THEN amount ELSE 0 END), 0) as revenue_this_month,
-                COALESCE(SUM(CASE WHEN paid_at BETWEEN ? AND ? THEN amount ELSE 0 END), 0) as last_month_revenue
+                COALESCE(SUM(CASE WHEN COALESCE(paid_at, created_at) BETWEEN ? AND ? THEN amount ELSE 0 END), 0) as revenue_this_month,
+                COALESCE(SUM(CASE WHEN COALESCE(paid_at, created_at) BETWEEN ? AND ? THEN amount ELSE 0 END), 0) as last_month_revenue
             ", [$startOfMonth, $endOfMonth, $lastMonthStart, $lastMonthEnd])
             ->first();
 
@@ -363,12 +364,13 @@ class StoreController extends Controller
             ->first();
 
         // Single grouped monthly revenue query instead of 6 separate queries in a loop
+        // Use COALESCE(paid_at, created_at) because POS transactions don't set paid_at
         $sixMonthsAgo = $now->copy()->subMonths(6)->startOfMonth();
         $monthlyData = \App\Models\Transaction::query()
             ->whereHas('order', fn($q) => $q->where('store_id', $store->id))
             ->where('status', 'confirmed')
-            ->where('paid_at', '>=', $sixMonthsAgo)
-            ->selectRaw("DATE_FORMAT(paid_at, '%Y-%m') as month, COALESCE(SUM(amount), 0) as total")
+            ->whereRaw('COALESCE(paid_at, created_at) >= ?', [$sixMonthsAgo])
+            ->selectRaw("DATE_FORMAT(COALESCE(paid_at, created_at), '%Y-%m') as month, COALESCE(SUM(amount), 0) as total")
             ->groupBy('month')
             ->orderBy('month')
             ->get()
@@ -776,6 +778,33 @@ class StoreController extends Controller
         return back()->with('success', $user->name . ' removed from this store.');
     }
 
+    private function tabTransactions(Request $request, Store $store, User $user): View
+    {
+        $query = \App\Models\Transaction::query()
+            ->whereHas('order', fn($q) => $q->where('store_id', $store->id))
+            ->with(['order.customer', 'paymentMethod']);
+
+        if ($request->filled('status')) {
+            $query->where('status', $request->status);
+        }
+
+        $transactions = $query->latest()->paginate(15)->withQueryString();
+
+        return view('management.stores.tabs.transactions', compact('user', 'store', 'transactions'));
+    }
+
+    private function tabCustomers(Store $store, User $user): View
+    {
+        $customers = \App\Models\Customer::query()
+            ->whereHas('orders', fn($q) => $q->where('store_id', $store->id))
+            ->withCount(['orders as orders_count' => fn($q) => $q->where('store_id', $store->id)])
+            ->latest()
+            ->paginate(15)
+            ->withQueryString();
+
+        return view('management.stores.tabs.customers', compact('user', 'store', 'customers'));
+    }
+
     private function canAccessStore(?User $user, Store $store): bool
     {
         if (!$user) return false;
@@ -802,6 +831,8 @@ class StoreController extends Controller
             'orders' => $this->tabOrders($request, $store, $user),
             'settings' => $this->tabSettings($store, $user),
             'staff' => $this->tabStaff($store, $user),
+            'transactions' => $this->tabTransactions($request, $store, $user),
+            'customers' => $this->tabCustomers($store, $user),
             'web-metrics' => $this->webMetrics($request, $store),
             default => abort(404, 'Unknown tab'),
         };

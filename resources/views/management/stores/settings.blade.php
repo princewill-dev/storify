@@ -28,7 +28,6 @@
                 @csrf @method('PUT')
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <x-management.form-input name="name" label="Store Name" :value="old('name', $store->name)" required :error="$errors->first('name')" />
-                    <x-management.form-input name="slug" label="Slug" :value="old('slug', $store->slug)" :error="$errors->first('slug')" />
                     <x-management.form-input name="support_email" label="Support Email" type="email" :value="old('support_email', $store->support_email)" :error="$errors->first('support_email')" />
                     <x-management.form-input name="support_phone" label="Support Phone" :value="old('support_phone', $store->support_phone)" :error="$errors->first('support_phone')" />
                 </div>

@@ -19,8 +19,10 @@
     <button @click="switchTab('products')" :class="activeTab === 'products' ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'" class="px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap -mb-px transition-colors">Products</button>
     @endcan
     @can('orders view')
-    <button @click="switchTab('orders')" :class="activeTab === 'orders' ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'" class="px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap -mb-px transition-colors">Orders</button>
+    <button @click="switchTab('orders')" :class="activeTab === 'orders' ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'" class="px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap -mb-px transition-colors">Sales</button>
     @endcan
+    <button @click="switchTab('transactions')" :class="activeTab === 'transactions' ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'" class="px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap -mb-px transition-colors">Transactions</button>
+    <button @click="switchTab('customers')" :class="activeTab === 'customers' ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'" class="px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap -mb-px transition-colors">Customers</button>
     @can('staff view')
     <button @click="switchTab('staff')" :class="activeTab === 'staff' ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'" class="px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap -mb-px transition-colors">Staff</button>
     @endcan
@@ -42,7 +44,7 @@
 
         <x-management.metric-card
             :value="$totalOrders"
-            label="Total Orders"
+            label="Total Sales"
             :subtitle="$pendingOrders . ' pending · ' . $completedOrders . ' completed'"
             icon="fi-rr-box-alt" />
 
@@ -72,7 +74,7 @@
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {{-- Recent Orders --}}
         <div class="lg:col-span-2">
-            <x-management.card header="Recent Orders">
+            <x-management.card header="Recent Sales">
                 <div class="divide-y divide-slate-100 -mx-5 -mb-5">
                     @forelse($recentOrders as $order)
                     <a href="{{ route('management.orders.show', $order) }}" class="flex items-center justify-between px-5 py-3 hover:bg-slate-50 transition-colors">
@@ -86,7 +88,7 @@
                         <span class="text-sm font-semibold text-slate-800">₦{{ number_format($order->total, 2) }}</span>
                     </a>
                     @empty
-                    <div class="px-5 py-6 text-center text-sm text-slate-400">No orders yet</div>
+                    <div class="px-5 py-6 text-center text-sm text-slate-400">No sales yet</div>
                     @endforelse
                 </div>
             </x-management.card>
@@ -240,10 +242,43 @@ document.addEventListener('alpine:init', () => {
         tabContent: {},
         baseUrl: `/management/stores/${storeId}/tab`,
 
+        init() {
+            // Restore tab from URL hash on page load
+            const hash = window.location.hash.replace('#', '');
+            const validTabs = ['dashboard', 'products', 'orders', 'transactions', 'customers', 'staff', 'web-metrics', 'settings'];
+            if (hash && validTabs.includes(hash)) {
+                this.switchTab(hash);
+            }
+
+            // Listen for browser back/forward
+            window.addEventListener('hashchange', () => {
+                const newHash = window.location.hash.replace('#', '');
+                if (newHash && validTabs.includes(newHash) && newHash !== this.activeTab) {
+                    this.switchTab(newHash);
+                }
+            });
+
+            // Listen for custom tab-switch events from loaded tab content
+            window.addEventListener('store-tab-switch', (e) => {
+                const { tab, scrollTo } = e.detail;
+                if (tab && validTabs.includes(tab)) {
+                    this._pendingScroll = scrollTo || null;
+                    this.switchTab(tab);
+                }
+            });
+        },
+
         switchTab(tab) {
             if (this.activeTab === tab) return;
             this.activeTab = tab;
             this.error = null;
+
+            // Update URL hash for persistence
+            if (tab !== 'dashboard') {
+                window.location.hash = tab;
+            } else {
+                history.replaceState(null, '', window.location.pathname + window.location.search);
+            }
 
             // Web Metrics tab navigates to full page (needs chart libs)
             if (tab === 'web-metrics') {
@@ -280,6 +315,15 @@ document.addEventListener('alpine:init', () => {
 
                 const html = await resp.text();
                 this.tabContent[tab] = html;
+
+                // Scroll to target element if requested
+                if (this._pendingScroll) {
+                    this.$nextTick(() => {
+                        const el = document.getElementById(this._pendingScroll);
+                        if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+                        this._pendingScroll = null;
+                    });
+                }
             } catch (e) {
                 console.error('Tab fetch error:', e);
                 this.error = e.message || 'Failed to load content.';
@@ -288,28 +332,24 @@ document.addEventListener('alpine:init', () => {
             }
         },
 
-        // Handle pagination clicks inside loaded tab content
+        // Handle pagination and filter clicks inside loaded tab content
         handleTabClick(event) {
             const link = event.target.closest('a');
             if (!link) return;
 
-            // Only intercept pagination/filter links, not action links
             const href = link.getAttribute('href');
             if (!href || href === '#') return;
 
-            // Intercept links that look like same-tab pagination/filter requests
-            const tabBase = `${this.baseUrl}/${this.activeTab}`;
-            if (href.includes('/management/stores/') && href.includes('/tab/')) {
-                // Already an AJAX tab link — let fetchTab handle it
-            } else if (href.includes('page=') || link.closest('.pagination') || link.closest('nav[role="navigation"]')) {
-                // Pagination link within tab content
+            // Intercept tab pagination/filter links to stay within the tab
+            if (href.includes('/tab/') || link.closest('.pagination') || link.closest('nav[role="navigation"]') || href.includes('page=')) {
                 event.preventDefault();
                 const url = new URL(href, window.location.origin);
-                this.fetchTab(this.activeTab, url.searchParams.toString());
-            } else if (link.closest('form') || link.getAttribute('data-method') || href.includes('/management/')) {
-                // Action links or management navigation — allow full navigation
+                const tab = url.pathname.split('/tab/')[1]?.split('/')[0] || this.activeTab;
+                this.fetchTab(tab, url.searchParams.toString());
                 return;
             }
+
+            // Allow full navigation for links to other management pages
         },
 
         // Handle browser back/forward

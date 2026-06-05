@@ -50,9 +50,9 @@
 
 <div x-data="warehouseTabs('{{ $products->pluck('id')->join(',') }}', '{{ $warehouse->warehouse_code }}')">
     <div class="flex items-center gap-1 mb-4 border-b border-slate-200">
-        <button @click="tab = 'products'" :class="tab === 'products' ? 'active' : ''" class="tab-btn px-4 py-2.5 text-sm font-medium text-slate-500 hover:text-slate-700 transition-colors border-b-2 border-transparent">Products · {{ $productCount }}</button>
-        <button @click="tab = 'sections'" :class="tab === 'sections' ? 'active' : ''" class="tab-btn px-4 py-2.5 text-sm font-medium text-slate-500 hover:text-slate-700 transition-colors border-b-2 border-transparent">Sections · {{ $warehouse->sections->count() }}</button>
-        <button @click="tab = 'activity'" :class="tab === 'activity' ? 'active' : ''" class="tab-btn px-4 py-2.5 text-sm font-medium text-slate-500 hover:text-slate-700 transition-colors border-b-2 border-transparent">Activity</button>
+        <button @click="setTab('products')" :class="tab === 'products' ? 'active' : ''" class="tab-btn px-4 py-2.5 text-sm font-medium text-slate-500 hover:text-slate-700 transition-colors border-b-2 border-transparent">Products · {{ $productCount }}</button>
+        <button @click="setTab('sections')" :class="tab === 'sections' ? 'active' : ''" class="tab-btn px-4 py-2.5 text-sm font-medium text-slate-500 hover:text-slate-700 transition-colors border-b-2 border-transparent">Sections · {{ $warehouse->sections->count() }}</button>
+        <button @click="setTab('activity')" :class="tab === 'activity' ? 'active' : ''" class="tab-btn px-4 py-2.5 text-sm font-medium text-slate-500 hover:text-slate-700 transition-colors border-b-2 border-transparent">Activity</button>
         <button @click="switchSettingsTab()" :class="tab === 'settings' ? 'active' : ''" class="tab-btn px-4 py-2.5 text-sm font-medium text-slate-500 hover:text-slate-700 transition-colors border-b-2 border-transparent">Settings</button>
     </div>
 
@@ -280,9 +280,30 @@ document.addEventListener('alpine:init', () => {
         tabError: null,
         tabContent: {},
 
+        init() {
+            const hash = window.location.hash.replace('#', '');
+            const validTabs = ['products', 'sections', 'activity', 'settings'];
+            if (hash && validTabs.includes(hash)) {
+                this.tab = hash;
+                if (hash === 'settings' && !this.tabContent['settings']) {
+                    this.fetchSettingsTab();
+                }
+            }
+        },
+
+        setTab(t) {
+            this.tab = t;
+            if (t !== 'products') {
+                window.location.hash = t;
+            } else {
+                history.replaceState(null, '', window.location.pathname + window.location.search);
+            }
+        },
+
         switchSettingsTab() {
             this.tab = 'settings';
             this.tabError = null;
+            window.location.hash = 'settings';
             if (!this.tabContent['settings']) {
                 this.fetchSettingsTab();
             }

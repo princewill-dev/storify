@@ -9,7 +9,6 @@
                 <input type="hidden" name="redirect_to" value="{{ route('management.stores.show', $store) }}">
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <x-management.form-input name="name" label="Store Name" :value="old('name', $store->name)" required :error="$errors->first('name')" />
-                    <x-management.form-input name="slug" label="Slug" :value="old('slug', $store->slug)" :error="$errors->first('slug')" />
                     <x-management.form-input name="support_email" label="Support Email" type="email" :value="old('support_email', $store->support_email)" :error="$errors->first('support_email')" />
                     <x-management.form-input name="support_phone" label="Support Phone" :value="old('support_phone', $store->support_phone)" :error="$errors->first('support_phone')" />
                 </div>
@@ -45,7 +44,7 @@
         </x-management.card>
 
         {{-- Staff Assignments --}}
-        <x-management.card header="Assigned Staff">
+        <x-management.card id="assigned-staff-card" header="Assigned Staff">
             @if($store->assignedStaff->isNotEmpty())
             <div class="divide-y divide-slate-100 -mx-5 -mt-5 mb-4">
                 @foreach($store->assignedStaff as $staffMember)
@@ -78,7 +77,7 @@
                     <select name="user_id" class="block w-full rounded-lg border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-slate-500 focus:ring-slate-500">
                         <option value="">Select staff...</option>
                         @foreach($availableStaff as $s)
-                        <option value="{{ $s->id }}">{{ $s->name }} ({{ $s->email }})</option>
+                        <option value="{{ $s->id }}">{{ $s->name }} — {{ $s->roles->pluck('name')->join(', ') ?: 'No role' }}</option>
                         @endforeach
                     </select>
                 </div>
