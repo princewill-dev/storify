@@ -99,6 +99,8 @@ Route::prefix('management')->name('management.')->group(function () {
                 Route::get('/stores/{store}', [StoreController::class, 'show'])->name('stores.show');
                 Route::get('/stores/{store}/finalize', [StoreController::class, 'success'])->name('stores.success.new');
                 Route::get('/stores/{store}/web-metrics', [StoreController::class, 'webMetrics'])->name('stores.web-metrics');
+                // AJAX tab endpoints for store detail page
+                Route::get('/stores/{store}/tab/{tab}', [StoreController::class, 'loadTab'])->name('stores.tab');
             });
             Route::middleware('permission:stores edit')->group(function () {
                 Route::put('/stores/{store}', [StoreController::class, 'update'])->name('stores.update');
@@ -198,6 +200,10 @@ Route::prefix('management')->name('management.')->group(function () {
                 Route::get('/orders', [OrderController::class, 'index'])->name('orders.index');
                 Route::get('/orders/{order}', [OrderController::class, 'show'])->name('orders.show');
                 Route::get('/orders/{order}/edit', [OrderController::class, 'edit'])->name('orders.edit');
+                Route::get('/stores/{store}/orders', function (\App\Models\Store $store) {
+                    request()->merge(['store_id' => $store->store_id]);
+                    return app()->call([app(OrderController::class), 'index']);
+                })->name('stores.orders');
             });
             Route::middleware('permission:orders edit')->group(function () {
                 Route::put('/orders/{order}', [OrderController::class, 'update'])->name('orders.update');
@@ -285,6 +291,8 @@ Route::prefix('management')->name('management.')->group(function () {
             Route::middleware('permission:warehouses view')->group(function () {
                 Route::get('/warehouses', [WarehouseController::class, 'index'])->name('warehouses.index');
                 Route::get('/warehouses/{warehouse}', [WarehouseController::class, 'show'])->name('warehouses.show');
+                // AJAX tab endpoint for warehouse detail page
+                Route::get('/warehouses/{warehouse}/tab/{tab}', [WarehouseController::class, 'loadTab'])->name('warehouses.tab');
             });
             Route::middleware('permission:warehouses edit')->group(function () {
                 Route::get('/warehouses/{warehouse}/edit', [WarehouseController::class, 'edit'])->name('warehouses.edit');

@@ -2,7 +2,7 @@
 @section('subtitle', $customer->first_name . ' ' . $customer->last_name)
 
 @section('content')
-<x-management.page-header :title="$customer->first_name . ' ' . $customer->last_name" subtitle="Customer since {{ $customer->created_at->format('d M Y') }}">
+<x-management.page-header :breadcrumbs="$breadcrumbs" :title="$customer->first_name . ' ' . $customer->last_name" subtitle="Customer since {{ $customer->created_at->format('d M Y') }}">
     <x-slot:actions><x-management.status-badge :status="$customer->status" /></x-slot:actions>
 </x-management.page-header>
 

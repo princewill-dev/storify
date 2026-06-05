@@ -10,7 +10,7 @@ $activeSidebarWarehouseId = request()->route('warehouse')?->id;
 if (request()->routeIs('management.stores.*') || request()->routeIs('management.orders.*') || (request()->routeIs('management.staff.*') && request()->filled('store_id'))) {
     $activeSidebarGroup = 'stores';
     if (request()->filled('store_id') && !$activeSidebarStoreId) {
-        $resolvedStore = \App\Models\Store::where('store_id', request()->query('store_id'))->first();
+        $resolvedStore = ($sidebarStores ?? collect())->where('store_id', request()->query('store_id'))->first();
         $activeSidebarStoreId = $resolvedStore?->id;
     }
 } elseif (request()->routeIs('management.products.*') || request()->routeIs('management.categories.*') || request()->routeIs('management.services.*') || request()->routeIs('management.stores.products')) {

@@ -2,7 +2,7 @@
 @section('subtitle', 'POS Sessions')
 
 @section('content')
-<x-management.page-header title="POS Sessions" subtitle="{{ $store->name ?? 'Store' }} · Cash register session history" />
+<x-management.page-header :breadcrumbs="$breadcrumbs" title="POS Sessions" subtitle="{{ $store->name ?? 'Store' }} · Cash register session history" />
 
 <x-management.card>
     <x-management.data-table>

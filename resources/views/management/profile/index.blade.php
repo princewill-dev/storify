@@ -2,7 +2,7 @@
 @section('subtitle', 'Profile')
 
 @section('content')
-<x-management.page-header title="Profile" subtitle="Manage your account and photo" />
+<x-management.page-header :breadcrumbs="$breadcrumbs" title="Profile" subtitle="Manage your account and photo" />
 
 <div x-data="photoUpload('{{ $user->photoUrl() }}', {{ json_encode((bool) $user->photo_path) }})">
     @if(session('success'))

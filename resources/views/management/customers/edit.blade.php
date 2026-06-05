@@ -2,119 +2,57 @@
 @section('subtitle', 'Edit Customer')
 
 @section('content')
-<div class="container-fluid">
-    <div class="row mb-4">
-        <div class="col-12 d-flex justify-content-between align-items-center">
-            <div>
-                <a href="{{ route('admin.customers.show', $customer) }}" class="btn btn-sm btn-secondary">
-                    <i class="fi fi-rr-arrow-left"></i> Back to Customer
-                </a>
-                <h2 class="mt-3 mb-0">Edit Customer</h2>
-                <p class="text-muted mb-0">Account ID: <code>{{ $customer->account_id }}</code></p>
+<x-management.page-header :breadcrumbs="$breadcrumbs" title="Edit Customer" :subtitle="$customer->first_name . ' ' . $customer->last_name . ' · ' . $customer->account_id">
+    <x-slot:actions>
+        <a href="{{ route('management.customers.show', $customer) }}" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors">
+            <i class="fi fi-rr-arrow-left text-xs"></i> Back
+        </a>
+    </x-slot:actions>
+</x-management.page-header>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <div class="lg:col-span-2">
+        <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <div class="px-5 py-4 border-b border-slate-100">
+                <h3 class="text-sm font-semibold text-slate-800">Customer Details</h3>
             </div>
-            <div class="text-end">
-                <span class="badge bg-light text-dark border">Last login: {{ $customer->last_login?->format('M d, Y H:i') ?? 'Never' }}</span>
-            </div>
+            <form method="POST" action="{{ route('management.customers.update', $customer) }}" class="p-5 space-y-4">
+                @csrf @method('PUT')
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <x-management.form-input name="first_name" label="First Name" :value="old('first_name', $customer->first_name)" required :error="$errors->first('first_name')" />
+                    <x-management.form-input name="last_name" label="Last Name" :value="old('last_name', $customer->last_name)" required :error="$errors->first('last_name')" />
+                    <x-management.form-input name="email" label="Email Address" type="email" :value="old('email', $customer->email)" required :error="$errors->first('email')" />
+                    <x-management.form-input name="phone" label="Phone" :value="old('phone', $customer->phone)" :error="$errors->first('phone')" />
+                    <x-management.form-input name="location" label="Location" :value="old('location', $customer->location)" placeholder="City, Country" :error="$errors->first('location')" />
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">Status</label>
+                        <select name="status" class="w-full rounded-lg border-slate-300 text-sm shadow-sm focus:border-slate-500 focus:ring-slate-500">
+                            @foreach($statuses as $value => $label)
+                                <option value="{{ $value }}" @selected(old('status', $customer->status) === $value)>{{ $label }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                </div>
+                <div class="flex items-center justify-between pt-4 border-t border-slate-100">
+                    <span class="text-xs text-slate-400">Created {{ $customer->created_at->format('d M Y, H:i') }}</span>
+                    <div class="flex items-center gap-2">
+                        <a href="{{ route('management.customers.show', $customer) }}" class="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Cancel</a>
+                        <button type="submit" class="px-4 py-2 text-sm font-semibold text-white bg-slate-900 rounded-lg hover:bg-slate-800">Save Changes</button>
+                    </div>
+                </div>
+            </form>
         </div>
     </div>
 
-    <div class="row">
-        <div class="col-xl-8">
-            <div class="card mb-4">
-                <div class="card-header">
-                    <h4 class="card-title mb-0">Customer Details</h4>
-                </div>
-                <form method="POST" action="{{ route('admin.customers.update', $customer) }}">
-                    @csrf
-                    @method('PUT')
-                    <div class="card-body">
-                        <div class="row g-3">
-                            <div class="col-md-6">
-                                <label class="form-label">First Name</label>
-                                <input type="text" name="first_name" class="form-control @error('first_name') is-invalid @enderror" value="{{ old('first_name', $customer->first_name) }}" required>
-                                @error('first_name')
-                                    <div class="invalid-feedback">{{ $message }}</div>
-                                @enderror
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label">Last Name</label>
-                                <input type="text" name="last_name" class="form-control @error('last_name') is-invalid @enderror" value="{{ old('last_name', $customer->last_name) }}" required>
-                                @error('last_name')
-                                    <div class="invalid-feedback">{{ $message }}</div>
-                                @enderror
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label">Email Address</label>
-                                <input type="email" name="email" class="form-control @error('email') is-invalid @enderror" value="{{ old('email', $customer->email) }}" required>
-                                @error('email')
-                                    <div class="invalid-feedback">{{ $message }}</div>
-                                @enderror
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label">Phone</label>
-                                <input type="text" name="phone" class="form-control @error('phone') is-invalid @enderror" value="{{ old('phone', $customer->phone) }}">
-                                @error('phone')
-                                    <div class="invalid-feedback">{{ $message }}</div>
-                                @enderror
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label">Location</label>
-                                <input type="text" name="location" class="form-control @error('location') is-invalid @enderror" value="{{ old('location', $customer->location) }}" placeholder="City, Country">
-                                @error('location')
-                                    <div class="invalid-feedback">{{ $message }}</div>
-                                @enderror
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label">Status</label>
-                                <select name="status" class="form-select @error('status') is-invalid @enderror" required>
-                                    @foreach($statuses as $value => $label)
-                                        <option value="{{ $value }}" @selected(old('status', $customer->status) === $value)>{{ $label }}</option>
-                                    @endforeach
-                                </select>
-                                @error('status')
-                                    <div class="invalid-feedback">{{ $message }}</div>
-                                @enderror
-                            </div>
-                        </div>
-                    </div>
-                    <div class="card-footer d-flex justify-content-between align-items-center">
-                        <div class="text-muted small">
-                            Created: {{ $customer->created_at->format('M d, Y H:i') }}
-                        </div>
-                        <div class="d-flex gap-2">
-                            <a href="{{ route('admin.customers.show', $customer) }}" class="btn btn-light">Cancel</a>
-                            <button type="submit" class="btn btn-primary">
-                                <i class="fi fi-rr-disk"></i> Save Changes
-                            </button>
-                        </div>
-                    </div>
-                </form>
+    <div class="space-y-4">
+        <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <div class="px-5 py-4 border-b border-slate-100">
+                <h3 class="text-sm font-semibold text-slate-800">Account Summary</h3>
             </div>
-        </div>
-
-        <div class="col-xl-4">
-            <div class="card mb-4">
-                <div class="card-header">
-                    <h4 class="card-title mb-0">Account Summary</h4>
-                </div>
-                <div class="card-body">
-                    <ul class="list-unstyled mb-0 small">
-                        <li class="d-flex justify-content-between mb-2">
-                            <span class="text-muted">Total Orders</span>
-                            <strong>{{ $customer->orders()->count() }}</strong>
-                        </li>
-                        <li class="d-flex justify-content-between mb-2">
-                            <span class="text-muted">Verified Email</span>
-                            <span class="badge {{ $customer->hasVerifiedEmail() ? 'bg-success' : 'bg-secondary' }}">
-                                {{ $customer->hasVerifiedEmail() ? 'Yes' : 'No' }}
-                            </span>
-                        </li>
-                        <li class="d-flex justify-content-between mb-2">
-                            <span class="text-muted">Last Updated</span>
-                            <span>{{ $customer->updated_at->format('M d, Y H:i') }}</span>
-                        </li>
-                    </ul>
-                </div>
+            <div class="p-5 space-y-2 text-sm">
+                <div class="flex justify-between"><span class="text-slate-500">Total Orders</span><span class="font-semibold text-slate-800">{{ $customer->orders()->count() }}</span></div>
+                <div class="flex justify-between"><span class="text-slate-500">Email Verified</span><span class="font-medium {{ $customer->hasVerifiedEmail() ? 'text-emerald-600' : 'text-slate-400' }}">{{ $customer->hasVerifiedEmail() ? 'Yes' : 'No' }}</span></div>
+                <div class="flex justify-between"><span class="text-slate-500">Last Updated</span><span class="text-slate-600">{{ $customer->updated_at->format('d M Y, H:i') }}</span></div>
             </div>
         </div>
     </div>

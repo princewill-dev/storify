@@ -30,7 +30,9 @@ class PaymentSettingsController extends Controller
 
         $banks = $this->paystackService->getBanks()['data'] ?? [];
 
-        return view('management.payment-settings.index', compact('user', 'stores', 'banks'));
+        $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Payment Settings']];
+
+        return view('management.payment-settings.index', compact('user', 'stores', 'banks', 'breadcrumbs'));
     }
 
     public function storeBankAccount(Request $request): RedirectResponse

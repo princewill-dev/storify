@@ -32,6 +32,7 @@ class CustomerController extends Controller
         $query = Customer::query()
             ->with('deliveryAddresses')
             ->withCount(['orders as orders_count' => fn($q) => $q->where('user_id', $user->id)]);
+        $this->forBusiness($query, $user);
 
         if ($request->filled('search')) {
             $search = $request->search;
@@ -76,7 +77,8 @@ class CustomerController extends Controller
             ->orderBy('dr.country')
             ->pluck('dr.country');
 
-        return view('management.customers.index', compact('customers', 'stats', 'countries', 'vendor'));
+        $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Customers']];
+        return view('management.customers.index', compact('customers', 'stats', 'countries', 'breadcrumbs'));
     }
 
     public function show(Request $request, Customer $customer): View|RedirectResponse
@@ -96,11 +98,19 @@ class CustomerController extends Controller
             },
         ]);
 
+        $stats = $customer->orders()->where('user_id', $user->id)
+            ->selectRaw("
+                COUNT(*) as total_orders,
+                SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed_orders,
+                COALESCE(SUM(total), 0) as total_spent,
+                SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending_orders
+            ")->first();
+
         $stats = [
-            'total_orders' => $customer->orders()->where('user_id', $user->id)->count(),
-            'completed_orders' => $customer->orders()->where('user_id', $user->id)->where('status', 'completed')->count(),
-            'total_spent' => $customer->orders()->where('user_id', $user->id)->sum('total'),
-            'pending_orders' => $customer->orders()->where('user_id', $user->id)->where('status', 'pending')->count(),
+            'total_orders' => (int) ($stats->total_orders ?? 0),
+            'completed_orders' => (int) ($stats->completed_orders ?? 0),
+            'total_spent' => (float) ($stats->total_spent ?? 0),
+            'pending_orders' => (int) ($stats->pending_orders ?? 0),
         ];
 
         $transactions = DB::table('transactions')
@@ -124,7 +134,8 @@ class CustomerController extends Controller
             ->limit(20)
             ->get();
 
-        return view('management.customers.show', compact('customer', 'stats', 'transactions', 'activityLogs', 'vendor'));
+        $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Customers', 'url' => route('management.customers.index')], ['label' => $customer->full_name]];
+        return view('management.customers.show', compact('customer', 'stats', 'transactions', 'activityLogs', 'breadcrumbs'));
     }
 
     public function edit(Request $request, Customer $customer): View|RedirectResponse
@@ -140,7 +151,8 @@ class CustomerController extends Controller
             Customer::STATUS_DELETED => 'Deleted',
         ];
 
-        return view('management.customers.edit', compact('customer', 'statuses', 'vendor'));
+        $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Customers', 'url' => route('management.customers.index')], ['label' => $customer->full_name, 'url' => route('management.customers.show', $customer)], ['label' => 'Edit']];
+        return view('management.customers.edit', compact('customer', 'statuses', 'breadcrumbs'));
     }
 
     public function update(Request $request, Customer $customer): RedirectResponse

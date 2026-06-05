@@ -2,10 +2,9 @@
 @section('subtitle', 'Transactions')
 
 @section('content')
-<x-management.page-header title="Transactions" subtitle="View payment history across all stores" />
+<x-management.page-header :breadcrumbs="$breadcrumbs" title="Transactions" subtitle="View payment history across all stores" />
 
-<x-management.card>
-    <x-management.data-table>
+<x-management.data-table>
         <x-slot:header>
             <th class="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Reference</th>
             <th class="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider hidden md:table-cell">Order</th>
@@ -32,5 +31,4 @@
         </td></tr>
         @endforelse
     </x-management.data-table>
-</x-management.card>
 @endsection

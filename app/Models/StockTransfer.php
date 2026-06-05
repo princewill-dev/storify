@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Support\Str;
-use App\Models\Concerns\BelongsToBusiness;
+use App\Models\BelongsToBusiness;
 
 class StockTransfer extends Model
 {

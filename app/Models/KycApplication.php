@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use App\Models\User;
 use App\Enums\VendorKycStatus;
-use App\Models\Concerns\BelongsToBusiness;
+use App\Models\BelongsToBusiness;
 
 class KycApplication extends Model
 {

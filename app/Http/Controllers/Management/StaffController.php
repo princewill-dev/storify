@@ -38,7 +38,8 @@ class StaffController extends Controller
 
         $staff = $query->latest()->get();
 
-        return view('management.staff.index', compact('user', 'staff', 'store'));
+        $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Staff']];
+        return view('management.staff.index', compact('user', 'staff', 'store', 'breadcrumbs'));
     }
 
     public function create(Request $request): View|RedirectResponse
@@ -48,11 +49,12 @@ class StaffController extends Controller
             return redirect()->route('management.auth.login');
         }
 
-        $roles = Role::all();
+        $roles = Role::where('business_id', $user->business_id)->get();
         $stores = $user->stores()->where('status', '!=', 'deleted')->get();
         $warehouses = $user->warehouses()->where('status', '!=', 'deleted')->get();
 
-        return view('management.staff.create', compact('user', 'roles', 'stores', 'warehouses'));
+        $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Staff', 'url' => route('management.staff.index')], ['label' => 'Create']];
+        return view('management.staff.create', compact('user', 'roles', 'stores', 'warehouses', 'breadcrumbs'));
     }
 
     public function store(Request $request): RedirectResponse
@@ -150,8 +152,8 @@ class StaffController extends Controller
         }
 
         $staff->load('roles', 'assignedStores', 'assignedWarehouses');
-
-        return view('management.staff.show', compact('user', 'staff'));
+        $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Staff', 'url' => route('management.staff.index')], ['label' => $staff->name]];
+        return view('management.staff.show', compact('user', 'staff', 'breadcrumbs'));
     }
 
     public function edit(Request $request, User $staff): View|RedirectResponse
@@ -165,7 +167,8 @@ class StaffController extends Controller
         $staff->load('roles', 'documents');
         $assignedRoles = $staff->getRoleNames()->toArray();
 
-        return view('management.staff.edit', compact('user', 'staff', 'roles', 'assignedRoles'));
+        $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Staff', 'url' => route('management.staff.index')], ['label' => $staff->name, 'url' => route('management.staff.show', $staff)], ['label' => 'Edit']];
+        return view('management.staff.edit', compact('user', 'staff', 'roles', 'assignedRoles', 'breadcrumbs'));
     }
 
     public function update(Request $request, User $staff): RedirectResponse

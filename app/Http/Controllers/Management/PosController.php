@@ -46,8 +46,13 @@ class PosController extends Controller
 
         $allStores = ($user->isStaff() ? $user->assignedStores : $user->stores)->where('status', '!=', 'deleted')->sortBy('name');
 
+        $breadcrumbs = [
+            ['label' => 'Dashboard', 'url' => route('management.dashboard')],
+            ['label' => 'POS Sessions'],
+        ];
+
         return view('management.pos.index', compact(
-            'user', 'sessions', 'openSessionsCount', 'todaySales', 'allStores',
+            'user', 'sessions', 'openSessionsCount', 'todaySales', 'allStores', 'breadcrumbs',
         ));
     }
 
@@ -109,7 +114,7 @@ class PosController extends Controller
             }
 
             if ($paystack) {
-                $paymentMethods[] = ['id' => 'card', 'label' => 'Card (Paystack)', 'icon' => 'credit-card'];
+                $paymentMethods[] = ['id' => 'paystack', 'label' => 'Paystack', 'icon' => 'credit-card'];
                 $paystackKey = $paystack->public_key;
             }
 
@@ -118,8 +123,14 @@ class PosController extends Controller
             $bankAccounts = $store->banks()->where('is_verified', true)->get();
         }
 
+        $breadcrumbs = [
+            ['label' => 'Dashboard', 'url' => route('management.dashboard')],
+            ['label' => 'POS Sessions', 'url' => route('management.pos.index')],
+            ['label' => $store->name],
+        ];
+
         return view('management.pos.terminal', compact(
-            'user', 'store', 'session', 'products', 'paymentMethods', 'paystackKey', 'bankAccounts',
+            'user', 'store', 'session', 'products', 'paymentMethods', 'paystackKey', 'bankAccounts', 'breadcrumbs',
         ));
     }
 
@@ -150,8 +161,14 @@ class PosController extends Controller
             ->take(20)
             ->get();
 
+        $breadcrumbs = [
+            ['label' => 'Dashboard', 'url' => route('management.dashboard')],
+            ['label' => 'POS Sessions', 'url' => route('management.pos.index')],
+            ['label' => $session->store->name],
+        ];
+
         return view('management.pos.show', compact(
-            'user', 'session', 'orders', 'staffSessions', 'totalSales', 'orderCount',
+            'user', 'session', 'orders', 'staffSessions', 'totalSales', 'orderCount', 'breadcrumbs',
         ));
     }
 
@@ -185,7 +202,7 @@ class PosController extends Controller
             'items' => 'required|array|min:1',
             'items.*.product_id' => 'required|exists:products,id',
             'items.*.quantity' => 'required|integer|min:1',
-            'payment_method' => 'required|in:cash,card,transfer',
+            'payment_method' => 'required|in:cash,paystack,transfer',
             'amount_tendered' => 'nullable|numeric|min:0',
             'paystack_reference' => 'nullable|string',
             'customer_name' => 'nullable|string|max:255',
@@ -196,8 +213,15 @@ class PosController extends Controller
         $subtotal = 0;
         $orderItems = [];
 
+        // Preload all products in a single query to avoid N+1
+        $productIds = collect($validated['items'])->pluck('product_id')->all();
+        $products = Product::whereIn('id', $productIds)->get()->keyBy('id');
+
         foreach ($validated['items'] as $item) {
-            $product = Product::findOrFail($item['product_id']);
+            $product = $products[$item['product_id']] ?? null;
+            if (!$product) {
+                continue;
+            }
             $price = (float) $product->amount;
             $qty = (int) $item['quantity'];
             $itemTotal = $price * $qty;
@@ -214,16 +238,23 @@ class PosController extends Controller
 
         $total = $subtotal;
 
-        $walkInCustomer = \App\Models\Customer::firstOrCreate(
-            ['email' => 'walkin@pos.local', 'business_id' => $store->business_id],
-            ['first_name' => 'Walk-in', 'last_name' => 'Customer', 'phone' => '0000000000', 'status' => 'active', 'password' => \Illuminate\Support\Str::random(32)]
-        );
+        $customerName = trim((string) ($validated['customer_name'] ?? ''));
+        $customerPhone = trim((string) ($validated['customer_phone'] ?? ''));
+        $customerId = null;
+
+        if ($customerName !== '' || $customerPhone !== '') {
+            $customer = \App\Models\Customer::firstOrCreate(
+                ['phone' => $customerPhone !== '' ? $customerPhone : null, 'business_id' => $store->business_id],
+                ['first_name' => $customerName !== '' ? $customerName : 'Walk-in', 'last_name' => '', 'email' => 'pos-' . \Illuminate\Support\Str::random(8) . '@walkin.local', 'status' => 'active', 'password' => \Illuminate\Support\Str::random(32)]
+            );
+            $customerId = $customer->id;
+        }
 
         $order = Order::create([
             'store_id' => $store->id,
             'user_id' => $store->user_id,
             'business_id' => $store->business_id,
-            'customer_id' => $walkInCustomer->id,
+            'customer_id' => $customerId,
             'source' => 'pos',
             'staff_id' => $user->id,
             'pos_session_id' => $session->id,
@@ -241,7 +272,7 @@ class PosController extends Controller
 
         $order->items()->saveMany($orderItems);
 
-        $txnStatus = $validated['payment_method'] === 'transfer' ? 'pending' : 'confirmed';
+        $txnStatus = 'confirmed';
         $txnReference = 'TXN-POS-' . strtoupper(\Illuminate\Support\Str::random(10));
 
         if ($validated['payment_method'] === 'card' && $request->filled('paystack_reference')) {
@@ -258,6 +289,7 @@ class PosController extends Controller
         Transaction::create([
             'reference' => $txnReference,
             'order_id' => $order->id,
+            'business_id' => $store->business_id,
             'payment_method_id' => $paymentMethod?->id,
             'amount' => $total,
             'status' => $txnStatus,
@@ -269,12 +301,19 @@ class PosController extends Controller
 
         $ledger = app(\App\Services\StockLedgerService::class);
 
+        // Preload all stock locations for this store in a single query
+        $stockLocs = \App\Models\StockLocation::where('locationable_type', \App\Models\Store::class)
+            ->where('locationable_id', $store->id)
+            ->whereIn('product_id', $productIds)
+            ->get()
+            ->keyBy('product_id');
+
         foreach ($validated['items'] as $item) {
-            $product = Product::find($item['product_id']);
-            $stockLoc = \App\Models\StockLocation::where('locationable_type', \App\Models\Store::class)
-                ->where('locationable_id', $store->id)
-                ->where('product_id', $product->id)
-                ->first();
+            $product = $products[$item['product_id']] ?? null;
+            if (!$product) {
+                continue;
+            }
+            $stockLoc = $stockLocs[$product->id] ?? null;
 
             if ($stockLoc && $stockLoc->quantity >= (int) $item['quantity']) {
                 $product->decrement('quantity', (int) $item['quantity']);
@@ -308,6 +347,12 @@ class PosController extends Controller
 
         $order->load(['items', 'transactions.paymentMethod']);
 
-        return view('management.pos.receipt', compact('user', 'store', 'order'));
+        $breadcrumbs = [
+            ['label' => 'Dashboard', 'url' => route('management.dashboard')],
+            ['label' => 'POS Sessions', 'url' => route('management.pos.index')],
+            ['label' => 'Receipt'],
+        ];
+
+        return view('management.pos.receipt', compact('user', 'store', 'order', 'breadcrumbs'));
     }
 }

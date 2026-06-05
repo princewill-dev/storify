@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Support\Str;
-use App\Models\Concerns\BelongsToBusiness;
+use App\Models\BelongsToBusiness;
 use App\Enums\WarehouseStatus;
 
 class Warehouse extends Model

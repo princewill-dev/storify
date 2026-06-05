@@ -2,7 +2,7 @@
 @section('subtitle', 'Edit Staff')
 
 @section('content')
-<x-management.page-header title="Edit: {{ $staff->name }}" subtitle="Update team member details and documents" />
+<x-management.page-header :breadcrumbs="$breadcrumbs" title="Edit: {{ $staff->name }}" subtitle="Update team member details and documents" />
 
 <div x-data="staffEdit()">
     <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 sm:p-6">

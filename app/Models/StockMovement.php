@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Support\Str;
 use App\Enums\StockMovementType;
-use App\Models\Concerns\BelongsToBusiness;
+use App\Models\BelongsToBusiness;
 
 class StockMovement extends Model
 {

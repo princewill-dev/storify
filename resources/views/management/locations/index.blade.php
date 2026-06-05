@@ -2,7 +2,7 @@
 @section('subtitle', 'Locations')
 
 @section('content')
-<x-management.page-header title="Locations" subtitle="Manage your business sites and branches">
+<x-management.page-header :breadcrumbs="$breadcrumbs" title="Locations" subtitle="Manage your business sites and branches">
     <x-slot:actions>
         <button onclick="openCreateModal()" class="inline-flex items-center gap-1.5 px-4 py-2 bg-slate-900 text-white text-sm font-medium rounded-lg hover:bg-slate-800 transition-colors">
             <i class="fi fi-rr-plus text-xs"></i> Add Location

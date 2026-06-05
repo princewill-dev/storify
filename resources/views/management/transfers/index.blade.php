@@ -2,7 +2,7 @@
 @section('subtitle', 'Stock Transfers')
 
 @section('content')
-<x-management.page-header title="Stock Transfers" subtitle="Manage inventory movement between warehouses and stores">
+<x-management.page-header :breadcrumbs="$breadcrumbs" title="Stock Transfers" subtitle="Manage inventory movement between warehouses and stores">
     <x-slot:actions>
         @can('transfers create')
         <a href="{{ route('management.transfers.create') }}" class="inline-flex items-center gap-1.5 px-4 py-2 bg-slate-900 text-white text-sm font-medium rounded-lg hover:bg-slate-800 transition-colors">

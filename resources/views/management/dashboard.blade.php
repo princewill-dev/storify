@@ -4,7 +4,7 @@
 @section('content')
 
 {{-- Page Header --}}
-<x-management.page-header title="Dashboard" subtitle="{{ $activeStoreObj ? $activeStoreObj->name . ' · Store Overview' : 'Business Overview' }}">
+<x-management.page-header :breadcrumbs="$breadcrumbs" title="Dashboard" subtitle="{{ $activeStoreObj ? $activeStoreObj->name . ' · Store Overview' : 'Business Overview' }}">
     <x-slot:actions>
         @can('stores view')
         @if($stats['total_stores'] > 0)

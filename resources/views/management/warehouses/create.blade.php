@@ -2,7 +2,7 @@
 @section('subtitle', 'Add Warehouse')
 
 @section('content')
-<x-management.page-header title="Add Warehouse" subtitle="Set up a new inventory storage location" />
+<x-management.page-header :breadcrumbs="$breadcrumbs" title="Add Warehouse" subtitle="Set up a new inventory storage location" />
 
 <div>
     <x-management.card>

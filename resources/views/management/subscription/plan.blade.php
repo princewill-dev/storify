@@ -2,7 +2,7 @@
 @section('subtitle', 'Subscription')
 
 @section('content')
-<x-management.page-header title="Subscription" subtitle="Choose a plan to activate your stores" />
+<x-management.page-header :breadcrumbs="$breadcrumbs" title="Subscription" subtitle="Choose a plan to activate your stores" />
 
 <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
     @forelse($plans ?? [] as $plan)

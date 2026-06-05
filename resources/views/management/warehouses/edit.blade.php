@@ -2,7 +2,7 @@
 @section('subtitle', 'Edit Warehouse')
 
 @section('content')
-<x-management.page-header title="Edit: {{ $warehouse->name }}" subtitle="Update warehouse details" />
+<x-management.page-header :breadcrumbs="$breadcrumbs" title="Edit: {{ $warehouse->name }}" subtitle="Update warehouse details" />
 
 <div>
     <x-management.card>

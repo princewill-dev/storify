@@ -36,7 +36,7 @@
     </div>
     <div class="flex items-center gap-3 mt-4 no-print">
         <button onclick="window.print()" class="flex-1 py-2.5 bg-slate-900 text-white text-sm font-semibold rounded-lg hover:bg-slate-800">Print</button>
-        <a href="{{ route('staff.pos') }}" class="flex-1 py-2.5 border border-slate-200 text-sm font-medium rounded-lg hover:bg-slate-50 text-center">New Sale</a>
+        <a href="{{ route('pos.index') }}" class="flex-1 py-2.5 border border-slate-200 text-sm font-medium rounded-lg hover:bg-slate-50 text-center">New Sale</a>
     </div>
 </div>
 </body>

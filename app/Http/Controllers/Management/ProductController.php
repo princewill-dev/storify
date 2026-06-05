@@ -152,6 +152,8 @@ class ProductController extends Controller
             }
         }
 
+        $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Products']];
+
         return view('management.products.index', [
             'user' => $user,
             'products' => $products,
@@ -163,6 +165,7 @@ class ProductController extends Controller
             'productImages' => $productImages,
             'displayPrices' => $displayPrices,
             'stores' => $user->stores()->where('status', '!=', 'deleted')->orderBy('name')->get(),
+            'breadcrumbs' => $breadcrumbs,
         ]);
     }
 
@@ -205,6 +208,8 @@ class ProductController extends Controller
                 : \App\Models\Section::where('section_code', $sectionParam)->value('id');
         }
 
+        $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Products', 'url' => route('management.products.index')], ['label' => 'Create']];
+
         return view('management.products.create', [
             'user' => $user,
             'stores' => $stores,
@@ -218,6 +223,7 @@ class ProductController extends Controller
             'selectedStoreId' => $selectedStoreId,
             'selectedSectionId' => $selectedSectionId,
             'backUrl' => route('management.products.index', ['user' => $user]),
+            'breadcrumbs' => $breadcrumbs,
         ]);
     }
 
@@ -341,7 +347,7 @@ class ProductController extends Controller
             return redirect()->route('management.auth.login');
         }
 
-        $product->load(['images', 'store', 'category', 'variants', 'section.warehouse']);
+        $product->load(['images', 'store', 'category', 'variants.sizeUnit', 'variants.weightUnit', 'section.warehouse', 'sizeUnit', 'weightUnit']);
         $priceInfo = null;
         $priceInfoSymbol = null;
         $currencySymbols = Currency::query()->get(['id', 'symbol'])->keyBy('id');
@@ -359,7 +365,8 @@ class ProductController extends Controller
         }
 
         $backUrl = route('management.products.index', ['user' => $user]);
-        return view('management.products.show', compact('user', 'product', 'priceInfo', 'priceInfoSymbol', 'backUrl', 'currencySymbols'));
+        $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Products', 'url' => route('management.products.index')], ['label' => $product->name]];
+        return view('management.products.show', compact('user', 'product', 'priceInfo', 'priceInfoSymbol', 'backUrl', 'currencySymbols', 'breadcrumbs'));
     }
 
     public function updateStatus(Request $request, Product $product): RedirectResponse

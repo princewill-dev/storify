@@ -2,7 +2,7 @@
 @section('subtitle', $location->name)
 
 @section('content')
-<x-management.page-header :title="$location->name" subtitle="Location Code: {{ $location->location_code }}">
+<x-management.page-header :breadcrumbs="$breadcrumbs" :title="$location->name" subtitle="Location Code: {{ $location->location_code }}">
     <x-slot:actions><x-management.status-badge :status="$location->is_active ? 'active' : 'inactive'" /></x-slot:actions>
 </x-management.page-header>
 

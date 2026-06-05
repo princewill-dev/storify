@@ -10,7 +10,7 @@ use Illuminate\Support\Str;
 use App\Enums\CustomerStatus;
 use App\Enums\LiveFirstStatus;
 use Illuminate\Database\Eloquent\Relations\HasOne;
-use App\Models\Concerns\BelongsToBusiness;
+use App\Models\BelongsToBusiness;
 
 class Customer extends Authenticatable
 {

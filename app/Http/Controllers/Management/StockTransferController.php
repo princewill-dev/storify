@@ -22,14 +22,16 @@ class StockTransferController extends Controller
         $user = $request->user();
         $status = $request->query('status');
 
-        $transfers = StockTransfer::with(['requester', 'items.product'])
+        $transfers = StockTransfer::with(['requester', 'items.product', 'fromLocation', 'toLocation'])
             ->when($status, fn($q) => $q->where('status', $status))
+            ->tap(fn($q) => $this->forBusiness($q, $user))
             ->latest()
-            ->get();
+            ->paginate(20);
 
         $statuses = TransferStatus::cases();
 
-        return view('management.transfers.index', compact('user', 'transfers', 'statuses', 'status'));
+        $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Transfers']];
+        return view('management.transfers.index', compact('user', 'transfers', 'statuses', 'status', 'breadcrumbs'));
     }
 
     public function create(Request $request): View
@@ -149,9 +151,10 @@ class StockTransferController extends Controller
         $warehouseList = $warehouses->map(fn($w) => ['id' => (string) $w->id, 'name' => $w->name, 'code' => $w->warehouse_code])->values()->toArray();
         $storeList = $stores->map(fn($s) => ['id' => (string) $s->id, 'name' => $s->name, 'code' => $s->store_code])->values()->toArray();
 
+        $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Transfers', 'url' => route('management.transfers.index')], ['label' => 'Create']];
         return view('management.transfers.create', compact(
             'user', 'warehouses', 'stores', 'allStockData', 'warehouseList', 'storeList',
-            'preSelectFromWarehouseId', 'preSelectToWarehouseId'
+            'preSelectFromWarehouseId', 'preSelectToWarehouseId', 'breadcrumbs'
         ));
     }
 
@@ -263,7 +266,8 @@ class StockTransferController extends Controller
         $user = $request->user();
         $transfer->load(['requester', 'approver', 'dispatcher', 'receiver', 'items.product', 'items.variant']);
 
-        return view('management.transfers.show', compact('user', 'transfer'));
+        $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Transfers', 'url' => route('management.transfers.index')], ['label' => $transfer->transfer_code]];
+        return view('management.transfers.show', compact('user', 'transfer', 'breadcrumbs'));
     }
 
     public function submit(Request $request, StockTransfer $transfer): RedirectResponse

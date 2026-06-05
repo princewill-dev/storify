@@ -2,7 +2,7 @@
 @section('subtitle', $order->order_number)
 
 @section('content')
-<x-management.page-header :title="$order->order_number" subtitle="{{ $order->store?->name ?? 'N/A' }} · {{ $order->created_at->format('d M Y H:i') }}">
+<x-management.page-header :breadcrumbs="$breadcrumbs" :title="$order->order_number" subtitle="{{ $order->store?->name ?? 'N/A' }} · {{ $order->created_at->format('d M Y H:i') }}">
     <x-slot:actions>
         <x-management.status-badge :status="$order->status" />
     </x-slot:actions>
@@ -36,7 +36,7 @@
                 @foreach($order->transactions as $tx)
                 <div class="flex items-center justify-between px-5 py-3">
                     <div>
-                        <p class="text-sm font-medium text-slate-800">{{ $tx->reference }}</p>
+                        <a href="{{ route('management.transactions.show', $tx) }}" class="text-sm font-medium text-blue-600 hover:text-blue-700">{{ $tx->reference }}</a>
                         <p class="text-xs text-slate-400">{{ $tx->created_at->format('d M Y H:i') }}</p>
                     </div>
                     <div class="flex items-center gap-3">
@@ -54,13 +54,31 @@
     <div class="space-y-6">
         <x-management.card header="Order Details">
             <div class="space-y-3">
-                <div><span class="text-xs text-slate-400 uppercase tracking-wider">Source</span><p class="text-sm font-medium text-slate-800 mt-0.5">{{ ucfirst($order->source) }}</p></div>
+                <div>
+                    <span class="text-xs text-slate-400 uppercase tracking-wider">Source</span>
+                    <p class="text-sm font-medium text-slate-800 mt-0.5">
+                        {{ ucfirst($order->source) }}
+                        @if($order->source === 'pos')<span class="inline-flex items-center ml-1.5 px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-50 text-purple-600">POS</span>@endif
+                    </p>
+                </div>
+                @if($order->staff)
+                <div><span class="text-xs text-slate-400 uppercase tracking-wider">Handled by</span><p class="text-sm font-medium text-slate-800 mt-0.5">{{ $order->staff->name }}</p></div>
+                @endif
+                @php $pm = $order->transactions->first()?->paymentMethod; @endphp
+                @if($pm)
+                <div><span class="text-xs text-slate-400 uppercase tracking-wider">Payment</span><p class="text-sm font-medium text-slate-800 mt-0.5">{{ $pm->code === 'cash' ? 'Cash' : ($pm->code === 'bank_transfer' ? 'Bank Transfer' : ($pm->name ?? '—')) }}</p></div>
+                @endif
                 <div><span class="text-xs text-slate-400 uppercase tracking-wider">Subtotal</span><p class="text-sm font-medium text-slate-800 mt-0.5">₦{{ number_format($order->subtotal, 2) }}</p></div>
                 @if($order->shipping_fee)<div><span class="text-xs text-slate-400 uppercase tracking-wider">Shipping</span><p class="text-sm text-slate-600 mt-0.5">₦{{ number_format($order->shipping_fee, 2) }}</p></div>@endif
                 @if($order->tax)<div><span class="text-xs text-slate-400 uppercase tracking-wider">Tax</span><p class="text-sm text-slate-600 mt-0.5">₦{{ number_format($order->tax, 2) }}</p></div>@endif
-                @if($order->notes)<div><span class="text-xs text-slate-400 uppercase tracking-wider">Notes</span><p class="text-sm text-slate-600 mt-0.5">{{ $order->notes }}</p></div>@endif
             </div>
         </x-management.card>
+
+        @if($order->notes)
+        <x-management.card header="Notes">
+            <p class="text-sm text-slate-600">{{ $order->notes }}</p>
+        </x-management.card>
+        @endif
 
         <x-management.card header="Customer">
             @if($order->customer)

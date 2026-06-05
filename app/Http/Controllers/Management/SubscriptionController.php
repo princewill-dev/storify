@@ -67,11 +67,17 @@ class SubscriptionController extends Controller
             'plans_count' => $plans->count(),
         ]);
 
+        $breadcrumbs = [
+            ['label' => 'Dashboard', 'url' => route('management.dashboard')],
+            ['label' => 'Subscription'],
+        ];
+
         return view('management.subscription.plan', [
             'user' => $user,
             'plans' => $plans,
             'defaultPlan' => $defaultPlan,
             'paystackPublicKey' => $this->paystackService->getPublicKey(),
+            'breadcrumbs' => $breadcrumbs,
         ]);
     }
 
@@ -417,15 +423,17 @@ class SubscriptionController extends Controller
                         \App\Models\Store::STATUS_SUSPENDED,
                     ])->get();
 
+                    $inactiveStoreIds = $inactiveStores->pluck('id')->all();
+                    if (!empty($inactiveStoreIds)) {
+                        \App\Models\Store::whereIn('id', $inactiveStoreIds)
+                            ->update(['status' => \App\Models\Store::STATUS_ACTIVE]);
+                    }
                     foreach ($inactiveStores as $store) {
-                        $oldStoreStatus = $store->status;
-                        $store->update(['status' => \App\Models\Store::STATUS_ACTIVE]);
-                        
                         Log::info('vendor.store.auto_activated', [
                             'user_id' => $user->id,
                             'store_id' => $store->id,
                             'store_code' => $store->store_id,
-                            'old_status' => $oldStoreStatus,
+                            'old_status' => $store->status,
                             'new_status' => \App\Models\Store::STATUS_ACTIVE,
                             'subscription_id' => $payment->vendorSubscription->id,
                         ]);
@@ -606,9 +614,7 @@ class SubscriptionController extends Controller
                 Store::STATUS_SUSPENDED,
             ])->get();
 
-            foreach ($stores as $store) {
-                $store->update(['status' => Store::STATUS_ACTIVE]);
-            }
+            Store::whereIn('id', $stores->pluck('id'))->update(['status' => Store::STATUS_ACTIVE]);
 
             // Mark early pass as used
             $activeStore = $stores->first();

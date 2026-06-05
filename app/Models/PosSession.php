@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Str;
 use App\Enums\PosSessionStatus;
-use App\Models\Concerns\BelongsToBusiness;
+use App\Models\BelongsToBusiness;
 
 class PosSession extends Model
 {

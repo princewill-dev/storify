@@ -11,21 +11,16 @@
 @endpush
 
 @section('content')
-<div class="flex items-center gap-3 mb-4">
-    <a href="{{ route('management.warehouses.index') }}" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-slate-500 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors">
-        <i class="fi fi-rr-arrow-left text-xs"></i> Warehouses
-    </a>
-    <div class="h-4 w-px bg-slate-200"></div>
-    <span class="text-sm font-semibold text-slate-800">{{ $warehouse->name }}</span>
-    <span class="text-xs text-slate-400">{{ $warehouse->warehouse_code }}</span>
-    <div class="flex-1"></div>
-    <x-management.status-badge :status="$warehouse->isActive() ? 'active' : 'inactive'" />
-    @can('transfers create')
-    <a href="{{ route('management.transfers.create', ['from_warehouse' => $warehouse->warehouse_code]) }}" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 transition-colors">
-        <i class="fi fi-rr-arrows-exchange text-xs"></i> Stock Adjustment
-    </a>
-    @endcan
-</div>
+<x-management.page-header :breadcrumbs="$breadcrumbs" :title="$warehouse->name" subtitle="Warehouse · {{ $warehouse->warehouse_code }}">
+    <x-slot:actions>
+        <x-management.status-badge :status="$warehouse->isActive() ? 'active' : 'inactive'" />
+        @can('transfers create')
+        <a href="{{ route('management.transfers.create', ['from_warehouse' => $warehouse->warehouse_code]) }}" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 transition-colors">
+            <i class="fi fi-rr-arrows-exchange text-xs"></i> Stock Adjustment
+        </a>
+        @endcan
+    </x-slot:actions>
+</x-management.page-header>
 
 @if(session('success'))
 <div class="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700 mb-4">{{ session('success') }}</div>
@@ -53,12 +48,12 @@
     </div>
 </div>
 
-<div x-data="{ tab: 'products', selectedIds: [], selectAll: false, confirmingBulkDelete: false, allIds: [{{ $products->pluck('id')->join(',') }}] }">
+<div x-data="warehouseTabs('{{ $products->pluck('id')->join(',') }}', '{{ $warehouse->warehouse_code }}')">
     <div class="flex items-center gap-1 mb-4 border-b border-slate-200">
         <button @click="tab = 'products'" :class="tab === 'products' ? 'active' : ''" class="tab-btn px-4 py-2.5 text-sm font-medium text-slate-500 hover:text-slate-700 transition-colors border-b-2 border-transparent">Products · {{ $productCount }}</button>
         <button @click="tab = 'sections'" :class="tab === 'sections' ? 'active' : ''" class="tab-btn px-4 py-2.5 text-sm font-medium text-slate-500 hover:text-slate-700 transition-colors border-b-2 border-transparent">Sections · {{ $warehouse->sections->count() }}</button>
         <button @click="tab = 'activity'" :class="tab === 'activity' ? 'active' : ''" class="tab-btn px-4 py-2.5 text-sm font-medium text-slate-500 hover:text-slate-700 transition-colors border-b-2 border-transparent">Activity</button>
-        <a href="{{ route('management.warehouses.edit', $warehouse) }}" class="tab-btn px-4 py-2.5 text-sm font-medium text-slate-500 hover:text-slate-700 transition-colors border-b-2 border-transparent">Settings</a>
+        <button @click="switchSettingsTab()" :class="tab === 'settings' ? 'active' : ''" class="tab-btn px-4 py-2.5 text-sm font-medium text-slate-500 hover:text-slate-700 transition-colors border-b-2 border-transparent">Settings</button>
     </div>
 
     {{-- Products Tab --}}
@@ -235,6 +230,27 @@
         </div>
     </div>
 
+    {{-- Settings Tab (AJAX-loaded) --}}
+    <div x-show="tab === 'settings'" x-cloak>
+        {{-- Loading Spinner --}}
+        <div x-show="tabLoading" class="flex items-center justify-center py-20">
+            <div class="text-center space-y-3">
+                <div class="inline-block w-8 h-8 border-2 border-slate-200 border-t-slate-600 rounded-full animate-spin"></div>
+                <p class="text-sm text-slate-400">Loading settings...</p>
+            </div>
+        </div>
+
+        {{-- Error State --}}
+        <div x-show="tabError" x-cloak class="text-center py-20">
+            <i class="fi fi-rr-exclamation text-4xl text-red-300 mb-3 block"></i>
+            <p class="text-sm text-red-500" x-text="tabError"></p>
+            <button @click="fetchSettingsTab()" class="mt-3 px-4 py-2 text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50">Retry</button>
+        </div>
+
+        {{-- Settings Content --}}
+        <div x-show="!tabLoading && !tabError" x-html="tabContent['settings'] || ''"></div>
+    </div>
+
     {{-- Warehouse Info below tabs --}}
     <div class="mt-6 bg-white rounded-xl shadow-sm border border-slate-200 p-5">
         <h3 class="text-sm font-semibold text-slate-800 mb-3">Warehouse Info</h3>
@@ -250,3 +266,45 @@
 
 </div>
 @endsection
+
+@push('scripts')
+<script>
+document.addEventListener('alpine:init', () => {
+    Alpine.data('warehouseTabs', (allIdsStr, warehouseCode) => ({
+        tab: 'products',
+        selectedIds: [],
+        selectAll: false,
+        confirmingBulkDelete: false,
+        allIds: allIdsStr ? allIdsStr.split(',') : [],
+        tabLoading: false,
+        tabError: null,
+        tabContent: {},
+
+        switchSettingsTab() {
+            this.tab = 'settings';
+            this.tabError = null;
+            if (!this.tabContent['settings']) {
+                this.fetchSettingsTab();
+            }
+        },
+
+        async fetchSettingsTab() {
+            this.tabLoading = true;
+            this.tabError = null;
+            try {
+                const resp = await fetch(`/management/warehouses/${warehouseCode}/tab/settings`, {
+                    headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'text/html' }
+                });
+                if (!resp.ok) throw new Error(`Server error (${resp.status})`);
+                this.tabContent['settings'] = await resp.text();
+            } catch (e) {
+                console.error('Settings tab fetch error:', e);
+                this.tabError = e.message || 'Failed to load settings.';
+            } finally {
+                this.tabLoading = false;
+            }
+        }
+    }));
+});
+</script>
+@endpush

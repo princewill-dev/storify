@@ -55,6 +55,9 @@ class ServiceController extends Controller
             }
         }
 
+        $status = strtolower((string)$request->query('status', ''));
+        $q = trim((string)$request->query('q', ''));
+
         $query = Service::query()
             ->whereIn('store_id', $storeIds)
             ->with(['store', 'images', 'currency']);
@@ -85,12 +88,18 @@ class ServiceController extends Controller
             }
         }
 
+        $breadcrumbs = [
+            ['label' => 'Dashboard', 'url' => route('management.dashboard')],
+            ['label' => 'Services'],
+        ];
+
         return view('management.services.index', [
             'user' => $user,
             'services' => $services,
             'status' => $status,
             'q' => $q,
             'serviceImages' => $serviceImages,
+            'breadcrumbs' => $breadcrumbs,
         ]);
     }
 
@@ -116,7 +125,13 @@ class ServiceController extends Controller
                 ->value('id');
         }
 
-        return view('management.services.create', compact('user', 'stores', 'currencies', 'defaultCurrencyId', 'selectedStoreId'));
+        $breadcrumbs = [
+            ['label' => 'Dashboard', 'url' => route('management.dashboard')],
+            ['label' => 'Services', 'url' => route('management.services.index')],
+            ['label' => 'Create'],
+        ];
+
+        return view('management.services.create', compact('user', 'stores', 'currencies', 'defaultCurrencyId', 'selectedStoreId', 'breadcrumbs'));
     }
 
     public function store(Request $request): RedirectResponse

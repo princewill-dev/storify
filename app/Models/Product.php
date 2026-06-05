@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
-use App\Models\Concerns\BelongsToBusiness;
+use App\Models\BelongsToBusiness;
 
 class Product extends Model
 {
@@ -114,6 +114,16 @@ class Product extends Model
     public function currency(): BelongsTo
     {
         return $this->belongsTo(Currency::class);
+    }
+
+    public function sizeUnit(): BelongsTo
+    {
+        return $this->belongsTo(SizeUnit::class, 'size_unit_id');
+    }
+
+    public function weightUnit(): BelongsTo
+    {
+        return $this->belongsTo(WeightUnit::class, 'weight_unit_id');
     }
 
     public function images(): HasMany

@@ -94,6 +94,16 @@ class BusinessAuthController extends Controller
         /** @var User $user */
         $user = Auth::guard('web')->user();
 
+        // Block pure cashiers from management login — they must use /pos/login
+        if ($user->isStaff() && $request->route()->getName() === 'management.auth.login.store') {
+            $roles = $user->getRoleNames();
+            if ($roles->count() === 1 && $roles->contains('Cashier')) {
+                Auth::guard('web')->logout();
+                return redirect()->route('pos.login')
+                    ->with('error', 'POS operators must use the POS terminal login.');
+            }
+        }
+
         if ($user->isStaff()) {
             if ($user->status === 'suspended') {
                 Auth::guard('web')->logout();
@@ -333,9 +343,11 @@ class BusinessAuthController extends Controller
 
     private function staffRedirectRoute(\App\Models\User $user): string
     {
-        if ($user->hasRole('Cashier')) {
+        // Only redirect pure cashiers (no other roles) to POS
+        $roles = $user->getRoleNames();
+        if ($roles->count() === 1 && $roles->contains('Cashier')) {
             $hasPosStore = $user->assignedStores()->where('pos_enabled', true)->exists();
-            return $hasPosStore ? route('staff.pos') : route('staff.dashboard');
+            return $hasPosStore ? route('pos.index') : route('pos.no-store');
         }
         return route('management.dashboard');
     }

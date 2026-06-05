@@ -2,23 +2,14 @@
 @section('subtitle', $product->name)
 
 @section('content')
-<div class="flex items-center justify-between mb-6">
-    <div class="flex items-center gap-3">
-        <a href="{{ $backUrl ?? route('management.products.index') }}" class="text-slate-400 hover:text-slate-600">
-            <i class="fi fi-rr-arrow-left"></i>
-        </a>
-        <div>
-            <h2 class="text-lg font-semibold text-slate-900">{{ $product->name }}</h2>
-            <p class="text-xs text-slate-400">{{ $product->product_code }} · {{ $product->store?->name ?? 'No store' }}</p>
-        </div>
-    </div>
-    <div class="flex items-center gap-3">
+<x-management.page-header :breadcrumbs="$breadcrumbs" :title="$product->name" subtitle="{{ $product->product_code }} · {{ $product->store?->name ?? 'No store' }}">
+    <x-slot:actions>
         <x-management.status-badge :status="$product->status" />
         <a href="{{ route('management.products.edit', $product) }}" class="inline-flex items-center gap-1.5 px-4 py-2 bg-slate-900 text-white text-sm font-medium rounded-lg hover:bg-slate-800 transition-colors">
             <i class="fi fi-rr-edit text-xs"></i> Edit
         </a>
-    </div>
-</div>
+    </x-slot:actions>
+</x-management.page-header>
 
 <div x-data="{ tab: 'overview' }">
 
@@ -66,13 +57,13 @@
                         @if($product->size)
                         <div>
                             <p class="text-xs text-slate-400 uppercase tracking-wider">Size</p>
-                            <p class="text-sm font-medium text-slate-800 mt-0.5">{{ rtrim(rtrim(number_format((float)$product->size, 2, '.', ''), '0'), '.') }} {{ optional(DB::table('size_units')->find($product->size_unit_id))->code }}</p>
+                            <p class="text-sm font-medium text-slate-800 mt-0.5">{{ rtrim(rtrim(number_format((float)$product->size, 2, '.', ''), '0'), '.') }} {{ $product->sizeUnit?->code }}</p>
                         </div>
                         @endif
                         @if($product->weight)
                         <div>
                             <p class="text-xs text-slate-400 uppercase tracking-wider">Weight</p>
-                            <p class="text-sm font-medium text-slate-800 mt-0.5">{{ rtrim(rtrim(number_format((float)$product->weight, 2, '.', ''), '0'), '.') }} {{ optional(DB::table('weight_units')->find($product->weight_unit_id))->code }}</p>
+                            <p class="text-sm font-medium text-slate-800 mt-0.5">{{ rtrim(rtrim(number_format((float)$product->weight, 2, '.', ''), '0'), '.') }} {{ $product->weightUnit?->code }}</p>
                         </div>
                         @endif
                         <div>
@@ -237,12 +228,12 @@
                 <td class="px-5 py-3"><span class="text-sm font-mono text-slate-600">{{ $v->sku ?? '—' }}</span></td>
                 <td class="px-5 py-3">
                     @if(!is_null($v->size))
-                    <span class="text-sm text-slate-700">{{ rtrim(rtrim(number_format((float)$v->size, 2, '.', ''), '0'), '.') }} {{ optional(DB::table('size_units')->find($v->size_unit_id))->code }}</span>
+                    <span class="text-sm text-slate-700">{{ rtrim(rtrim(number_format((float)$v->size, 2, '.', ''), '0'), '.') }} {{ $v->sizeUnit?->code }}</span>
                     @else <span class="text-sm text-slate-300">—</span> @endif
                 </td>
                 <td class="px-5 py-3 hidden sm:table-cell">
                     @if(!is_null($v->weight))
-                    <span class="text-sm text-slate-700">{{ rtrim(rtrim(number_format((float)$v->weight, 2, '.', ''), '0'), '.') }} {{ optional(DB::table('weight_units')->find($v->weight_unit_id))->code }}</span>
+                    <span class="text-sm text-slate-700">{{ rtrim(rtrim(number_format((float)$v->weight, 2, '.', ''), '0'), '.') }} {{ $v->weightUnit?->code }}</span>
                     @else <span class="text-sm text-slate-300">—</span> @endif
                 </td>
                 <td class="px-5 py-3"><span class="text-sm text-slate-700">{{ $v->color ?? '—' }}</span></td>

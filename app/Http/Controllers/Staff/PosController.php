@@ -84,7 +84,7 @@ class PosController extends Controller
                 }
 
                 if ($paystack) {
-                    $paymentMethods[] = ['id' => 'card', 'label' => 'Card (Paystack)', 'icon' => 'credit-card'];
+                    $paymentMethods[] = ['id' => 'paystack', 'label' => 'Paystack', 'icon' => 'credit-card'];
                     $paystackKey = $paystack->public_key;
                 }
 
@@ -154,9 +154,10 @@ class PosController extends Controller
 
     private function staffRedirectRoute(\App\Models\User $user): string
     {
-        if ($user->hasRole('Cashier')) {
+        $roles = $user->getRoleNames();
+        if ($roles->count() === 1 && $roles->contains('Cashier')) {
             $hasPosStore = $user->assignedStores()->where('pos_enabled', true)->exists();
-            return $hasPosStore ? route('staff.pos') : route('staff.dashboard');
+            return $hasPosStore ? route('pos.index') : route('pos.no-store');
         }
         return route('management.dashboard');
     }

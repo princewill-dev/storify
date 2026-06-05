@@ -19,7 +19,8 @@ class WarehouseController extends Controller
 
         $warehouses = ($user->isStaff() ? $user->assignedWarehouses() : $user->warehouses())
             ->with(['stockLocations.product', 'sections', 'assignedStaff'])->latest()->get();
-        return view('management.warehouses.index', compact('user', 'warehouses'));
+        $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Warehouses']];
+        return view('management.warehouses.index', compact('user', 'warehouses', 'breadcrumbs'));
     }
 
     public function create(Request $request): View|RedirectResponse
@@ -29,9 +30,10 @@ class WarehouseController extends Controller
 
         $nigerianStates = \App\Data\Nigeria::states();
         $activeStaff = User::where('role', 'staff')->where('status', 'active')
-            ->get()
-            ->filter(fn($s) => $s->hasPermissionTo('warehouses view'));
-        return view('management.warehouses.create', compact('user', 'nigerianStates', 'activeStaff'));
+            ->whereHas('permissions', fn($q) => $q->where('name', 'warehouses view'))
+            ->get();
+        $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Warehouses', 'url' => route('management.warehouses.index')], ['label' => 'Create']];
+        return view('management.warehouses.create', compact('user', 'nigerianStates', 'activeStaff', 'breadcrumbs'));
     }
 
     public function store(Request $request): RedirectResponse
@@ -108,9 +110,15 @@ class WarehouseController extends Controller
             ->orderBy('name')
             ->get();
 
+        $breadcrumbs = [
+            ['label' => 'Dashboard', 'url' => route('management.dashboard')],
+            ['label' => 'Warehouses', 'url' => route('management.warehouses.index')],
+            ['label' => $warehouse->name],
+        ];
+
         return view('management.warehouses.show', compact(
             'user', 'warehouse', 'lowStockCount', 'productCount', 'totalStock',
-            'products', 'recentMovements', 'stores', 'warehousesList'
+            'products', 'recentMovements', 'stores', 'warehousesList', 'breadcrumbs'
         ));
     }
 
@@ -245,10 +253,11 @@ class WarehouseController extends Controller
 
         $nigerianStates = \App\Data\Nigeria::states();
         $activeStaff = User::where('role', 'staff')->where('status', 'active')
-            ->get()
-            ->filter(fn($s) => $s->hasPermissionTo('warehouses view'));
+            ->whereHas('permissions', fn($q) => $q->where('name', 'warehouses view'))
+            ->get();
         $warehouse->load('assignedStaff');
-        return view('management.warehouses.edit', compact('user', 'warehouse', 'nigerianStates', 'activeStaff'));
+        $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Warehouses', 'url' => route('management.warehouses.index')], ['label' => $warehouse->name, 'url' => route('management.warehouses.show', $warehouse)], ['label' => 'Edit']];
+        return view('management.warehouses.edit', compact('user', 'warehouse', 'nigerianStates', 'activeStaff', 'breadcrumbs'));
     }
 
     public function update(Request $request, Warehouse $warehouse): RedirectResponse
@@ -293,5 +302,35 @@ class WarehouseController extends Controller
 
         $warehouse->update(['status' => 'deleted']);
         return redirect()->route('management.warehouses.index')->with('success', 'Warehouse deleted.');
+    }
+
+    /**
+     * AJAX endpoint: load tab content for the warehouse detail page.
+     */
+    public function loadTab(Request $request, Warehouse $warehouse): View
+    {
+        $user = $request->user();
+        if (!$user) abort(403);
+        if ($user->isStaff()) {
+            if (!$user->assignedWarehouses()->where('warehouses.id', $warehouse->id)->exists()) abort(403);
+        } elseif ($warehouse->user_id !== $user->id) abort(403);
+
+        $tab = $request->route('tab');
+
+        return match ($tab) {
+            'settings' => $this->tabSettings($warehouse, $user),
+            default => abort(404, 'Unknown tab'),
+        };
+    }
+
+    private function tabSettings(Warehouse $warehouse, User $user): View
+    {
+        $nigerianStates = \App\Data\Nigeria::states();
+        $activeStaff = User::where('role', 'staff')->where('status', 'active')
+            ->whereHas('permissions', fn($q) => $q->where('name', 'warehouses view'))
+            ->get();
+        $warehouse->load('assignedStaff');
+
+        return view('management.warehouses.tabs.settings', compact('user', 'warehouse', 'nigerianStates', 'activeStaff'));
     }
 }

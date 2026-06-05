@@ -53,11 +53,14 @@ class CategoryController extends Controller
             ->paginate(20)
             ->withQueryString();
 
+        $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Categories']];
+
         return view('management.categories.index', [
             'user' => $user,
             'categories' => $categories,
             'stores' => $user->stores()->where('status', '!=', 'deleted')->orderBy('name')->get(),
             'selectedStore' => $selectedStore,
+            'breadcrumbs' => $breadcrumbs,
         ]);
     }
 
@@ -75,10 +78,13 @@ class CategoryController extends Controller
                 ->value('id');
         }
 
+        $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Categories', 'url' => route('management.categories.index')], ['label' => 'Create']];
+
         return view('management.categories.create', [
             'user' => $user,
             'stores' => $stores,
             'selectedStoreId' => $selectedStoreId,
+            'breadcrumbs' => $breadcrumbs,
         ]);
     }
 
@@ -132,10 +138,13 @@ class CategoryController extends Controller
 
         $stores = $user->stores()->where('status', '!=', 'deleted')->orderBy('name')->get();
 
+        $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Categories', 'url' => route('management.categories.index')], ['label' => $category->name, 'url' => route('management.categories.edit', $category)], ['label' => 'Edit']];
+
         return view('management.categories.edit', [
             'user' => $user,
             'category' => $category,
             'stores' => $stores,
+            'breadcrumbs' => $breadcrumbs,
         ]);
     }
 

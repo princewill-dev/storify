@@ -62,7 +62,13 @@ class StoreController extends Controller
             'user_id' => $user->id,
         ]);
 
-        return view('management.stores.create', compact('user', 'ownershipTypes', 'businessTypes', 'defaults', 'activeStaff', 'userBanks', 'currencies'));
+        $breadcrumbs = [
+            ['label' => 'Dashboard', 'url' => route('management.dashboard')],
+            ['label' => 'Stores', 'url' => route('management.stores.index')],
+            ['label' => 'Create'],
+        ];
+
+        return view('management.stores.create', compact('user', 'ownershipTypes', 'businessTypes', 'defaults', 'activeStaff', 'userBanks', 'currencies', 'breadcrumbs'));
     }
 
     public function checkSlugAvailability(Request $request): JsonResponse
@@ -204,9 +210,12 @@ class StoreController extends Controller
             }
         }
 
+        $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Stores', 'url' => route('management.stores.index')], ['label' => $store->name, 'url' => route('management.stores.show', $store)], ['label' => 'Setup Complete']];
+
         return view('management.stores.success', [
             'store' => $store,
             'storeUrl' => $storeUrl,
+            'breadcrumbs' => $breadcrumbs,
         ]);
     }
 
@@ -224,7 +233,7 @@ class StoreController extends Controller
         $from = $request->query('from');
         $to = $request->query('to');
 
-        $storesQuery = $user->stores()->with(['ownershipType', 'businessType']);
+        $storesQuery = $user->stores()->with(['ownershipType', 'businessType'])->withCount(['products', 'categories']);
 
         if (in_array($status, ['active', 'inactive', 'suspended', 'deleted'], true)) {
             $storesQuery->where('status', $status);
@@ -252,6 +261,11 @@ class StoreController extends Controller
         $businessTypes = BusinessType::orderBy('name')->get(['id', 'name']);
         $canCreate = true;
 
+        $breadcrumbs = [
+            ['label' => 'Dashboard', 'url' => route('management.dashboard')],
+            ['label' => 'Stores'],
+        ];
+
         return view('management.stores.index', [
             'stores' => $stores,
             'status' => $request->query('status'),
@@ -262,6 +276,7 @@ class StoreController extends Controller
             'businessTypes' => $businessTypes,
             'canCreate' => $canCreate,
             'user' => $user,
+            'breadcrumbs' => $breadcrumbs,
         ]);
     }
 
@@ -286,23 +301,43 @@ class StoreController extends Controller
         $lastMonthStart = $now->copy()->subMonth()->startOfMonth();
         $lastMonthEnd = $now->copy()->subMonth()->endOfMonth();
 
-        $completedTx = \App\Models\Transaction::query()
+        // Consolidated transaction revenue aggregates (1 query instead of 3)
+        $txStats = \App\Models\Transaction::query()
             ->whereHas('order', fn($q) => $q->where('store_id', $store->id))
-            ->where('status', 'confirmed');
+            ->where('status', 'confirmed')
+            ->selectRaw("
+                COALESCE(SUM(amount), 0) as total_revenue,
+                COALESCE(SUM(CASE WHEN paid_at BETWEEN ? AND ? THEN amount ELSE 0 END), 0) as revenue_this_month,
+                COALESCE(SUM(CASE WHEN paid_at BETWEEN ? AND ? THEN amount ELSE 0 END), 0) as last_month_revenue
+            ", [$startOfMonth, $endOfMonth, $lastMonthStart, $lastMonthEnd])
+            ->first();
 
-        $totalRevenue = (int) (clone $completedTx)->sum('amount');
-        $revenueThisMonth = (int) (clone $completedTx)->whereBetween('paid_at', [$startOfMonth, $endOfMonth])->sum('amount');
-        $lastMonthRevenue = (int) (clone $completedTx)->whereBetween('paid_at', [$lastMonthStart, $lastMonthEnd])->sum('amount');
+        $totalRevenue = (int) $txStats->total_revenue;
+        $revenueThisMonth = (int) $txStats->revenue_this_month;
+        $lastMonthRevenue = (int) $txStats->last_month_revenue;
         $revenueChange = $lastMonthRevenue > 0 ? round((($revenueThisMonth - $lastMonthRevenue) / $lastMonthRevenue) * 100, 1) : ($revenueThisMonth > 0 ? 100 : 0);
 
-        $orderQuery = \App\Models\Order::where('store_id', $store->id);
-        $totalOrders = $orderQuery->count();
-        $pendingOrders = (clone $orderQuery)->where('status', 'pending')->count();
-        $completedOrders = (clone $orderQuery)->whereIn('status', ['completed', 'delivered'])->count();
+        // Consolidated order counts (1 query instead of 3)
+        $orderStats = \App\Models\Order::where('store_id', $store->id)
+            ->selectRaw("
+                COUNT(*) as total,
+                SUM(status = 'pending') as pending,
+                SUM(status IN ('completed', 'delivered')) as completed
+            ")->first();
+        $totalOrders = (int) $orderStats->total;
+        $pendingOrders = (int) $orderStats->pending;
+        $completedOrders = (int) $orderStats->completed;
 
+        // Consolidated product stats (1 query instead of 3)
         $productQuery = \App\Models\Product::where('store_id', $store->id);
-        $productCount = $productQuery->count();
-        $activeProducts = (clone $productQuery)->where('status', 'active')->count();
+        $productStats = (clone $productQuery)->selectRaw("
+            COUNT(*) as total,
+            SUM(status = 'active') as active,
+            COALESCE(SUM(quantity), 0) as total_stock
+        ")->first();
+        $productCount = (int) $productStats->total;
+        $activeProducts = (int) $productStats->active;
+        $totalStock = (int) $productStats->total_stock;
 
         $customerCount = \App\Models\Order::where('store_id', $store->id)
             ->distinct('customer_id')
@@ -327,23 +362,40 @@ class StoreController extends Controller
             ->with('staff')
             ->first();
 
+        // Single grouped monthly revenue query instead of 6 separate queries in a loop
+        $sixMonthsAgo = $now->copy()->subMonths(6)->startOfMonth();
+        $monthlyData = \App\Models\Transaction::query()
+            ->whereHas('order', fn($q) => $q->where('store_id', $store->id))
+            ->where('status', 'confirmed')
+            ->where('paid_at', '>=', $sixMonthsAgo)
+            ->selectRaw("DATE_FORMAT(paid_at, '%Y-%m') as month, COALESCE(SUM(amount), 0) as total")
+            ->groupBy('month')
+            ->orderBy('month')
+            ->get()
+            ->keyBy('month');
+
         $monthlyRevenue = [];
         for ($i = 5; $i >= 0; $i--) {
-            $monthStart = $now->copy()->subMonths($i)->startOfMonth();
-            $monthEnd = $now->copy()->subMonths($i)->endOfMonth();
+            $monthKey = $now->copy()->subMonths($i)->format('Y-m');
             $monthlyRevenue[] = [
-                'month' => $monthStart->format('M'),
-                'total' => (int) (clone $completedTx)->whereBetween('paid_at', [$monthStart, $monthEnd])->sum('amount') / 100,
+                'month' => $now->copy()->subMonths($i)->startOfMonth()->format('M'),
+                'total' => (int) (($monthlyData->get($monthKey)?->total ?? 0) / 100),
             ];
         }
+
+        $breadcrumbs = [
+            ['label' => 'Dashboard', 'url' => route('management.dashboard')],
+            ['label' => 'Stores', 'url' => route('management.stores.index')],
+            ['label' => $store->name],
+        ];
 
         return view('management.stores.show', compact(
             'user', 'store',
             'totalRevenue', 'revenueThisMonth', 'revenueChange',
             'totalOrders', 'pendingOrders', 'completedOrders',
-            'productCount', 'activeProducts', 'customerCount',
+            'productCount', 'activeProducts', 'totalStock', 'customerCount',
             'recentOrders', 'lowStockProducts', 'outOfStock',
-            'activePosSession', 'monthlyRevenue'
+            'activePosSession', 'monthlyRevenue', 'breadcrumbs'
         ));
     }
 
@@ -562,16 +614,23 @@ class StoreController extends Controller
             ->take(10)
             ->get();
 
+        // Single grouped monthly web orders query instead of 6 separate queries in a loop
+        $sixMonthsAgo = now()->subMonths(6)->startOfMonth();
+        $monthlyWebData = \App\Models\Order::where('store_id', $store->id)
+            ->where('source', 'checkout')
+            ->where('created_at', '>=', $sixMonthsAgo)
+            ->selectRaw("DATE_FORMAT(created_at, '%Y-%m') as month, COUNT(*) as count")
+            ->groupBy('month')
+            ->orderBy('month')
+            ->get()
+            ->keyBy('month');
+
         $monthlyWebOrders = [];
         for ($i = 5; $i >= 0; $i--) {
-            $monthStart = now()->copy()->subMonths($i)->startOfMonth();
-            $monthEnd = now()->copy()->subMonths($i)->endOfMonth();
+            $monthKey = now()->copy()->subMonths($i)->format('Y-m');
             $monthlyWebOrders[] = [
-                'month' => $monthStart->format('M'),
-                'count' => \App\Models\Order::where('store_id', $store->id)
-                    ->where('source', 'checkout')
-                    ->whereBetween('created_at', [$monthStart, $monthEnd])
-                    ->count(),
+                'month' => now()->copy()->subMonths($i)->startOfMonth()->format('M'),
+                'count' => (int) ($monthlyWebData->get($monthKey)?->count ?? 0),
             ];
         }
 
@@ -581,10 +640,17 @@ class StoreController extends Controller
                 : 'https://' . $store->slug . '.storify.ng')
             : null;
 
+        $breadcrumbs = [
+            ['label' => 'Dashboard', 'url' => route('management.dashboard')],
+            ['label' => 'Stores', 'url' => route('management.stores.index')],
+            ['label' => $store->name, 'url' => route('management.stores.show', $store)],
+            ['label' => 'Web Metrics'],
+        ];
+
         return view('management.stores.web-metrics', compact(
             'user', 'store',
             'storeViews', 'productViews', 'webOrders', 'webRevenue',
-            'topProducts', 'recentActivity', 'monthlyWebOrders', 'storeUrl'
+            'topProducts', 'recentActivity', 'monthlyWebOrders', 'storeUrl', 'breadcrumbs'
         ));
     }
 
@@ -605,7 +671,14 @@ class StoreController extends Controller
             ->with('roles')
             ->get(['id', 'name', 'email']);
 
-        return view('management.stores.settings', compact('user', 'store', 'availableStaff'));
+        $breadcrumbs = [
+            ['label' => 'Dashboard', 'url' => route('management.dashboard')],
+            ['label' => 'Stores', 'url' => route('management.stores.index')],
+            ['label' => $store->name, 'url' => route('management.stores.show', $store)],
+            ['label' => 'Settings'],
+        ];
+
+        return view('management.stores.settings', compact('user', 'store', 'availableStaff', 'breadcrumbs'));
     }
 
     public function assignStaff(Request $request, Store $store): RedirectResponse
@@ -710,5 +783,126 @@ class StoreController extends Controller
             return $user->assignedStores()->where('stores.id', $store->id)->exists();
         }
         return (int) $store->user_id === (int) $user->id;
+    }
+
+    /**
+     * AJAX endpoint: load tab content for the store detail page.
+     */
+    public function loadTab(Request $request, Store $store): View
+    {
+        $user = $request->user();
+        if (!$this->canAccessStore($user, $store)) {
+            abort(403);
+        }
+
+        $tab = $request->route('tab');
+
+        return match ($tab) {
+            'products' => $this->tabProducts($request, $store, $user),
+            'orders' => $this->tabOrders($request, $store, $user),
+            'settings' => $this->tabSettings($store, $user),
+            'staff' => $this->tabStaff($store, $user),
+            'web-metrics' => $this->webMetrics($request, $store),
+            default => abort(404, 'Unknown tab'),
+        };
+    }
+
+    private function tabProducts(Request $request, Store $store, User $user): View
+    {
+        request()->merge(['store_id' => $store->store_id]);
+
+        $selectedStoreId = $store->id;
+
+        $query = Product::where('store_id', $selectedStoreId)
+            ->with(['category', 'store', 'images', 'section.warehouse'])
+            ->withMin('variants', 'amount')
+            ->withMax('variants', 'amount');
+
+        if ($request->filled('q')) {
+            $q = trim($request->q);
+            $query->where(function ($x) use ($q) {
+                $x->where('name', 'like', "%{$q}%")
+                  ->orWhere('product_code', 'like', "%{$q}%");
+            });
+        }
+
+        if ($request->filled('status') && in_array($request->status, ['active', 'inactive'])) {
+            $query->where('status', $request->status);
+        }
+
+        $products = $query->latest()->paginate($request->input('per_page', 10))->withQueryString();
+
+        // Compute display prices (simplified — amounts in base currency)
+        $currencies = Currency::query()->get(['id', 'code', 'symbol'])->keyBy('id');
+        $displayPrices = [];
+        foreach ($products as $prod) {
+            $cur = $currencies[$prod->currency_id ?? 0] ?? null;
+            $sym = $cur->symbol ?? '';
+            $amt = (float) ($prod->amount ?? 0);
+            if ($prod->has_variants && $prod->variants_min_amount !== null) {
+                $min = (float) $prod->variants_min_amount;
+                $max = (float) ($prod->variants_max_amount ?? $min);
+                if ($min == $max) {
+                    $displayPrices[$prod->id] = $sym . number_format($min, 2);
+                } else {
+                    $displayPrices[$prod->id] = $sym . number_format($min, 2) . ' - ' . $sym . number_format($max, 2);
+                }
+            } else {
+                $displayPrices[$prod->id] = $sym . number_format($amt, 2);
+            }
+        }
+
+        return view('management.stores.tabs.products', compact('user', 'store', 'products', 'displayPrices'));
+    }
+
+    private function tabOrders(Request $request, Store $store, User $user): View
+    {
+        request()->merge(['store_id' => $store->store_id]);
+
+        $query = Order::query()
+            ->with(['customer', 'store', 'items', 'staff'])
+            ->where('store_id', $store->id);
+
+        if ($request->filled('status')) {
+            $query->where('status', $request->status);
+        }
+
+        if ($request->filled('search')) {
+            $search = $request->search;
+            $query->where(function ($q) use ($search) {
+                $q->where('order_number', 'like', "%{$search}%")
+                  ->orWhereHas('customer', fn($q) => $q->where('first_name', 'like', "%{$search}%")->orWhere('last_name', 'like', "%{$search}%"));
+            });
+        }
+
+        $orders = $query->latest()->paginate(15)->withQueryString();
+
+        return view('management.stores.tabs.orders', compact('user', 'store', 'orders'));
+    }
+
+    private function tabSettings(Store $store, User $user): View
+    {
+        $store->load(['ownershipType', 'businessType', 'business', 'banks', 'deliveryRoutes', 'assignedStaff']);
+        $availableStaff = User::where('business_id', $user->business_id)
+            ->where('role', 'staff')
+            ->where('status', 'active')
+            ->whereNotIn('id', $store->assignedStaff->pluck('id'))
+            ->with('roles')
+            ->get(['id', 'name', 'email']);
+
+        return view('management.stores.tabs.settings', compact('user', 'store', 'availableStaff'));
+    }
+
+    private function tabStaff(Store $store, User $user): View
+    {
+        $staff = User::where('business_id', $user->business_id)
+            ->whereIn('role', ['staff', 'business_owner'])
+            ->where('status', '!=', 'deleted')
+            ->whereHas('assignedStores', fn($q) => $q->where('assignmentable_id', $store->id))
+            ->with('roles', 'assignedStores', 'assignedWarehouses')
+            ->latest()
+            ->get();
+
+        return view('management.stores.tabs.staff', compact('user', 'store', 'staff'));
     }
 }

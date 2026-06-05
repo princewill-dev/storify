@@ -28,6 +28,15 @@
     </style>
 </head>
 <body>
+@if(session('success'))
+<div class="fixed top-4 right-4 z-[100] bg-emerald-50 border border-emerald-200 text-emerald-700 px-4 py-3 rounded-lg shadow-lg text-sm" id="posFlash">{{ session('success') }}</div>
+@endif
+@if(session('error'))
+<div class="fixed top-4 right-4 z-[100] bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg shadow-lg text-sm" id="posFlash">{{ session('error') }}</div>
+@endif
+@if($errors->any())
+<div class="fixed top-4 right-4 z-[100] bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg shadow-lg text-sm" id="posFlash">{{ $errors->first() }}</div>
+@endif
 <div class="pos-page">
     <div class="pos-header flex items-center justify-between gap-3 flex-wrap">
         <div class="flex items-center gap-2 min-w-0">
@@ -39,7 +48,7 @@
         </div>
         <div class="flex items-center gap-2 flex-wrap">
             @if($assignedStores->count() > 1)
-            <form method="POST" action="{{ route('staff.pos.switch-store') }}" class="flex items-center">
+            <form method="POST" action="{{ route('pos.switch-store') }}" class="flex items-center">
                 @csrf
                 <select name="store_id" onchange="this.form.submit()" class="rounded-lg border-slate-300 text-xs shadow-sm focus:border-slate-500 focus:ring-slate-500 py-1.5">
                     @foreach($assignedStores as $s)
@@ -140,7 +149,7 @@
                                     @if($tx->status === 'confirmed') <span class="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">Paid</span>
                                     @elseif($tx->status === 'refund_pending') <span class="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">Refund Pending</span>
                                     @elseif($tx->status === 'refunded') <span class="inline-flex items-center rounded-full bg-purple-50 px-2 py-0.5 text-[10px] font-medium text-purple-700">Refunded</span>
-                                    @else <span class="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600">{{ ucfirst($tx->status) }}</span>
+                                    @else <span class="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600">{{ ucfirst($tx->status->value) }}</span>
                                     @endif
                                     @else <span class="text-[10px] text-slate-400">—</span> @endif
                                 </td>
@@ -150,7 +159,7 @@
                                         @if($tx && $tx->status === 'confirmed')
                                         <button onclick="openRefundModal(@js($order->only(['id','order_number','total'])))" class="px-2 py-1 text-[10px] font-medium text-amber-600 bg-amber-50 hover:bg-amber-100 rounded">Refund</button>
                                         @endif
-                                        <a href="{{ route('staff.pos.receipt', ['store' => $activeStore, 'order' => $order]) }}" class="px-2 py-1 text-[10px] font-medium text-slate-500 bg-slate-100 hover:bg-slate-200 rounded">View</a>
+                                        <a href="{{ route('pos.receipt', ['store' => $activeStore, 'order' => $order]) }}" class="px-2 py-1 text-[10px] font-medium text-slate-500 bg-slate-100 hover:bg-slate-200 rounded">View</a>
                                     </div>
                                 </td>
                             </tr>
@@ -172,7 +181,7 @@
         <div class="fixed inset-0 bg-slate-900/50" onclick="document.getElementById('openSessionModal').classList.add('hidden')"></div>
         <div class="relative w-full max-w-sm bg-white rounded-2xl shadow-xl">
             <div class="px-6 py-4 border-b border-slate-100"><h3 class="text-base font-semibold text-slate-800">Open POS Session</h3></div>
-            <form method="POST" action="{{ route('staff.pos.session.open', ['store' => $activeStore]) }}" class="p-6 space-y-4">
+            <form method="POST" action="{{ route('pos.session.open', ['store' => $activeStore]) }}" class="p-6 space-y-4">
                 @csrf
                 <div><label class="block text-sm font-medium text-slate-700">Opening Cash Float (in kobo)</label><input type="number" name="opening_balance" class="w-full rounded-lg border-slate-300 px-3.5 py-2.5 shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500 text-sm" min="0" placeholder="0" required></div>
                 <div class="flex items-center gap-3"><button type="submit" class="flex-1 py-2.5 bg-slate-900 text-white text-sm font-semibold rounded-lg hover:bg-slate-800">Open</button><button type="button" onclick="document.getElementById('openSessionModal').classList.add('hidden')" class="flex-1 py-2 border border-slate-200 text-sm rounded-lg hover:bg-slate-50">Cancel</button></div>
@@ -188,7 +197,7 @@
         <div class="fixed inset-0 bg-slate-900/50" onclick="document.getElementById('closeSessionModal').classList.add('hidden')"></div>
         <div class="relative w-full max-w-sm bg-white rounded-2xl shadow-xl">
             <div class="px-6 py-4 border-b border-slate-100"><h3 class="text-base font-semibold text-slate-800">Close POS Session</h3></div>
-            <form method="POST" action="{{ route('staff.pos.session.close', ['store' => $activeStore]) }}" class="p-6 space-y-4">
+            <form method="POST" action="{{ route('pos.session.close', ['store' => $activeStore]) }}" class="p-6 space-y-4">
                 @csrf
                 <div class="bg-slate-50 rounded-lg p-3 text-xs space-y-1">
                     <div class="flex justify-between"><span>Opening:</span><span class="font-semibold">₦{{ number_format($activeSession->opening_balance / 100, 2) }}</span></div>
@@ -208,9 +217,9 @@
 <div id="checkoutModal" class="hidden fixed inset-0 z-50 overflow-y-auto">
     <div class="flex min-h-full items-center justify-center p-4">
         <div class="fixed inset-0 bg-slate-900/50" onclick="document.getElementById('checkoutModal').classList.add('hidden')"></div>
-        <div class="relative w-full max-w-md bg-white rounded-2xl shadow-xl">
+        <div class="relative w-full max-w-lg bg-white rounded-2xl shadow-xl">
             <div class="flex items-center justify-between px-6 py-4 border-b border-slate-100"><h3 class="text-base font-semibold text-slate-800">Complete Sale</h3><button onclick="document.getElementById('checkoutModal').classList.add('hidden')" class="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100">&times;</button></div>
-            <form id="checkoutForm" method="POST" action="{{ route('staff.pos.checkout', ['store' => $activeStore]) }}" class="p-6 space-y-4">
+            <form id="checkoutForm" method="POST" action="{{ route('pos.checkout', ['store' => $activeStore]) }}" class="p-6 space-y-4">
                 @csrf
                 <input type="hidden" name="items" id="checkoutItems">
                 <div class="text-center py-3 bg-slate-50 rounded-lg"><span class="text-xs text-slate-500">Total</span><p id="modalTotal" class="text-2xl font-bold text-slate-900"></p></div>
@@ -254,6 +263,7 @@
 @endif
 
 @if($canProcessSale && $activeStore)
+<script>setTimeout(()=>{const e=document.getElementById('posFlash');if(e)e.remove();},4000);</script>
 <script>
 let cart = [];
 const csrf = '{{ csrf_token() }}';
@@ -303,7 +313,7 @@ function submitCheckout() {
     document.getElementById('checkoutItems').value = JSON.stringify(cart);
     const m = document.querySelector('input[name="payment_method"]:checked')?.value;
     @if($paystackKey)
-    if (m === 'card') {
+    if (m === 'paystack') {
         const t = cart.reduce((s,i) => s + i.price * i.quantity, 0);
         PaystackPop.setup({ key:'{{ $paystackKey }}', email:'{{ $user->email }}', amount:Math.round(t*100), currency:'NGN', ref:'POS-'+Date.now(), metadata:{store_id:'{{ $activeStore->id }}'}, onClose(){}, callback(r){ const i=document.createElement('input'); i.type='hidden'; i.name='paystack_reference'; i.value=r.reference; f.appendChild(i); f.submit(); }}).openIframe();
         return;
@@ -319,7 +329,7 @@ function switchTab(t) {
     document.getElementById('tabHistory').classList.toggle('active', t === 'history');
 }
 function openRefundModal(order) {
-    document.getElementById('refundForm').action = '/staff/pos/{{ $activeStore->id }}/refund/' + order.id;
+    document.getElementById('refundForm').action = '/pos/{{ $activeStore->store_id }}/refund/' + order.id;
     document.getElementById('refundOrderNum').textContent = '#' + (order.order_number || order.id);
     document.getElementById('refundOrderTotal').textContent = '₦' + parseFloat(order.total).toFixed(2);
     document.getElementById('refundModal').classList.remove('hidden');

@@ -31,7 +31,9 @@ class SupportMessageController extends Controller
             ->orderBy('created_at', 'desc')
             ->get();
 
-        return view('management.support-messages.index', compact('user', 'messages'));
+        $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Support']];
+
+        return view('management.support-messages.index', compact('user', 'messages', 'breadcrumbs'));
     }
 
     /**

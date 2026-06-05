@@ -2,7 +2,7 @@
 @section('subtitle', 'Edit Role')
 
 @section('content')
-<x-management.page-header title="Edit: {{ $role->name }}" subtitle="Modify permissions for this role" />
+<x-management.page-header :breadcrumbs="$breadcrumbs" title="Edit: {{ $role->name }}" subtitle="Modify permissions for this role" />
 
 @php
     $rolePermissionNames = $role->permissions->pluck('name')->toArray();

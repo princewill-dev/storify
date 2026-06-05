@@ -26,6 +26,10 @@ return Application::configure(basePath: dirname(__DIR__))
         
         // Configure authentication redirects for customer guard
         $middleware->redirectGuestsTo(function ($request) {
+            if ($request->is('pos') || $request->is('pos/*')) {
+                return route('pos.login');
+            }
+
             if ($request->is('management') || $request->is('management/*')
                 || $request->is('staff') || $request->is('staff/*')) {
                 return route('management.auth.login');

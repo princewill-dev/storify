@@ -2,7 +2,7 @@
 @section('subtitle', 'Products')
 
 @section('content')
-<x-management.page-header title="Products" subtitle="Manage your product catalog">
+<x-management.page-header :breadcrumbs="$breadcrumbs" title="Products" subtitle="Manage your product catalog">
     <x-slot:actions>
         <a href="{{ route('management.products.create') }}" class="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors">
             <i class="fi fi-rr-plus text-xs"></i> Add Product

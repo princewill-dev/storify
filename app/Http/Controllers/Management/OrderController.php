@@ -19,8 +19,8 @@ class OrderController extends Controller
         $user = $request->user();
 
         $query = Order::query()
-            ->with(['customer', 'store', 'items'])
-            ->where('user_id', $user->id);
+            ->with(['customer', 'store', 'items', 'staff']);
+        $this->forBusiness($query, $user);
 
         if ($request->filled('status')) {
             $query->where('status', $request->status);
@@ -81,15 +81,27 @@ class OrderController extends Controller
 
         $orders = $query->latest()->paginate(20)->withQueryString();
 
+        $orderStats = Order::where('user_id', $user->id)
+            ->selectRaw("
+                COUNT(*) as total,
+                SUM(status = 'pending') as pending,
+                SUM(status = 'processing') as processing,
+                SUM(status = 'dispatched') as dispatched,
+                SUM(status = 'delivered') as delivered,
+                SUM(status = 'completed') as completed,
+                SUM(status = 'cancelled') as cancelled,
+                SUM(status = 'returned') as returned
+            ")->first();
+
         $stats = [
-            'total' => Order::where('user_id', $user->id)->count(),
-            'pending' => Order::where('user_id', $user->id)->where('status', 'pending')->count(),
-            'processing' => Order::where('user_id', $user->id)->where('status', 'processing')->count(),
-            'dispatched' => Order::where('user_id', $user->id)->where('status', 'dispatched')->count(),
-            'delivered' => Order::where('user_id', $user->id)->where('status', 'delivered')->count(),
-            'completed' => Order::where('user_id', $user->id)->where('status', 'completed')->count(),
-            'cancelled' => Order::where('user_id', $user->id)->where('status', 'cancelled')->count(),
-            'returned' => Order::where('user_id', $user->id)->where('status', 'returned')->count(),
+            'total' => (int) $orderStats->total,
+            'pending' => (int) $orderStats->pending,
+            'processing' => (int) $orderStats->processing,
+            'dispatched' => (int) $orderStats->dispatched,
+            'delivered' => (int) $orderStats->delivered,
+            'completed' => (int) $orderStats->completed,
+            'cancelled' => (int) $orderStats->cancelled,
+            'returned' => (int) $orderStats->returned,
             'total_revenue' => Order::where('user_id', $user->id)
                 ->whereHas('transactions', fn($q) => $q->where('status', \App\Enums\TransactionStatus::CONFIRMED))
                 ->sum('total'),
@@ -97,7 +109,12 @@ class OrderController extends Controller
 
         $stores = $user->stores()->where('status', '!=', 'deleted')->orderBy('name')->get();
 
-        return view('management.orders.index', compact('orders', 'stats', 'user', 'stores', 'selectedStore'));
+        $breadcrumbs = [
+            ['label' => 'Dashboard', 'url' => route('management.dashboard')],
+            ['label' => 'Orders'],
+        ];
+
+        return view('management.orders.index', compact('orders', 'stats', 'user', 'stores', 'selectedStore', 'breadcrumbs'));
     }
 
     public function show(Request $request, Order $order): View|RedirectResponse
@@ -107,14 +124,20 @@ class OrderController extends Controller
             return redirect()->route('management.auth.login');
         }
 
-        $order->load(['items.product', 'customer', 'transactions.paymentMethod', 'deliveryRoute', 'store']);
+        $order->load(['items.product', 'customer', 'transactions.paymentMethod', 'deliveryRoute', 'store', 'staff']);
         $activityLogs = ActivityLog::where('subject_type', Order::class)
             ->where('subject_id', $order->id)
             ->with('user')
             ->latest()
             ->get();
 
-        return view('management.orders.show', compact('order', 'activityLogs', 'user'));
+        $breadcrumbs = [
+            ['label' => 'Dashboard', 'url' => route('management.dashboard')],
+            ['label' => 'Orders', 'url' => route('management.orders.index')],
+            ['label' => $order->order_number],
+        ];
+
+        return view('management.orders.show', compact('order', 'activityLogs', 'user', 'breadcrumbs'));
     }
 
     public function edit(Request $request, Order $order): View|RedirectResponse
@@ -125,7 +148,15 @@ class OrderController extends Controller
         }
 
         $order->load(['items', 'customer', 'deliveryRoute']);
-        return view('management.orders.edit', compact('order', 'user'));
+
+        $breadcrumbs = [
+            ['label' => 'Dashboard', 'url' => route('management.dashboard')],
+            ['label' => 'Orders', 'url' => route('management.orders.index')],
+            ['label' => $order->order_number, 'url' => route('management.orders.show', $order)],
+            ['label' => 'Edit'],
+        ];
+
+        return view('management.orders.edit', compact('order', 'user', 'breadcrumbs'));
     }
 
     public function update(Request $request, Order $order): RedirectResponse

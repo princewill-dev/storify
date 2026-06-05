@@ -20,7 +20,12 @@ class PosSessionController extends Controller
 
         $sessions = $store->posSessions()->with('staff')->latest()->paginate(20);
 
-        return view('management.pos.sessions.index', compact('user', 'store', 'sessions'));
+        $breadcrumbs = [
+            ['label' => 'Dashboard', 'url' => route('management.dashboard')],
+            ['label' => 'POS Sessions'],
+        ];
+
+        return view('management.pos.sessions.index', compact('user', 'store', 'sessions', 'breadcrumbs'));
     }
 
     public function show(Request $request, Store $store, PosSession $session): View
@@ -32,7 +37,13 @@ class PosSessionController extends Controller
 
         $session->load('orders.items', 'staff');
 
-        return view('management.pos.sessions.show', compact('user', 'store', 'session'));
+        $breadcrumbs = [
+            ['label' => 'Dashboard', 'url' => route('management.dashboard')],
+            ['label' => 'POS Sessions', 'url' => route('management.pos.sessions.index')],
+            ['label' => 'Session Details'],
+        ];
+
+        return view('management.pos.sessions.show', compact('user', 'store', 'session', 'breadcrumbs'));
     }
 
     public function open(Request $request, Store $store): RedirectResponse

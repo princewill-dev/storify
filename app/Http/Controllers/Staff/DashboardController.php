@@ -13,10 +13,12 @@ class DashboardController extends Controller
     {
         $user = $request->user();
 
-        if ($user->hasRole('Cashier')) {
+        // Only redirect pure cashiers (no other roles) to POS
+        $roles = $user->getRoleNames();
+        if ($roles->count() === 1 && $roles->contains('Cashier')) {
             $hasPosStore = $user->assignedStores()->where('pos_enabled', true)->where('status', '!=', 'deleted')->exists();
             if ($hasPosStore) {
-                return redirect()->route('staff.pos');
+                return redirect()->route('pos.index');
             }
         }
 

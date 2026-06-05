@@ -2,182 +2,207 @@
 @section('subtitle', $store->name)
 
 @section('content')
-<x-management.page-header :title="$store->name" subtitle="Store Dashboard · {{ $store->store_id }}">
+<div x-data="storeTabs('{{ $store->store_id }}')" x-on:popstate.window="handlePopState($event)">
+
+<x-management.page-header :breadcrumbs="$breadcrumbs" :title="$store->name" subtitle="Store Dashboard · {{ $store->store_id }}">
     <x-slot:actions>
-        <a href="{{ route('management.stores.settings', $store) }}" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors">
+        <button @click="switchTab('settings')" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors">
             <i class="fi fi-rr-settings text-xs"></i> Settings
-        </a>
+        </button>
     </x-slot:actions>
 </x-management.page-header>
 
 {{-- Tab Bar --}}
 <div class="flex items-center gap-1 mb-6 border-b border-slate-200 overflow-x-auto">
-    <a href="{{ route('management.stores.show', $store) }}" class="px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap {{ request()->routeIs('management.stores.show') && !request()->routeIs('management.stores.web-metrics') && !request()->routeIs('management.stores.settings') ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300' }} -mb-px transition-colors">Dashboard</a>
+    <button @click="switchTab('dashboard')" :class="activeTab === 'dashboard' ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'" class="px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap -mb-px transition-colors">Dashboard</button>
     @can('products view')
-    <a href="{{ route('management.stores.products', $store) }}" class="px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap {{ request()->routeIs('management.stores.products') ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300' }} -mb-px transition-colors">Products</a>
+    <button @click="switchTab('products')" :class="activeTab === 'products' ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'" class="px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap -mb-px transition-colors">Products</button>
     @endcan
     @can('orders view')
-    <a href="{{ route('management.orders.index', ['store_id' => $store->store_id]) }}" class="px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap {{ request()->routeIs('management.orders.*') && request()->query('store_id') == $store->store_id ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300' }} -mb-px transition-colors">Orders</a>
+    <button @click="switchTab('orders')" :class="activeTab === 'orders' ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'" class="px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap -mb-px transition-colors">Orders</button>
     @endcan
     @can('staff view')
-    <a href="{{ route('management.staff.index', ['store_id' => $store->store_id]) }}" class="px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap {{ request()->routeIs('management.staff.*') && request()->query('store_id') == $store->store_id ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300' }} -mb-px transition-colors">Staff</a>
+    <button @click="switchTab('staff')" :class="activeTab === 'staff' ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'" class="px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap -mb-px transition-colors">Staff</button>
     @endcan
     @if($store->has_website)
-    <a href="{{ route('management.stores.web-metrics', $store) }}" class="px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap {{ request()->routeIs('management.stores.web-metrics') ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300' }} -mb-px transition-colors">Web Metrics</a>
+    <button @click="switchTab('web-metrics')" :class="activeTab === 'web-metrics' ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'" class="px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap -mb-px transition-colors">Web Metrics</button>
     @endif
-    <a href="{{ route('management.stores.settings', $store) }}" class="px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap {{ request()->routeIs('management.stores.settings') ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300' }} -mb-px transition-colors">Settings</a>
+    <button @click="switchTab('settings')" :class="activeTab === 'settings' ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'" class="px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap -mb-px transition-colors">Settings</button>
 </div>
 
-{{-- Metric Cards --}}
-<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-    <x-management.metric-card
-        :value="'₦' . number_format($revenueThisMonth / 100, 0)"
-        label="Revenue (This Month)"
-        :subtitle="$revenueChange >= 0 ? '+' . $revenueChange . '% vs last month' : $revenueChange . '% vs last month'"
-        icon="fi-rr-chart-histogram" />
+{{-- Dashboard Content (pre-rendered) --}}
+<div x-show="activeTab === 'dashboard'">
+    {{-- Metric Cards --}}
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <x-management.metric-card
+            :value="'₦' . number_format($revenueThisMonth / 100, 0)"
+            label="Revenue (This Month)"
+            :subtitle="$revenueChange >= 0 ? '+' . $revenueChange . '% vs last month' : $revenueChange . '% vs last month'"
+            icon="fi-rr-chart-histogram" />
 
-    <x-management.metric-card
-        :value="$totalOrders"
-        label="Total Orders"
-        :subtitle="$pendingOrders . ' pending · ' . $completedOrders . ' completed'"
-        icon="fi-rr-box-alt" />
+        <x-management.metric-card
+            :value="$totalOrders"
+            label="Total Orders"
+            :subtitle="$pendingOrders . ' pending · ' . $completedOrders . ' completed'"
+            icon="fi-rr-box-alt" />
 
-    <x-management.metric-card
-        :value="$productCount"
-        label="Products"
-        :subtitle="$activeProducts . ' active'"
-        icon="fi-rr-cube" />
+        <x-management.metric-card
+            :value="$productCount"
+            label="Products"
+            :subtitle="$activeProducts . ' active · ' . number_format($totalStock) . ' in stock'"
+            icon="fi-rr-cube" />
 
-    <x-management.metric-card
-        :value="$customerCount"
-        label="Customers"
-        subtitle="Unique buyers"
-        icon="fi-rr-users-alt" />
-</div>
-
-{{-- Revenue Chart --}}
-@if(!empty($monthlyRevenue))
-<div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 mb-6">
-    <div class="flex items-center justify-between mb-4">
-        <h3 class="text-sm font-semibold text-slate-800">Revenue Overview</h3>
+        <x-management.metric-card
+            :value="$customerCount"
+            label="Customers"
+            subtitle="Unique buyers"
+            icon="fi-rr-users-alt" />
     </div>
-    <div id="storeRevenueChart" style="height: 300px;"></div>
-</div>
-@endif
 
-<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    {{-- Revenue Chart --}}
+    @if(!empty($monthlyRevenue))
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 mb-6">
+        <div class="flex items-center justify-between mb-4">
+            <h3 class="text-sm font-semibold text-slate-800">Revenue Overview</h3>
+        </div>
+        <div id="storeRevenueChart" style="height: 300px;"></div>
+    </div>
+    @endif
 
-    {{-- Recent Orders --}}
-    <div class="lg:col-span-2">
-        <x-management.card header="Recent Orders">
-            <div class="divide-y divide-slate-100 -mx-5 -mb-5">
-                @forelse($recentOrders as $order)
-                <a href="{{ route('management.orders.show', $order) }}" class="flex items-center justify-between px-5 py-3 hover:bg-slate-50 transition-colors">
-                    <div class="min-w-0">
-                        <div class="flex items-center gap-2">
-                            <span class="text-sm font-medium text-slate-800">{{ $order->order_number }}</span>
-                            <x-management.status-badge :status="$order->status" />
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {{-- Recent Orders --}}
+        <div class="lg:col-span-2">
+            <x-management.card header="Recent Orders">
+                <div class="divide-y divide-slate-100 -mx-5 -mb-5">
+                    @forelse($recentOrders as $order)
+                    <a href="{{ route('management.orders.show', $order) }}" class="flex items-center justify-between px-5 py-3 hover:bg-slate-50 transition-colors">
+                        <div class="min-w-0">
+                            <div class="flex items-center gap-2">
+                                <span class="text-sm font-medium text-slate-800">{{ $order->order_number }}</span>
+                                <x-management.status-badge :status="$order->status" />
+                            </div>
+                            <p class="text-xs text-slate-400 mt-0.5">{{ $order->customer?->first_name ?? 'Walk-in' }} · {{ $order->created_at->diffForHumans() }}</p>
                         </div>
-                        <p class="text-xs text-slate-400 mt-0.5">{{ $order->customer?->first_name ?? 'Walk-in' }} · {{ $order->created_at->diffForHumans() }}</p>
-                    </div>
-                    <span class="text-sm font-semibold text-slate-800">₦{{ number_format($order->total, 2) }}</span>
-                </a>
-                @empty
-                <div class="px-5 py-6 text-center text-sm text-slate-400">No orders yet</div>
-                @endforelse
-            </div>
-        </x-management.card>
-    </div>
-
-    {{-- Right Sidebar --}}
-    <div class="space-y-6">
-
-        {{-- Web Storefront --}}
-        <x-management.card header="Web Storefront">
-            @if($store->has_website)
-            <div class="text-center space-y-3">
-                <div class="flex items-center gap-2 justify-center">
-                    <span class="inline-flex h-2 w-2 rounded-full bg-emerald-500"></span>
-                    <span class="text-sm font-medium text-emerald-700">Live</span>
+                        <span class="text-sm font-semibold text-slate-800">₦{{ number_format($order->total, 2) }}</span>
+                    </a>
+                    @empty
+                    <div class="px-5 py-6 text-center text-sm text-slate-400">No orders yet</div>
+                    @endforelse
                 </div>
-                <p class="text-xs text-slate-500 truncate">{{ $store->slug }}.{{ config('app.main_domain', 'storify.ng') }}</p>
-                @php
-                    $storeUrl = $store->slug
-                        ? (config('app.env') === 'local' ? url($store->slug) : 'https://' . $store->slug . '.storify.ng')
-                        : null;
-                @endphp
-                @if($storeUrl)
-                <a href="{{ $storeUrl }}" target="_blank" class="block w-full py-2 bg-slate-900 text-white text-xs font-semibold rounded-lg hover:bg-slate-800 transition-colors text-center">Visit Store</a>
-                @endif
-            </div>
-            @else
-            <div class="text-center py-2">
-                <p class="text-sm text-slate-500 mb-3">No online storefront yet</p>
-                <button type="button" onclick="openWebsiteModal()" class="w-full py-2 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 transition-colors">Enable Web Storefront</button>
-            </div>
-            @endif
-        </x-management.card>
+            </x-management.card>
+        </div>
 
-        {{-- POS --}}
-        <x-management.card header="POS Terminal">
-            @if($store->pos_enabled)
-                @if($activePosSession)
-                <div class="space-y-3">
-                    <div class="flex items-center gap-2">
-                        <span class="inline-flex h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                        <span class="text-sm font-medium text-emerald-700">Session Open</span>
+        {{-- Right Sidebar --}}
+        <div class="space-y-6">
+            {{-- Web Storefront --}}
+            <x-management.card header="Web Storefront">
+                @if($store->has_website)
+                <div class="text-center space-y-3">
+                    <div class="flex items-center gap-2 justify-center">
+                        <span class="inline-flex h-2 w-2 rounded-full bg-emerald-500"></span>
+                        <span class="text-sm font-medium text-emerald-700">Live</span>
                     </div>
-                    <div class="text-xs text-slate-500 space-y-1">
-                        <div class="flex justify-between"><span>Opened by</span><span class="font-medium text-slate-700">{{ $activePosSession->staff->name }}</span></div>
-                        <div class="flex justify-between"><span>Since</span><span class="font-medium text-slate-700">{{ $activePosSession->opened_at->format('d M, h:i A') }}</span></div>
-                        <div class="flex justify-between"><span>Float</span><span class="font-medium text-slate-700">₦{{ number_format($activePosSession->opening_balance / 100, 2) }}</span></div>
-                    </div>
-                    <form method="POST" action="{{ route('management.pos.close', $store) }}" class="space-y-2 border-t border-slate-100 pt-3">
-                        @csrf
-                        <input type="number" name="closing_balance_actual" required class="block w-full rounded-lg border-slate-300 px-3 py-2 text-xs shadow-sm focus:border-slate-500 focus:ring-slate-500" placeholder="Cash counted (kobo)">
-                        <button type="submit" class="w-full py-2 bg-red-600 text-white text-xs font-semibold rounded-lg hover:bg-red-700 transition-colors">Close Session</button>
-                    </form>
+                    <p class="text-xs text-slate-500 truncate">{{ $store->slug }}.{{ config('app.main_domain', 'storify.ng') }}</p>
+                    @php
+                        $storeUrl = $store->slug
+                            ? (config('app.env') === 'local' ? url($store->slug) : 'https://' . $store->slug . '.storify.ng')
+                            : null;
+                    @endphp
+                    @if($storeUrl)
+                    <a href="{{ $storeUrl }}" target="_blank" class="block w-full py-2 bg-slate-900 text-white text-xs font-semibold rounded-lg hover:bg-slate-800 transition-colors text-center">Visit Store</a>
+                    @endif
                 </div>
                 @else
-                <form method="POST" action="{{ route('management.pos.open', $store) }}" class="space-y-3">
-                    @csrf
-                    <input type="number" name="opening_balance" required class="block w-full rounded-lg border-slate-300 px-3 py-2 text-xs shadow-sm focus:border-slate-500 focus:ring-slate-500" placeholder="Opening cash float (kobo)">
-                    <button type="submit" class="w-full py-2 bg-slate-900 text-white text-xs font-semibold rounded-lg hover:bg-slate-800 transition-colors">Open Session</button>
-                </form>
+                <div class="text-center py-2">
+                    <p class="text-sm text-slate-500 mb-3">No online storefront yet</p>
+                    <button type="button" onclick="openWebsiteModal()" class="w-full py-2 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 transition-colors">Enable Web Storefront</button>
+                </div>
                 @endif
-            @else
-            <div class="text-center py-2">
-                <p class="text-sm text-slate-500 mb-3">POS not enabled</p>
-                <form method="POST" action="{{ route('management.pos.enable', $store) }}">
-                    @csrf
-                    <button type="submit" class="w-full py-2 bg-emerald-600 text-white text-xs font-semibold rounded-lg hover:bg-emerald-700 transition-colors">Enable POS</button>
-                </form>
-            </div>
-            @endif
-        </x-management.card>
+            </x-management.card>
 
-        {{-- Low Stock --}}
-        <x-management.card header="Low Stock">
-            <div class="divide-y divide-slate-100 -mx-5 -mb-5">
-                @forelse($lowStockProducts as $p)
-                <a href="{{ route('management.products.show', $p) }}" class="flex items-center justify-between px-5 py-3 hover:bg-slate-50 transition-colors">
-                    <div class="min-w-0">
-                        <p class="text-sm font-medium text-slate-800 truncate">{{ $p->name }}</p>
+            {{-- POS --}}
+            <x-management.card header="POS Terminal">
+                @if($store->pos_enabled)
+                    @if($activePosSession)
+                    <div class="space-y-3">
+                        <div class="flex items-center gap-2">
+                            <span class="inline-flex h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                            <span class="text-sm font-medium text-emerald-700">Session Open</span>
+                        </div>
+                        <div class="text-xs text-slate-500 space-y-1">
+                            <div class="flex justify-between"><span>Opened by</span><span class="font-medium text-slate-700">{{ $activePosSession->staff->name }}</span></div>
+                            <div class="flex justify-between"><span>Since</span><span class="font-medium text-slate-700">{{ $activePosSession->opened_at->format('d M, h:i A') }}</span></div>
+                            <div class="flex justify-between"><span>Float</span><span class="font-medium text-slate-700">₦{{ number_format($activePosSession->opening_balance / 100, 2) }}</span></div>
+                        </div>
+                        <form method="POST" action="{{ route('management.pos.close', $store) }}" class="space-y-2 border-t border-slate-100 pt-3">
+                            @csrf
+                            <input type="number" name="closing_balance_actual" required class="block w-full rounded-lg border-slate-300 px-3 py-2 text-xs shadow-sm focus:border-slate-500 focus:ring-slate-500" placeholder="Cash counted (kobo)">
+                            <button type="submit" class="w-full py-2 bg-red-600 text-white text-xs font-semibold rounded-lg hover:bg-red-700 transition-colors">Close Session</button>
+                        </form>
                     </div>
-                    <span class="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 shrink-0">Qty: {{ $p->quantity }}</span>
-                </a>
-                @empty
-                <div class="px-5 py-4 text-center text-sm text-slate-400">All products well stocked</div>
-                @endforelse
-            </div>
-            @if($outOfStock > 0)
-            <div class="px-5 py-2 border-t border-slate-100 -mx-5 -mb-5 bg-slate-50 text-center">
-                <span class="text-xs text-red-600 font-medium">{{ $outOfStock }} product(s) out of stock</span>
-            </div>
-            @endif
-        </x-management.card>
+                    @else
+                    <form method="POST" action="{{ route('management.pos.open', $store) }}" class="space-y-3">
+                        @csrf
+                        <input type="number" name="opening_balance" required class="block w-full rounded-lg border-slate-300 px-3 py-2 text-xs shadow-sm focus:border-slate-500 focus:ring-slate-500" placeholder="Opening cash float (kobo)">
+                        <button type="submit" class="w-full py-2 bg-slate-900 text-white text-xs font-semibold rounded-lg hover:bg-slate-800 transition-colors">Open Session</button>
+                    </form>
+                    @endif
+                @else
+                <div class="text-center py-2">
+                    <p class="text-sm text-slate-500 mb-3">POS not enabled</p>
+                    <form method="POST" action="{{ route('management.pos.enable', $store) }}">
+                        @csrf
+                        <button type="submit" class="w-full py-2 bg-emerald-600 text-white text-xs font-semibold rounded-lg hover:bg-emerald-700 transition-colors">Enable POS</button>
+                    </form>
+                </div>
+                @endif
+            </x-management.card>
 
+            {{-- Low Stock --}}
+            <x-management.card header="Low Stock">
+                <div class="divide-y divide-slate-100 -mx-5 -mb-5">
+                    @forelse($lowStockProducts as $p)
+                    <a href="{{ route('management.products.show', $p) }}" class="flex items-center justify-between px-5 py-3 hover:bg-slate-50 transition-colors">
+                        <div class="min-w-0">
+                            <p class="text-sm font-medium text-slate-800 truncate">{{ $p->name }}</p>
+                        </div>
+                        <span class="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 shrink-0">Qty: {{ $p->quantity }}</span>
+                    </a>
+                    @empty
+                    <div class="px-5 py-4 text-center text-sm text-slate-400">All products well stocked</div>
+                    @endforelse
+                </div>
+                @if($outOfStock > 0)
+                <div class="px-5 py-2 border-t border-slate-100 -mx-5 -mb-5 bg-slate-50 text-center">
+                    <span class="text-xs text-red-600 font-medium">{{ $outOfStock }} product(s) out of stock</span>
+                </div>
+                @endif
+            </x-management.card>
+        </div>
     </div>
+</div>
+
+{{-- AJAX Tab Content Area --}}
+<div x-show="activeTab !== 'dashboard'" x-cloak>
+    {{-- Loading Spinner --}}
+    <div x-show="loading" class="flex items-center justify-center py-20">
+        <div class="text-center space-y-3">
+            <div class="inline-block w-8 h-8 border-2 border-slate-200 border-t-slate-600 rounded-full animate-spin"></div>
+            <p class="text-sm text-slate-400">Loading <span x-text="activeTab"></span>...</p>
+        </div>
+    </div>
+
+    {{-- Error State --}}
+    <div x-show="error" x-cloak class="text-center py-20">
+        <i class="fi fi-rr-exclamation text-4xl text-red-300 mb-3 block"></i>
+        <p class="text-sm text-red-500" x-text="error"></p>
+        <button @click="fetchTab(activeTab)" class="mt-3 px-4 py-2 text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50">Retry</button>
+    </div>
+
+    {{-- Tab Content --}}
+    <div x-show="!loading && !error" x-html="tabContent[activeTab] || ''" @click="handleTabClick($event)"></div>
+</div>
+
 </div>
 
 @if(!empty($monthlyRevenue))
@@ -204,6 +229,99 @@
 </script>
 @endpush
 @endif
+
+@push('scripts')
+<script>
+document.addEventListener('alpine:init', () => {
+    Alpine.data('storeTabs', (storeId) => ({
+        activeTab: 'dashboard',
+        loading: false,
+        error: null,
+        tabContent: {},
+        baseUrl: `/management/stores/${storeId}/tab`,
+
+        switchTab(tab) {
+            if (this.activeTab === tab) return;
+            this.activeTab = tab;
+            this.error = null;
+
+            // Web Metrics tab navigates to full page (needs chart libs)
+            if (tab === 'web-metrics') {
+                window.location.href = `/management/stores/${storeId}/web-metrics`;
+                return;
+            }
+
+            // Fetch if not already cached
+            if (!this.tabContent[tab]) {
+                this.fetchTab(tab);
+            }
+        },
+
+        async fetchTab(tab, queryString = '') {
+            this.loading = true;
+            this.error = null;
+
+            let url = `${this.baseUrl}/${tab}`;
+            if (queryString) {
+                url += '?' + queryString;
+            }
+
+            try {
+                const resp = await fetch(url, {
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'Accept': 'text/html',
+                    }
+                });
+
+                if (!resp.ok) {
+                    throw new Error(`Server error (${resp.status})`);
+                }
+
+                const html = await resp.text();
+                this.tabContent[tab] = html;
+            } catch (e) {
+                console.error('Tab fetch error:', e);
+                this.error = e.message || 'Failed to load content.';
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        // Handle pagination clicks inside loaded tab content
+        handleTabClick(event) {
+            const link = event.target.closest('a');
+            if (!link) return;
+
+            // Only intercept pagination/filter links, not action links
+            const href = link.getAttribute('href');
+            if (!href || href === '#') return;
+
+            // Intercept links that look like same-tab pagination/filter requests
+            const tabBase = `${this.baseUrl}/${this.activeTab}`;
+            if (href.includes('/management/stores/') && href.includes('/tab/')) {
+                // Already an AJAX tab link — let fetchTab handle it
+            } else if (href.includes('page=') || link.closest('.pagination') || link.closest('nav[role="navigation"]')) {
+                // Pagination link within tab content
+                event.preventDefault();
+                const url = new URL(href, window.location.origin);
+                this.fetchTab(this.activeTab, url.searchParams.toString());
+            } else if (link.closest('form') || link.getAttribute('data-method') || href.includes('/management/')) {
+                // Action links or management navigation — allow full navigation
+                return;
+            }
+        },
+
+        // Handle browser back/forward
+        handlePopState(event) {
+            if (event.state && event.state.tab) {
+                this.switchTab(event.state.tab);
+            }
+        }
+    }));
+});
+</script>
+@endpush
 
 {{-- Enable Web Storefront Modal --}}
 @unless($store->has_website)

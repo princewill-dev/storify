@@ -16,7 +16,8 @@ class LocationController extends Controller
         $locations = $user->locations()->withCount('warehouses')->latest()->get();
         $nigerianStates = \App\Data\Nigeria::states();
         $nigerianCities = \App\Data\Nigeria::topCities();
-        return view('management.locations.index', compact('user', 'locations', 'nigerianStates', 'nigerianCities'));
+        $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Locations']];
+        return view('management.locations.index', compact('user', 'locations', 'nigerianStates', 'nigerianCities', 'breadcrumbs'));
     }
 
     public function create(Request $request): View
@@ -24,7 +25,8 @@ class LocationController extends Controller
         $user = $request->user();
         $nigerianStates = \App\Data\Nigeria::states();
         $nigerianCities = \App\Data\Nigeria::topCities();
-        return view('management.locations.create', compact('user', 'nigerianStates', 'nigerianCities'));
+        $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Locations', 'url' => route('management.locations.index')], ['label' => 'Create']];
+        return view('management.locations.create', compact('user', 'nigerianStates', 'nigerianCities', 'breadcrumbs'));
     }
 
     public function store(Request $request): RedirectResponse
@@ -48,7 +50,8 @@ class LocationController extends Controller
         $user = $request->user();
         if ($location->user_id !== $user->id) abort(403);
         $location->load('warehouses.sections');
-        return view('management.locations.show', compact('user', 'location'));
+        $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Locations', 'url' => route('management.locations.index')], ['label' => $location->name ?? 'Location']];
+        return view('management.locations.show', compact('user', 'location', 'breadcrumbs'));
     }
 
     public function edit(Request $request, Location $location): View
@@ -57,7 +60,8 @@ class LocationController extends Controller
         if ($location->user_id !== $user->id) abort(403);
         $nigerianStates = \App\Data\Nigeria::states();
         $nigerianCities = \App\Data\Nigeria::topCities();
-        return view('management.locations.edit', compact('user', 'location', 'nigerianStates', 'nigerianCities'));
+        $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Locations', 'url' => route('management.locations.index')], ['label' => $location->name ?? 'Location', 'url' => route('management.locations.show', $location)], ['label' => 'Edit']];
+        return view('management.locations.edit', compact('user', 'location', 'nigerianStates', 'nigerianCities', 'breadcrumbs'));
     }
 
     public function update(Request $request, Location $location): RedirectResponse

@@ -27,7 +27,13 @@ class SectionController extends Controller
         if ($user->isStaff()) {
             if (!$user->assignedWarehouses()->where('warehouses.id', $warehouse->id)->exists()) abort(403);
         } elseif ($warehouse->user_id !== $user->id) abort(403);
-        return view('management.sections.create', compact('user', 'warehouse'));
+        $breadcrumbs = [
+            ['label' => 'Dashboard', 'url' => route('management.dashboard')],
+            ['label' => 'Sections', 'url' => route('management.warehouses.index')],
+            ['label' => 'Create'],
+        ];
+
+        return view('management.sections.create', compact('user', 'warehouse', 'breadcrumbs'));
     }
 
     public function store(Request $request, Warehouse $warehouse): RedirectResponse

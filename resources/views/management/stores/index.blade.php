@@ -2,7 +2,7 @@
 @section('subtitle', 'Stores')
 
 @section('content')
-<x-management.page-header title="Stores" subtitle="Manage your storefronts">
+<x-management.page-header :breadcrumbs="$breadcrumbs" title="Stores" subtitle="Manage your storefronts">
     <x-slot:actions>
         <a href="{{ route('management.stores.create') }}" class="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors">
             <i class="fi fi-rr-plus text-xs"></i> Create Store
@@ -33,8 +33,8 @@
             <p class="text-xs text-slate-500 line-clamp-2 mb-3">{{ $store->description }}</p>
         @endif
         <div class="flex items-center gap-3 text-xs text-slate-400">
-            <span><i class="fi fi-rr-box mr-1"></i> {{ $store->categories->count() }} categories</span>
-            <span><i class="fi fi-rr-cube mr-1"></i> {{ \App\Models\Product::where('store_id', $store->id)->count() }} products</span>
+            <span><i class="fi fi-rr-box mr-1"></i> {{ $store->categories_count }} categories</span>
+            <span><i class="fi fi-rr-cube mr-1"></i> {{ $store->products_count }} products</span>
         </div>
     </a>
     @empty

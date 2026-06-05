@@ -2,7 +2,7 @@
 @section('subtitle', 'POS Sessions')
 
 @section('content')
-<x-management.page-header title="POS Sessions" subtitle="Session history and sales records across your stores" />
+<x-management.page-header :breadcrumbs="$breadcrumbs" title="POS Sessions" subtitle="Session history and sales records across your stores" />
 
 @if(session('success'))
 <div class="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700 mb-6">{{ session('success') }}</div>

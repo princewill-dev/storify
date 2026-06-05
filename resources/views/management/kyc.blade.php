@@ -2,7 +2,7 @@
 @section('subtitle', 'KYC Verification')
 
 @section('content')
-<x-management.page-header title="KYC Verification" subtitle="Submit identity documents for account verification" />
+<x-management.page-header :breadcrumbs="$breadcrumbs" title="KYC Verification" subtitle="Submit identity documents for account verification" />
 
 <div>
     @if(isset($application) && $application)

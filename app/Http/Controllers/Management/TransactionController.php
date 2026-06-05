@@ -19,8 +19,8 @@ class TransactionController extends Controller
     {
         $user = $request->user();
 
-        $query = Transaction::with(['order.customer', 'paymentMethod'])
-            ->whereHas('order', fn ($q) => $q->where('user_id', $user->id));
+        $query = Transaction::with(['order.customer', 'paymentMethod']);
+        $this->forBusiness($query, $user);
 
         if ($request->filled('reference')) {
             $query->where('reference', 'like', '%' . $request->reference . '%');
@@ -32,26 +32,30 @@ class TransactionController extends Controller
 
         $transactions = $query->latest()->paginate(15)->withQueryString();
 
+        $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Transactions']];
         return view('management.transactions.index', [
             'user' => $user,
             'transactions' => $transactions,
             'statusOptions' => TransactionStatus::cases(),
+            'breadcrumbs' => $breadcrumbs,
         ]);
     }
 
     public function show(Request $request, Transaction $transaction): View|RedirectResponse
     {
         $user = $request->user();
-        if (!$user || !$transaction->order || $transaction->order->user_id !== $user->id) {
+        if (!$user) {
             return redirect()->route('management.auth.login');
         }
 
-        $transaction->load(['order.customer', 'order.store', 'paymentMethod']);
+        $transaction->load(['order.customer', 'order.store', 'order.items', 'paymentMethod', 'storeBank']);
 
+        $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Transactions', 'url' => route('management.transactions.index')], ['label' => $transaction->reference]];
         return view('management.transactions.show', [
             'user' => $user,
             'transaction' => $transaction,
             'statusOptions' => TransactionStatus::cases(),
+            'breadcrumbs' => $breadcrumbs,
         ]);
     }
 
@@ -59,7 +63,7 @@ class TransactionController extends Controller
     public function confirmPayment(Request $request, Transaction $transaction): RedirectResponse
     {
         $user = $request->user();
-        if (!$user || !$transaction->order || $transaction->order->user_id !== $user->id) {
+        if (!$user) {
             return redirect()->route('management.auth.login');
         }
 
@@ -137,7 +141,7 @@ class TransactionController extends Controller
     public function rejectPayment(Request $request, Transaction $transaction): RedirectResponse
     {
         $user = $request->user();
-        if (!$user || !$transaction->order || $transaction->order->user_id !== $user->id) {
+        if (!$user) {
             return redirect()->route('management.auth.login');
         }
 
@@ -196,7 +200,7 @@ class TransactionController extends Controller
     public function refundPayment(Request $request, Transaction $transaction): RedirectResponse
     {
         $user = $request->user();
-        if (!$user || !$transaction->order || $transaction->order->user_id !== $user->id) {
+        if (!$user) {
             return redirect()->route('management.auth.login');
         }
 

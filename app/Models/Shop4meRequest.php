@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
 use App\Enums\Shop4meRequestStatus;
 use App\Enums\Shop4mePaymentStatus;
-use App\Models\Concerns\BelongsToBusiness;
+use App\Models\BelongsToBusiness;
 
 class Shop4meRequest extends Model
 {

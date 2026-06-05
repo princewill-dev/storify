@@ -14,12 +14,24 @@
         </svg>
     </button>
 
-    {{-- Breadcrumb --}}
+    {{-- Breadcrumb — uses full $breadcrumbs array from controller; falls back to old subtitle behavior --}}
     <nav class="flex items-center gap-1.5 text-sm text-slate-500 min-w-0">
-        <a href="{{ route('management.dashboard') }}" class="hover:text-slate-700 transition-colors truncate">Dashboard</a>
-        @if(!Route::is('management.dashboard'))
-            <i class="fi fi-rr-angle-small-right text-xs text-slate-400"></i>
-            <span class="text-slate-800 font-medium truncate">@yield('subtitle')</span>
+        @if(!empty($breadcrumbs) && count($breadcrumbs) > 1)
+            @foreach($breadcrumbs as $i => $crumb)
+                @if($i > 0)<i class="fi fi-rr-angle-small-right text-xs text-slate-400"></i>@endif
+                @php $label = is_array($crumb) ? ($crumb['label'] ?? '') : $crumb; @endphp
+                @if($loop->last)
+                    <span class="text-slate-800 font-medium truncate">{{ $label }}</span>
+                @else
+                    <a href="{{ is_array($crumb) ? ($crumb['url'] ?? '#') : '#' }}" class="hover:text-slate-700 transition-colors truncate">{{ $label }}</a>
+                @endif
+            @endforeach
+        @else
+            <a href="{{ route('management.dashboard') }}" class="hover:text-slate-700 transition-colors truncate">Dashboard</a>
+            @if(!Route::is('management.dashboard'))
+                <i class="fi fi-rr-angle-small-right text-xs text-slate-400"></i>
+                <span class="text-slate-800 font-medium truncate">@yield('subtitle')</span>
+            @endif
         @endif
     </nav>
 

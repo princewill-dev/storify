@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Str;
-use App\Models\Concerns\BelongsToBusiness;
+use App\Models\BelongsToBusiness;
 
 class ProductVariant extends Model
 {
@@ -48,5 +48,15 @@ class ProductVariant extends Model
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class);
+    }
+
+    public function sizeUnit(): BelongsTo
+    {
+        return $this->belongsTo(SizeUnit::class, 'size_unit_id');
+    }
+
+    public function weightUnit(): BelongsTo
+    {
+        return $this->belongsTo(WeightUnit::class, 'weight_unit_id');
     }
 }

@@ -2,7 +2,7 @@
 @section('subtitle', 'Customers')
 
 @section('content')
-<x-management.page-header title="Customers" subtitle="People who have ordered from your stores" />
+<x-management.page-header :breadcrumbs="$breadcrumbs" title="Customers" subtitle="People who have ordered from your stores" />
 
 <x-management.data-table>
     <x-slot:header>

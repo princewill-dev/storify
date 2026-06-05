@@ -2,7 +2,7 @@
 @section('subtitle', 'Create Role')
 
 @section('content')
-<x-management.page-header title="Create Role" subtitle="Define permissions for staff members" />
+<x-management.page-header :breadcrumbs="$breadcrumbs" title="Create Role" subtitle="Define permissions for staff members" />
 
 <div>
     <form action="{{ route('management.roles.store') }}" method="POST" class="space-y-6">

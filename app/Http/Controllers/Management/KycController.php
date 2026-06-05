@@ -108,6 +108,8 @@ class KycController extends Controller
 
         $isKycSubmitted = $user->kycApplication?->status === KycApplication::STATUS_SUBMITTED;
 
+        $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'KYC Verification']];
+
         return view('management.kyc', compact(
             'vendor',
             'application',
@@ -119,8 +121,9 @@ class KycController extends Controller
             'documentIdValue',
             'countryOptions',
             'stateOptions',
-            'documentTypes'
-            , 'isKycSubmitted'
+            'documentTypes',
+            'isKycSubmitted',
+            'breadcrumbs'
         ));
     }
 

@@ -6,7 +6,7 @@ use App\Enums\TransactionStatus;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Str;
-use App\Models\Concerns\BelongsToBusiness;
+use App\Models\BelongsToBusiness;
 
 class Transaction extends Model
 {
@@ -15,6 +15,7 @@ class Transaction extends Model
     protected $fillable = [
         'reference',
         'order_id',
+        'business_id',
         'payment_method_id',
         'amount',
         'currency',

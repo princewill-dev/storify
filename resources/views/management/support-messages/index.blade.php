@@ -2,7 +2,7 @@
 @section('subtitle', 'Support Messages')
 
 @section('content')
-<x-management.page-header title="Support Messages" subtitle="Customer inquiries and support requests" />
+<x-management.page-header :breadcrumbs="$breadcrumbs" title="Support Messages" subtitle="Customer inquiries and support requests" />
 
 <x-management.card>
     <div class="divide-y divide-slate-100 -mx-5 -mb-5">

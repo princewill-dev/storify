@@ -62,12 +62,21 @@ class DashboardController extends Controller
             $ordersQuery->where('store_id', $activeStoreId);
         }
 
-        $totalOrders = (clone $ordersQuery)->count();
-        $pendingOrders = (clone $ordersQuery)->where('status', 'pending')->count();
-        $processingOrders = (clone $ordersQuery)->whereIn('status', ['accepted', 'processing'])->count();
-        $completedOrders = (clone $ordersQuery)->whereIn('status', ['completed', 'delivered'])->count();
-        $ordersThisMonth = (clone $ordersQuery)->whereBetween('created_at', [$startOfMonth, $endOfMonth])->count();
-        $lastMonthOrders = (clone $ordersQuery)->whereBetween('created_at', [$lastMonthStart, $lastMonthEnd])->count();
+        $orderStats = (clone $ordersQuery)->selectRaw("
+            COUNT(*) as total,
+            SUM(status = 'pending') as pending,
+            SUM(status IN ('accepted', 'processing')) as processing,
+            SUM(status IN ('completed', 'delivered')) as completed,
+            SUM(created_at BETWEEN ? AND ?) as this_month,
+            SUM(created_at BETWEEN ? AND ?) as last_month
+        ", [$startOfMonth, $endOfMonth, $lastMonthStart, $lastMonthEnd])->first();
+
+        $totalOrders = (int) $orderStats->total;
+        $pendingOrders = (int) $orderStats->pending;
+        $processingOrders = (int) $orderStats->processing;
+        $completedOrders = (int) $orderStats->completed;
+        $ordersThisMonth = (int) $orderStats->this_month;
+        $lastMonthOrders = (int) $orderStats->last_month;
 
         $recentOrders = (clone $ordersQuery)->with(['store', 'items'])->latest()->take(8)->get();
 
@@ -78,15 +87,21 @@ class DashboardController extends Controller
         });
 
         $completedStatuses = ['confirmed'];
-        $completedTx = (clone $transactionsQuery)->whereIn('status', $completedStatuses);
-        $pendingTx = (clone $transactionsQuery)->where('status', 'pending');
 
-        $totalRevenue = (clone $completedTx)->sum('amount');
-        $revenueThisMonth = (clone $completedTx)->whereBetween('created_at', [$startOfMonth, $endOfMonth])->sum('amount');
-        $lastMonthRevenue = (clone $completedTx)->whereBetween('created_at', [$lastMonthStart, $lastMonthEnd])->sum('amount');
-        $pendingRevenue = (clone $pendingTx)->sum('amount');
+        $txStats = (clone $transactionsQuery)->selectRaw("
+            COUNT(*) as total,
+            COALESCE(SUM(CASE WHEN status IN ('confirmed') THEN amount ELSE 0 END), 0) as total_revenue,
+            COALESCE(SUM(CASE WHEN status IN ('confirmed') AND created_at BETWEEN ? AND ? THEN amount ELSE 0 END), 0) as revenue_this_month,
+            COALESCE(SUM(CASE WHEN status IN ('confirmed') AND created_at BETWEEN ? AND ? THEN amount ELSE 0 END), 0) as last_month_revenue,
+            COALESCE(SUM(CASE WHEN status = 'pending' THEN amount ELSE 0 END), 0) as pending_revenue
+        ", [$startOfMonth, $endOfMonth, $lastMonthStart, $lastMonthEnd])->first();
 
-        $totalTransactions = (clone $transactionsQuery)->count();
+        $totalTransactions = (int) $txStats->total;
+        $totalRevenue = (float) ($txStats->total_revenue ?? 0);
+        $revenueThisMonth = (float) ($txStats->revenue_this_month ?? 0);
+        $lastMonthRevenue = (float) ($txStats->last_month_revenue ?? 0);
+        $pendingRevenue = (float) ($txStats->pending_revenue ?? 0);
+
         $recentTransactions = (clone $transactionsQuery)->with(['order.customer', 'order.store'])->latest()->take(5)->get();
 
         // ── Customers ──
@@ -101,9 +116,11 @@ class DashboardController extends Controller
         })->count();
 
         // ── Stores ──
-        $allStores = ($user->isStaff() ? $user->assignedStores : $user->stores)->where('status', '!=', 'deleted');
-        $totalStores = $allStores->count();
-        $activeStores = $allStores->where('status', 'active')->count();
+        $storeRelation = $user->isStaff() ? $user->assignedStores() : $user->stores();
+        $allStoresQuery = (clone $storeRelation)->where('status', '!=', 'deleted');
+        $totalStores = (clone $allStoresQuery)->count();
+        $activeStores = (clone $allStoresQuery)->where('status', 'active')->count();
+        $allStores = (clone $allStoresQuery)->get();
         $activeStoreObj = $allStores->find($activeStoreId);
 
         $productsQuery = Product::whereIn('store_id', $storeIds);
@@ -159,10 +176,18 @@ class DashboardController extends Controller
         if ($user->can('staff view')) {
             $staffQuery = User::where('role', 'staff')->where('business_id', $user->business_id)
                 ->where('status', '!=', 'deleted');
-            $totalStaff = (clone $staffQuery)->count();
-            $activeStaff = (clone $staffQuery)->where('status', 'active')->count();
-            $invitedStaff = (clone $staffQuery)->where('status', 'invited')->count();
-            $suspendedStaff = (clone $staffQuery)->where('status', 'suspended')->count();
+
+            $staffStats = (clone $staffQuery)->selectRaw("
+                COUNT(*) as total,
+                SUM(status = 'active') as active,
+                SUM(status = 'invited') as invited,
+                SUM(status = 'suspended') as suspended
+            ")->first();
+
+            $totalStaff = (int) $staffStats->total;
+            $activeStaff = (int) $staffStats->active;
+            $invitedStaff = (int) $staffStats->invited;
+            $suspendedStaff = (int) $staffStats->suspended;
             $recentStaff = (clone $staffQuery)->with('roles')->latest()->take(5)->get();
         }
 
@@ -176,7 +201,6 @@ class DashboardController extends Controller
         $warehouses = (clone $warehouseQuery)->withCount('stockLocations')->get();
 
         // ── Stock Transfers ──
-        $warehouseIds = (clone $warehouseQuery)->pluck('warehouses.id')->toArray();
         $pendingTransfersQuery = \App\Models\StockTransfer::whereIn('status', ['pending', 'approved'])
             ->where(function ($q) use ($storeIds, $warehouseIds) {
                 $q->where(function ($sq) use ($storeIds, $warehouseIds) {
@@ -212,7 +236,7 @@ class DashboardController extends Controller
             ->get()
             ->map(fn($row) => ['month' => Carbon::create($row->year, $row->month, 1)->format('M'), 'count' => $row->count]);
 
-        $monthlyRevenue = (clone $completedTx)
+        $monthlyRevenue = (clone $transactionsQuery)->whereIn('status', $completedStatuses)
             ->selectRaw('YEAR(created_at) year, MONTH(created_at) month, SUM(amount) total')
             ->where('created_at', '>=', $now->copy()->subMonths(6))
             ->groupBy('year', 'month')
@@ -268,7 +292,9 @@ class DashboardController extends Controller
             'all_stores' => $allStores,
         ];
 
-        return view('management.dashboard', compact('user', 'stats', 'activeStoreId', 'activeStoreObj'));
+        $breadcrumbs = [['label' => 'Dashboard']];
+
+        return view('management.dashboard', compact('user', 'stats', 'activeStoreId', 'activeStoreObj', 'breadcrumbs'));
     }
 
     public function switchStore(Request $request): RedirectResponse

@@ -2,7 +2,7 @@
 @section('subtitle', 'Services')
 
 @section('content')
-<x-management.page-header title="Services" subtitle="Manage service offerings tied to your stores">
+<x-management.page-header :breadcrumbs="$breadcrumbs" title="Services" subtitle="Manage service offerings tied to your stores">
     <x-slot:actions>
         @can('products create')
         <a href="{{ route('management.services.create') }}" class="inline-flex items-center gap-1.5 px-4 py-2 bg-slate-900 text-white text-sm font-medium rounded-lg hover:bg-slate-800 transition-colors">

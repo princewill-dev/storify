@@ -2,7 +2,7 @@
 @section('subtitle', $staff->name)
 
 @section('content')
-<x-management.page-header :title="$staff->name" subtitle="Staff since {{ $staff->created_at->format('d M Y') }}">
+<x-management.page-header :breadcrumbs="$breadcrumbs" :title="$staff->name" subtitle="Staff since {{ $staff->created_at->format('d M Y') }}">
     <x-slot:actions>
         <x-management.status-badge :status="$staff->status" />
     </x-slot:actions>

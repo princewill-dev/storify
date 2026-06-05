@@ -2,7 +2,7 @@
 @section('subtitle', 'Invite Staff')
 
 @section('content')
-<x-management.page-header title="Invite Staff" subtitle="Add a new team member to your business" />
+<x-management.page-header :breadcrumbs="$breadcrumbs" title="Invite Staff" subtitle="Add a new team member to your business" />
 
 <div x-data="staffCreate()">
     <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 sm:p-6">

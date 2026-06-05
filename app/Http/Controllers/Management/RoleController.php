@@ -24,7 +24,8 @@ class RoleController extends Controller
             ->latest()
             ->get();
 
-        return view('management.roles.index', compact('user', 'roles'));
+        $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Roles']];
+        return view('management.roles.index', compact('user', 'roles', 'breadcrumbs'));
     }
 
     public function create(Request $request): View|RedirectResponse
@@ -38,7 +39,8 @@ class RoleController extends Controller
             return explode(' ', $p->name, 2)[0];
         });
 
-        return view('management.roles.create', compact('user', 'availablePermissions'));
+        $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Roles', 'url' => route('management.roles.index')], ['label' => 'Create']];
+        return view('management.roles.create', compact('user', 'availablePermissions', 'breadcrumbs'));
     }
 
     public function store(Request $request): RedirectResponse
@@ -80,7 +82,8 @@ class RoleController extends Controller
             return explode(' ', $p->name, 2)[0];
         });
 
-        return view('management.roles.edit', compact('user', 'role', 'availablePermissions'));
+        $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Roles', 'url' => route('management.roles.index')], ['label' => $role->name ?? 'Role', 'url' => route('management.roles.edit', $role)], ['label' => 'Edit']];
+        return view('management.roles.edit', compact('user', 'role', 'availablePermissions', 'breadcrumbs'));
     }
 
     public function update(Request $request, Role $role): RedirectResponse

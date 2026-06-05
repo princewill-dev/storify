@@ -14,7 +14,9 @@ class ProfileController extends Controller
     {
         $user = $request->user();
 
-        return view('management.profile.index', compact('user'));
+        $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Profile']];
+
+        return view('management.profile.index', compact('user', 'breadcrumbs'));
     }
 
     public function update(Request $request)

@@ -2,7 +2,7 @@
 @section('subtitle', 'Add Location')
 
 @section('content')
-<x-management.page-header title="Add Location" subtitle="Set up a new business site or branch" />
+<x-management.page-header :breadcrumbs="$breadcrumbs" title="Add Location" subtitle="Set up a new business site or branch" />
 
 <div>
     <x-management.card>

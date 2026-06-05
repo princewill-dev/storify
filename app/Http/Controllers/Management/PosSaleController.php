@@ -74,7 +74,7 @@ class PosSaleController extends Controller
             'items' => 'required|array|min:1',
             'items.*.product_id' => 'required|exists:products,id',
             'items.*.quantity' => 'required|integer|min:1',
-            'payment_method' => 'required|in:cash,card,transfer',
+            'payment_method' => 'required|in:cash,paystack,transfer',
             'amount_tendered' => 'nullable|numeric|min:0',
             'paystack_reference' => 'nullable|string',
             'customer_name' => 'nullable|string|max:255',
@@ -85,8 +85,15 @@ class PosSaleController extends Controller
         $subtotal = 0;
         $orderItems = [];
 
+        // Preload all products in a single query to avoid N+1
+        $productIds = collect($validated['items'])->pluck('product_id')->all();
+        $products = Product::whereIn('id', $productIds)->get()->keyBy('id');
+
         foreach ($validated['items'] as $item) {
-            $product = Product::findOrFail($item['product_id']);
+            $product = $products[$item['product_id']] ?? null;
+            if (!$product) {
+                continue;
+            }
             $price = (float) $product->amount;
             $qty = (int) $item['quantity'];
             $itemTotal = $price * $qty;
@@ -104,16 +111,30 @@ class PosSaleController extends Controller
 
         $total = $subtotal;
 
-        $walkInCustomer = \App\Models\Customer::firstOrCreate(
-            ['email' => 'walkin@pos.local', 'business_id' => $store->business_id],
-            ['first_name' => 'Walk-in', 'last_name' => 'Customer', 'phone' => '0000000000', 'status' => 'active', 'password' => \Illuminate\Support\Str::random(32)]
-        );
+        // Create customer record only if cashier entered customer details
+        $customerName = trim((string) ($validated['customer_name'] ?? ''));
+        $customerPhone = trim((string) ($validated['customer_phone'] ?? ''));
+        $customerId = null;
+
+        if ($customerName !== '' || $customerPhone !== '') {
+            $customer = \App\Models\Customer::firstOrCreate(
+                ['phone' => $customerPhone !== '' ? $customerPhone : null, 'business_id' => $store->business_id],
+                [
+                    'first_name' => $customerName !== '' ? $customerName : 'Walk-in',
+                    'last_name' => '',
+                    'email' => 'pos-' . \Illuminate\Support\Str::random(8) . '@walkin.local',
+                    'status' => 'active',
+                    'password' => \Illuminate\Support\Str::random(32),
+                ]
+            );
+            $customerId = $customer->id;
+        }
 
         $order = Order::create([
             'store_id' => $store->id,
             'user_id' => $store->user_id,
             'business_id' => $store->business_id,
-            'customer_id' => $walkInCustomer->id,
+            'customer_id' => $customerId,
             'source' => 'pos',
             'staff_id' => $user->id,
             'pos_session_id' => $session->id,
@@ -135,28 +156,34 @@ class PosSaleController extends Controller
         $txnReference = 'TXN-POS-' . strtoupper(\Illuminate\Support\Str::random(10));
         $paymentMethodId = null;
 
-        if ($validated['payment_method'] === 'transfer') {
-            $txnStatus = 'pending';
-        }
-
-        if ($validated['payment_method'] === 'card' && $request->filled('paystack_reference')) {
+        if ($validated['payment_method'] === 'paystack' && $request->filled('paystack_reference')) {
             $txnReference = $validated['paystack_reference'];
-            $txnStatus = 'confirmed';
         }
 
-        $paystackMethod = \App\Models\PaymentMethod::where('code', 'paystack')->first();
-        $cashMethod = \App\Models\PaymentMethod::where('code', 'cash')->first();
-        $transferMethod = \App\Models\PaymentMethod::where('code', 'bank_transfer')->first();
+        // Load both payment methods in a single query
+        $paymentMethods = \App\Models\PaymentMethod::whereIn('code', ['paystack', 'bank_transfer'])->get()->keyBy('code');
+        $paystackMethod = $paymentMethods->get('paystack');
+        $transferMethod = $paymentMethods->get('bank_transfer');
 
-        $paymentMethodId = match ($validated['payment_method']) {
-            'card' => $paystackMethod?->id,
-            'transfer' => $transferMethod?->id,
-            default => $cashMethod?->id,
-        };
+        $paymentMethodId = null;
+        $storeBankId = null;
+
+        if ($validated['payment_method'] === 'paystack') {
+            $paymentMethodId = $paystackMethod?->id;
+        } elseif ($validated['payment_method'] === 'transfer') {
+            $paymentMethodId = $transferMethod?->id;
+            if ($request->filled('bank_account_id')) {
+                $storeBankId = $store->banks()->where('id', $request->bank_account_id)->value('id');
+            } else {
+                $storeBankId = $store->banks()->where('is_verified', true)->value('id');
+            }
+        }
 
         Transaction::create([
             'reference' => $txnReference,
             'order_id' => $order->id,
+            'business_id' => $store->business_id,
+            'store_bank_id' => $storeBankId,
             'payment_method_id' => $paymentMethodId,
             'amount' => $total,
             'status' => $txnStatus,
@@ -168,12 +195,19 @@ class PosSaleController extends Controller
 
         $ledger = app(\App\Services\StockLedgerService::class);
 
+        // Preload all stock locations for this store in a single query
+        $stockLocs = \App\Models\StockLocation::where('locationable_type', \App\Models\Store::class)
+            ->where('locationable_id', $store->id)
+            ->whereIn('product_id', $productIds)
+            ->get()
+            ->keyBy('product_id');
+
         foreach ($validated['items'] as $item) {
-            $product = Product::find($item['product_id']);
-            $stockLoc = \App\Models\StockLocation::where('locationable_type', \App\Models\Store::class)
-                ->where('locationable_id', $store->id)
-                ->where('product_id', $product->id)
-                ->first();
+            $product = $products[$item['product_id']] ?? null;
+            if (!$product) {
+                continue;
+            }
+            $stockLoc = $stockLocs[$product->id] ?? null;
 
             if ($stockLoc && $stockLoc->quantity >= (int) $item['quantity']) {
                 $product->decrement('quantity', (int) $item['quantity']);
@@ -197,11 +231,11 @@ class PosSaleController extends Controller
                 'change' => $validated['amount_tendered']
                     ? max(0, (int) $validated['amount_tendered'] - $total)
                     : 0,
-                'redirect' => route('staff.pos.receipt', ['store' => $store, 'order' => $order]),
+                'redirect' => route('pos.receipt', ['store' => $store, 'order' => $order]),
             ]);
         }
 
-        return redirect()->route('staff.pos.receipt', ['store' => $store, 'order' => $order])
+        return redirect()->route('pos.receipt', ['store' => $store, 'order' => $order])
             ->with('success', 'Sale completed. Order #' . $order->order_number);
     }
 

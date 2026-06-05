@@ -2,7 +2,7 @@
 @section('subtitle', 'Create Category')
 
 @section('content')
-<x-management.page-header title="Create Category" subtitle="Organize your products" />
+<x-management.page-header :breadcrumbs="$breadcrumbs" title="Create Category" subtitle="Organize your products" />
 
 <div>
     <x-management.card>
