@@ -171,7 +171,7 @@
                 <a href="{{ $store->slug ? route('home.store.products.index', ['store_subdomain' => $store->slug]) : route('home.stores') }}" class="store-tile h-100" target="_blank" rel="noopener">
                     <div class="d-flex align-items-center gap-3 mb-2">
                         @if($store->logo_path)<img src="{{ asset('storage/'.$store->logo_path) }}" alt="{{ $store->name }}" style="width:40px;height:40px;border-radius:8px;object-fit:cover;border:1px solid #eee;">@else<div style="width:40px;height:40px;border-radius:8px;background:#f5f5f5;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:.8rem;color:#aaa;">{{ strtoupper(substr($store->name,0,2)) }}</div>@endif
-                        <div><strong style="color:#1a1a1a;">{{ $store->name }}</strong><div style="font-size:.8rem;color:#999;">{{ $store->vendor?->name ?? $company->name }}</div></div>
+                        <div><strong style="color:#1a1a1a;">{{ $store->name }}</strong><div style="font-size:.8rem;color:#999;">{{ $store->user?->name ?? $company->name }}</div></div>
                     </div>
                     @if($store->description)<p class="mb-0" style="font-size:.85rem;color:#888;">{{ Str::limit($store->description, 90) }}</p>@endif
                 </a>

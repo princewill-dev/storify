@@ -17,7 +17,7 @@ class HomePageController extends Controller
     {
         $stores = \App\Models\Store::where('status', 'active')
             ->where('has_website', true)
-            ->with('vendor')
+            ->with('user')
             ->latest()
             ->take(6)
             ->get();
@@ -63,7 +63,7 @@ class HomePageController extends Controller
     public function stores()
     {
         $stores = \App\Models\Store::where('status', 'active')
-            ->with('vendor')
+            ->with('user')
             ->latest()
             ->get();
             

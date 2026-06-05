@@ -63,9 +63,9 @@
                                 <p class="grey-color">{{ Str::limit($store->description, 80) }}</p>
                             @endif
                             
-                            @if($store->vendor)
+                            @if($store->businessType)
                                 <div class="store-meta">
-                                    <span class="badge badge--tra-green">{{ ucfirst($store->vendor->business_type ?? 'Vendor') }}</span>
+                                    <span class="badge badge--tra-green">{{ $store->businessType->name }}</span>
                                 </div>
                             @endif
                             
