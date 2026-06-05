@@ -1,54 +1,22 @@
-<header id="header" class="tra-menu navbar-dark light-hero-header white-scroll">
-    <div class="header-wrapper">
-
-        <!-- MOBILE HEADER -->
-        <div class="wsmobileheader clearfix">	  	
-            <span class="smllogo"><img src="{{ $company->logo }}" alt="mobile-logo"></span>
-            <a id="wsnavtoggle" class="wsanimated-arrow"><span></span></a>	
-            </div>
-
-            <!-- NAVIGATION MENU -->
-            <div class="wsmainfull menu clearfix">
-            <div class="wsmainwp clearfix">
-
-
-                <!-- HEADER BLACK LOGO -->
-                <div class="desktoplogo">
-                    <a href="{{ route('home.index') }}" class="logo-black"><img src="{{ $company->logo }}" alt="logo"></a>
-                </div>
-
-                <!-- HEADER WHITE LOGO -->
-                <div class="desktoplogo">
-                    <a href="{{ route('home.index') }}" class="logo-white"><img src="{{ $company->logo }}" alt="logo"></a>
-                </div>
-
-                <!-- MAIN MENU -->
-                    <nav class="wsmenu clearfix">
-                    <ul class="wsmenu-list nav-theme">
-
-                        <!-- SIMPLE NAVIGATION LINK -->
-                        <li class="nl-simple" aria-haspopup="true"><a href="{{ route('home.index') }}" class="h-link">Home</a></li>
-
-                        <li class="nl-simple" aria-haspopup="true"><a href="{{ route('home.about') }}" class="h-link">About</a></li>
-                        
-                        <li class="nl-simple" aria-haspopup="true"><a href="./#features" class="h-link">Features</a></li>
-
-                        <li class="nl-simple" aria-haspopup="true"><a href="{{ route('home.pricing') }}" class="h-link">Pricing</a></li>
-
-                        <li class="nl-simple" aria-haspopup="true"><a href="{{ route('home.stores') }}" class="h-link">Stores</a></li>
-                        
-                        <li class="nl-simple" aria-haspopup="true"><a href="{{ route('home.support') }}" class="h-link">Support</a></li>
-
-                        <li class="nl-simple" aria-haspopup="true"><a href="{{ route('management.auth.login') }}" class="h-link">Login</a></li>
-
-                        <!-- SIGN UP BUTTON -->
-                        <li class="nl-simple" aria-haspopup="true">
-                            <a href="{{ route('management.auth.register') }}" class="btn r-04 btn--theme hover--theme last-link">Create Store</a>
-                        </li> 
-
-                    </ul>
-                </nav>	<!-- END MAIN MENU -->
-            </div>
-        </div>	<!-- END NAVIGATION MENU -->
-    </div><!-- End header-wrapper -->
-</header>
+<div class="nav-wrap">
+    <div class="nav-inner">
+        <a href="{{ route('home.index') }}" class="nav-logo"><img src="{{ $company->logo }}" alt="{{ $company->name }}"></a>
+        <div class="nav-links" id="navLinks">
+            <a href="#features">Features</a>
+            <a href="#how-it-works">How It Works</a>
+            <!-- <a href="{{ route('home.stores') }}">Stores</a> -->
+            <a href="{{ route('home.about') }}">About</a>
+            <a href="{{ route('management.auth.login') }}">Sign In</a>
+            <a href="{{ route('management.auth.register') }}" class="nav-cta text-white">Create Your Store</a>
+        </div>
+        <button class="nav-toggle" id="navToggle" aria-label="Menu">&#9776;</button>
+    </div>
+    <div class="nav-mobile" id="navMobile">
+        <a href="#features">Features</a>
+        <a href="#how-it-works">How It Works</a>
+        <!-- <a href="{{ route('home.stores') }}">Stores</a> -->
+        <a href="{{ route('home.about') }}">About</a>
+        <a href="{{ route('management.auth.login') }}">Sign In</a>
+        <a href="{{ route('management.auth.register') }}" class="nav-cta text-white">Create Your Store</a>
+    </div>
+</div>

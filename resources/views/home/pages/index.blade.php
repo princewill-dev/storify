@@ -1,583 +1,209 @@
 @extends('home.layout')
-@section('title', 'Home')
+@section('title', 'E-Commerce Platform for Nigerian Businesses')
 
 @section('content')
 
-<!-- HERO-19 ============================================= -->	
-<section id="hero-19" class="blur--purple gr--ghost hero-section">
-	<div class="container text-center">
-
-
-		<!-- HERO TEXT -->
-		<div class="row justify-content-center">
-			<div class="col-md-10 col-lg-9">
-				<div class="hero-19-txt">
-			
-					<!-- Title -->
-					<h2 class="s-56 w-700">Go global with a cool storefront</h2>
-
-					<!-- Text -->
-					<p class="p-xl">Transform your vision into a high-performance online store.</p>
-
-					<!-- Buttons -->	
-					<div class="btns-group">
-						<a href="{{ route('management.auth.register') }}" class="btn r-04 btn--theme hover--theme" style="display: inline-flex; align-items: center; min-height: 52px;">Create Your Store</a>
-					</div>
-
-					<br>
-
-					<center>
-						<a href="{{ route('home.stores') }}">view stores</a>
-					</center>
-					
-				</div>
-			</div>
-		</div>
-		<!-- END HERO TEXT -->	
-
-		<!-- BRANDS CAROUSEL -->
-		<div id="brands-1" class="py-90">			
-			<div class="row">
-				<div class="col text-center">	
-					<div class="owl-carousel brands-carousel-6">
-
-										
-						<!-- BRAND LOGO IMAGE -->
-						<div class="brand-logo">
-							<a href="#"><img class="img-fluid" src="{{ asset('home/images/brand-1-white.png') }}" alt="brand-logo"></a>
-						</div>
-
-											
-						<!-- BRAND LOGO IMAGE -->
-						<div class="brand-logo">
-							<a href="#"><img class="img-fluid" src="{{ asset('home/images/brand-3-white.png') }}" alt="brand-logo"></a>
-						</div>
-
-											
-						<!-- BRAND LOGO IMAGE -->
-						<div class="brand-logo">
-							<a href="#"><img class="img-fluid" src="{{ asset('home/images/brand-4-white.png') }}" alt="brand-logo"></a>
-						</div>
-
-											
-						<!-- BRAND LOGO IMAGE -->
-						<div class="brand-logo">
-							<a href="#"><img class="img-fluid" src="{{ asset('home/images/brand-5-white.png') }}" alt="brand-logo"></a>
-						</div>
-
-											
-						<!-- BRAND LOGO IMAGE -->
-						<div class="brand-logo">
-							<a href="#"><img class="img-fluid" src="{{ asset('home/images/brand-6-white.png') }}" alt="brand-logo"></a>
-						</div>
-
-											
-						<!-- BRAND LOGO IMAGE -->
-						<div class="brand-logo">
-							<a href="#"><img class="img-fluid" src="{{ asset('home/images/brand-7-white.png') }}" alt="brand-logo"></a>
-						</div>
-
-
-						<!-- BRAND LOGO IMAGE -->
-						<div class="brand-logo">
-							<a href="#"><img class="img-fluid" src="{{ asset('home/images/brand-8-white.png') }}" alt="brand-logo"></a>
-						</div>
-
-													
-						<!-- BRAND LOGO IMAGE -->
-						<div class="brand-logo">
-							<a href="#"><img class="img-fluid" src="{{ asset('home/images/brand-9-white.png') }}" alt="brand-logo"></a>
-						</div>
-
-
-					</div>
-				</div>
-			</div>  <!-- End row -->
-		</div>	<!-- END BRANDS CAROUSEL -->
-
-
-		
-
-
-	</div>    <!-- End container --> 
-</section>
-<!-- END HERO-19 -->	
-
-<!-- TEXT CONTENT
-============================================= -->
-<section id="lnk-1" class="pt-100 ct-02 content-section division">
-	<div class="container">
-
-
-		<!-- SECTION CONTENT (ROW) -->	
-		<div class="row d-flex align-items-center">
-
-			<!-- TEXT BLOCK -->	
-			<div class="col-md-6">
-				<div class="txt-block right-column wow fadeInLeft">
-
-					<!-- Section ID -->	
-					<span class="section-id">Strategies That Work</span>
-
-					<!-- Title -->	
-					<h2 class="s-46 w-700">Take The Big Digital Leap</h2>
-
-					<!-- Text -->	
-					<p>
-						Transform your vision into a high-converting digital storefront that captivates customers and drives sales. We handle all the technical heavy lifting—from seamless user interfaces to secure payment processing—so you can focus on growing your brand and reaching new markets.
-					</p>
-
-					<!-- CONTENT BOX #1 -->
-					<div class="cbox-1 ico-15">
-
-						<div class="ico-wrap color--theme">
-							<div class="cbox-1-ico"><span class="flaticon-check"></span></div>
-						</div>
-
-						<div class="cbox-1-txt">
-							<p>High-Converting Storefront Design</p>
-						</div>
-
-					</div>
-
-					<!-- CONTENT BOX #2 -->
-					<div class="cbox-1 ico-15">
-
-						<div class="ico-wrap color--theme">
-							<div class="cbox-1-ico"><span class="flaticon-check"></span></div>
-						</div>
-
-						<div class="cbox-1-txt">
-							<p>Secure & Integrated Payment Gateways</p>
-						</div>
-
-					</div>
-
-					<!-- CONTENT BOX #3 -->
-					<div class="cbox-1 ico-15">
-
-						<div class="ico-wrap color--theme">
-							<div class="cbox-1-ico"><span class="flaticon-check"></span></div>
-						</div>
-
-						<div class="cbox-1-txt">
-							<p class="mb-0">Mobile-First Responsive Experience</p>
-						</div>
-
-					</div>
-
-				</div>
-			</div>	<!-- END TEXT BLOCK -->	
-			
-			
-			<!-- IMAGE BLOCK -->
-			<div class="col-md-6">
-				<div class="img-block left-column wow fadeInRight">
-					<img class="img-fluid" src="{{ asset('home/images/img-11.png') }}" alt="content-image">
-				</div>
-			</div>
-
-
-		</div>	<!-- END SECTION CONTENT (ROW) -->	
-
-
-	</div>	   <!-- End container -->
-</section>	<!-- END TEXT CONTENT -->
-
-<!-- FEATURES-2
-============================================= -->
-<section id="features" class="py-100 features-section division">
-	<div class="container">
-
-
-		<!-- SECTION TITLE -->	
-		<div class="row justify-content-center">	
-			<div class="col-md-10 col-lg-9">
-				<div class="section-title mb-80">	
-
-					<!-- Title -->	
-					<h2 class="s-50 w-700">Everything Your Store Needs</h2>	
-
-					<!-- Text -->	
-					<p class="s-21 color--grey">Launch, manage, and scale your online store with powerful built-in features.</p>
-						
-				</div>	
-			</div>
-		</div>
-
-
-		<!-- FEATURES-2 WRAPPER -->
-		<div class="fbox-wrapper text-center">
-			<div class="row row-cols-1 row-cols-md-3 rows-2">
-
-
-				<!-- FEATURE BOX #1 -->
-				<div class="col">
-					<div class="fbox-2 fb-1 wow fadeInUp">
-
-						<!-- Image -->
-						<div class="fbox-img gr--whitesmoke h-170">
-							<img class="img-fluid" src="{{ asset('home/images/f_04_dark.png') }}" alt="feature-image">
-						</div>
-
-						<!-- Text -->
-						<div class="fbox-txt">
-							<h6 class="s-22 w-700">Custom Branded Storefront</h6>
-							<p>Get your own stunning online store with a custom subdomain, personalized branding, and a professional look that builds customer trust.</p>
-						</div>
-
-					</div>
-				</div>	<!-- END FEATURE BOX #1 -->	
-
-
-				<!-- FEATURE BOX #2 -->
-				<div class="col">
-					<div class="fbox-2 fb-2 wow fadeInUp">
-
-						<!-- Image -->
-						<div class="fbox-img gr--whitesmoke h-170">
-							<img class="img-fluid" src="{{ asset('home/images/f_09_dark.png') }}" alt="feature-image">
-						</div>
-
-						<!-- Text -->
-						<div class="fbox-txt">
-							<h6 class="s-22 w-700">Smart Inventory Management</h6>
-							<p>Easily add products, track stock levels, and manage orders from a powerful dashboard. Automated alerts keep you informed when it's time to restock.</p>
-						</div>
-
-					</div>
-				</div>	<!-- END FEATURE BOX #2 -->		
-
-
-				<!-- FEATURE BOX #3 -->
-				<div class="col">
-					<div class="fbox-2 fb-3 wow fadeInUp">
-
-						<!-- Image -->
-						<div class="fbox-img gr--whitesmoke h-170">
-							<img class="img-fluid" src="{{ asset('home/images/f_01_dark.png') }}" alt="feature-image">
-						</div>
-
-						<!-- Text -->
-						<div class="fbox-txt">
-							<h6 class="s-22 w-700">Global Payment Solutions</h6>
-							<p>Accept payments worldwide with integrated support for cards, bank transfers, and mobile wallets. Secure checkout builds customer confidence.</p>
-						</div>
-
-					</div>
-				</div>	<!-- END FEATURE BOX #3 -->	
-
-
-			</div>  <!-- End row -->  
-			
-			
-			
-		</div>	<!-- END FEATURES-2 WRAPPER -->
-
-		
-	</div>
-	<!-- End container -->
-</section>
-<!-- END FEATURES-2 -->
-
-<!-- TEXT CONTENT
-============================================= -->
-<section class="pt-100 ct-01 content-section division">
-	<div class="container">
-
-
-		<!-- SECTION CONTENT (ROW) -->	
-		<div class="row d-flex align-items-center">
-
-
-			<!-- TEXT BLOCK -->	
-			<div class="col-md-6 order-last order-md-2">
-				<div class="txt-block left-column wow fadeInRight">
-
-					<!-- Section ID -->	
-					<span class="section-id">Business Intelligence</span>
-
-					<!-- Title -->	
-					<h2 class="s-46 w-700">Deep Insights That Drive Growth</h2>
-
-					<p>Understand what's working and what's not with powerful analytics built into your Storify dashboard. Track sales performance, monitor customer behavior, and identify your best-selling products—all in real-time. Make data-driven decisions that boost revenue and keep your store ahead of the competition.</p>
-
-				</div>
-			</div>
-			<!-- END TEXT BLOCK -->	
-
-
-			<!-- IMAGE BLOCK -->
-			<div class="col-md-6 order-first order-md-2">
-				<div class="img-block right-column wow fadeInLeft">
-					<img class="img-fluid" src="{{ asset('home/images/img-02.png') }}" alt="content-image">
-				</div>
-			</div>
-
-
-		</div>	<!-- END SECTION CONTENT (ROW) -->
-		
-		<center>
-			<br>
-			<br>
-			<img class="img-fluid" src="{{ asset('home/images/dashboard-pic.png') }}" alt="content-image">
-		</center>
-		
-		
-
-	</div>	   <!-- End container -->
-	
-	
-</section>	<!-- END TEXT CONTENT -->
-	
-<section class="pt-100 ct-04 content-section division" id="about-us">
-	<div class="container">
-
-
-		<!-- SECTION CONTENT (ROW) -->	
-		<div class="row d-flex align-items-center">
-
-
-			<!-- TEXT BLOCK -->	
-			<div class="col-md-6">
-				<div class="txt-block left-column wow fadeInRight">
-
-
-					<!-- CONTENT BOX #1 -->
-					<div class="cbox-4">
-						
-						<!-- Icon & Title -->
-						<div class="box-title">
-							<h5 class="s-24 w-700">Why Build With Us?</h5>
-						</div>
-
-						<!-- Text -->
-						<div class="cbox-4-txt">
-							<p style="text-align: left;">At DigiSwitch. we don't just build websites - we craft digital experiences that help our clients succeed. Our focus is always on delivering truly world-class projects and top-notch services. We take pride in our work and hold ourselves to the highest standards when it comes to quality code and expert development. Our team stays on top of the latest technologies and industry best practices to ensure we build innovative solutions.</p>
-						</div>
-																																			
-					</div>	<!-- END CONTENT BOX #1 -->	
-
-
-				</div>
-			</div>	<!-- END TEXT BLOCK -->		
-
-
-			<!-- IMAGE BLOCK -->	
-			<div class="col-md-6">
-				<div class="img-block wow fadeInLeft">
-					<img class="img-fluid" src="{{ asset('home/images/tablet-01.png') }}" alt="content-image">
-				</div>	
-			</div>
-
-
-		</div>	<!-- END SECTION CONTENT (ROW) -->	
-
-
-	</div>	   <!-- End container -->
+{{-- ═══ HERO ═══ --}}
+<section class="sec" style="padding-top:120px;">
+    <div class="container">
+        <div class="row justify-content-center">
+            <div class="col-lg-8 text-center">
+                <h1 class="h1 mb-3">Your business,<br>online and in control</h1>
+                <p class="body-lg mb-4 mx-auto" style="max-width:580px;">
+                    A complete e-commerce platform for Nigerian businesses. Run your storefront, manage inventory across warehouses, accept payments, and grow&nbsp;&mdash;&nbsp;all from one place.
+                </p>
+                <div class="d-flex justify-content-center gap-3 flex-wrap mb-3">
+                    <a href="{{ route('management.auth.register') }}" class="btn-dark">Create Your Free Store</a>
+                    <a href="{{ route('home.stores') }}" class="btn-outline">Browse Stores</a>
+                </div>
+                <p class="small muted">No credit card required. Free to start.</p>
+            </div>
+        </div>
+    </div>
 </section>
 
-<section id="projects" class="py-100 blog-section division" style="display: none;">
-	<div class="container">
-
-
-		<!-- SECTION TITLE -->	
-		<div class="row justify-content-center">	
-			<div class="col-md-10 col-lg-9">
-				<div class="section-title mb-70">	
-
-					<!-- Title -->	
-					<h2 class="s-50 w-700">Our Works</h2>	
-
-					<!-- Text -->	
-					<p class="s-21 color--grey">Ligula risus auctor tempus magna feugiat lacinia.</p>
-						
-				</div>	
-			</div>
-		</div>
-
-
-		<div class="row">
-
-
-			<!-- BLOG POST #1 -->
-			<div class="col-md-6 col-lg-4">
-				<div id="bp-1-1" class="blog-post wow fadeInUp">	
-
-					<!-- BLOG POST IMAGE -->
-					<div class="blog-post-img mb-35">
-						<img class="img-fluid r-16" src="{{ asset('home/images/blog/post-8-img.jpg') }}" alt="blog-post-image">
-					</div>	
-
-					<!-- BLOG POST TEXT -->
-					<div class="blog-post-txt">
-
-						<!-- Post Tag -->
-						<span class="post-tag color--theme">Product News</span>	
-
-						<!-- Post Link -->
-						<h6 class="s-20 w-700">
-							<a href="single-post.html">Aliqum mullam porta blandit: tempor sapien and gravida</a>
-						</h6>
-
-						<!-- Text -->
-						<p>Egestas luctus vitae augue and ipsum ultrice quisque in cursus lacus feugiat congue 
-							diam ultrice laoreet sagittis
-						</p>
-
-						<!-- Post Meta -->
-						<div class="blog-post-meta mt-20">
-							<ul class="post-meta-list ico-10">
-								<li><p class="p-sm w-500">By Helen J.</p></li>
-								<li class="meta-list-divider"><p><span class="flaticon-minus"></span></p></li>
-								<li><p class="p-sm">Apr 28, 2023</p></li>
-							</ul>
-						</div>
-
-					</div>	<!-- END BLOG POST TEXT -->
-
-				</div>
-			</div>	<!-- END BLOG POST #1 -->
-
-
-			<!-- BLOG POST #2 -->
-			<div class="col-md-6 col-lg-4">
-				<div id="bp-1-2" class="blog-post wow fadeInUp">	
-
-					<!-- BLOG POST IMAGE -->
-					<div class="blog-post-img mb-35">
-						<img class="img-fluid r-16" src="{{ asset('home/images/blog/post-2-img.jpg') }}" alt="blog-post-image">
-					</div>	
-
-					<!-- BLOG POST TEXT -->
-					<div class="blog-post-txt">
-
-						<!-- Post Tag -->
-						<span class="post-tag color--green-400">Community</span>	
-
-						<!-- Post Link -->
-						<h6 class="s-20 w-700">
-							<a href="single-post.html">Porttitor cursus fusce egestas CEO cursus at magna sapien 
-								suscipit and egestas ipsum
-							</a>
-						</h6>
-
-						<!-- Text -->
-						<p>Aliqum mullam ipsum vitae and blandit vitae tempor sapien and donec lipsum</p>
-
-						<!-- Post Meta -->
-						<div class="blog-post-meta mt-20">
-							<ul class="post-meta-list ico-10">
-								<li><p class="p-sm w-500">By Martex Team</p></li>
-								<li class="meta-list-divider"><p><span class="flaticon-minus"></span></p></li>
-								<li><p class="p-sm">Apr 14, 2023</p></li>
-							</ul>
-						</div>
-
-					</div>	<!-- END BLOG POST TEXT -->
-					
-				</div>
-			</div>	<!-- END BLOG POST #2 -->
-
-
-			<!-- BLOG POST #3 -->
-			<div class="col-md-12 col-lg-4">
-				<div id="bp-1-3" class="blog-post wow fadeInUp">	
-
-					<!-- BLOG POST IMAGE -->
-					<div class="blog-post-img mb-35">
-						<img class="img-fluid r-16" src="{{ asset('home/images/blog/post-5-img.jpg') }}" alt="blog-post-image">
-					</div>	
-
-					<!-- BLOG POST TEXT -->
-					<div class="blog-post-txt">
-
-						<!-- Post Tag -->
-						<span class="post-tag color--purple-400">Freelancer Tips</span>	
-
-						<!-- Post Link -->
-						<h6 class="s-20 w-700">
-							<a href="single-post.html">Cubilia laoreet augue egestas and Martex magna impedit</a>
-						</h6>
-
-						<!-- Text -->
-						<p>Luctus vitae egestas augue and ipsum ultrice quisque in cursus lacus feugiat egets 
-							congue ultrice sagittis laoreet 
-						</p>
-
-						<!-- Post Meta -->
-						<div class="blog-post-meta mt-20">
-							<ul class="post-meta-list ico-10">
-								<li><p class="p-sm w-500">By Miranda Green</p></li>
-								<li class="meta-list-divider"><p><span class="flaticon-minus"></span></p></li>
-								<li><p class="p-sm">Mar 27, 2023</p></li>
-							</ul>
-						</div>
-
-					</div>	<!-- END BLOG POST TEXT -->
-					
-				</div>
-			</div>	<!-- END BLOG POST #3 -->
-
-			
-		</div>    <!-- End row -->
-		</div>    <!-- End container -->
-		
-		<br>
-		
-		<center>
-			<a href="projects.php" class="btn r-04 btn--theme hover--theme">See More Projeccts</a>
-		</center>
-		
+{{-- ═══ STATS ═══ --}}
+<section class="sec-sm" style="border-top:1px solid #eee;border-bottom:1px solid #eee;">
+    <div class="container">
+        <div class="row text-center g-4">
+            <div class="col-6 col-md-3"><div class="stat-num">{{ number_format($storeCount ?? 0) }}+</div><div class="stat-label">Active Stores</div></div>
+            <div class="col-6 col-md-3"><div class="stat-num">{{ number_format($productCount ?? 0) }}+</div><div class="stat-label">Products Managed</div></div>
+            <div class="col-6 col-md-3"><div class="stat-num">24/7</div><div class="stat-label">Support</div></div>
+            <div class="col-6 col-md-3"><div class="stat-num">NG</div><div class="stat-label">Built for Nigeria</div></div>
+        </div>
+    </div>
 </section>
 
-<!-- BANNER-13
-============================================= -->
-<section id="banner-13" class="pt-100 banner-section">
-	<div class="container">
+{{-- ═══ FEATURES ═══ --}}
+<section id="features" class="sec sec-light">
+    <div class="container">
+        <div class="row justify-content-center text-center mb-5">
+            <div class="col-lg-7">
+                <h2 class="h2 mb-3">Everything you need to sell</h2>
+                <p class="body-lg mx-auto">One platform. Every tool your business needs&nbsp;&mdash;&nbsp;from storefront to warehouse.</p>
+            </div>
+        </div>
+        <div class="row">
+            @php
+            $features = [
+                ['Online Storefront', 'Your own branded store with a custom subdomain. Looks professional, works everywhere. No coding required.'],
+                ['Inventory Management', 'Track stock across multiple warehouses in real time. Know exactly what you have, where it is, and when to restock.'],
+                ['Point of Sale', 'Sell in-store and online from the same inventory. Everything stays in sync automatically.'],
+                ['Payment Processing', 'Accept payments through Paystack, bank transfer, and more. Fast settlement, full transparency.'],
+                ['Team & Permissions', 'Invite your staff, assign roles, and control exactly what each person can access and do.'],
+                ['Real-Time Insights', 'Dashboard shows sales, stock levels, and customer trends. Make decisions based on data, not guesswork.'],
+            ];
+            @endphp
+            @foreach($features as $f)
+            <div class="col-md-6">
+                <div class="feat-item">
+                    <span class="feat-marker">[*]</span>
+                    <div class="feat-body"><strong>{{ $f[0] }}</strong> &mdash; {{ $f[1] }}</div>
+                </div>
+            </div>
+            @endforeach
+        </div>
+    </div>
+</section>
 
+{{-- ═══ PRODUCT PREVIEW ═══ --}}
+<section class="sec">
+    <div class="container">
+        <div class="row align-items-center g-5">
+            <div class="col-lg-6">
+                <span class="small muted text-uppercase" style="letter-spacing:.1em;font-weight:600;">Designed for clarity</span>
+                <h2 class="h2 mt-2 mb-3">A dashboard that makes sense</h2>
+                <p class="body-lg mb-4">See your sales, track stock levels, and monitor orders at a glance. No training required&nbsp;&mdash;&nbsp;everything is exactly where you expect it to be.</p>
+                <div class="row g-3">
+                    <div class="col-6"><strong style="font-size:20px;">Real-time</strong><br><span class="body-md">Sales and order updates</span></div>
+                    <div class="col-6"><strong style="font-size:20px;">Multi-store</strong><br><span class="body-md">Manage all locations from one place</span></div>
+                    <div class="col-6"><strong style="font-size:20px;">Role-based</strong><br><span class="body-md">Each staff member sees what they need</span></div>
+                    <div class="col-6"><strong style="font-size:20px;">Mobile-ready</strong><br><span class="body-md">Check your business from anywhere</span></div>
+                </div>
+            </div>
+            <div class="col-lg-6">
+                <div style="background:#f5f5f5;border-radius:12px;border:1px solid #eee;padding:40px;text-align:center;">
+                    <div style="max-width:400px;margin:0 auto;">
+                        <div style="background:#fff;border-radius:8px;border:1px solid #e0e0e0;padding:16px;margin-bottom:12px;text-align:left;">
+                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                                <div><div style="width:80px;height:8px;background:#e0e0e0;border-radius:4px;margin-bottom:6px;"></div><div style="width:120px;height:14px;background:#f0f0f0;border-radius:4px;"></div></div>
+                                <div style="width:40px;height:40px;background:#1a1a1a;border-radius:8px;"></div>
+                            </div>
+                            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px;">
+                                <div style="background:#f9f9f9;border-radius:6px;padding:10px;text-align:center;"><div style="font-size:18px;font-weight:700;">&#8358;2.4M</div><div style="font-size:10px;color:#999;">Revenue</div></div>
+                                <div style="background:#f9f9f9;border-radius:6px;padding:10px;text-align:center;"><div style="font-size:18px;font-weight:700;">143</div><div style="font-size:10px;color:#999;">Orders</div></div>
+                                <div style="background:#f9f9f9;border-radius:6px;padding:10px;text-align:center;"><div style="font-size:18px;font-weight:700;">1.2K</div><div style="font-size:10px;color:#999;">Products</div></div>
+                            </div>
+                            <div style="height:6px;background:#eee;border-radius:3px;margin-bottom:6px;width:100%;"></div>
+                            <div style="height:6px;background:#eee;border-radius:3px;margin-bottom:6px;width:70%;"></div>
+                            <div style="height:6px;background:#eee;border-radius:3px;width:85%;"></div>
+                        </div>
+                    </div>
+                    <p class="small muted mt-3 mb-0">Dashboard preview &mdash; real merchant data stays private</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
 
-		<!-- BANNER-13 WRAPPER -->
-		<div class="banner-13-wrapper bg--03 bg--scroll r-16 block-shadow">
-			<div class="banner-overlay">
-				<div class="row d-flex align-items-center">
+{{-- ═══ HOW IT WORKS ═══ --}}
+<section id="how-it-works" class="sec sec-light">
+    <div class="container">
+        <div class="row justify-content-center text-center mb-5">
+            <div class="col-lg-7">
+                <h2 class="h2 mb-3">Start selling in minutes</h2>
+                <p class="body-lg mx-auto">No technical skills needed. If you can fill out a form, you can run your store.</p>
+            </div>
+        </div>
+        <div class="row g-4 justify-content-center text-center">
+            @php $steps = [['01','Create your account','Sign up in seconds. No credit card, no commitment.'],['02','Set up your store','Add products, choose your subdomain, configure payments and delivery.'],['03','Start selling','Share your store link and accept orders immediately.']]; @endphp
+            @foreach($steps as $s)
+            <div class="col-md-4"><div class="step-num">{{ $s[0] }}</div><h3 class="h3 mb-2">{{ $s[1] }}</h3><p class="body-md mb-0">{{ $s[2] }}</p></div>
+            @endforeach
+        </div>
+    </div>
+</section>
 
+{{-- ═══ INTEGRATIONS ═══ --}}
+<section class="sec">
+    <div class="container text-center">
+        <div class="row justify-content-center mb-5"><div class="col-lg-7">
+            <h2 class="h2 mb-3">Works with the tools you rely on</h2>
+            <p class="body-lg mx-auto">Built to integrate with the payment systems, delivery services, and business tools Nigerian merchants use every day.</p>
+        </div></div>
+        <div class="row justify-content-center g-4">
+            @php
+            $integrations = [
+                ['Paystack', 'Accept card payments, transfers, and USSD. The standard for Nigerian online payments.'],
+                ['Bank Transfer', 'Automatic bank transfer verification. Your customers pay the way they are comfortable with.'],
+                ['Delivery Networks', 'Set up delivery routes and intervals. Manage shipping across cities and neighborhoods.'],
+                ['Multi-currency', 'Sell in Naira with support for multiple currencies. Your store, your pricing.'],
+            ];
+            @endphp
+            @foreach($integrations as $i)
+            <div class="col-sm-6 col-lg-3 text-start"><div class="feat-item" style="border-bottom:none;"><span class="feat-marker" style="font-size:20px;">+</span><div class="feat-body"><strong>{{ $i[0] }}</strong><br><span style="color:#888;">{{ $i[1] }}</span></div></div></div>
+            @endforeach
+        </div>
+    </div>
+</section>
 
-					<!-- BANNER-5 TEXT -->
-					<div class="col-md-7">
-						<div class="banner-13-txt color--white">
+{{-- ═══ WHY STORIFY ═══ --}}
+<section class="sec sec-light">
+    <div class="container">
+        <div class="row justify-content-center text-center mb-5"><div class="col-lg-7"><h2 class="h2 mb-3">Built for Nigerian businesses</h2></div></div>
+        <div class="row">
+            @php $whys = [['No technical skills needed','If you can fill out a form, you can run your store. We handle the complexity so you can focus on your business.'],['Everything in one place','Storefront, inventory, POS, payments, team management&nbsp;&mdash;&nbsp;all included. No patching together multiple tools.'],['Scales with you','Start with one store. Add warehouses, staff, and more stores as your business grows.'],['Local by design','Paystack integration, bank transfers, Nigerian business logic&nbsp;&mdash;&nbsp;built in from day one.']]; @endphp
+            @foreach($whys as $w)
+            <div class="col-md-6"><div class="feat-item" style="border-bottom:none;"><span class="feat-marker" style="font-size:20px;">&mdash;</span><div class="feat-body"><strong>{{ $w[0] }}</strong><br><span style="color:#888;">{{ $w[1] }}</span></div></div></div>
+            @endforeach
+        </div>
+    </div>
+</section>
 
-							<!-- Title -->	
-							<h2 class="s-46 w-700">Join the Digital Age today!</h2>
+{{-- ═══ STORES ═══ --}}
+@if(isset($stores) && $stores->isNotEmpty())
+<section class="sec">
+    <div class="container">
+        <div class="row justify-content-center text-center mb-5"><div class="col-lg-7"><h2 class="h2 mb-3">Stores powered by {{ $company->name }}</h2><p class="body-lg mx-auto">Discover businesses already selling with us.</p></div></div>
+        <div class="row g-3">
+            @foreach($stores as $store)
+            <div class="col-sm-6 col-lg-4">
+                <a href="{{ $store->slug ? route('home.store.products.index', ['store_subdomain' => $store->slug]) : route('home.stores') }}" class="store-tile h-100" target="_blank" rel="noopener">
+                    <div class="d-flex align-items-center gap-3 mb-2">
+                        @if($store->logo_path)<img src="{{ asset('storage/'.$store->logo_path) }}" alt="{{ $store->name }}" style="width:40px;height:40px;border-radius:8px;object-fit:cover;border:1px solid #eee;">@else<div style="width:40px;height:40px;border-radius:8px;background:#f5f5f5;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:.8rem;color:#aaa;">{{ strtoupper(substr($store->name,0,2)) }}</div>@endif
+                        <div><strong style="color:#1a1a1a;">{{ $store->name }}</strong><div style="font-size:.8rem;color:#999;">{{ $store->vendor?->name ?? $company->name }}</div></div>
+                    </div>
+                    @if($store->description)<p class="mb-0" style="font-size:.85rem;color:#888;">{{ Str::limit($store->description, 90) }}</p>@endif
+                </a>
+            </div>
+            @endforeach
+        </div>
+        <div class="text-center mt-5"><a href="{{ route('home.stores') }}" class="btn-outline">View all stores &rarr;</a></div>
+    </div>
+</section>
+@endif
 
-							<!-- Text -->
-							<p class="p-lg">Let's take your business to the next level. We make it easy to get started online and handle all the technical work for you. </p>
+{{-- ═══ TESTIMONIALS ═══ --}}
+@if(isset($testimonials) && $testimonials->isNotEmpty())
+<section class="sec sec-light">
+    <div class="container">
+        <div class="row justify-content-center text-center mb-5"><div class="col-lg-7"><h2 class="h2 mb-3">What our merchants say</h2></div></div>
+        <div class="row">
+            @foreach($testimonials as $t)
+            <div class="col-md-6 col-lg-4"><div class="testimonial"><q class="mb-2 d-block">{{ $t->content }}</q><strong>{{ $t->name }}</strong>@if($t->role)<br><small class="muted">{{ $t->role }}</small>@endif</div></div>
+            @endforeach
+        </div>
+    </div>
+</section>
+@endif
 
-							<!-- Button -->
-							<a href="contact-us.html" class="btn r-04 btn--theme hover--tra-white" data-bs-toggle="modal" data-bs-target="#modal-3">Get a Free Consultation</a>
-
-						</div>
-					</div>	<!-- END BANNER-13 TEXT -->
-
-
-					<!-- BANNER-13 IMAGE -->
-					<div class="col-md-5">
-						<div class="banner-13-img text-center">
-							<img class="img-fluid" src="{{ asset('home/images/img-04.png') }}" alt="banner-image">
-						</div>	
-					</div>
-
-
-				</div>   <!-- End row -->	
-			</div>   <!-- End banner overlay -->	
-		</div>    <!-- END BANNER-13 WRAPPER -->
-
-
-	</div>     <!-- End container -->	
-</section>	<!-- END BANNER-13 -->
-
-
-<!-- DIVIDER LINE -->
-<hr class="divider">
+{{-- ═══ CTA ═══ --}}
+<section class="sec sec-dark text-center">
+    <div class="container"><div class="row justify-content-center"><div class="col-lg-7">
+        <h2 class="h2 mb-3" style="color:#fff;">Ready to start selling?</h2>
+        <p class="body-lg mb-4 mx-auto" style="color:#aaa;">Create your free store today. No credit card required.</p>
+        <a href="{{ route('management.auth.register') }}" class="btn-white-outline">Create Your Free Store</a>
+    </div></div></div>
+</section>
 
 @endsection

@@ -15,7 +15,24 @@ class HomePageController extends Controller
      */
     public function index()
     {
-        return view('home.pages.index');
+        $stores = \App\Models\Store::where('status', 'active')
+            ->where('has_website', true)
+            ->with('vendor')
+            ->latest()
+            ->take(6)
+            ->get();
+
+        $testimonials = \App\Models\Testimonial::where('status', 'active')
+            ->latest()
+            ->take(6)
+            ->get();
+
+        $storeCount = \App\Models\Store::where('status', 'active')->count();
+        $productCount = \App\Models\Product::where('status', 'active')->count();
+
+        return view('home.pages.index', compact(
+            'stores', 'testimonials', 'storeCount', 'productCount'
+        ));
     }
 
     /**
