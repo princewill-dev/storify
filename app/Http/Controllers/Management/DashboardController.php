@@ -36,14 +36,6 @@ class DashboardController extends Controller
         }
 
         $activeStoreId = session('active_store_id');
-        if (!$activeStoreId) {
-            $storeRelation = $user->isStaff() ? $user->assignedStores() : $user->stores();
-            $firstStore = $storeRelation->where('status', '!=', 'deleted')->first();
-            $activeStoreId = $firstStore?->id;
-            if ($activeStoreId) {
-                session(['active_store_id' => $activeStoreId]);
-            }
-        }
 
         $storeIds = $user->isStaff()
             ? $user->assignedStores()->where('status', '!=', 'deleted')->pluck('stores.id')
@@ -124,6 +116,9 @@ class DashboardController extends Controller
         $activeStoreObj = $allStores->find($activeStoreId);
 
         $productsQuery = Product::whereIn('store_id', $storeIds);
+        if ($activeStoreId) {
+            $productsQuery->where('store_id', $activeStoreId);
+        }
         $totalProducts = (clone $productsQuery)->count();
         $activeProducts = (clone $productsQuery)->where('status', 'active')->count();
 
@@ -131,14 +126,16 @@ class DashboardController extends Controller
             ? $user->assignedWarehouses()->where('status', '!=', 'deleted')->pluck('warehouses.id')
             : $user->warehouses()->where('status', '!=', 'deleted')->pluck('id');
 
+        $effectiveStoreIds = $activeStoreId ? [$activeStoreId] : $storeIds;
+
         $stockLocationQuery = StockLocation::join('products', 'products.id', '=', 'stock_locations.product_id')
             ->where('products.status', 'active')
             ->where('stock_locations.quantity', '>', 0)
-            ->where(function ($q) use ($storeIds, $warehouseIds) {
-                if (!empty($storeIds)) {
-                    $q->orWhere(function ($sq) use ($storeIds) {
+            ->where(function ($q) use ($effectiveStoreIds, $warehouseIds) {
+                if (!empty($effectiveStoreIds)) {
+                    $q->orWhere(function ($sq) use ($effectiveStoreIds) {
                         $sq->where('stock_locations.locationable_type', Store::class)
-                           ->whereIn('stock_locations.locationable_id', $storeIds);
+                           ->whereIn('stock_locations.locationable_id', $effectiveStoreIds);
                     });
                 }
                 if (!empty($warehouseIds)) {
@@ -153,7 +150,7 @@ class DashboardController extends Controller
         $stockValue = (clone $stockLocationQuery)->whereNotNull('products.amount')
             ->selectRaw('SUM(stock_locations.quantity * products.amount) as total_value')
             ->value('total_value') ?? 0;
-        $lowStockProducts = Product::whereIn('store_id', $storeIds)
+        $lowStockProducts = Product::whereIn('store_id', $activeStoreId ? [$activeStoreId] : $storeIds)
             ->where('status', 'active')
             ->where('quantity', '<=', 10)
             ->where('quantity', '>', 0)
@@ -161,7 +158,7 @@ class DashboardController extends Controller
             ->latest()
             ->take(6)
             ->get();
-        $outOfStockProducts = Product::whereIn('store_id', $storeIds)
+        $outOfStockProducts = Product::whereIn('store_id', $activeStoreId ? [$activeStoreId] : $storeIds)
             ->where('status', 'active')
             ->where('quantity', '<=', 0)
             ->count();
@@ -216,15 +213,15 @@ class DashboardController extends Controller
         $pendingTransferList = (clone $pendingTransfersQuery)->with(['fromLocation', 'toLocation', 'requester', 'items.product'])->latest()->take(10)->get();
 
         // ── POS ──
-        $openPosSessions = PosSession::whereIn('store_id', $storeIds)
+        $openPosSessions = PosSession::whereIn('store_id', $activeStoreId ? [$activeStoreId] : $storeIds)
             ->where('status', PosSession::STATUS_OPEN)
             ->with('staff', 'store')
             ->latest()
             ->get();
-        $activePosStores = Store::whereIn('id', $storeIds)->where('pos_enabled', true)->count();
+        $activePosStores = Store::whereIn('id', $activeStoreId ? [$activeStoreId] : $storeIds)->where('pos_enabled', true)->count();
 
         // ── Web Visits ──
-        $webVisits = Store::whereIn('id', $storeIds)->where('has_website', true)->count();
+        $webVisits = Store::whereIn('id', $activeStoreId ? [$activeStoreId] : $storeIds)->where('has_website', true)->count();
 
         // ── Monthly Orders for Chart ──
         $monthlyOrders = Order::where('user_id', $user->id)
@@ -299,9 +296,16 @@ class DashboardController extends Controller
 
     public function switchStore(Request $request): RedirectResponse
     {
-        $request->validate(['store_id' => 'required|exists:stores,id']);
-
         $user = $request->user();
+
+        // Clear store filter to show all stores combined
+        if (!$request->filled('store_id')) {
+            session()->forget('active_store_id');
+            return redirect()->route('management.dashboard')
+                ->with('success', 'Showing all stores.');
+        }
+
+        $request->validate(['store_id' => 'exists:stores,id']);
 
         $storeRelation = $user->isStaff() ? $user->assignedStores() : $user->stores();
         if (!$storeRelation->where('status', '!=', 'deleted')->where('id', $request->store_id)->exists()) {
@@ -309,6 +313,7 @@ class DashboardController extends Controller
         }
 
         session(['active_store_id' => $request->store_id]);
-        return back()->with('success', 'Store switched successfully.');
+        return redirect()->route('management.dashboard')
+            ->with('success', 'Store switched successfully.');
     }
 }

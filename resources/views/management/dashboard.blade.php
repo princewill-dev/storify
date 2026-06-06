@@ -16,9 +16,11 @@
             </button>
             <div x-show="open" @click.outside="open = false" x-transition class="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-lg border border-slate-200 py-1 z-50">
                 <p class="px-3 py-2 text-xs font-semibold text-slate-400 uppercase">Switch View</p>
-                <a href="{{ route('management.dashboard') }}" class="flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">
-                    <i class="fi fi-rr-apps w-4 text-center text-slate-400"></i> All Stores (Combined)
+                <a href="javascript:void(0)" onclick="event.preventDefault(); document.getElementById('ds-clear-store').submit();"
+                   class="flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 {{ !$activeStoreObj ? 'bg-blue-50 text-blue-700' : '' }}">
+                    <i class="fi fi-rr-apps w-4 text-center {{ !$activeStoreObj ? 'text-blue-500' : 'text-slate-400' }}"></i> All Stores (Combined)
                 </a>
+                <form id="ds-clear-store" action="{{ route('management.stores.switch') }}" method="POST" class="hidden">@csrf <input type="hidden" name="store_id" value=""></form>
                 @foreach($user->stores->where('status', '!=', 'deleted') as $st)
                 <a href="javascript:void(0)" onclick="event.preventDefault(); document.getElementById('ds-switch-{{ $st->id }}').submit();"
                    class="flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 {{ ($activeStoreObj && (int)$activeStoreObj->id === (int)$st->id) ? 'bg-blue-50 text-blue-700' : '' }}">
