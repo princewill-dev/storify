@@ -198,7 +198,7 @@ if (request()->routeIs('management.stores.*') || request()->routeIs('management.
         <a href="{{ route('management.transfers.index') }}" 
            class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('management.transfers.*') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
             <i class="fi fi-rr-exchange text-base w-5 text-center"></i>
-            <span>Stock Transfers</span>
+            <span>Stock Adjustment</span>
         </a>
         @endcan
 

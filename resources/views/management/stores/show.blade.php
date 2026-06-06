@@ -6,9 +6,9 @@
 
 <x-management.page-header :breadcrumbs="$breadcrumbs" :title="$store->name" subtitle="Store Dashboard · {{ $store->store_id }}">
     <x-slot:actions>
-        <button @click="switchTab('settings')" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors">
-            <i class="fi fi-rr-settings text-xs"></i> Settings
-        </button>
+        <a href="{{ route('management.transfers.index') }}" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors">
+            <i class="fi fi-rr-arrows-exchange text-xs"></i> Stock Adjustment
+        </a>
     </x-slot:actions>
 </x-management.page-header>
 

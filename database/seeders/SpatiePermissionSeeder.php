@@ -142,7 +142,6 @@ class SpatiePermissionSeeder extends Seeder
             'name' => 'Cashier',
             'description' => 'Processes POS sales, handles walk-in customers, and views products.',
             'permissions' => [
-                'dashboard'    => ['view'],
                 'products'     => ['view'],
                 'pos'          => ['open_session', 'process_sale', 'close_session', 'view_history'],
                 'orders'       => ['view', 'create'],

@@ -25,7 +25,12 @@ class PosController extends Controller
             return view('staff.pos.no-store');
         }
 
+        // If cashier has multiple stores and no active store selected, show picker
         $activeStoreId = session('staff_active_store_id');
+        if ($assignedStores->count() > 1 && !$activeStoreId) {
+            return view('staff.pos.select-store', ['assignedStores' => $assignedStores, 'user' => $user]);
+        }
+
         $activeStore = $activeStoreId
             ? $assignedStores->where('id', $activeStoreId)->first()
             : $assignedStores->first();

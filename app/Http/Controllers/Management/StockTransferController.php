@@ -30,7 +30,7 @@ class StockTransferController extends Controller
 
         $statuses = TransferStatus::cases();
 
-        $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Transfers']];
+        $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Stock Adjustment']];
         return view('management.transfers.index', compact('user', 'transfers', 'statuses', 'status', 'breadcrumbs'));
     }
 

@@ -227,6 +227,46 @@ class ProductController extends Controller
         ]);
     }
 
+    public function edit(Request $request, Product $product): View|RedirectResponse
+    {
+        $user = $request->user();
+        if (!$user || !$this->ownsProduct($product, $user)) {
+            return redirect()->route('management.auth.login');
+        }
+
+        $stores = $user->stores()->where('status', '!=', 'deleted')->orderBy('name')->get();
+        $sizeUnits = DB::table('size_units')->orderBy('name')->get();
+        $weightUnits = DB::table('weight_units')->orderBy('name')->get();
+        $currencies = Currency::orderBy('name')->get();
+
+        $storeIds = $this->userStoreIds($user);
+        $categories = Category::whereIn('store_id', $storeIds)->orderBy('name')->get();
+
+        $sections = \App\Models\Section::whereHas('warehouse', function ($q) use ($user) {
+            $q->where('user_id', $user->id);
+        })->where('status', '!=', 'deleted')->orderBy('name')->get();
+
+        $warehouses = ($user->isStaff()
+            ? $user->assignedWarehouses()
+            : \App\Models\Warehouse::where('user_id', $user->id))
+            ->where('status', '!=', 'deleted')->orderBy('name')->get();
+
+        $product->load(['images', 'variants', 'category', 'section']);
+        $backUrl = route('management.products.show', $product);
+
+        $breadcrumbs = [
+            ['label' => 'Dashboard', 'url' => route('management.dashboard')],
+            ['label' => 'Products', 'url' => route('management.products.index')],
+            ['label' => $product->name, 'url' => route('management.products.show', $product)],
+            ['label' => 'Edit'],
+        ];
+
+        return view('management.products.edit', compact(
+            'user', 'product', 'stores', 'categories', 'sections', 'warehouses',
+            'sizeUnits', 'weightUnits', 'currencies', 'backUrl', 'breadcrumbs'
+        ));
+    }
+
     public function update(ProductRequest $request, Product $product): RedirectResponse
     {
         $user = $request->user();

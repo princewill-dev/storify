@@ -69,6 +69,9 @@ class BusinessAuthController extends Controller
         if (auth()->check()) {
             $user = auth()->user();
             if ($user && $user->is_verified && $user->business_id && $user->business?->hasActiveSubscription()) {
+                if ($user->isStaff()) {
+                    return redirect()->to($this->staffRedirectRoute($user));
+                }
                 return redirect()->route('management.dashboard');
             }
             // User is mid-onboarding — log them out so they can start fresh
@@ -94,16 +97,8 @@ class BusinessAuthController extends Controller
         /** @var User $user */
         $user = Auth::guard('web')->user();
 
-        // Block pure cashiers from management login — they must use /pos/login
-        if ($user->isStaff() && $request->route()->getName() === 'management.auth.login.store') {
-            $roles = $user->getRoleNames();
-            if ($roles->count() === 1 && $roles->contains('Cashier')) {
-                Auth::guard('web')->logout();
-                return redirect()->route('pos.login')
-                    ->with('error', 'POS operators must use the POS terminal login.');
-            }
-        }
-
+        // Pure cashiers who login via /management/login are accepted
+        // but redirected to /pos via staffRedirectRoute() below
         if ($user->isStaff()) {
             if ($user->status === 'suspended') {
                 Auth::guard('web')->logout();

@@ -224,6 +224,8 @@ class PosSaleController extends Controller
         }
 
         if ($request->expectsJson()) {
+            $order->load(['items', 'transactions.paymentMethod']);
+
             return response()->json([
                 'success' => true,
                 'order_number' => $order->order_number,
@@ -232,6 +234,27 @@ class PosSaleController extends Controller
                     ? max(0, (int) $validated['amount_tendered'] - $total)
                     : 0,
                 'redirect' => route('pos.receipt', ['store' => $store, 'order' => $order]),
+                'receipt' => [
+                    'store_name' => $store->name,
+                    'store_address' => $store->address,
+                    'order_number' => $order->order_number,
+                    'date' => $order->created_at->format('d M Y, h:i A'),
+                    'cashier' => $user->name,
+                    'payment_method' => $validated['payment_method'],
+                    'amount_tendered' => (int) ($validated['amount_tendered'] ?? 0),
+                    'change' => $validated['amount_tendered']
+                        ? max(0, (int) $validated['amount_tendered'] - $total)
+                        : 0,
+                    'items' => $order->items->map(fn($i) => [
+                        'name' => $i->product_name,
+                        'qty' => $i->quantity,
+                        'price' => (float) $i->unit_price,
+                        'subtotal' => (float) $i->subtotal,
+                    ]),
+                    'customer_name' => $validated['customer_name'] ?? null,
+                    'customer_phone' => $validated['customer_phone'] ?? null,
+                    'notes' => $validated['notes'] ?? null,
+                ],
             ]);
         }
 

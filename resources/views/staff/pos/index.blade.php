@@ -159,7 +159,7 @@
                                         @if($tx && $tx->status === 'confirmed')
                                         <button onclick="openRefundModal(@js($order->only(['id','order_number','total'])))" class="px-2 py-1 text-[10px] font-medium text-amber-600 bg-amber-50 hover:bg-amber-100 rounded">Refund</button>
                                         @endif
-                                        <a href="{{ route('pos.receipt', ['store' => $activeStore, 'order' => $order]) }}" class="px-2 py-1 text-[10px] font-medium text-slate-500 bg-slate-100 hover:bg-slate-200 rounded">View</a>
+                                        <a href="{{ route('pos.receipt', ['store' => $activeStore, 'order' => $order]) }}" class="px-2 py-1 text-[10px] font-medium text-slate-500 bg-slate-100 hover:bg-slate-200 rounded">View Receipt</a>
                                     </div>
                                 </td>
                             </tr>
@@ -176,15 +176,15 @@
 </div>
 
 {{-- Open Session Modal --}}
-<div id="openSessionModal" class="hidden fixed inset-0 z-50 overflow-y-auto">
+<div id="openSessionModal" class="hidden fixed inset-0 z-50 overflow-y-auto" data-auto-open="{{ $activeSession ? 'false' : 'true' }}">
     <div class="flex min-h-full items-center justify-center p-4">
-        <div class="fixed inset-0 bg-slate-900/50" onclick="document.getElementById('openSessionModal').classList.add('hidden')"></div>
+        <div class="fixed inset-0 bg-slate-900/50" onclick="if(this.parentElement.parentElement.dataset.autoOpen!=='true'){document.getElementById('openSessionModal').classList.add('hidden')}"></div>
         <div class="relative w-full max-w-sm bg-white rounded-2xl shadow-xl">
             <div class="px-6 py-4 border-b border-slate-100"><h3 class="text-base font-semibold text-slate-800">Open POS Session</h3></div>
             <form method="POST" action="{{ route('pos.session.open', ['store' => $activeStore]) }}" class="p-6 space-y-4">
                 @csrf
                 <div><label class="block text-sm font-medium text-slate-700">Opening Cash Float (in kobo)</label><input type="number" name="opening_balance" class="w-full rounded-lg border-slate-300 px-3.5 py-2.5 shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500 text-sm" min="0" placeholder="0" required></div>
-                <div class="flex items-center gap-3"><button type="submit" class="flex-1 py-2.5 bg-slate-900 text-white text-sm font-semibold rounded-lg hover:bg-slate-800">Open</button><button type="button" onclick="document.getElementById('openSessionModal').classList.add('hidden')" class="flex-1 py-2 border border-slate-200 text-sm rounded-lg hover:bg-slate-50">Cancel</button></div>
+                <div class="flex items-center gap-3"><button type="submit" class="flex-1 py-2.5 bg-slate-900 text-white text-sm font-semibold rounded-lg hover:bg-slate-800">Open</button><button type="button" onclick="document.getElementById('openSessionModal').classList.add('hidden')" class="flex-1 py-2 border border-slate-200 text-sm rounded-lg hover:bg-slate-50" id="openSessionCancelBtn">Cancel</button></div>
             </form>
         </div>
     </div>
@@ -204,7 +204,7 @@
                     <div class="flex justify-between"><span>Expected:</span><span id="expectedClose" class="font-semibold">--</span></div>
                 </div>
                 <div><label class="block text-sm font-medium text-slate-700">Actual Cash Counted (in kobo)</label><input type="number" name="closing_balance_actual" class="w-full rounded-lg border-slate-300 px-3.5 py-2.5 shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500 text-sm" min="0" placeholder="0" required></div>
-                <div><label class="block text-sm font-medium text-slate-700">Notes</label><textarea name="notes" class="w-full rounded-lg border-slate-300 px-3.5 py-2.5 shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500 text-sm" rows="2"></textarea></div>
+                <div><label class="block text-sm font-medium text-slate-700">Notes</label><textarea name="notes" id="orderNotes" class="w-full rounded-lg border-slate-300 px-3.5 py-2.5 shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500 text-sm" rows="2"></textarea></div>
                 <div class="flex items-center gap-3"><button type="submit" class="flex-1 py-2.5 bg-red-600 text-white text-sm font-semibold rounded-lg hover:bg-red-700">Close Session</button><button type="button" onclick="document.getElementById('closeSessionModal').classList.add('hidden')" class="flex-1 py-2 border border-slate-200 text-sm rounded-lg hover:bg-slate-50">Cancel</button></div>
             </form>
         </div>
@@ -222,6 +222,7 @@
             <form id="checkoutForm" method="POST" action="{{ route('pos.checkout', ['store' => $activeStore]) }}" class="p-6 space-y-4">
                 @csrf
                 <input type="hidden" name="items" id="checkoutItems">
+                <input type="hidden" name="paystack_reference" id="paystackRef">
                 <div class="text-center py-3 bg-slate-50 rounded-lg"><span class="text-xs text-slate-500">Total</span><p id="modalTotal" class="text-2xl font-bold text-slate-900"></p></div>
                 <div>
                     <label class="block text-sm font-medium text-slate-700 mb-1.5">Payment Method</label>
@@ -237,7 +238,7 @@
                 <div id="cashFields"><label class="block text-sm font-medium text-slate-700">Amount Tendered (₦)</label><input type="number" id="amountTendered" class="w-full rounded-lg border-slate-300 px-3.5 py-2.5 shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500 text-sm" min="0" step="0.01" placeholder="0.00"><p class="text-xs mt-1">Change: <span id="changeDue" class="font-bold text-emerald-600">₦0.00</span></p></div>
                 <div id="bankFields" class="hidden space-y-2"><label class="block text-sm font-medium text-slate-700">Bank Account</label>@foreach($bankAccounts as $bank)<div class="border rounded-lg p-2.5 bg-slate-50 text-sm"><p class="font-semibold">{{ $bank->bank_name }}</p><p class="text-slate-500 text-xs">{{ $bank->account_number }} — {{ $bank->account_name }}</p></div>@endforeach</div>
                 <div id="cardNotice" class="hidden"><div class="rounded-lg bg-blue-50 border border-blue-100 p-3 text-sm text-blue-700"><i class="fi fi-rr-info mr-1"></i> Paystack will open in a popup.</div></div>
-                <div class="grid grid-cols-2 gap-3"><div><label class="block text-sm font-medium text-slate-700">Customer Name</label><input type="text" name="customer_name" class="w-full rounded-lg border-slate-300 px-3 py-2 shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500 text-sm" placeholder="Optional"></div><div><label class="block text-sm font-medium text-slate-700">Phone</label><input type="text" name="customer_phone" class="w-full rounded-lg border-slate-300 px-3 py-2 shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500 text-sm" placeholder="Optional"></div></div>
+                <div class="grid grid-cols-2 gap-3"><div><label class="block text-sm font-medium text-slate-700">Customer Name</label><input type="text" name="customer_name" id="customerName" class="w-full rounded-lg border-slate-300 px-3 py-2 shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500 text-sm" placeholder="Optional"></div><div><label class="block text-sm font-medium text-slate-700">Phone</label><input type="text" name="customer_phone" id="customerPhone" class="w-full rounded-lg border-slate-300 px-3 py-2 shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500 text-sm" placeholder="Optional"></div></div>
                 <div class="flex items-center gap-3 pt-2"><button type="button" onclick="submitCheckout()" class="flex-1 py-2.5 bg-slate-900 text-white text-sm font-semibold rounded-lg hover:bg-slate-800">Complete Sale</button><button type="button" onclick="document.getElementById('checkoutModal').classList.add('hidden')" class="flex-1 py-2 border border-slate-200 text-sm rounded-lg hover:bg-slate-50">Cancel</button></div>
             </form>
         </div>
@@ -261,6 +262,28 @@
     </div>
 </div>
 @endif
+
+{{-- Receipt Modal --}}
+<div id="receiptModal" class="hidden fixed inset-0 z-[60] overflow-y-auto">
+    <div class="flex min-h-full items-center justify-center p-4">
+        <div class="fixed inset-0 bg-slate-900/50"></div>
+        <div class="relative w-full max-w-sm bg-white rounded-2xl shadow-xl overflow-hidden">
+            {{-- Success Banner --}}
+            <div class="bg-emerald-500 px-6 py-5 text-center text-white">
+                <span class="inline-flex items-center justify-center w-12 h-12 rounded-full bg-white/20 mb-2">
+                    <i class="fi fi-rr-check text-2xl"></i>
+                </span>
+                <h3 class="text-lg font-bold">Sale Complete!</h3>
+                <p class="text-xs text-emerald-100 mt-0.5">Transaction recorded successfully</p>
+            </div>
+            <div id="receiptContent" class="p-6"></div>
+            <div class="px-6 py-4 border-t border-slate-100 flex items-center gap-3">
+                <button onclick="printReceipt()" class="flex-1 py-2.5 border border-slate-200 text-sm font-medium rounded-lg hover:bg-slate-50"><i class="fi fi-rr-print mr-1.5"></i> Print</button>
+                <button onclick="newSale()" class="flex-1 py-2.5 bg-slate-900 text-white text-sm font-semibold rounded-lg hover:bg-slate-800">New Sale</button>
+            </div>
+        </div>
+    </div>
+</div>
 
 @if($canProcessSale && $activeStore)
 <script>setTimeout(()=>{const e=document.getElementById('posFlash');if(e)e.remove();},4000);</script>
@@ -309,17 +332,91 @@ document.getElementById('amountTendered')?.addEventListener('input', function() 
     document.getElementById('changeDue').textContent = '₦' + Math.max(0, (parseFloat(this.value)||0) - t).toFixed(2);
 });
 function submitCheckout() {
-    const f = document.getElementById('checkoutForm');
-    document.getElementById('checkoutItems').value = JSON.stringify(cart);
     const m = document.querySelector('input[name="payment_method"]:checked')?.value;
+    const t = cart.reduce((s,i) => s + i.price * i.quantity, 0);
     @if($paystackKey)
     if (m === 'paystack') {
-        const t = cart.reduce((s,i) => s + i.price * i.quantity, 0);
-        PaystackPop.setup({ key:'{{ $paystackKey }}', email:'{{ $user->email }}', amount:Math.round(t*100), currency:'NGN', ref:'POS-'+Date.now(), metadata:{store_id:'{{ $activeStore->id }}'}, onClose(){}, callback(r){ const i=document.createElement('input'); i.type='hidden'; i.name='paystack_reference'; i.value=r.reference; f.appendChild(i); f.submit(); }}).openIframe();
+        PaystackPop.setup({ key:'{{ $paystackKey }}', email:'{{ $user->email }}', amount:Math.round(t*100), currency:'NGN', ref:'POS-'+Date.now(), metadata:{store_id:'{{ $activeStore->id }}'}, onClose(){}, callback(r){ document.getElementById('paystackRef').value = r.reference; doCheckout(); }}).openIframe();
         return;
     }
     @endif
-    f.submit();
+    doCheckout();
+}
+
+async function doCheckout() {
+    const btn = document.querySelector('#checkoutModal button[onclick="submitCheckout()"]');
+    btn.disabled = true; btn.textContent = 'Processing...';
+
+    const body = new FormData();
+    body.append('_token', document.querySelector('meta[name="csrf-token"]').content);
+    body.append('items', JSON.stringify(cart));
+    body.append('payment_method', document.querySelector('input[name="payment_method"]:checked')?.value || 'cash');
+    body.append('amount_tendered', document.getElementById('amountTendered')?.value || cart.reduce((s,i) => s + i.price * i.quantity, 0));
+    body.append('paystack_reference', document.getElementById('paystackRef')?.value || '');
+    body.append('customer_name', document.getElementById('customerName')?.value || '');
+    body.append('customer_phone', document.getElementById('customerPhone')?.value || '');
+    body.append('notes', document.getElementById('orderNotes')?.value || '');
+
+    try {
+        const resp = await fetch('{{ route('pos.checkout', ['store' => $activeStore]) }}', {
+            method: 'POST',
+            headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
+            body
+        });
+        const data = await resp.json();
+        if (data.success) {
+            document.getElementById('checkoutModal').classList.add('hidden');
+            showReceiptModal(data.receipt);
+            clearCart();
+        } else {
+            alert(data.message || 'Checkout failed.');
+        }
+    } catch (e) {
+        console.error(e);
+        alert('Checkout failed. Please try again.');
+    } finally {
+        btn.disabled = false; btn.textContent = 'Complete Sale';
+    }
+}
+
+function showReceiptModal(receipt) {
+    const itemsHtml = receipt.items.map(i =>
+        `<div class="flex justify-between text-sm"><span>${i.name} × ${i.qty}</span><span class="font-medium">₦${i.subtotal.toFixed(2)}</span></div>`
+    ).join('');
+    document.getElementById('receiptContent').innerHTML = `
+        <div class="text-center mb-4">
+            <h3 class="text-lg font-bold text-slate-800">${receipt.store_name}</h3>
+            ${receipt.store_address ? `<p class="text-xs text-slate-400">${receipt.store_address}</p>` : ''}
+        </div>
+        <div class="border-t border-b border-dashed border-slate-200 py-3 space-y-2 mb-3">
+            <div class="flex justify-between text-xs text-slate-500"><span>Order</span><span class="font-mono font-medium text-slate-700">#${receipt.order_number}</span></div>
+            <div class="flex justify-between text-xs text-slate-500"><span>Date</span><span>${receipt.date}</span></div>
+            <div class="flex justify-between text-xs text-slate-500"><span>Cashier</span><span>${receipt.cashier}</span></div>
+            <div class="flex justify-between text-xs text-slate-500"><span>Payment</span><span class="capitalize">${receipt.payment_method}</span></div>
+            ${receipt.customer_name ? `<div class="flex justify-between text-xs text-slate-500"><span>Customer</span><span>${receipt.customer_name}</span></div>` : ''}
+        </div>
+        <div class="space-y-1.5 mb-3">${itemsHtml}</div>
+        <div class="border-t border-slate-200 pt-3 space-y-1">
+            <div class="flex justify-between text-sm font-semibold"><span>Total</span><span>₦${receipt.items.reduce((s,i) => s + i.subtotal, 0).toFixed(2)}</span></div>
+            ${receipt.amount_tendered > 0 ? `<div class="flex justify-between text-xs text-slate-500"><span>Amount Tendered</span><span>₦${receipt.amount_tendered.toFixed(2)}</span></div>` : ''}
+            ${receipt.change > 0 ? `<div class="flex justify-between text-sm font-semibold text-emerald-600"><span>Change</span><span>₦${receipt.change.toFixed(2)}</span></div>` : ''}
+        </div>
+    `;
+    document.getElementById('receiptModal').classList.remove('hidden');
+}
+
+function newSale() {
+    document.getElementById('receiptModal').classList.add('hidden');
+    cart = [];
+    renderCart();
+}
+
+function printReceipt() {
+    const content = document.getElementById('receiptContent').innerHTML;
+    const win = window.open('', '_blank', 'width=380,height=600');
+    win.document.write(`<html><head><title>Receipt</title><script src="https://cdn.tailwindcss.com"><\/script><style>body{font-family:system-ui,-apple-system,sans-serif;padding:1.5rem;}@media print{body{padding:0.5rem;}}<\/style></head><body>${content}</body></html>`);
+    win.document.close();
+    setTimeout(() => win.print(), 300);
 }
 function switchTab(t) {
     document.getElementById('tabContentProducts').classList.toggle('hidden', t !== 'products');
@@ -339,6 +436,10 @@ document.getElementById('productSearch')?.addEventListener('input', function() {
     document.querySelectorAll('#productGrid .product-card').forEach(c => { const m = c.querySelector('p').textContent.toLowerCase().includes(q); c.style.display = m?'':'none'; if(m) v++; });
 });
 </script>
+@endif
+{{-- Auto-show open session modal if no active session --}}
+@if(!$activeSession && $canOpenSession)
+<script>document.getElementById('openSessionModal').classList.remove('hidden');</script>
 @endif
 </body>
 </html>
