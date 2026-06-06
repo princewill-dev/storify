@@ -81,6 +81,7 @@ Route::prefix('management')->name('management.')->group(function () {
 
             Route::get('/', [DashboardController::class, 'index'])->middleware('permission:dashboard view')->name('dashboard');
             Route::post('/switch-store', [DashboardController::class, 'switchStore'])->name('stores.switch');
+            Route::get('/search', \App\Http\Controllers\Management\SearchController::class)->name('search');
             
             Route::get('/profile', [ProfileController::class, 'index'])->name('profile.index');
             Route::put('/profile', [ProfileController::class, 'update'])->name('profile.update');

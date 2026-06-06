@@ -29,7 +29,7 @@
     @stack('styles')
     @stack('head-scripts')
 </head>
-<body class="h-full" x-data="{ sidebarOpen: true, mobileMenuOpen: false }">
+<body class="h-full" x-data="{ sidebarOpen: true, mobileMenuOpen: false, searchOpen: false, searchQuery: '', searchResults: [], searchLoading: false, searchEmpty: false, searchTimer: null }">
 
 <div class="flex h-full">
 
