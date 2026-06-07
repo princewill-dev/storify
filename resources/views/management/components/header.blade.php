@@ -44,8 +44,7 @@
         {{-- Search Button --}}
         <button @click="searchOpen = true; $nextTick(() => $refs.searchInput?.focus())" class="flex items-center gap-2 px-3 py-1.5 text-sm text-slate-500 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-lg transition-colors" title="Search (Ctrl+K)">
             <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/></svg>
-            <span class="hidden sm:inline">Search</span>
-            <kbd class="hidden lg:inline-flex items-center text-[10px] font-medium text-slate-400 bg-white border border-slate-200 rounded px-1.5 py-0.5">⌘K</kbd>
+            <span>Search</span>
         </button>
 
         {{-- Profile dropdown --}}
