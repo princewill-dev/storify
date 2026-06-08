@@ -267,6 +267,88 @@ class ProductController extends Controller
         ));
     }
 
+    public function store(ProductRequest $request): RedirectResponse
+    {
+        $user = $request->user();
+        if (!$user) {
+            return redirect()->route('management.auth.login');
+        }
+
+        $stores = $user->stores()->where('status', '!=', 'deleted')->pluck('id')->all();
+        if ($request->filled('store_id') && !in_array((int) $request->input('store_id'), $stores, true)) {
+            return back()->with('error', 'Invalid store selection.')->withInput();
+        }
+
+        $data = $request->validated();
+        $data['user_id'] = $user->id;
+        $data['business_id'] = $user->business_id;
+        $data['cod_available'] = $request->boolean('cod_available');
+        $data['featured'] = $request->boolean('featured');
+        $data['has_variants'] = $request->boolean('has_variants');
+
+        // Auto-assign warehouse_id from section
+        if (!empty($data['section_id']) && empty($data['warehouse_id'])) {
+            $section = \App\Models\Section::find($data['section_id']);
+            if ($section && $section->warehouse_id) {
+                $data['warehouse_id'] = $section->warehouse_id;
+            }
+        }
+
+        try {
+            DB::transaction(function () use ($request, $data, $user) {
+                $product = Product::create($data);
+
+                if ($request->hasFile('images')) {
+                    $pos = 0;
+                    foreach ($request->file('images') as $file) {
+                        $path = $file->store('products/images', 'public');
+                        ProductImage::create([
+                            'product_id' => $product->id,
+                            'path' => $path,
+                            'is_primary' => $pos === 0,
+                            'position' => $pos++,
+                        ]);
+                    }
+                }
+
+                if ($product->has_variants) {
+                    $incoming = collect((array) $request->input('variants', []));
+                    foreach ($incoming as $v) {
+                        ProductVariant::create([
+                            'product_id' => $product->id,
+                            'sku' => $v['sku'] ?? null,
+                            'size' => $v['size'] ?? null,
+                            'size_unit_id' => $v['size_unit_id'] ?? null,
+                            'weight' => $v['weight'] ?? null,
+                            'weight_unit_id' => $v['weight_unit_id'] ?? null,
+                            'color' => $v['color'] ?? null,
+                            'quantity' => $v['quantity'],
+                            'amount' => $v['amount'],
+                            'currency_id' => $v['currency_id'] ?? null,
+                            'status' => $v['status'] ?? 'active',
+                            'featured' => !empty($v['featured']),
+                        ]);
+                    }
+                }
+
+                ActivityLog::create([
+                    'user_id' => null,
+                    'action' => 'vendor_create_product',
+                    'description' => 'Vendor created a product: ' . $product->name,
+                    'ip_address' => $request->ip(),
+                    'user_agent' => substr((string) $request->userAgent(), 0, 255),
+                    'metadata' => ['user_id' => $user->id, 'product_id' => $product->id],
+                ]);
+            });
+
+            return redirect()->route('management.products.index')
+                ->with('success', 'Product created successfully.');
+        } catch (\Throwable $e) {
+            Log::error('vendor.product.create_failed', ['error' => $e->getMessage(), 'user_id' => $user->id]);
+            return back()->with('error', 'Unable to create product. Please try again.')->withInput();
+        }
+    }
+
     public function update(ProductRequest $request, Product $product): RedirectResponse
     {
         $user = $request->user();

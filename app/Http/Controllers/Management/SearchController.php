@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Models\Warehouse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 
 class SearchController extends Controller
 {
@@ -26,8 +27,11 @@ class SearchController extends Controller
             return response()->json(['results' => []]);
         }
 
-        $results = [];
-        $like = '%' . $q . '%';
+        $cacheKey = 'search:' . $user->business_id . ':' . md5($q);
+
+        $results = Cache::remember($cacheKey, 300, function () use ($user, $q) {
+            $results = [];
+            $like = '%' . $q . '%';
 
         // Products
         if ($user->can('products view')) {
@@ -176,6 +180,9 @@ class SearchController extends Controller
                 ];
             }
         }
+
+            return $results;
+        });
 
         return response()->json(['results' => $results]);
     }
