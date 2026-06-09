@@ -14,8 +14,13 @@
 <x-management.page-header :breadcrumbs="$breadcrumbs" :title="$warehouse->name" subtitle="Warehouse · {{ $warehouse->warehouse_code }}">
     <x-slot:actions>
         <x-management.status-badge :status="$warehouse->isActive() ? 'active' : 'inactive'" />
+        @can('products create')
+        <a href="{{ route('management.warehouses.products.create', $warehouse) }}" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 transition-colors">
+            <i class="fi fi-rr-plus text-xs"></i> Add Product
+        </a>
+        @endcan
         @can('transfers create')
-        <a href="{{ route('management.transfers.create', ['from_warehouse' => $warehouse->warehouse_code]) }}" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 transition-colors">
+        <a href="{{ route('management.transfers.create', ['from_warehouse' => $warehouse->warehouse_code]) }}" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 text-white text-xs font-medium rounded-lg hover:bg-slate-800 transition-colors">
             <i class="fi fi-rr-arrows-exchange text-xs"></i> Stock Adjustment
         </a>
         @endcan

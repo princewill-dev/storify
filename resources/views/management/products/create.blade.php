@@ -2,21 +2,7 @@
 @section('subtitle', 'Create Product')
 
 @section('content')
-<div class="flex items-center gap-3 mb-6">
-    @php
-        $backUrl = route('management.products.index');
-        if ($selectedSectionId) {
-            $preselectedSection = \App\Models\Section::with('warehouse')->find($selectedSectionId);
-            if ($preselectedSection?->warehouse) {
-                $backUrl = route('management.sections.show', [$preselectedSection->warehouse, $preselectedSection]);
-            }
-        }
-    @endphp
-    <a href="{{ $backUrl }}" class="text-slate-400 hover:text-slate-600">
-        <i class="fi fi-rr-arrow-left"></i>
-    </a>
-    <h2 class="text-lg font-semibold text-slate-900">Add Product</h2>
-</div>
+<x-management.page-header :breadcrumbs="$breadcrumbs" title="Add Product" subtitle="{{ $preselectedWarehouse ? 'To ' . $preselectedWarehouse->name : '' }}" />
 
 <form action="{{ route('management.products.store') }}" method="POST" enctype="multipart/form-data">
     @csrf
@@ -51,32 +37,21 @@
 
             {{-- Organization --}}
             <x-management.card header="Organization">
-                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <x-management.form-input name="store_id" label="Store" type="select" :error="$errors->first('store_id')">
-                        <option value="">None (warehouse-only)</option>
-                        @foreach($stores as $s)
-                        <option value="{{ $s->id }}" @selected(old('store_id', $selectedStoreId) == $s->id)>{{ $s->name }}</option>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <x-management.form-input name="warehouse_id" label="Assign to Warehouse" type="select" :error="$errors->first('warehouse_id')" required>
+                        <option value="">Select warehouse</option>
+                        @foreach($warehouses as $wh)
+                        <option value="{{ $wh->id }}" @selected(old('warehouse_id', $selectedWarehouseId) == $wh->id)>{{ $wh->name }}</option>
                         @endforeach
                     </x-management.form-input>
-                    <x-management.form-input name="category_id" label="Category" type="select" :error="$errors->first('category_id')">
-                        <option value="">Select category</option>
-                        @foreach($categories ?? [] as $cat)
-                        <option value="{{ $cat->id }}" @selected(old('category_id') == $cat->id)>{{ $cat->name }}</option>
-                        @endforeach
-                    </x-management.form-input>
-                    <x-management.form-input name="section_id" label="Section" type="select" :error="$errors->first('section_id')">
+                    <x-management.form-input name="section_id" label="Section (optional)" type="select" :error="$errors->first('section_id')">
                         <option value="">None</option>
                         @foreach($sections as $sec)
-                        <option value="{{ $sec->id }}" @selected(old('section_id', $selectedSectionId) == $sec->id)>{{ $sec->name }} ({{ $sec->warehouse?->name }})</option>
-                        @endforeach
-                    </x-management.form-input>
-                    <x-management.form-input name="warehouse_id" label="Warehouse" type="select" :error="$errors->first('warehouse_id')">
-                        <option value="">None (auto-set from section)</option>
-                        @foreach($warehouses as $wh)
-                        <option value="{{ $wh->id }}" @selected(old('warehouse_id') == $wh->id)>{{ $wh->name }}</option>
+                        <option value="{{ $sec->id }}" @selected(old('section_id') == $sec->id)>{{ $sec->name }} ({{ $sec->warehouse?->name }})</option>
                         @endforeach
                     </x-management.form-input>
                 </div>
+                <p class="text-xs text-slate-400 mt-2">Products are first received at a warehouse. Optionally assign to a specific section within that warehouse.</p>
             </x-management.card>
 
             {{-- Pricing --}}
@@ -171,25 +146,24 @@
                 </div>
             </x-management.card>
 
-            @if($selectedSectionId)
-            <x-management.card header="Section Context">
-                @php($preselectedSection = \App\Models\Section::find($selectedSectionId))
-                @if($preselectedSection)
+            @if($preselectedWarehouse)
+            <x-management.card header="Warehouse Context">
                 <div class="space-y-2">
                     <div class="flex justify-between">
-                        <span class="text-xs text-slate-400">Section</span>
-                        <span class="text-xs font-medium text-slate-700">{{ $preselectedSection->name }}</span>
-                    </div>
-                    <div class="flex justify-between">
                         <span class="text-xs text-slate-400">Warehouse</span>
-                        <span class="text-xs font-medium text-slate-700">{{ $preselectedSection->warehouse?->name ?? '—' }}</span>
+                        <span class="text-xs font-medium text-slate-700">{{ $preselectedWarehouse->name }}</span>
                     </div>
                     <div class="flex justify-between">
                         <span class="text-xs text-slate-400">Code</span>
-                        <span class="text-xs font-medium text-slate-700 font-mono">{{ $preselectedSection->section_code }}</span>
+                        <span class="text-xs font-medium text-slate-700 font-mono">{{ $preselectedWarehouse->warehouse_code }}</span>
                     </div>
+                    @if($preselectedWarehouse->address)
+                    <div class="flex justify-between">
+                        <span class="text-xs text-slate-400">Address</span>
+                        <span class="text-xs font-medium text-slate-700">{{ $preselectedWarehouse->address }}</span>
+                    </div>
+                    @endif
                 </div>
-                @endif
             </x-management.card>
             @endif
 

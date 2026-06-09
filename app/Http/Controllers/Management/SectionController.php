@@ -66,6 +66,7 @@ class SectionController extends Controller
         $stats = [
             'count' => $section->products()->count(),
             'active' => $section->products()->where('status', 'active')->count(),
+            'stockCount' => (int) $section->products()->sum('quantity'),
             'value' => $section->products()->sum('amount'),
             'outOfStock' => $section->products()->where('quantity', '<=', 0)->count(),
         ];

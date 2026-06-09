@@ -294,6 +294,7 @@ Route::prefix('management')->name('management.')->group(function () {
                 Route::get('/warehouses/{warehouse}', [WarehouseController::class, 'show'])->name('warehouses.show');
                 // AJAX tab endpoint for warehouse detail page
                 Route::get('/warehouses/{warehouse}/tab/{tab}', [WarehouseController::class, 'loadTab'])->name('warehouses.tab');
+                Route::get('/warehouses/{warehouse}/add', [\App\Http\Controllers\Management\ProductController::class, 'create'])->name('warehouses.products.create');
             });
             Route::middleware('permission:warehouses edit')->group(function () {
                 Route::get('/warehouses/{warehouse}/edit', [WarehouseController::class, 'edit'])->name('warehouses.edit');

@@ -169,61 +169,47 @@ class ProductController extends Controller
         ]);
     }
 
-    public function create(Request $request): View|RedirectResponse
+    public function create(Request $request, ?\App\Models\Warehouse $warehouse = null): View|RedirectResponse
     {
         $user = $request->user();
 
-        $stores = $user->stores()->where('status', '!=', 'deleted')->orderBy('name')->get();
         $sizeUnits = DB::table('size_units')->orderBy('name')->get();
         $weightUnits = DB::table('weight_units')->orderBy('name')->get();
         $currencies = Currency::orderBy('name')->get();
         $defaultCurrencyId = Currency::where('is_default', true)->value('id');
-
-        $selectedStoreIdString = $request->query('store_id');
-        $selectedStoreId = null;
-        if ($selectedStoreIdString) {
-            $selectedStoreId = $user->stores()
-                ->where('store_id', $selectedStoreIdString)
-                ->value('id');
-        }
-
-        $storeIds = $this->userStoreIds($user);
-
-        $categories = Category::whereIn('store_id', $storeIds)->orderBy('name')->get();
-
-        $sections = \App\Models\Section::whereHas('warehouse', function ($q) use ($user) {
-            $q->where('user_id', $user->id);
-        })->where('status', '!=', 'deleted')->orderBy('name')->get();
 
         $warehouses = ($user->isStaff()
             ? $user->assignedWarehouses()
             : \App\Models\Warehouse::where('user_id', $user->id))
             ->where('status', '!=', 'deleted')->orderBy('name')->get();
 
-        $sectionParam = $request->query('section_id');
-        $selectedSectionId = null;
-        if ($sectionParam) {
-            $selectedSectionId = is_numeric($sectionParam)
-                ? (int) $sectionParam
-                : \App\Models\Section::where('section_code', $sectionParam)->value('id');
-        }
+        $selectedWarehouseId = $warehouse?->id ?? old('warehouse_id');
 
-        $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Products', 'url' => route('management.products.index')], ['label' => 'Create']];
+        // Load sections — scoped to the preselected warehouse, or all user sections
+        $sections = \App\Models\Section::whereHas('warehouse', function ($q) use ($user, $selectedWarehouseId) {
+            $q->where('user_id', $user->id);
+        })->where('status', '!=', 'deleted')->orderBy('name')->get();
+
+        $breadcrumbs = $warehouse
+            ? [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Warehouses', 'url' => route('management.warehouses.index')], ['label' => $warehouse->name, 'url' => route('management.warehouses.show', $warehouse)], ['label' => 'Add Product']]
+            : [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Products', 'url' => route('management.products.index')], ['label' => 'Create']];
+
+        $backUrl = $warehouse
+            ? route('management.warehouses.show', $warehouse)
+            : route('management.products.index', ['user' => $user]);
 
         return view('management.products.create', [
             'user' => $user,
-            'stores' => $stores,
-            'categories' => $categories,
-            'sections' => $sections,
             'warehouses' => $warehouses,
+            'sections' => $sections,
+            'selectedWarehouseId' => $selectedWarehouseId,
             'sizeUnits' => $sizeUnits,
             'weightUnits' => $weightUnits,
             'currencies' => $currencies,
             'defaultCurrencyId' => $defaultCurrencyId,
-            'selectedStoreId' => $selectedStoreId,
-            'selectedSectionId' => $selectedSectionId,
-            'backUrl' => route('management.products.index', ['user' => $user]),
+            'backUrl' => $backUrl,
             'breadcrumbs' => $breadcrumbs,
+            'preselectedWarehouse' => $warehouse,
         ]);
     }
 
@@ -277,6 +263,11 @@ class ProductController extends Controller
         $stores = $user->stores()->where('status', '!=', 'deleted')->pluck('id')->all();
         if ($request->filled('store_id') && !in_array((int) $request->input('store_id'), $stores, true)) {
             return back()->with('error', 'Invalid store selection.')->withInput();
+        }
+
+        // Warehouse is the primary location for new products
+        if (!$request->filled('warehouse_id')) {
+            return back()->with('error', 'Please assign the product to a warehouse.')->withInput();
         }
 
         $data = $request->validated();

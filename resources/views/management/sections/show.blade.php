@@ -31,9 +31,10 @@
     </div>
 </div>
 
-<div class="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-6">
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
     <x-management.metric-card :value="$stats['count']" label="Products" icon="fi-rr-cube" />
     <x-management.metric-card :value="$stats['active']" label="Active" icon="fi-rr-check-circle" />
+    <x-management.metric-card :value="number_format($stats['stockCount'])" label="Stock Count" icon="fi-rr-box-alt" />
     <x-management.metric-card :value="'₦' . number_format($stats['value'], 2)" label="Total Value" icon="fi-rr-chart-histogram" />
     <x-management.metric-card :value="$stats['outOfStock']" label="Out of Stock" icon="fi-rr-exclamation-triangle" />
 </div>
