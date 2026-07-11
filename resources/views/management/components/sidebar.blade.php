@@ -84,6 +84,11 @@ if (request()->routeIs('management.stores.*') || request()->routeIs('management.
                         <i class="fi fi-rr-plus mr-1.5 opacity-50"></i>Add Store
                     </a>
                     @endcan
+                    @can('stores settings')
+                    <a href="{{ route('management.stores.index') }}" class="block px-3 py-1.5 rounded-lg text-[11px] text-slate-500 hover:text-slate-300 transition-colors">
+                        <i class="fi fi-rr-globe mr-1.5 opacity-50"></i>Create Storefront
+                    </a>
+                    @endcan
                 </div>
             </div>
         </div>

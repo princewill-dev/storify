@@ -2,6 +2,24 @@
     {{-- Left Column --}}
     <div class="lg:col-span-2 space-y-6">
 
+        {{-- Storefront CTA (only for stores without website) --}}
+        @unless($store->has_website)
+        <x-management.card>
+            <div class="flex items-center gap-4">
+                <span class="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-blue-50 text-blue-600 shrink-0">
+                    <i class="fi fi-rr-globe text-lg"></i>
+                </span>
+                <div class="flex-1">
+                    <h3 class="text-sm font-semibold text-slate-800">Enable Online Storefront</h3>
+                    <p class="text-xs text-slate-500 mt-0.5">Give this store an online presence. Sell to customers anywhere in Nigeria.</p>
+                </div>
+                <a href="{{ route('management.stores.storefront.create', $store) }}" class="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition-colors shrink-0">
+                    <i class="fi fi-rr-plus text-xs"></i> Create Storefront
+                </a>
+            </div>
+        </x-management.card>
+        @endunless
+
         {{-- Store Details --}}
         <x-management.card header="Store Details">
             <form method="POST" action="{{ route('management.stores.update', $store) }}" enctype="multipart/form-data" class="space-y-4">
@@ -41,6 +59,51 @@
                 </div>
                 <button type="submit" class="inline-flex items-center gap-1.5 px-4 py-2 bg-slate-900 text-white text-sm font-semibold rounded-lg hover:bg-slate-800 transition-colors">Save Social Links</button>
             </form>
+        </x-management.card>
+
+        {{-- Store Payment Methods --}}
+        <x-management.card header="Payment Methods">
+            @php
+                $storeBanks = $store->banks;
+                $storePaystack = $store->paymentGateways->where('gateway', 'paystack')->first();
+            @endphp
+            <div class="space-y-4">
+                <div>
+                    <div class="flex items-center justify-between mb-2">
+                        <h4 class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Bank Accounts</h4>
+                    </div>
+                    @if($storeBanks->isEmpty())
+                    <p class="text-xs text-slate-400 py-1">No bank accounts. Add bank accounts from <a href="{{ route('management.payment-settings.index') }}" class="text-blue-600 hover:underline">Payment Settings</a>.</p>
+                    @else
+                    <div class="space-y-2">
+                        @foreach($storeBanks as $bank)
+                        <div class="flex items-center justify-between text-sm">
+                            <div>
+                                <span class="font-medium text-slate-700">{{ $bank->bank_name }}</span>
+                                <span class="text-slate-400 ml-1.5">{{ $bank->account_number }}</span>
+                                @if($bank->is_primary)<span class="inline-flex items-center rounded-full bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-600 ml-1.5">Primary</span>@endif
+                            </div>
+                            <span class="text-xs text-slate-400">{{ $bank->account_name }}</span>
+                        </div>
+                        @endforeach
+                    </div>
+                    @endif
+                </div>
+                <div class="pt-3 border-t border-slate-100">
+                    <div class="flex items-center justify-between mb-2">
+                        <h4 class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Paystack</h4>
+                    </div>
+                    @if($storePaystack && $storePaystack->is_active)
+                    <div class="flex items-center gap-2 text-sm">
+                        <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                        <span class="text-slate-600">Connected</span>
+                        <code class="text-xs text-slate-400">{{ $storePaystack->masked_public_key }}</code>
+                    </div>
+                    @else
+                    <p class="text-xs text-slate-400">Using business-wide Paystack gateway from <a href="{{ route('management.payment-settings.index') }}" class="text-blue-600 hover:underline">Payment Settings</a>.</p>
+                    @endif
+                </div>
+            </div>
         </x-management.card>
 
         {{-- Staff Assignments --}}

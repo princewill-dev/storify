@@ -117,6 +117,8 @@ Route::prefix('management')->name('management.')->group(function () {
 
                 Route::post('/stores/{store}/pos/enable', [StoreController::class, 'enablePos'])->name('pos.enable');
                 Route::post('/stores/{store}/enable-website', [StoreController::class, 'enableWebsite'])->name('stores.enable-website');
+                Route::get('/stores/{store}/storefront/create', [StoreController::class, 'createStorefront'])->name('stores.storefront.create');
+                Route::post('/stores/{store}/storefront', [StoreController::class, 'storeStorefront'])->name('stores.storefront.store');
             });
 
             Route::middleware('permission:stores settings')->group(function () {

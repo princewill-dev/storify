@@ -6,6 +6,11 @@
 
 <x-management.page-header :breadcrumbs="$breadcrumbs" :title="$store->name" subtitle="Store Dashboard · {{ $store->store_id }}">
     <x-slot:actions>
+        @if($store->has_website && $store->slug)
+        <a href="{{ config('app.env') === 'local' ? url($store->slug) : 'https://' . $store->slug . '.' . config('app.main_domain', 'storify.ng') }}" target="_blank" rel="noopener" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-blue-600 bg-blue-50 border border-blue-200 hover:bg-blue-100 rounded-lg transition-colors">
+            <i class="fi fi-rr-globe text-xs"></i> Visit Storefront
+        </a>
+        @endif
         <a href="{{ route('management.transfers.index') }}" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors">
             <i class="fi fi-rr-arrows-exchange text-xs"></i> Stock Adjustment
         </a>
@@ -27,7 +32,7 @@
     <button @click="switchTab('staff')" :class="activeTab === 'staff' ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'" class="px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap -mb-px transition-colors">Staff</button>
     @endcan
     @if($store->has_website)
-    <button @click="switchTab('web-metrics')" :class="activeTab === 'web-metrics' ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'" class="px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap -mb-px transition-colors">Web Metrics</button>
+    <button @click="switchTab('web-metrics')" :class="activeTab === 'web-metrics' ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'" class="px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap -mb-px transition-colors">Web Store</button>
     @endif
     <button @click="switchTab('settings')" :class="activeTab === 'settings' ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'" class="px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap -mb-px transition-colors">Settings</button>
 </div>
@@ -278,12 +283,6 @@ document.addEventListener('alpine:init', () => {
                 window.location.hash = tab;
             } else {
                 history.replaceState(null, '', window.location.pathname + window.location.search);
-            }
-
-            // Web Metrics tab navigates to full page (needs chart libs)
-            if (tab === 'web-metrics') {
-                window.location.href = `/management/stores/${storeId}/web-metrics`;
-                return;
             }
 
             // Fetch if not already cached

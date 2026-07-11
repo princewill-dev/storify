@@ -266,11 +266,9 @@ class AppServiceProvider extends ServiceProvider
 
         View::composer(['home.*','home.components.features_cta'], function ($view) {
             try {
-                if (!Schema::hasTable('features')) {
-                    $featureCtas = collect();
-                } else {
-                    $featureCtas = Feature::ordered()->get();
-                }
+                $featureCtas = Cache::remember('home_features_cta', 3600, function () {
+                    return Schema::hasTable('features') ? Feature::ordered()->get() : collect();
+                });
             } catch (\Throwable $e) {
                 $featureCtas = collect();
             }
@@ -297,7 +295,7 @@ class AppServiceProvider extends ServiceProvider
 
             // Cache sidebar data for 60 seconds to avoid repeated queries on every page load
             $cacheKey = 'sidebar_data:' . $user->id;
-            $sidebarData = Cache::remember($cacheKey, 60, function () use ($user, $company) {
+            $sidebarData = Cache::remember($cacheKey, 300, function () use ($user, $company) {
                 if ($user->isStaff()) {
                     $stores = $user->assignedStores()->where('status', '!=', 'deleted')->get();
                     $warehouses = $user->assignedWarehouses()->with('sections')->get();

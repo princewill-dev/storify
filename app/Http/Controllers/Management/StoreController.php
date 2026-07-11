@@ -646,7 +646,7 @@ class StoreController extends Controller
             ['label' => 'Dashboard', 'url' => route('management.dashboard')],
             ['label' => 'Stores', 'url' => route('management.stores.index')],
             ['label' => $store->name, 'url' => route('management.stores.show', $store)],
-            ['label' => 'Web Metrics'],
+            ['label' => 'Web Store'],
         ];
 
         return view('management.stores.web-metrics', compact(
@@ -765,6 +765,65 @@ class StoreController extends Controller
         return back()->with('success', 'Web storefront enabled! Your store is now live at ' . $validated['slug'] . '.' . config('app.main_domain', 'storify.ng') . '.');
     }
 
+    public function createStorefront(Request $request, Store $store): View|RedirectResponse
+    {
+        $user = $request->user();
+        if (!$this->canAccessStore($user, $store)) abort(403);
+        if ($store->has_website) return redirect()->route('management.stores.show', $store)->with('info', 'This store already has a storefront.');
+
+        $templates = [
+            ['id' => 'basic', 'name' => 'Basic', 'description' => 'Clean and minimal storefront. Products displayed in a simple grid layout with search and category filters.', 'color' => '#2563eb'],
+        ];
+
+        $breadcrumbs = [
+            ['label' => 'Dashboard', 'url' => route('management.dashboard')],
+            ['label' => 'Stores', 'url' => route('management.stores.index')],
+            ['label' => $store->name, 'url' => route('management.stores.show', $store)],
+            ['label' => 'Create Storefront'],
+        ];
+
+        return view('management.stores.storefront.create', compact('user', 'store', 'templates', 'breadcrumbs'));
+    }
+
+    public function storeStorefront(Request $request, Store $store): RedirectResponse
+    {
+        $user = $request->user();
+        if (!$this->canAccessStore($user, $store)) abort(403);
+        if ($store->has_website) return redirect()->route('management.stores.show', $store)->with('info', 'This store already has a storefront.');
+
+        $validated = $request->validate([
+            'store_name' => 'required|string|max:255',
+            'slug' => 'required|string|max:255|unique:stores,slug,' . $store->id,
+            'template' => 'required|in:basic',
+            'is_nationwide' => 'boolean',
+            'nationwide_fee' => 'nullable|numeric|min:0',
+            'nationwide_days' => 'nullable|integer|min:1',
+        ]);
+
+        $store->update([
+            'name' => $validated['store_name'],
+            'slug' => $validated['slug'],
+            'has_website' => true,
+        ]);
+
+        if ($request->boolean('is_nationwide')) {
+            $store->deliveryRoutes()->updateOrCreate(
+                ['store_id' => $store->id, 'state' => 'All States', 'country' => 'Nigeria'],
+                [
+                    'country' => 'Nigeria', 'state' => 'All States', 'area' => null,
+                    'fee' => (int) ($validated['nationwide_fee'] ?? 0) * 100,
+                    'delivery_days' => (int) ($validated['nationwide_days'] ?? 3),
+                    'active' => true,
+                ]
+            );
+        }
+
+        $storeUrl = $store->slug . '.' . config('app.main_domain', 'storify.ng');
+
+        return redirect()->route('management.stores.show', $store)
+            ->with('success', 'Storefront created! Your store is now live at ' . $storeUrl);
+    }
+
     public function removeStaff(Request $request, Store $store, User $user): RedirectResponse
     {
         $user = $request->user();
@@ -805,6 +864,40 @@ class StoreController extends Controller
         return view('management.stores.tabs.customers', compact('user', 'store', 'customers'));
     }
 
+    private function tabWebMetrics(Request $request, Store $store, User $user): View
+    {
+        $storeViews = $store->views;
+        $productViews = Product::where('store_id', $store->id)->sum('views');
+        $webOrders = Order::where('store_id', $store->id)->where('source', 'checkout')->count();
+        $webRevenue = (int) \App\Models\Transaction::query()
+            ->whereHas('order', fn($q) => $q->where('store_id', $store->id)->where('source', 'checkout'))
+            ->where('status', 'confirmed')
+            ->sum('amount');
+
+        $topProducts = Product::where('store_id', $store->id)
+            ->orderBy('views', 'desc')->take(10)->get(['id', 'name', 'views', 'product_code']);
+
+        $sixMonthsAgo = now()->subMonths(6)->startOfMonth();
+        $monthlyWebData = Order::where('store_id', $store->id)
+            ->where('source', 'checkout')->where('created_at', '>=', $sixMonthsAgo)
+            ->selectRaw("DATE_FORMAT(created_at, '%Y-%m') as month, COUNT(*) as count")
+            ->groupBy('month')->orderBy('month')->get()->keyBy('month');
+
+        $monthlyWebOrders = [];
+        for ($i = 5; $i >= 0; $i--) {
+            $monthKey = now()->copy()->subMonths($i)->format('Y-m');
+            $monthlyWebOrders[] = [
+                'month' => now()->copy()->subMonths($i)->startOfMonth()->format('M'),
+                'count' => (int) ($monthlyWebData->get($monthKey)?->count ?? 0),
+            ];
+        }
+
+        return view('management.stores.tabs.web-metrics', compact(
+            'store', 'storeViews', 'productViews', 'webOrders', 'webRevenue',
+            'topProducts', 'monthlyWebOrders'
+        ));
+    }
+
     private function canAccessStore(?User $user, Store $store): bool
     {
         if (!$user) return false;
@@ -833,7 +926,7 @@ class StoreController extends Controller
             'staff' => $this->tabStaff($store, $user),
             'transactions' => $this->tabTransactions($request, $store, $user),
             'customers' => $this->tabCustomers($store, $user),
-            'web-metrics' => $this->webMetrics($request, $store),
+            'web-metrics' => $this->tabWebMetrics($request, $store, $user),
             default => abort(404, 'Unknown tab'),
         };
     }

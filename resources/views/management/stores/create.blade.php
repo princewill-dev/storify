@@ -51,7 +51,7 @@
             <div id="slugPreview" class="hidden p-3 bg-slate-50 border border-slate-200 rounded-lg">
                 <div class="flex items-center gap-2">
                     <i class="fi fi-rr-globe text-slate-400 text-sm shrink-0"></i>
-                    <span id="slugUrl" class="text-sm font-medium text-slate-700 truncate">your-store.storify.ng</span>
+                    <span id="slugUrl" class="text-sm font-medium text-slate-700 truncate">your-store.{{ config('app.main_domain', 'storify.ng') }}</span>
                     <span id="slugStatus" class="text-xs font-medium shrink-0"></span>
                     <span id="slugSpinner" class="hidden text-xs text-slate-400 shrink-0">Checking...</span>
                 </div>

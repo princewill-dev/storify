@@ -18,7 +18,7 @@ class WarehouseController extends Controller
         if (!$user) return redirect()->route('management.auth.login');
 
         $warehouses = ($user->isStaff() ? $user->assignedWarehouses() : $user->warehouses())
-            ->with(['stockLocations.product', 'sections', 'assignedStaff'])->latest()->get();
+            ->with(['stockLocations.product', 'sections', 'assignedStaff'])->latest()->paginate(20)->withQueryString();
         $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Warehouses']];
         return view('management.warehouses.index', compact('user', 'warehouses', 'breadcrumbs'));
     }

@@ -26,13 +26,9 @@ class PaymentSettingsController extends Controller
     {
         $user = $request->user();
 
-        $stores = $user->stores()->with(['banks', 'paymentGateways'])->where('status', '!=', 'deleted')->orderBy('name')->get();
-
-        $banks = $this->paystackService->getBanks()['data'] ?? [];
-
         $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Payment Settings']];
 
-        return view('management.payment-settings.index', compact('user', 'stores', 'banks', 'breadcrumbs'));
+        return view('management.payment-settings.index', compact('user', 'breadcrumbs'));
     }
 
     public function storeBankAccount(Request $request): RedirectResponse
@@ -134,57 +130,45 @@ class PaymentSettingsController extends Controller
         $user = $request->user();
 
         $validated = $request->validate([
-            'store_id' => 'required|exists:stores,id',
             'public_key' => 'required|string|max:255',
             'secret_key' => 'required|string|max:255',
         ]);
 
-        $store = Store::where('id', $validated['store_id'])->where('user_id', $user->id)->firstOrFail();
-
-        $existing = StorePaymentGateway::where('store_id', $store->id)
+        // Business-level gateway
+        $existing = \App\Models\BusinessGateway::where('business_id', $user->business_id)
             ->where('gateway', 'paystack')->first();
 
         if ($existing) {
             return redirect()->route('management.payment-settings.index')
-                ->with('error', 'Paystack keys already exist for this store. Edit them instead.');
+                ->with('error', 'Paystack is already connected for your business. Edit the existing keys instead.');
         }
 
-        StorePaymentGateway::create([
-            'store_id' => $store->id,
-            'business_id' => $store->business_id,
+        \App\Models\BusinessGateway::create([
+            'business_id' => $user->business_id,
             'gateway' => 'paystack',
             'public_key' => $validated['public_key'],
             'secret_key' => $validated['secret_key'],
             'is_active' => true,
         ]);
 
-        Log::info('payment-settings.paystack_added', ['user_id' => $user->id, 'store_id' => $store->id]);
+        Log::info('payment-settings.business_paystack_added', ['user_id' => $user->id]);
 
         return redirect()->route('management.payment-settings.index')
-            ->with('success', 'Paystack keys added for ' . $store->name . '.');
+            ->with('success', 'Paystack connected for your business.');
     }
 
-    public function updatePaystackKeys(Request $request, StorePaymentGateway $gateway): RedirectResponse
+    public function updatePaystackKeys(Request $request, $gateway): RedirectResponse
     {
         $user = $request->user();
+        $gateway = \App\Models\BusinessGateway::where('business_id', $user->business_id)->findOrFail($gateway);
         $storeIds = $user->stores()->pluck('id');
 
-        if ($gateway->store_id && !$storeIds->contains($gateway->store_id)) {
-            abort(403, 'Unauthorized');
-        }
-
         $validated = $request->validate([
-            'store_id' => 'required|exists:stores,id',
             'public_key' => 'required|string|max:255',
             'secret_key' => 'required|string|max:255',
         ]);
 
-        if (!$storeIds->contains($validated['store_id'])) {
-            abort(403, 'Unauthorized');
-        }
-
         $gateway->update([
-            'store_id' => $validated['store_id'],
             'public_key' => $validated['public_key'],
             'secret_key' => $validated['secret_key'],
         ]);
@@ -193,14 +177,10 @@ class PaymentSettingsController extends Controller
             ->with('success', 'Paystack keys updated successfully.');
     }
 
-    public function destroyPaystackKeys(Request $request, StorePaymentGateway $gateway): RedirectResponse
+    public function destroyPaystackKeys(Request $request, $gateway): RedirectResponse
     {
         $user = $request->user();
-        $storeIds = $user->stores()->pluck('id');
-
-        if ($gateway->store_id && !$storeIds->contains($gateway->store_id)) {
-            abort(403, 'Unauthorized');
-        }
+        $gateway = \App\Models\BusinessGateway::where('business_id', $user->business_id)->findOrFail($gateway);
 
         $gateway->delete();
 
@@ -208,29 +188,21 @@ class PaymentSettingsController extends Controller
             ->with('success', 'Paystack keys removed.');
     }
 
-    public function togglePaystackKeys(Request $request, StorePaymentGateway $gateway): RedirectResponse
+    public function togglePaystackKeys(Request $request, $gateway): RedirectResponse
     {
         $user = $request->user();
-        $storeIds = $user->stores()->pluck('id');
-
-        if ($gateway->store_id && !$storeIds->contains($gateway->store_id)) {
-            abort(403, 'Unauthorized');
-        }
+        $gateway = \App\Models\BusinessGateway::where('business_id', $user->business_id)->findOrFail($gateway);
 
         $gateway->update(['is_active' => !$gateway->is_active]);
 
         return redirect()->route('management.payment-settings.index')
-            ->with('success', 'Paystack ' . ($gateway->is_active ? 'enabled' : 'disabled') . ' for this store.');
+            ->with('success', 'Paystack ' . ($gateway->is_active ? 'enabled' : 'disabled') . '.');
     }
 
-    public function testGateway(Request $request, StorePaymentGateway $gateway): JsonResponse
+    public function testGateway(Request $request, $gateway): JsonResponse
     {
         $user = $request->user();
-        $storeIds = $user->stores()->pluck('id');
-
-        if ($gateway->store_id && !$storeIds->contains($gateway->store_id)) {
-            return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
-        }
+        $gateway = \App\Models\BusinessGateway::where('business_id', $user->business_id)->findOrFail($gateway);
 
         try {
             $result = $this->paystackService->usingGateway($gateway)->testConnection();

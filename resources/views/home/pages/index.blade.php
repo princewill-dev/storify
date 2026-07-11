@@ -69,73 +69,94 @@
             </div>
         </div>
 
-        {{-- Feature 1 --}}
-        <div class="row align-items-center g-5 mb-5 pb-5" style="border-bottom:1px solid var(--border);">
-            <div class="col-lg-6">
-                <span class="label mb-2 d-block">Online Storefront</span>
-                <h3 class="h2 mb-3" style="font-size:34px;">Your own store,<br>live in minutes</h3>
-                <p class="body-lg mb-4">Create a branded online store with your own subdomain. Add products, configure payments, start selling — zero code required.</p>
-                <div class="row g-3 mb-4">
-                    <div class="col-6"><span class="accent" style="font-weight:700;">&#10003;</span> <span class="body-md">Custom domain</span></div>
-                    <div class="col-6"><span class="accent" style="font-weight:700;">&#10003;</span> <span class="body-md">Mobile-optimized</span></div>
-                    <div class="col-6"><span class="accent" style="font-weight:700;">&#10003;</span> <span class="body-md">Product catalog</span></div>
-                    <div class="col-6"><span class="accent" style="font-weight:700;">&#10003;</span> <span class="body-md">SEO built-in</span></div>
-                </div>
-                <a href="{{ route('management.auth.register') }}" class="btn btn-primary">Create Your Store &rarr;</a>
+        {{-- Feature Tabs --}}
+        <div x-data="{ featTab: 'storefront' }">
+            <div class="d-flex justify-content-center gap-2 mb-5 flex-wrap">
+                <button @click="featTab = 'storefront'" :class="featTab === 'storefront' ? 'btn btn-primary' : 'btn btn-ghost'" class="btn btn-sm" style="padding:10px 22px;font-size:13px;transition:all .3s;">Online Storefront</button>
+                <button @click="featTab = 'inventory'" :class="featTab === 'inventory' ? 'btn btn-primary' : 'btn btn-ghost'" class="btn btn-sm" style="padding:10px 22px;font-size:13px;transition:all .3s;">Inventory</button>
+                <button @click="featTab = 'pos'" :class="featTab === 'pos' ? 'btn btn-primary' : 'btn btn-ghost'" class="btn btn-sm" style="padding:10px 22px;font-size:13px;transition:all .3s;">Point of Sale</button>
+                <button @click="featTab = 'payments'" :class="featTab === 'payments' ? 'btn btn-primary' : 'btn btn-ghost'" class="btn btn-sm" style="padding:10px 22px;font-size:13px;transition:all .3s;">Payments</button>
             </div>
-            <div class="col-lg-6"><div class="media-block"><span style="font-size:80px;position:relative;z-index:1;">&#127760;</span></div></div>
-        </div>
 
-        {{-- Feature 2 --}}
-        <div class="row align-items-center g-5 mb-5 pb-5" style="border-bottom:1px solid var(--border);">
-            <div class="col-lg-6 order-lg-2">
-                <span class="label mb-2 d-block">Inventory Management</span>
-                <h3 class="h2 mb-3" style="font-size:34px;">Real-time stock<br>across every location</h3>
-                <p class="body-lg mb-4">Track stock across multiple warehouses and stores. Automatic sync, low-stock alerts, and a full audit trail of every movement.</p>
-                <div class="row g-3 mb-4">
-                    <div class="col-6"><span class="accent" style="font-weight:700;">&#10003;</span> <span class="body-md">Multi-warehouse</span></div>
-                    <div class="col-6"><span class="accent" style="font-weight:700;">&#10003;</span> <span class="body-md">Auto-sync</span></div>
-                    <div class="col-6"><span class="accent" style="font-weight:700;">&#10003;</span> <span class="body-md">Low stock alerts</span></div>
-                    <div class="col-6"><span class="accent" style="font-weight:700;">&#10003;</span> <span class="body-md">Movement logs</span></div>
-                </div>
-                <a href="{{ route('management.auth.register') }}" class="btn btn-primary">Start Managing Inventory &rarr;</a>
-            </div>
-            <div class="col-lg-6 order-lg-1"><div class="media-block"><span style="font-size:80px;position:relative;z-index:1;">&#128230;</span></div></div>
-        </div>
+            <div style="display:grid;grid-template:'cell' 1fr/1fr;">
 
-        {{-- Feature 3 --}}
-        <div class="row align-items-center g-5 mb-5 pb-5" style="border-bottom:1px solid var(--border);">
-            <div class="col-lg-6">
-                <span class="label mb-2 d-block">Point of Sale</span>
-                <h3 class="h2 mb-3" style="font-size:34px;">Sell in-store. Online.<br>Same inventory.</h3>
-                <p class="body-lg mb-4">Process walk-in sales with our POS terminal. Cash, card, or transfer — inventory stays perfectly synced across all channels.</p>
-                <div class="row g-3 mb-4">
-                    <div class="col-6"><span class="accent" style="font-weight:700;">&#10003;</span> <span class="body-md">Multi-payment</span></div>
-                    <div class="col-6"><span class="accent" style="font-weight:700;">&#10003;</span> <span class="body-md">Session mgmt</span></div>
-                    <div class="col-6"><span class="accent" style="font-weight:700;">&#10003;</span> <span class="body-md">Inventory sync</span></div>
-                    <div class="col-6"><span class="accent" style="font-weight:700;">&#10003;</span> <span class="body-md">Digital receipts</span></div>
+            {{-- Storefront --}}
+            <div x-show="featTab === 'storefront'" style="grid-area:cell;">
+                <div class="row align-items-center g-5">
+                    <div class="col-lg-6">
+                        <span class="label mb-2 d-block">Online Storefront</span>
+                        <h3 class="h2 mb-3" style="font-size:34px;">Your own store,<br>live in minutes</h3>
+                        <p class="body-lg mb-4">Create a branded online store with your own subdomain. Add products, configure payments, start selling — zero code required.</p>
+                        <div class="row g-3 mb-4">
+                            <div class="col-6"><span class="accent" style="font-weight:700;">&#10003;</span> <span class="body-md">Custom domain</span></div>
+                            <div class="col-6"><span class="accent" style="font-weight:700;">&#10003;</span> <span class="body-md">Mobile-optimized</span></div>
+                            <div class="col-6"><span class="accent" style="font-weight:700;">&#10003;</span> <span class="body-md">Product catalog</span></div>
+                            <div class="col-6"><span class="accent" style="font-weight:700;">&#10003;</span> <span class="body-md">SEO built-in</span></div>
+                        </div>
+                        <a href="{{ route('management.auth.register') }}" class="btn btn-primary">Create Your Store &rarr;</a>
+                    </div>
+                    <div class="col-lg-6"><div class="media-block"><span style="font-size:80px;position:relative;z-index:1;">&#127760;</span></div></div>
                 </div>
-                <a href="{{ route('management.auth.register') }}" class="btn btn-primary">Try POS Terminal &rarr;</a>
             </div>
-            <div class="col-lg-6"><div class="media-block"><span style="font-size:80px;position:relative;z-index:1;">&#128179;</span></div></div>
-        </div>
 
-        {{-- Feature 4 --}}
-        <div class="row align-items-center g-5">
-            <div class="col-lg-6 order-lg-2">
-                <span class="label mb-2 d-block">Payments</span>
-                <h3 class="h2 mb-3" style="font-size:34px;">Accept payments<br>your way</h3>
-                <p class="body-lg mb-4">Paystack cards, bank transfers, cash — your customers pay how they want. Instant confirmation, automatic reconciliation.</p>
-                <div class="row g-3 mb-4">
-                    <div class="col-6"><span class="accent" style="font-weight:700;">&#10003;</span> <span class="body-md">Paystack cards</span></div>
-                    <div class="col-6"><span class="accent" style="font-weight:700;">&#10003;</span> <span class="body-md">Bank transfers</span></div>
-                    <div class="col-6"><span class="accent" style="font-weight:700;">&#10003;</span> <span class="body-md">Cash & POS</span></div>
-                    <div class="col-6"><span class="accent" style="font-weight:700;">&#10003;</span> <span class="body-md">Auto receipts</span></div>
+            {{-- Inventory --}}
+            <div x-show="featTab === 'inventory'" style="grid-area:cell;">
+                <div class="row align-items-center g-5">
+                    <div class="col-lg-6">
+                        <span class="label mb-2 d-block">Inventory Management</span>
+                        <h3 class="h2 mb-3" style="font-size:34px;">Real-time stock<br>across every location</h3>
+                        <p class="body-lg mb-4">Track stock across multiple warehouses and stores. Automatic sync, low-stock alerts, and a full audit trail of every movement.</p>
+                        <div class="row g-3 mb-4">
+                            <div class="col-6"><span class="accent" style="font-weight:700;">&#10003;</span> <span class="body-md">Multi-warehouse</span></div>
+                            <div class="col-6"><span class="accent" style="font-weight:700;">&#10003;</span> <span class="body-md">Auto-sync</span></div>
+                            <div class="col-6"><span class="accent" style="font-weight:700;">&#10003;</span> <span class="body-md">Low stock alerts</span></div>
+                            <div class="col-6"><span class="accent" style="font-weight:700;">&#10003;</span> <span class="body-md">Movement logs</span></div>
+                        </div>
+                        <a href="{{ route('management.auth.register') }}" class="btn btn-primary">Start Managing Inventory &rarr;</a>
+                    </div>
+                    <div class="col-lg-6"><div class="media-block"><span style="font-size:80px;position:relative;z-index:1;">&#128230;</span></div></div>
                 </div>
-                <a href="{{ route('management.auth.register') }}" class="btn btn-primary">Get Started &rarr;</a>
             </div>
-            <div class="col-lg-6 order-lg-1"><div class="media-block"><span style="font-size:80px;position:relative;z-index:1;">&#128176;</span></div></div>
-        </div>
+
+            {{-- POS --}}
+            <div x-show="featTab === 'pos'" style="grid-area:cell;">
+                <div class="row align-items-center g-5">
+                    <div class="col-lg-6">
+                        <span class="label mb-2 d-block">Point of Sale</span>
+                        <h3 class="h2 mb-3" style="font-size:34px;">Sell in-store. Online.<br>Same inventory.</h3>
+                        <p class="body-lg mb-4">Process walk-in sales with our POS terminal. Cash, card, or transfer — inventory stays perfectly synced across all channels.</p>
+                        <div class="row g-3 mb-4">
+                            <div class="col-6"><span class="accent" style="font-weight:700;">&#10003;</span> <span class="body-md">Multi-payment</span></div>
+                            <div class="col-6"><span class="accent" style="font-weight:700;">&#10003;</span> <span class="body-md">Session mgmt</span></div>
+                            <div class="col-6"><span class="accent" style="font-weight:700;">&#10003;</span> <span class="body-md">Inventory sync</span></div>
+                            <div class="col-6"><span class="accent" style="font-weight:700;">&#10003;</span> <span class="body-md">Digital receipts</span></div>
+                        </div>
+                        <a href="{{ route('management.auth.register') }}" class="btn btn-primary">Try POS Terminal &rarr;</a>
+                    </div>
+                    <div class="col-lg-6"><div class="media-block"><span style="font-size:80px;position:relative;z-index:1;">&#128179;</span></div></div>
+                </div>
+            </div>
+
+            {{-- Payments --}}
+            <div x-show="featTab === 'payments'" style="grid-area:cell;">
+                <div class="row align-items-center g-5">
+                    <div class="col-lg-6">
+                        <span class="label mb-2 d-block">Payments</span>
+                        <h3 class="h2 mb-3" style="font-size:34px;">Accept payments<br>your way</h3>
+                        <p class="body-lg mb-4">Paystack cards, bank transfers, cash — your customers pay how they want. Instant confirmation, automatic reconciliation.</p>
+                        <div class="row g-3 mb-4">
+                            <div class="col-6"><span class="accent" style="font-weight:700;">&#10003;</span> <span class="body-md">Paystack cards</span></div>
+                            <div class="col-6"><span class="accent" style="font-weight:700;">&#10003;</span> <span class="body-md">Bank transfers</span></div>
+                            <div class="col-6"><span class="accent" style="font-weight:700;">&#10003;</span> <span class="body-md">Cash & POS</span></div>
+                            <div class="col-6"><span class="accent" style="font-weight:700;">&#10003;</span> <span class="body-md">Auto receipts</span></div>
+                        </div>
+                        <a href="{{ route('management.auth.register') }}" class="btn btn-primary">Get Started &rarr;</a>
+                    </div>
+                    <div class="col-lg-6"><div class="media-block"><span style="font-size:80px;position:relative;z-index:1;">&#128176;</span></div></div>
+                </div>
+            </div>
+            </div>{{-- end grid --}}
+        </div>{{-- end x-data --}}
     </div>
 </section>
 

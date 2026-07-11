@@ -442,7 +442,7 @@ class PaystackService
     /**
      * Set dynamic keys from a business gateway configuration.
      */
-    public function usingGateway(\App\Models\StorePaymentGateway $gateway): self
+    public function usingGateway(\App\Models\StorePaymentGateway|\App\Models\BusinessGateway $gateway): self
     {
         $this->secretKey = $gateway->secret_key;
         $this->publicKey = $gateway->public_key;
