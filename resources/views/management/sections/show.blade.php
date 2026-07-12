@@ -100,7 +100,7 @@
 </x-management.data-table>
 
 @if($products->hasPages())
-<div class="mt-4">
+<div class="mt-4 px-5 py-3 bg-white rounded-xl shadow-sm border border-slate-200">
     {{ $products->links() }}
 </div>
 @endif

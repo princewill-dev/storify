@@ -323,6 +323,7 @@ class CheckoutController extends Controller
                         'last_name' => $validated['last_name'],
                         'email' => $validated['email'],
                         'phone' => $validated['phone'],
+                        'business_id' => $store->business_id,
                         'ip_address' => $request->ip(),
                         'password' => bcrypt(str()->random(16)), // Dummy password for technical requirement
                     ]);
@@ -520,6 +521,7 @@ class CheckoutController extends Controller
 
             Log::info('checkout_completed', [
                 'order_id' => $order->id,
+                'business_id' => $order->business_id,
                 'customer_id' => $customer->id,
                 'cart_id' => $cart->id
             ]);
@@ -527,6 +529,7 @@ class CheckoutController extends Controller
             // Emails are now sent after payment confirmation (see BankTransferController@confirmPayment)
             Log::info('checkout_completed_waiting_payment', [
                 'order_id' => $order->id,
+                'business_id' => $order->business_id,
                 'customer_id' => $customer->id
             ]);
 
@@ -593,6 +596,7 @@ class CheckoutController extends Controller
 
         Log::info('payment_method_selected', [
             'order_id' => $order->id,
+                'business_id' => $order->business_id,
             'payment_method' => $methodCode,
         ]);
 
@@ -611,6 +615,7 @@ class CheckoutController extends Controller
             } else {
                 $transaction = Transaction::create([
                     'order_id' => $order->id,
+                'business_id' => $order->business_id,
                     'payment_method_id' => null,
                     'amount' => $order->total,
                     'status' => 'pending',
@@ -632,6 +637,7 @@ class CheckoutController extends Controller
         } else {
             $transaction = Transaction::create([
                 'order_id' => $order->id,
+                'business_id' => $order->business_id,
                 'payment_method_id' => $paymentMethodId,
                 'amount' => $order->total,
                 'status' => 'pending',
@@ -701,6 +707,7 @@ class CheckoutController extends Controller
             if (!$result['success']) {
                 Log::warning('paystack.initialize_failed', [
                     'order_id' => $order->id,
+                'business_id' => $order->business_id,
                     'message' => $result['message'],
                 ]);
 
@@ -726,6 +733,7 @@ class CheckoutController extends Controller
             } else {
                 $transaction = Transaction::create([
                     'order_id' => $order->id,
+                'business_id' => $order->business_id,
                     'payment_method_id' => $paymentMethod->id,
                     'reference' => $reference,
                     'amount' => $order->total,
@@ -742,6 +750,7 @@ class CheckoutController extends Controller
                 'transaction_id' => $transaction->id,
                 'reference' => $reference,
                 'order_id' => $order->id,
+                'business_id' => $order->business_id,
             ]);
 
             // Redirect to Paystack payment page
@@ -750,6 +759,7 @@ class CheckoutController extends Controller
         } catch (\Throwable $e) {
             Log::error('paystack.initialize.error', [
                 'order_id' => $order->id,
+                'business_id' => $order->business_id,
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
             ]);
@@ -785,6 +795,7 @@ class CheckoutController extends Controller
 
         Log::info('payment_confirmed', [
             'order_id' => $order->id,
+                'business_id' => $order->business_id,
             'payment_status' => PaymentStatus::PAID->value
         ]);
 
@@ -1012,6 +1023,7 @@ class CheckoutController extends Controller
                 
                 OrderItem::create([
                     'order_id' => $order->id,
+                'business_id' => $order->business_id,
                     'product_id' => optional($product)->id ?? $cartItem->product_id,
                     'product_name' => optional($product)->name ?? $cartItem->name ?? 'Product',
                     'product_code' => optional($product)->product_code ?? null,
@@ -1048,6 +1060,7 @@ class CheckoutController extends Controller
             // Create transaction for 10% down payment
             $transaction = Transaction::create([
                 'order_id' => $order->id,
+                'business_id' => $order->business_id,
                 'customer_id' => $customer->id,
                 'amount' => $downPayment,
                 'status' => 'pending',
@@ -1071,6 +1084,7 @@ class CheckoutController extends Controller
             Log::info('live_first_order_created', [
                 'customer_id' => $customer->id,
                 'order_id' => $order->id,
+                'business_id' => $order->business_id,
                 'order_number' => $order->order_number,
                 'total_naira' => $total,
                 'down_payment_naira' => $downPayment,

@@ -19,7 +19,7 @@ class TransactionController extends Controller
     {
         $user = $request->user();
 
-        $query = Transaction::with(['order.customer', 'paymentMethod']);
+        $query = Transaction::with(['order.customer', 'order.store', 'paymentMethod']);
         $this->forBusiness($query, $user);
 
         if ($request->filled('reference')) {
@@ -30,13 +30,32 @@ class TransactionController extends Controller
             $query->where('status', $request->status);
         }
 
+        if ($request->filled('store_id')) {
+            $query->whereHas('order', fn($q) => $q->where('store_id', $request->store_id));
+        }
+
+        if ($request->filled('date_from')) {
+            $query->whereDate('created_at', '>=', $request->date_from);
+        }
+
+        if ($request->filled('date_to')) {
+            $query->whereDate('created_at', '<=', $request->date_to);
+        }
+
         $transactions = $query->latest()->paginate(15)->withQueryString();
+
+        // Get stores for the filter dropdown
+        $stores = $user->stores()->where('status', '!=', 'deleted')->orderBy('name')->get();
+
+        $activeFilters = $request->only(['reference', 'status', 'store_id', 'date_from', 'date_to']);
 
         $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Transactions']];
         return view('management.transactions.index', [
             'user' => $user,
             'transactions' => $transactions,
             'statusOptions' => TransactionStatus::cases(),
+            'stores' => $stores,
+            'activeFilters' => $activeFilters,
             'breadcrumbs' => $breadcrumbs,
         ]);
     }
@@ -114,18 +133,37 @@ class TransactionController extends Controller
             }
         });
 
-        // Send confirmation email to customer (queued)
+        // Send confirmation emails (queued)
         try {
             $customer = $transaction->order->customer;
             $store = $transaction->order->store;
-            
+
+            // Email to customer
             \Mail::to($customer->email)->queue(
                 new \App\Mail\PaymentConfirmedMail($transaction, $transaction->order, $customer, $store)
             );
-            
+
+            // Email to store owner / assigned user
+            $storeOwner = $store->user;
+            if ($storeOwner && $storeOwner->email && $storeOwner->email !== $customer->email) {
+                \Mail::to($storeOwner->email)->queue(
+                    new \App\Mail\PaymentConfirmedMail($transaction, $transaction->order, $storeOwner, $store)
+                );
+            }
+
+            // Email to platform admin
+            $adminEmail = config('mail.admin_email', env('ADMIN_EMAIL'));
+            if ($adminEmail && $adminEmail !== $customer->email && (!$storeOwner || $adminEmail !== $storeOwner->email)) {
+                \Mail::to($adminEmail)->queue(
+                    new \App\Mail\PaymentConfirmedMail($transaction, $transaction->order, null, $store)
+                );
+            }
+
             \Log::info('payment_confirmed_email_sent', [
                 'transaction_id' => $transaction->id,
                 'customer_email' => $customer->email,
+                'store_owner_email' => $storeOwner->email ?? null,
+                'admin_email' => $adminEmail ?? null,
             ]);
         } catch (\Exception $e) {
             \Log::error('payment_confirmed_email_failed', [
@@ -173,18 +211,37 @@ class TransactionController extends Controller
             'user_id' => $user->id,
         ]);
 
-        // Send rejection email to customer (queued)
+        // Send rejection emails (queued)
         try {
             $customer = $transaction->order->customer;
             $store = $transaction->order->store;
-            
+
+            // Email to customer
             \Mail::to($customer->email)->queue(
                 new \App\Mail\PaymentRejectedMail($transaction, $transaction->order, $customer, $store, $reason)
             );
-            
+
+            // Email to store owner / assigned user
+            $storeOwner = $store->user;
+            if ($storeOwner && $storeOwner->email && $storeOwner->email !== $customer->email) {
+                \Mail::to($storeOwner->email)->queue(
+                    new \App\Mail\PaymentRejectedMail($transaction, $transaction->order, $storeOwner, $store, $reason)
+                );
+            }
+
+            // Email to platform admin
+            $adminEmail = config('mail.admin_email', env('ADMIN_EMAIL'));
+            if ($adminEmail && $adminEmail !== $customer->email && (!$storeOwner || $adminEmail !== $storeOwner->email)) {
+                \Mail::to($adminEmail)->queue(
+                    new \App\Mail\PaymentRejectedMail($transaction, $transaction->order, null, $store, $reason)
+                );
+            }
+
             \Log::info('payment_rejected_email_sent', [
                 'transaction_id' => $transaction->id,
                 'customer_email' => $customer->email,
+                'store_owner_email' => $storeOwner->email ?? null,
+                'admin_email' => $adminEmail ?? null,
             ]);
         } catch (\Exception $e) {
             \Log::error('payment_rejected_email_failed', [

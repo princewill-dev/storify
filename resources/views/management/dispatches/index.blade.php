@@ -1,14 +1,14 @@
 @extends('management.layout')
-@section('subtitle', 'Orders')
+@section('subtitle', 'Dispatches')
 
 @section('content')
 <div x-data="{ filterModal: false }">
 
-<x-management.page-header :breadcrumbs="$breadcrumbs" title="Orders" subtitle="Manage customer orders and fulfillment">
+<x-management.page-header :breadcrumbs="$breadcrumbs" title="Dispatches" subtitle="Track deliveries across all stores">
     <x-slot:actions>
-        <form method="GET" action="{{ route('management.orders.index') }}" class="flex items-center gap-2">
+        <form method="GET" action="{{ route('management.dispatches.index') }}" class="flex items-center gap-2">
             <div class="flex items-center">
-                <input name="search" value="{{ request('search') }}" placeholder="Search orders..." class="block w-52 rounded-l-lg border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 border-r-0">
+                <input name="search" value="{{ request('search') }}" placeholder="Search driver or order..." class="block w-52 rounded-l-lg border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 border-r-0">
                 <button type="submit" class="inline-flex items-center rounded-r-lg bg-blue-600 px-3 py-2 text-white shadow-sm hover:bg-blue-700"><i class="fi fi-rr-search text-xs"></i></button>
             </div>
             @foreach(request()->except(['search', 'page']) as $k => $v)
@@ -19,8 +19,8 @@
                 @php $fc = count(array_filter($activeFilters ?? [], fn($v) => $v !== null && $v !== '')); @endphp
                 @if($fc > 0)<span class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-blue-600 text-[10px] font-bold text-white">{{ $fc }}</span>@endif
             </button>
-            @if(request()->hasAny(['search', 'status', 'store_id', 'source', 'date_from', 'date_to']))
-            <a href="{{ route('management.orders.index') }}" class="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-500 hover:text-slate-700">Clear</a>
+            @if(request()->hasAny(['search', 'status', 'store_id', 'date_from', 'date_to']))
+            <a href="{{ route('management.dispatches.index') }}" class="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-500 hover:text-slate-700">Clear</a>
             @endif
         </form>
     </x-slot:actions>
@@ -28,50 +28,68 @@
 
 {{-- Stats --}}
 <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
-    <x-management.metric-card :value="$stats['total']" label="Total Orders" icon="fi fi-rr-shopping-cart" />
+    <x-management.metric-card :value="$stats['total']" label="Total Dispatches" icon="fi fi-rr-truck-side" />
     <x-management.metric-card :value="$stats['pending']" label="Pending" icon="fi fi-rr-clock" />
-    <x-management.metric-card :value="$stats['dispatched']" label="Dispatched" icon="fi fi-rr-truck-side" />
-    <x-management.metric-card :value="$stats['delivered']" label="Delivered" icon="fi fi-rr-box-check" />
+    <x-management.metric-card :value="$stats['in_transit']" label="In Transit" icon="fi fi-rr-route" />
+    <x-management.metric-card :value="$stats['delivered_today']" label="Delivered Today" icon="fi fi-rr-box-check" />
 </div>
 
 <x-management.data-table>
     <x-slot:header>
         <th class="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Order</th>
-        <th class="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider hidden lg:table-cell">Customer</th>
         <th class="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider hidden sm:table-cell">Store</th>
-        <th class="px-5 py-3 text-center text-xs font-semibold text-slate-500 uppercase tracking-wider hidden sm:table-cell">Items</th>
-        <th class="px-5 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider">Total</th>
+        <th class="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider hidden md:table-cell">Driver</th>
+        <th class="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider hidden lg:table-cell">Tracking</th>
         <th class="px-5 py-3 text-center text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
-        <th class="px-5 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider hidden md:table-cell">Date</th>
+        <th class="px-5 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider hidden sm:table-cell">ETA</th>
+        <th class="px-5 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider hidden lg:table-cell">Date</th>
     </x-slot:header>
-    @forelse($orders ?? [] as $order)
+    @forelse($dispatches as $d)
     <tr class="hover:bg-slate-50 transition-colors">
         <td class="px-5 py-3">
-            <a href="{{ route('management.orders.show', $order) }}" class="text-sm font-medium text-blue-600 hover:text-blue-700">{{ $order->order_number }}</a>
-            @if($order->source === 'pos')<span class="inline-flex items-center ml-1.5 px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-50 text-purple-600">POS</span>@endif
+            @if($d->order)
+            <a href="{{ route('management.orders.show', $d->order) }}" class="text-sm font-medium text-blue-600 hover:text-blue-700">{{ $d->order->order_number }}</a>
+            @else <span class="text-sm text-slate-400">N/A</span> @endif
+        </td>
+        <td class="px-5 py-3 hidden sm:table-cell"><span class="text-xs text-slate-500">{{ $d->order?->store?->name ?? '—' }}</span></td>
+        <td class="px-5 py-3 hidden md:table-cell">
+            @if($d->driver_name)
+            <span class="text-sm text-slate-700">{{ $d->driver_name }}</span>
+            @if($d->driver_phone)<span class="block text-[11px] text-slate-400">{{ $d->driver_phone }}</span>@endif
+            @else <span class="text-xs text-slate-300">—</span> @endif
         </td>
         <td class="px-5 py-3 hidden lg:table-cell">
-            <span class="text-sm text-slate-700">{{ $order->customer?->first_name ? $order->customer->first_name . ' ' . $order->customer->last_name : ($order->meta['customer_name'] ?? 'Walk-in') }}</span>
-            @if($order->meta['customer_phone'] ?? false)<span class="block text-[11px] text-slate-400">{{ $order->meta['customer_phone'] }}</span>@endif
+            @if($d->tracking_number)<span class="text-xs font-mono text-slate-600">{{ $d->tracking_number }}</span>@else<span class="text-xs text-slate-300">—</span>@endif
         </td>
-        <td class="px-5 py-3 hidden sm:table-cell"><span class="text-xs text-slate-500">{{ $order->store?->name ?? '—' }}</span></td>
-        <td class="px-5 py-3 text-center hidden sm:table-cell"><span class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-slate-100 text-xs font-semibold text-slate-600">{{ $order->items->count() }}</span></td>
-        <td class="px-5 py-3 text-right">
-            <span class="text-sm font-semibold text-slate-800">₦{{ number_format($order->total, 2) }}</span>
-            @php $pm = $order->transactions->first()?->paymentMethod; @endphp
-            @if($pm)<span class="block text-[10px] text-slate-400 uppercase">{{ $pm->code === 'cash' ? 'Cash' : ($pm->code === 'bank_transfer' ? 'Transfer' : $pm->name) }}</span>@endif
+        <td class="px-5 py-3 text-center">
+            @php
+                $badgeColors = [
+                    'pending' => 'bg-slate-100 text-slate-700',
+                    'assigned' => 'bg-blue-50 text-blue-700',
+                    'picked_up' => 'bg-amber-50 text-amber-700',
+                    'in_transit' => 'bg-purple-50 text-purple-700',
+                    'out_for_delivery' => 'bg-indigo-50 text-indigo-700',
+                    'delivered' => 'bg-emerald-50 text-emerald-700',
+                    'failed' => 'bg-red-50 text-red-700',
+                    'returned' => 'bg-red-50 text-red-700',
+                ];
+                $color = $badgeColors[$d->status] ?? 'bg-slate-100 text-slate-700';
+            @endphp
+            <span class="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset {{ $color }} ring-slate-600/10">{{ ucfirst(str_replace('_', ' ', $d->status)) }}</span>
         </td>
-        <td class="px-5 py-3 text-center"><x-management.status-badge :status="$order->status" /></td>
-        <td class="px-5 py-3 text-right text-xs text-slate-400 hidden md:table-cell">{{ $order->created_at->format('d M Y') }}</td>
+        <td class="px-5 py-3 text-right hidden sm:table-cell">
+            @if($d->estimated_delivery_at)<span class="text-xs text-slate-600">{{ \Carbon\Carbon::parse($d->estimated_delivery_at)->format('d M') }}</span>@else<span class="text-xs text-slate-300">—</span>@endif
+        </td>
+        <td class="px-5 py-3 text-right hidden lg:table-cell"><span class="text-xs text-slate-400">{{ $d->created_at->format('d M Y') }}</span></td>
     </tr>
     @empty
-    <tr><td colspan="7" class="px-5 py-12"><x-management.empty-state icon="fi fi-rr-shopping-cart" title="No orders yet" description="Orders will appear here once customers start purchasing." /></td></tr>
+    <tr><td colspan="7" class="px-5 py-12"><x-management.empty-state icon="fi fi-rr-truck-side" title="No dispatches yet" description="Dispatches will appear once orders are sent out for delivery." /></td></tr>
     @endforelse
 </x-management.data-table>
 
-@if($orders->hasPages())
+@if($dispatches->hasPages())
 <div class="mt-4 px-5 py-3 bg-white rounded-xl shadow-sm border border-slate-200">
-    {{ $orders->links() }}
+    {{ $dispatches->links() }}
 </div>
 @endif
 
@@ -83,18 +101,23 @@
             <div class="bg-white px-6 py-5 border-b border-slate-200">
                 <div class="flex items-center gap-3">
                     <div class="flex-shrink-0 w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center"><i class="fi fi-rr-settings-sliders text-blue-600 text-lg"></i></div>
-                    <div><h3 class="text-lg font-semibold text-slate-900">Filter Orders</h3><p class="text-sm text-slate-500">Narrow down by status, store, or source.</p></div>
+                    <div><h3 class="text-lg font-semibold text-slate-900">Filter Dispatches</h3><p class="text-sm text-slate-500">Narrow down by status, store, or date.</p></div>
                 </div>
             </div>
-            <form method="GET" action="{{ route('management.orders.index') }}">
+            <form method="GET" action="{{ route('management.dispatches.index') }}">
                 <div class="bg-white px-6 py-4 space-y-4">
                     <div>
                         <label for="f-status" class="block text-xs font-medium text-slate-600 mb-1">Status</label>
                         <select id="f-status" name="status" class="block w-full rounded-lg border-slate-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-sm">
                             <option value="">All Statuses</option>
-                            @foreach($statusOptions as $opt)
-                            <option value="{{ $opt->value }}" {{ request('status') === $opt->value ? 'selected' : '' }}>{{ $opt->label() }}</option>
-                            @endforeach
+                            <option value="pending" {{ request('status') === 'pending' ? 'selected' : '' }}>Pending</option>
+                            <option value="assigned" {{ request('status') === 'assigned' ? 'selected' : '' }}>Assigned</option>
+                            <option value="picked_up" {{ request('status') === 'picked_up' ? 'selected' : '' }}>Picked Up</option>
+                            <option value="in_transit" {{ request('status') === 'in_transit' ? 'selected' : '' }}>In Transit</option>
+                            <option value="out_for_delivery" {{ request('status') === 'out_for_delivery' ? 'selected' : '' }}>Out for Delivery</option>
+                            <option value="delivered" {{ request('status') === 'delivered' ? 'selected' : '' }}>Delivered</option>
+                            <option value="failed" {{ request('status') === 'failed' ? 'selected' : '' }}>Failed</option>
+                            <option value="returned" {{ request('status') === 'returned' ? 'selected' : '' }}>Returned</option>
                         </select>
                     </div>
                     <div>
@@ -104,15 +127,6 @@
                             @foreach($stores as $store)
                             <option value="{{ $store->id }}" {{ request('store_id') == $store->id ? 'selected' : '' }}>{{ $store->name }}</option>
                             @endforeach
-                        </select>
-                    </div>
-                    <div>
-                        <label for="f-source" class="block text-xs font-medium text-slate-600 mb-1">Source</label>
-                        <select id="f-source" name="source" class="block w-full rounded-lg border-slate-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-sm">
-                            <option value="">All Sources</option>
-                            <option value="checkout" {{ request('source') === 'checkout' ? 'selected' : '' }}>Online Store</option>
-                            <option value="pos" {{ request('source') === 'pos' ? 'selected' : '' }}>POS</option>
-                            <option value="live_first" {{ request('source') === 'live_first' ? 'selected' : '' }}>Live First</option>
                         </select>
                     </div>
                     <div class="grid grid-cols-2 gap-3">
@@ -127,7 +141,7 @@
                     </div>
                 </div>
                 <div class="bg-slate-50 px-6 py-4 flex items-center justify-between border-t border-slate-200">
-                    <a href="{{ route('management.orders.index') }}" class="text-sm font-medium text-slate-500 hover:text-slate-700">Clear all</a>
+                    <a href="{{ route('management.dispatches.index') }}" class="text-sm font-medium text-slate-500 hover:text-slate-700">Clear all</a>
                     <div class="flex items-center gap-3">
                         <button type="button" @click="filterModal = false" class="inline-flex items-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50">Cancel</button>
                         <button type="submit" class="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700"><i class="fi fi-rr-search text-xs"></i> Apply</button>

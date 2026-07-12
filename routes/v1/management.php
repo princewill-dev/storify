@@ -10,6 +10,7 @@ use App\Http\Controllers\Management\CategoryController;
 use App\Http\Controllers\Management\StoreController;
 use App\Http\Controllers\Management\OrderController;
 use App\Http\Controllers\Management\CustomerController;
+use App\Http\Controllers\Management\DispatchesController;
 use App\Http\Controllers\Management\TransactionController;
 use App\Http\Controllers\Management\SubscriptionController;
 use App\Http\Controllers\Management\ServiceController;
@@ -217,9 +218,21 @@ Route::prefix('management')->name('management.')->group(function () {
             Route::middleware('permission:orders status_update')->group(function () {
                 Route::patch('/orders/{order}/status', [OrderController::class, 'updateStatus'])->name('orders.update-status');
                 Route::patch('/orders/{order}/payment', [OrderController::class, 'updatePaymentStatus'])->name('orders.update-payment-status');
+                Route::post('/orders/{order}/accept', [OrderController::class, 'acceptOrder'])->name('orders.accept');
+                Route::post('/orders/{order}/process', [OrderController::class, 'processOrder'])->name('orders.process');
+                Route::post('/orders/{order}/dispatch', [OrderController::class, 'dispatchOrder'])->name('orders.dispatch');
+                Route::post('/orders/{order}/deliver', [OrderController::class, 'deliverOrder'])->name('orders.deliver');
+                Route::post('/orders/{order}/complete', [OrderController::class, 'completeOrder'])->name('orders.complete');
+                Route::post('/orders/{order}/cancel', [OrderController::class, 'cancelOrder'])->name('orders.cancel');
+                Route::post('/orders/{order}/return', [OrderController::class, 'returnOrder'])->name('orders.return');
             });
             Route::middleware('permission:orders delete')->group(function () {
                 Route::delete('/orders/{order}', [OrderController::class, 'destroy'])->name('orders.destroy');
+            });
+
+            // Dispatches
+            Route::middleware('permission:orders view')->group(function () {
+                Route::get('/dispatches', [DispatchesController::class, 'index'])->name('dispatches.index');
             });
 
             // Customers

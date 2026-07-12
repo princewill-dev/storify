@@ -19,18 +19,18 @@ class PaymentRejectedMail extends Mailable implements ShouldQueue
 
     public Transaction $transaction;
     public Order $order;
-    public Customer $customer;
+    public $recipient;
     public Store $store;
     public ?string $reason;
 
     /**
      * Create a new message instance.
      */
-    public function __construct(Transaction $transaction, Order $order, Customer $customer, Store $store, ?string $reason = null)
+    public function __construct(Transaction $transaction, Order $order, $recipient, Store $store, ?string $reason = null)
     {
         $this->transaction = $transaction;
         $this->order = $order;
-        $this->customer = $customer;
+        $this->recipient = $recipient;
         $this->store = $store;
         $this->reason = $reason;
     }
@@ -55,7 +55,7 @@ class PaymentRejectedMail extends Mailable implements ShouldQueue
             with: [
                 'transaction' => $this->transaction,
                 'order' => $this->order,
-                'customer' => $this->customer,
+                'recipient' => $this->recipient,
                 'store' => $this->store,
                 'reason' => $this->reason,
             ],

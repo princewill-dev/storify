@@ -55,16 +55,22 @@ class CustomerController extends Controller
             });
         }
 
+        if ($request->filled('store_id')) {
+            $query->whereHas('orders', fn($q) => $q->where('store_id', $request->store_id));
+        }
+
         $customers = $query->latest('created_at')->paginate(20)->withQueryString();
 
         $baseCustomers = Customer::query()
+            ->where('business_id', $user->business_id)
             ->whereHas('orders', fn($q) => $q->where('user_id', $user->id));
+        $this->forBusiness($baseCustomers, $user);
 
         $stats = [
             'total' => (clone $baseCustomers)->count(),
             'active' => (clone $baseCustomers)->where('status', Customer::STATUS_ACTIVE)->count(),
             'suspended' => (clone $baseCustomers)->where('status', Customer::STATUS_SUSPENDED)->count(),
-            'total_orders' => Order::where('user_id', $user->id)->count(),
+            'total_orders' => Order::where('user_id', $user->id)->where('business_id', $user->business_id)->count(),
         ];
 
         $countries = DB::table('delivery_addresses as da')
@@ -77,8 +83,12 @@ class CustomerController extends Controller
             ->orderBy('dr.country')
             ->pluck('dr.country');
 
+        $stores = $user->stores()->where('status', '!=', 'deleted')->orderBy('name')->get();
+
+        $activeFilters = $request->only(['search', 'status', 'country', 'store_id']);
+
         $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Customers']];
-        return view('management.customers.index', compact('customers', 'stats', 'countries', 'breadcrumbs'));
+        return view('management.customers.index', compact('customers', 'stats', 'countries', 'stores', 'activeFilters', 'breadcrumbs'));
     }
 
     public function show(Request $request, Customer $customer): View|RedirectResponse

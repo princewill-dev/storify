@@ -18,6 +18,7 @@ enum TransactionStatus: string
             self::PAID => 'Paid',
             self::CONFIRMED => 'Confirmed',
             self::REFUNDED => 'Refunded',
+            self::REFUND_PENDING => 'Refund Pending',
             self::CANCELED => 'Canceled',
         };
     }
@@ -29,6 +30,7 @@ enum TransactionStatus: string
             self::PAID => 'badge-success light',
             self::CONFIRMED => 'badge-success light',
             self::REFUNDED => 'badge-info light',
+            self::REFUND_PENDING => 'badge-warning light',
             self::CANCELED => 'badge-danger light',
         };
     }

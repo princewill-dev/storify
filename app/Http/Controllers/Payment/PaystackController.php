@@ -97,6 +97,7 @@ class PaystackController extends Controller
 
             $transaction = Transaction::create([
                 'order_id' => $order->id,
+                'business_id' => $order->business_id,
                 'payment_method_id' => $paymentMethod?->id,
                 'reference' => $reference,
                 'amount' => $order->total,

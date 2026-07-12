@@ -195,6 +195,24 @@ if (request()->routeIs('management.stores.*') || request()->routeIs('management.
         </a>
         @endcan
 
+        {{-- Orders --}}
+        @can('orders view')
+        <a href="{{ route('management.orders.index') }}"
+           class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('management.orders.*') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
+            <i class="fi fi-rr-shopping-cart text-base w-5 text-center"></i>
+            <span>Orders</span>
+        </a>
+        @endcan
+
+        {{-- Dispatches --}}
+        @can('orders view')
+        <a href="{{ route('management.dispatches.index') }}"
+           class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('management.dispatches.*') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
+            <i class="fi fi-rr-truck-side text-base w-5 text-center"></i>
+            <span>Dispatches</span>
+        </a>
+        @endcan
+
         {{-- Inventory --}}
         @can('transfers view')
         <div class="pt-3 mt-1 border-t border-slate-800">

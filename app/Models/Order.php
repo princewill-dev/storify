@@ -133,6 +133,11 @@ class Order extends Model
         return $this->belongsTo(DeliveryRoute::class);
     }
 
+    public function delivery(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(\App\Models\OrderDelivery::class);
+    }
+
     public function staff(): BelongsTo
     {
         return $this->belongsTo(User::class, 'staff_id');
