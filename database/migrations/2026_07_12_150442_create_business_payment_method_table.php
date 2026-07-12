@@ -19,17 +19,18 @@ return new class extends Migration
             $table->unique(['business_id', 'payment_method_id']);
         });
 
-        // Migrate existing BusinessGateway records
-        $gateways = DB::table('business_gateways')->where('gateway', 'paystack')->get();
+        // Migrate existing BusinessGateway records — only if old table still exists
         $paystackId = DB::table('payment_methods')->where('code', 'paystack')->value('id');
-        foreach ($gateways as $gw) {
-            DB::table('business_payment_method')->insertOrIgnore([
-                'business_id' => $gw->business_id,
-                'payment_method_id' => $paystackId,
-                'is_active' => $gw->is_active,
-                'config' => json_encode(['public_key' => $gw->public_key, 'secret_key' => $gw->secret_key]),
-                'created_at' => now(), 'updated_at' => now(),
-            ]);
+        if (Schema::hasTable('business_gateways')) {
+            $gateways = DB::table('business_gateways')->where('gateway', 'paystack')->get();
+            foreach ($gateways as $gw) {
+                DB::table('business_payment_method')->insertOrIgnore([
+                    'business_id' => $gw->business_id, 'payment_method_id' => $paystackId,
+                    'is_active' => $gw->is_active,
+                    'config' => json_encode(['public_key' => $gw->public_key, 'secret_key' => $gw->secret_key]),
+                    'created_at' => now(), 'updated_at' => now(),
+                ]);
+            }
         }
     }
 

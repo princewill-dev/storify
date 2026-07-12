@@ -18,28 +18,27 @@ return new class extends Migration
             $table->unique(['store_id', 'payment_method_id']);
         });
 
-        // Migrate existing StorePaymentGateway records (Paystack)
+        // Migrate existing StorePaymentGateway records (Paystack) — only if old table still exists
         $paystackId = DB::table('payment_methods')->where('code', 'paystack')->value('id');
-        $storeGateways = DB::table('store_payment_gateways')->where('gateway', 'paystack')->where('is_active', true)->get();
-        foreach ($storeGateways as $sg) {
-            DB::table('store_payment_method')->insertOrIgnore([
-                'store_id' => $sg->store_id,
-                'payment_method_id' => $paystackId,
-                'is_active' => true,
-                'created_at' => now(), 'updated_at' => now(),
-            ]);
+        if (Schema::hasTable('store_payment_gateways')) {
+            $storeGateways = DB::table('store_payment_gateways')->where('gateway', 'paystack')->where('is_active', true)->get();
+            foreach ($storeGateways as $sg) {
+                DB::table('store_payment_method')->insertOrIgnore([
+                    'store_id' => $sg->store_id, 'payment_method_id' => $paystackId,
+                    'is_active' => true, 'created_at' => now(), 'updated_at' => now(),
+                ]);
+            }
         }
 
-        // Migrate store_bank pivot (Bank Transfer)
+        // Migrate store_bank pivot (Bank Transfer) — only if that table still exists
         $bankTransferId = DB::table('payment_methods')->where('code', 'bank_transfer')->value('id');
-        $pivots = DB::table('store_bank')->get();
-        foreach ($pivots as $p) {
-            DB::table('store_payment_method')->insertOrIgnore([
-                'store_id' => $p->store_id,
-                'payment_method_id' => $bankTransferId,
-                'is_active' => true,
-                'created_at' => now(), 'updated_at' => now(),
-            ]);
+        if (Schema::hasTable('store_bank')) {
+            foreach (DB::table('store_bank')->get() as $p) {
+                DB::table('store_payment_method')->insertOrIgnore([
+                    'store_id' => $p->store_id, 'payment_method_id' => $bankTransferId,
+                    'is_active' => true, 'created_at' => now(), 'updated_at' => now(),
+                ]);
+            }
         }
     }
 
