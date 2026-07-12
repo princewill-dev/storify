@@ -11,6 +11,7 @@ use App\Models\Store;
 use App\Models\Transaction;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
 
 class PosController extends Controller

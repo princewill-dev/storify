@@ -7,7 +7,7 @@
             <a href="#pricing">Pricing</a>
             <a href="{{ route('home.about') }}">About</a>
             <a href="{{ route('management.auth.login') }}">Login</a>
-            <a href="{{ route('management.auth.register') }}" class="nav-cta">Get Started</a>
+            <a href="{{ route('management.auth.register') }}" class="nav-cta text-dark">Get Started</a>
         </div>
         <button class="nav-toggle" id="navToggle" aria-label="Menu">&#9776;</button>
     </div>
@@ -17,6 +17,6 @@
         <a href="#pricing">Pricing</a>
         <a href="{{ route('home.about') }}">About</a>
         <a href="{{ route('management.auth.login') }}">Login</a>
-        <a href="{{ route('management.auth.register') }}" class="nav-cta">Get Started</a>
+        <a href="{{ route('management.auth.register') }}" class="nav-cta text-dark">Get Started</a>
     </div>
 </div>

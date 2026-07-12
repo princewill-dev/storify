@@ -104,7 +104,7 @@ class Store extends Model
 
     public function banks(): HasMany
     {
-        return $this->hasMany(StoreBank::class);
+        return $this->hasMany(StoreBank::class, 'business_id', 'business_id');
     }
 
     public function paymentMethods(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
@@ -115,7 +115,7 @@ class Store extends Model
 
     public function primaryBank()
     {
-        return $this->hasOne(StoreBank::class)->where('is_primary', true);
+        return $this->hasOne(StoreBank::class, 'business_id', 'business_id')->where('is_primary', true);
     }
 
     public function deliveryRoutes(): HasMany

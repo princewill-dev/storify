@@ -95,7 +95,9 @@
                         </div>
                         <a href="{{ route('management.auth.register') }}" class="btn btn-primary">Create Your Store &rarr;</a>
                     </div>
-                    <div class="col-lg-6"><div class="media-block"><span style="font-size:80px;position:relative;z-index:1;">&#127760;</span></div></div>
+                    <div class="col-lg-6"><div class="media-block">
+                        <img src="{{ asset('home/images/sample-storefront-01.png') }}" alt="Storefront preview" style="width:100%;max-width:600px;border-radius:12px;position:relative;z-index:1;">
+                    </div></div>
                 </div>
             </div>
 
@@ -114,7 +116,9 @@
                         </div>
                         <a href="{{ route('management.auth.register') }}" class="btn btn-primary">Start Managing Inventory &rarr;</a>
                     </div>
-                    <div class="col-lg-6"><div class="media-block"><span style="font-size:80px;position:relative;z-index:1;">&#128230;</span></div></div>
+                    <div class="col-lg-6"><div class="media-block">
+                        <img src="{{ asset('home/images/sample-inventory.01.png') }}" alt="Inventory preview" style="width:100%;max-width:600px;border-radius:12px;position:relative;z-index:1;">
+                    </div></div>
                 </div>
             </div>
 
@@ -133,7 +137,9 @@
                         </div>
                         <a href="{{ route('management.auth.register') }}" class="btn btn-primary">Try POS Terminal &rarr;</a>
                     </div>
-                    <div class="col-lg-6"><div class="media-block"><span style="font-size:80px;position:relative;z-index:1;">&#128179;</span></div></div>
+                    <div class="col-lg-6"><div class="media-block">
+                        <img src="{{ asset('home/images/sample-pos-01.png') }}" alt="POS preview" style="width:100%;max-width:600px;border-radius:12px;position:relative;z-index:1;">
+                    </div></div>
                 </div>
             </div>
 
@@ -152,7 +158,9 @@
                         </div>
                         <a href="{{ route('management.auth.register') }}" class="btn btn-primary">Get Started &rarr;</a>
                     </div>
-                    <div class="col-lg-6"><div class="media-block"><span style="font-size:80px;position:relative;z-index:1;">&#128176;</span></div></div>
+                    <div class="col-lg-6"><div class="media-block">
+                        <img src="{{ asset('home/images/sample-payments.png') }}" alt="Payments preview" style="width:100%;max-width:600px;border-radius:12px;position:relative;z-index:1;">
+                    </div></div>
                 </div>
             </div>
             </div>{{-- end grid --}}
@@ -178,7 +186,7 @@
             ]; @endphp
             @foreach($steps as $s)
             <div class="col-md-4 text-center">
-                <div class="step-num">{{ $s[0] }}</div>
+                <div class="step-num text-white">{{ $s[0] }}</div>
                 <h3 class="h3 mb-2">{{ $s[1] }}</h3>
                 <p class="body-md mb-0">{{ $s[2] }}</p>
             </div>
@@ -228,7 +236,7 @@
 
 {{-- ═══ STORES ═══ --}}
 @if(isset($stores) && $stores->isNotEmpty())
-<section class="sec sec-alt">
+<section class="sec sec-alt" style="display: none;">
     <div class="container">
         <div class="row justify-content-center text-center mb-5">
             <div class="col-lg-7">
@@ -285,7 +293,7 @@
 @endif
 
 {{-- ═══ FAQ ═══ --}}
-<section class="sec sec-alt">
+<section class="sec sec-alt" style="display: none;">
     <div class="container">
         <div class="row justify-content-center">
             <div class="col-lg-8">
