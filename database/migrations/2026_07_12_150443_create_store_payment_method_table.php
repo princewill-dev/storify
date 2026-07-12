@@ -9,6 +9,10 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (Schema::hasTable('store_payment_method')) {
+            // Table already created in previous partial run — just mark as migrated
+            return;
+        }
         Schema::create('store_payment_method', function (Blueprint $table) {
             $table->id();
             $table->foreignId('store_id')->constrained('stores')->cascadeOnDelete();
