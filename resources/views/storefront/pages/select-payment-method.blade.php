@@ -65,21 +65,13 @@
                                 @csrf
 
                                 <h6 class="mb-3">Available Payment Methods</h6>
-                                
+
                                 @forelse($paymentMethods as $method)
-                                <div class="card mb-3 payment-method-card" style="cursor: pointer;" data-payment-id="{{ $method->id }}">
+                                <div class="card mb-3 payment-method-card" style="cursor: pointer;">
                                     <div class="card-body">
                                         <div class="form-check">
-                                            <input 
-                                                class="form-check-input payment-radio" 
-                                                type="radio" 
-                                                name="payment_method_id" 
-                                                id="payment_{{ $method->id }}" 
-                                                value="{{ $method->id }}" 
-                                                {{ $loop->first ? 'checked' : '' }}
-                                                required
-                                            >
-                                            <label class="form-check-label w-100" for="payment_{{ $method->id }}" style="cursor: pointer;">
+                                            <input class="form-check-input payment-radio" type="radio" name="payment_method" id="payment_{{ $method->code }}" value="{{ $method->code }}" {{ $loop->first ? 'checked' : '' }} required>
+                                            <label class="form-check-label w-100" for="payment_{{ $method->code }}" style="cursor: pointer;">
                                                 <div class="d-flex justify-content-between align-items-center">
                                                     <div>
                                                         <h6 class="mb-1">{{ $method->name }}</h6>
@@ -87,14 +79,10 @@
                                                         <p class="text-muted mb-0 small">{{ $method->description }}</p>
                                                         @endif
                                                     </div>
-                                                    @if($method->code === 'bank_transfer')
-                                                    <i class="fa fa-university fa-2x text-primary"></i>
-                                                    @elseif($method->code === 'cod')
-                                                    <i class="fa fa-money-bill-wave fa-2x text-success"></i>
-                                                    @elseif($method->code === 'paystack')
+                                                    @if($method->type === 'gateway')
                                                     <i class="fa fa-credit-card fa-2x text-info"></i>
                                                     @else
-                                                    <i class="fa fa-wallet fa-2x text-secondary"></i>
+                                                    <i class="fa fa-university fa-2x text-primary"></i>
                                                     @endif
                                                 </div>
                                             </label>
@@ -102,8 +90,10 @@
                                     </div>
                                 </div>
                                 @empty
-                                <div class="alert alert-warning">
-                                    No payment methods available. Please contact support.
+                                <div class="alert alert-warning text-center py-4">
+                                    <i class="fa fa-credit-card fa-3x text-muted mb-3 d-block"></i>
+                                    <h5 class="mb-2">No payment methods available</h5>
+                                    <p class="mb-0 text-muted">This store hasn't set up any payment methods yet. Please contact the store owner or try again later.</p>
                                 </div>
                                 @endforelse
 

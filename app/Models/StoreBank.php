@@ -11,14 +11,7 @@ class StoreBank extends Model
     use BelongsToBusiness;
 
     protected $fillable = [
-        'store_id',
-        'business_id',
-        'bank_name',
-        'bank_code',
-        'account_number',
-        'account_name',
-        'is_primary',
-        'is_verified',
+        'business_id', 'bank_name', 'bank_code', 'account_number', 'account_name', 'is_primary', 'is_verified',
     ];
 
     protected $casts = [
@@ -26,13 +19,7 @@ class StoreBank extends Model
         'is_verified' => 'boolean',
     ];
 
-    /**
-     * Get the store that owns this bank account.
-     */
-    public function store(): BelongsTo
-    {
-        return $this->belongsTo(Store::class);
-    }
+    public function business(): BelongsTo { return $this->belongsTo(Business::class); }
 
     /**
      * Mask the account number for display.

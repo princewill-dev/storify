@@ -15,7 +15,7 @@ class StockLedgerService
         StockLocation $location,
         int $qty,
         Model $reference,
-        User $performedBy,
+        ?User $performedBy = null,
         ?string $notes = null
     ): StockMovement {
         return DB::transaction(function () use ($location, $qty, $reference, $performedBy, $notes) {
@@ -38,8 +38,8 @@ class StockLedgerService
                 'type' => StockMovementType::ADDED->value,
                 'reference_type' => get_class($reference),
                 'reference_id' => $reference->id,
-                'performed_by_type' => User::class,
-                'performed_by_id' => $performedBy->id,
+                'performed_by_type' => $performedBy ? User::class : null,
+                'performed_by_id' => $performedBy?->id,
                 'idempotency_key' => $this->idempotencyKey($reference, $location, 'added'),
                 'notes' => $notes,
             ]);
@@ -50,7 +50,7 @@ class StockLedgerService
         StockLocation $location,
         int $qty,
         Model $reference,
-        User $performedBy,
+        ?User $performedBy = null,
         ?string $notes = null
     ): StockMovement {
         return DB::transaction(function () use ($location, $qty, $reference, $performedBy, $notes) {
@@ -73,8 +73,8 @@ class StockLedgerService
                 'type' => StockMovementType::REMOVED->value,
                 'reference_type' => get_class($reference),
                 'reference_id' => $reference->id,
-                'performed_by_type' => User::class,
-                'performed_by_id' => $performedBy->id,
+                'performed_by_type' => $performedBy ? User::class : null,
+                'performed_by_id' => $performedBy?->id,
                 'idempotency_key' => $this->idempotencyKey($reference, $location, 'removed'),
                 'notes' => $notes,
             ]);

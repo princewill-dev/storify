@@ -5,7 +5,6 @@ namespace App\Http\Controllers\Management;
 use App\Http\Controllers\Controller;
 use App\Models\Store;
 use App\Models\StoreBank;
-use App\Models\StorePaymentGateway;
 use App\Services\PaystackService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -26,9 +25,35 @@ class PaymentSettingsController extends Controller
     {
         $user = $request->user();
 
+        // Business-level payment methods (from business_payment_method pivot)
+        $methods = \App\Models\PaymentMethod::whereHas('businesses', fn($q) => $q->where('business_id', $user->business_id))
+            ->with(['businesses' => fn($q) => $q->where('business_id', $user->business_id)])
+            ->get();
+
+        // Count assigned stores per method
+        foreach ($methods as $m) {
+            $m->assigned_count = $m->stores()
+                ->whereIn('id', $user->stores()->pluck('id'))
+                ->wherePivot('is_active', true)->count();
+        }
+
+        // Unconfigured methods (available but not yet set up for this business)
+        $availableMethods = \App\Models\PaymentMethod::active()
+            ->whereDoesntHave('businesses', fn($q) => $q->where('business_id', $user->business_id))
+            ->get();
+
+        // Banks list for the add bank modal
+        try {
+            $banks = $this->paystackService->getBanks()['data'] ?? [];
+        } catch (\Throwable $e) {
+            $banks = [];
+        }
+
+        $stores = $user->stores()->where('status', '!=', 'deleted')->orderBy('name')->get();
+
         $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Payment Settings']];
 
-        return view('management.payment-settings.index', compact('user', 'breadcrumbs'));
+        return view('management.payment-settings.index', compact('user', 'methods', 'availableMethods', 'banks', 'stores', 'breadcrumbs'));
     }
 
     public function storeBankAccount(Request $request): RedirectResponse
@@ -125,91 +150,144 @@ class PaymentSettingsController extends Controller
             ->with('success', 'Bank account deleted successfully.');
     }
 
+    private function paystackPivotId(): int { return \App\Models\PaymentMethod::where('code', 'paystack')->value('id'); }
+
     public function storePaystackKeys(Request $request): RedirectResponse
     {
         $user = $request->user();
+        $validated = $request->validate(['public_key' => 'required|string|max:255', 'secret_key' => 'required|string|max:255']);
+        $pid = $this->paystackPivotId();
 
-        $validated = $request->validate([
-            'public_key' => 'required|string|max:255',
-            'secret_key' => 'required|string|max:255',
-        ]);
-
-        // Business-level gateway
-        $existing = \App\Models\BusinessGateway::where('business_id', $user->business_id)
-            ->where('gateway', 'paystack')->first();
-
-        if ($existing) {
-            return redirect()->route('management.payment-settings.index')
-                ->with('error', 'Paystack is already connected for your business. Edit the existing keys instead.');
+        $exists = DB::table('business_payment_method')->where('business_id', $user->business_id)->where('payment_method_id', $pid)->exists();
+        if ($exists) {
+            return redirect()->route('management.payment-settings.index')->with('error', 'Paystack is already connected. Edit the existing keys instead.');
         }
 
-        \App\Models\BusinessGateway::create([
-            'business_id' => $user->business_id,
-            'gateway' => 'paystack',
-            'public_key' => $validated['public_key'],
-            'secret_key' => $validated['secret_key'],
-            'is_active' => true,
+        DB::table('business_payment_method')->insert([
+            'business_id' => $user->business_id, 'payment_method_id' => $pid,
+            'is_active' => true, 'config' => json_encode(['public_key' => $validated['public_key'], 'secret_key' => $validated['secret_key']]),
+            'created_at' => now(), 'updated_at' => now(),
         ]);
 
         Log::info('payment-settings.business_paystack_added', ['user_id' => $user->id]);
-
-        return redirect()->route('management.payment-settings.index')
-            ->with('success', 'Paystack connected for your business.');
+        return redirect()->route('management.payment-settings.index')->with('success', 'Paystack connected.');
     }
 
-    public function updatePaystackKeys(Request $request, $gateway): RedirectResponse
+    public function updatePaystackKeys(Request $request, $id): RedirectResponse
     {
         $user = $request->user();
-        $gateway = \App\Models\BusinessGateway::where('business_id', $user->business_id)->findOrFail($gateway);
-        $storeIds = $user->stores()->pluck('id');
-
-        $validated = $request->validate([
-            'public_key' => 'required|string|max:255',
-            'secret_key' => 'required|string|max:255',
+        $validated = $request->validate(['public_key' => 'required|string|max:255', 'secret_key' => 'required|string|max:255']);
+        DB::table('business_payment_method')->where('id', $id)->where('business_id', $user->business_id)->update([
+            'config' => json_encode(['public_key' => $validated['public_key'], 'secret_key' => $validated['secret_key']]),
+            'updated_at' => now(),
         ]);
-
-        $gateway->update([
-            'public_key' => $validated['public_key'],
-            'secret_key' => $validated['secret_key'],
-        ]);
-
-        return redirect()->route('management.payment-settings.index')
-            ->with('success', 'Paystack keys updated successfully.');
+        return redirect()->route('management.payment-settings.index')->with('success', 'Paystack keys updated.');
     }
 
-    public function destroyPaystackKeys(Request $request, $gateway): RedirectResponse
+    public function destroyPaystackKeys(Request $request, $id): RedirectResponse
     {
         $user = $request->user();
-        $gateway = \App\Models\BusinessGateway::where('business_id', $user->business_id)->findOrFail($gateway);
-
-        $gateway->delete();
-
-        return redirect()->route('management.payment-settings.index')
-            ->with('success', 'Paystack keys removed.');
+        DB::table('business_payment_method')->where('id', $id)->where('business_id', $user->business_id)->delete();
+        return redirect()->route('management.payment-settings.index')->with('success', 'Paystack removed.');
     }
 
-    public function togglePaystackKeys(Request $request, $gateway): RedirectResponse
+    public function togglePaystackKeys(Request $request, $id): RedirectResponse
     {
         $user = $request->user();
-        $gateway = \App\Models\BusinessGateway::where('business_id', $user->business_id)->findOrFail($gateway);
-
-        $gateway->update(['is_active' => !$gateway->is_active]);
-
-        return redirect()->route('management.payment-settings.index')
-            ->with('success', 'Paystack ' . ($gateway->is_active ? 'enabled' : 'disabled') . '.');
+        $row = DB::table('business_payment_method')->where('id', $id)->where('business_id', $user->business_id)->first();
+        DB::table('business_payment_method')->where('id', $id)->update(['is_active' => !$row->is_active, 'updated_at' => now()]);
+        return redirect()->route('management.payment-settings.index')->with('success', 'Paystack ' . (!$row->is_active ? 'enabled' : 'disabled') . '.');
     }
 
-    public function testGateway(Request $request, $gateway): JsonResponse
+    public function testGateway(Request $request, $id): JsonResponse
     {
         $user = $request->user();
-        $gateway = \App\Models\BusinessGateway::where('business_id', $user->business_id)->findOrFail($gateway);
-
+        $row = DB::table('business_payment_method')->where('id', $id)->where('business_id', $user->business_id)->firstOrFail();
+        $config = json_decode($row->config, true);
+        $gw = new \App\Models\BusinessGateway(['public_key' => $config['public_key'] ?? '', 'secret_key' => $config['secret_key'] ?? '']);
         try {
-            $result = $this->paystackService->usingGateway($gateway)->testConnection();
+            $result = $this->paystackService->usingGateway($gw)->testConnection();
             return response()->json($result);
         } catch (\Throwable $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage()]);
         }
+    }
+
+    public function methodInfo(Request $request, $type, $id): View
+    {
+        $user = $request->user();
+
+        $gateway = null;
+        $bank = null;
+
+        if ($type === 'gateway') {
+            $gateway = DB::table('business_payment_method')->where('id', $id)->where('business_id', $user->business_id)->firstOrFail();
+        } elseif ($type === 'bank') {
+            $bank = StoreBank::where(function ($q) use ($user) {
+                $q->whereHas('store', fn($sq) => $sq->where('user_id', $user->id))
+                  ->orWhereNull('store_id');
+            })->with('store')->findOrFail($id);
+        } else {
+            abort(404);
+        }
+
+        if ($gateway) {
+            $gConfig = json_decode($gateway->config, true);
+            $typeLabel = 'Gateway — Paystack';
+            $name = 'Paystack (' . (isset($gConfig['public_key']) ? substr($gConfig['public_key'], 0, 7) . '****' . substr($gConfig['public_key'], -4) : 'N/A') . ')';
+            $gateway->is_active = (bool) $gateway->is_active;
+            $gateway->masked_public_key = $name;
+            // Only stores that have this gateway active
+            $pid = $this->paystackPivotId();
+            $assignedStores = $user->stores()->where('status', '!=', 'deleted')
+                ->whereHas('paymentMethods', fn($q) => $q->where('payment_method_id', $pid)->wherePivot('is_active', true))
+                ->orderBy('name')->get();
+            $availableStores = $user->stores()->where('status', '!=', 'deleted')
+                ->whereDoesntHave('paymentMethods', fn($q) => $q->where('payment_method_id', $pid)->wherePivot('is_active', true))
+                ->orderBy('name')->get();
+        } elseif ($bank) {
+            $typeLabel = 'Bank Account';
+            $name = $bank->bank_name . ' — ' . $bank->account_number;
+            // Get stores via pivot table
+            $assignedStores = $user->stores()->where('status', '!=', 'deleted')
+                ->whereHas('bankAccounts', fn($q) => $q->where('store_bank_id', $bank->id))
+                ->orderBy('name')->get();
+            $availableStores = $user->stores()->where('status', '!=', 'deleted')
+                ->whereDoesntHave('bankAccounts', fn($q) => $q->where('store_bank_id', $bank->id))
+                ->orderBy('name')->get();
+        } else {
+            abort(404);
+        }
+
+        $breadcrumbs = [
+            ['label' => 'Dashboard', 'url' => route('management.dashboard')],
+            ['label' => 'Payment Settings', 'url' => route('management.payment-settings.index')],
+            ['label' => $name],
+        ];
+
+        return view('management.payment-settings.method-info', compact('user', 'gateway', 'bank', 'typeLabel', 'name', 'assignedStores', 'availableStores', 'breadcrumbs'));
+    }
+
+    public function assignStore(Request $request, $id, $type): RedirectResponse
+    {
+        $user = $request->user();
+        $validated = $request->validate(['store_id' => 'required|exists:stores,id']);
+
+        $store = $user->stores()->findOrFail($validated['store_id']);
+
+        if ($type === 'gateway') {
+            $pid = $this->paystackPivotId();
+            DB::table('store_payment_method')->insertOrIgnore([
+                'store_id' => $store->id, 'payment_method_id' => $pid, 'is_active' => true,
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+        } elseif ($type === 'bank') {
+            $bank = StoreBank::findOrFail($id);
+            $store->bankAccounts()->syncWithoutDetaching([$bank->id]);
+        }
+
+        return redirect()->route('management.payment-settings.method-info', ['type' => $type, 'id' => $id])
+            ->with('success', 'Assigned to ' . $store->name . '.');
     }
 
     public function verifyBankAccount(Request $request): JsonResponse
@@ -244,8 +322,9 @@ class PaymentSettingsController extends Controller
         $newMode = $request->input('payment_mode');
 
         if ($newMode === 'auto') {
-            $hasPaystack = StorePaymentGateway::where('store_id', $store->id)
-                ->where('gateway', 'paystack')->where('is_active', true)->exists();
+            $pid = $this->paystackPivotId();
+            $hasPaystack = DB::table('store_payment_method')->where('store_id', $store->id)
+                ->where('payment_method_id', $pid)->where('is_active', true)->exists();
             if (!$hasPaystack) {
                 return back()->with('error', 'Add active Paystack keys first.');
             }

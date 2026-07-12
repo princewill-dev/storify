@@ -23,6 +23,7 @@
                                 <form action="{{ route('checkout.process', ['store_subdomain' => $store->slug]) }}" method="POST" id="checkoutForm">
                                     @csrf
                                     <input type="hidden" name="checkout_token" value="{{ $cart->checkout_token ?? '' }}">
+                                    <input type="hidden" name="is_guest" value="{{ auth()->guard('customer')->check() ? 'false' : 'true' }}">
                                 
                                 <h6 class="mb-3">Personal Information</h6>
                                 @if(isset($preselectedRoute))

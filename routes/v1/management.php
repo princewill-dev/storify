@@ -148,6 +148,8 @@ Route::prefix('management')->name('management.')->group(function () {
                 Route::delete('/payment-settings/gateways/{gateway}', [PaymentSettingsController::class, 'destroyPaystackKeys'])->name('payment-settings.gateways.destroy');
                 Route::patch('/payment-settings/gateways/{gateway}/toggle', [PaymentSettingsController::class, 'togglePaystackKeys'])->name('payment-settings.gateways.toggle');
                 Route::post('/payment-settings/gateways/{gateway}/test', [PaymentSettingsController::class, 'testGateway'])->name('payment-settings.gateways.test');
+                Route::get('/payment-method/{type}/{id}/info', [PaymentSettingsController::class, 'methodInfo'])->name('payment-settings.method-info');
+                Route::post('/payment-method/{id}/assign/{type}', [PaymentSettingsController::class, 'assignStore'])->name('payment-settings.assign-store');
 
                 // Payment Mode
                 Route::post('/payment-settings/stores/{store}/toggle-mode', [PaymentSettingsController::class, 'togglePaymentMode'])->name('payment-settings.toggle-mode');

@@ -64,7 +64,7 @@
         {{-- Store Payment Methods --}}
         <x-management.card header="Payment Methods">
             @php
-                $storeBanks = $store->banks;
+                $storeBanks = $store->bankAccounts;
                 $storePaystack = $store->paymentGateways->where('gateway', 'paystack')->first();
             @endphp
             <div class="space-y-4">

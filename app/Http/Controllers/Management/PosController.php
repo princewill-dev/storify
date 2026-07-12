@@ -101,17 +101,19 @@ class PosController extends Controller
         $paystackKey = null;
         $bankAccounts = collect();
 
-        $paystack = $store->paymentGateways()
-                ->where('gateway', 'paystack')
-                ->where('is_active', true)
-                ->first();
-
-            if (!$paystack) {
-                $paystack = \App\Models\BusinessGateway::where('business_id', $store->business_id)
-                    ->where('gateway', 'paystack')
-                    ->where('is_active', true)
-                    ->first();
-            }
+        $pid = \App\Models\PaymentMethod::where('code', 'paystack')->value('id');
+        $sid = DB::table('store_payment_method')->where('store_id', $store->id)
+            ->where('payment_method_id', $pid)->where('is_active', true)->exists();
+        $bizRow = DB::table('business_payment_method')->where('business_id', $store->business_id)
+            ->where('payment_method_id', $pid)->where('is_active', true)->first();
+        $paystack = null;
+        if ($sid && $bizRow) {
+            $cfg = json_decode($bizRow->config, true);
+            $paystack = (object)['public_key' => $cfg['public_key'] ?? null];
+        } elseif ($bizRow) {
+            $cfg = json_decode($bizRow->config, true);
+            $paystack = (object)['public_key' => $cfg['public_key'] ?? null];
+        }
 
             if ($paystack) {
                 $paymentMethods[] = ['id' => 'paystack', 'label' => 'Paystack', 'icon' => 'credit-card'];

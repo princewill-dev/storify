@@ -76,17 +76,16 @@ class PosController extends Controller
 
         if ($activeStore && $canProcessSale) {
 
-            $paystack = $activeStore->paymentGateways()
-                    ->where('gateway', 'paystack')
-                    ->where('is_active', true)
-                    ->first();
-
-                if (!$paystack) {
-                    $paystack = \App\Models\BusinessGateway::where('business_id', $activeStore->business_id)
-                        ->where('gateway', 'paystack')
-                        ->where('is_active', true)
-                        ->first();
-                }
+            $pid = \App\Models\PaymentMethod::where('code', 'paystack')->value('id');
+            $sid = DB::table('store_payment_method')->where('store_id', $activeStore->id)
+                ->where('payment_method_id', $pid)->where('is_active', true)->exists();
+            $bizRow = DB::table('business_payment_method')->where('business_id', $activeStore->business_id)
+                ->where('payment_method_id', $pid)->where('is_active', true)->first();
+            $paystack = null;
+            if ($bizRow) {
+                $cfg = json_decode($bizRow->config, true);
+                $paystack = (object)['public_key' => $cfg['public_key'] ?? null];
+            }
 
                 if ($paystack) {
                     $paymentMethods[] = ['id' => 'paystack', 'label' => 'Paystack', 'icon' => 'credit-card'];

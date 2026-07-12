@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Payment;
 
 use App\Http\Controllers\Controller;
-use App\Models\BusinessGateway;
 use App\Models\Order;
 use App\Models\Payment;
 use App\Models\Transaction;
@@ -53,7 +52,7 @@ class PaystackWebhookController extends Controller
         };
     }
 
-    private function handleChargeSuccess($event, BusinessGateway $gateway)
+    private function handleChargeSuccess($event, $gateway)
     {
         $data = $event->data;
         $reference = $data->reference ?? null;
@@ -132,14 +131,15 @@ class PaystackWebhookController extends Controller
     /**
      * Verify HMAC-SHA512 signature against all active business gateway secrets.
      */
-    private function verifySignature(string $payload, string $signature): ?BusinessGateway
+    private function verifySignature(string $payload, string $signature): ?object
     {
-        $gateways = BusinessGateway::where('gateway', 'paystack')
-            ->where('is_active', true)
-            ->get();
+        $paystackId = \App\Models\PaymentMethod::where('code', 'paystack')->value('id');
+        $rows = \Illuminate\Support\Facades\DB::table('business_payment_method')
+            ->where('payment_method_id', $paystackId)->where('is_active', true)->get();
 
-        foreach ($gateways as $gateway) {
-            $secretKey = $gateway->secret_key;
+        foreach ($rows as $row) {
+            $config = json_decode($row->config, true);
+            $secretKey = $config['secret_key'] ?? null;
             if (!$secretKey) {
                 continue;
             }
@@ -147,7 +147,9 @@ class PaystackWebhookController extends Controller
             $computed = hash_hmac('sha512', $payload, $secretKey);
 
             if (hash_equals($computed, $signature)) {
-                return $gateway;
+                $gw = new \App\Models\BusinessGateway(['public_key' => $config['public_key'] ?? '', 'secret_key' => $secretKey]);
+                $gw->id = $row->id; $gw->business_id = $row->business_id;
+                return $gw;
             }
         }
 

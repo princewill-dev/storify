@@ -8,11 +8,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class PaymentMethod extends Model
 {
     protected $fillable = [
-        'name',
-        'code',
-        'description',
-        'is_active',
-        'config',
+        'name', 'code', 'type', 'description', 'is_active', 'config',
     ];
 
     protected $casts = [
@@ -20,13 +16,21 @@ class PaymentMethod extends Model
         'config' => 'array',
     ];
 
-    public function transactions(): HasMany
+    public function transactions(): HasMany { return $this->hasMany(Transaction::class); }
+
+    public function businesses(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
     {
-        return $this->hasMany(Transaction::class);
+        return $this->belongsToMany(Business::class, 'business_payment_method')
+            ->withPivot('is_active', 'config')->withTimestamps();
     }
 
-    public function scopeActive($query)
+    public function stores(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
     {
-        return $query->where('is_active', true);
+        return $this->belongsToMany(Store::class, 'store_payment_method')
+            ->withPivot('is_active')->withTimestamps();
     }
+
+    public function scopeActive($query) { return $query->where('is_active', true); }
+    public function scopeGateway($query) { return $query->where('type', 'gateway'); }
+    public function scopeTraditional($query) { return $query->where('type', 'traditional'); }
 }

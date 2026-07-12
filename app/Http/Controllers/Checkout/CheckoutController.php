@@ -352,6 +352,30 @@ class CheckoutController extends Controller
 
             $vatPercentage = 0; // VAT removed from flow
 
+            // Pre-validate stock for ALL items before creating the order
+            $stockErrors = [];
+            foreach ($cart->items as $cartItem) {
+                $product = $cartItem->product;
+                if (!$product) continue;
+                $qty = (int) $cartItem->qty;
+                $stockLoc = \App\Models\StockLocation::where('locationable_type', \App\Models\Store::class)
+                    ->where('locationable_id', $store->id)
+                    ->where('product_id', $product->id)
+                    ->first();
+                $available = $stockLoc ? (int) $stockLoc->quantity : (int) $product->quantity;
+                if ($available < $qty) {
+                    $stockErrors[] = "{$product->name}: only {$available} available (requested {$qty})";
+                }
+            }
+            if (!empty($stockErrors)) {
+                return back()->with('error', 'Some items are out of stock: ' . implode('; ', $stockErrors))->withInput();
+            }
+
+            // Cart ownership check — verify cart belongs to this customer or guest
+            if ($customer && $cart->user_id && $cart->user_type === Customer::class && $cart->user_id != $customer->id) {
+                return back()->with('error', 'Invalid checkout session.')->withInput();
+            }
+
             // Start database transaction
             DB::beginTransaction();
 
@@ -443,9 +467,9 @@ class CheckoutController extends Controller
 
             $order = Order::create([
                 'store_id' => $store->id,
+                'business_id' => $store->business_id,
                 'user_id' => $userId,
                 'customer_id' => $customer->id,
-                'cart_id' => $cart->id,
                 'source' => $cartSource,
                 'subtotal' => $subtotal,
                 'shipping_fee' => $shippingFee,
@@ -454,7 +478,6 @@ class CheckoutController extends Controller
                 'status' => OrderStatus::PENDING->value,
                 'delivery_state' => $deliveryState,
                 'delivery_area' => $deliveryArea,
-                'payment_method_id' => null,
                 'notes' => $validated['notes'] ?? null,
                 'delivery_address_id' => $deliveryAddress->id,
             ]);
@@ -475,7 +498,7 @@ class CheckoutController extends Controller
 
                     if ($stockLoc && $stockLoc->quantity >= (int) $itemData['quantity']) {
                         $product->decrement('quantity', (int) $itemData['quantity']);
-                        $ledger->recordRemoval($stockLoc, (int) $itemData['quantity'], $order, $customer, 'Storefront order — #' . $order->order_number);
+                        $ledger->recordRemoval($stockLoc, (int) $itemData['quantity'], $order, null, 'Storefront order — #' . $order->order_number);
                     } elseif ($product && $product->quantity >= (int) $itemData['quantity']) {
                         $product->decrement('quantity', (int) $itemData['quantity']);
                         $stockLoc = \App\Models\StockLocation::firstOrCreate([
@@ -483,7 +506,7 @@ class CheckoutController extends Controller
                             'locationable_type' => \App\Models\Store::class,
                             'locationable_id' => $store->id,
                         ], ['quantity' => $product->quantity + (int) $itemData['quantity'], 'business_id' => $store->business_id]);
-                        $ledger->recordRemoval($stockLoc, (int) $itemData['quantity'], $order, $customer, 'Storefront order — #' . $order->order_number);
+                        $ledger->recordRemoval($stockLoc, (int) $itemData['quantity'], $order, null, 'Storefront order — #' . $order->order_number);
                     }
                 }
             }
@@ -531,13 +554,15 @@ class CheckoutController extends Controller
     public function showPaymentMethods($store_subdomain, Order $order)
     {
         $store = Store::where('slug', $store_subdomain)->where('status', 'active')->firstOrFail();
-        
+
         if ($order->store_id !== $store->id) {
             abort(404);
         }
 
         $order->load(['customer', 'items.product', 'transactions']);
-        $paymentMethods = PaymentMethod::active()->get();
+
+        // Get store's assigned payment methods (RBAC-style: business → store → customer)
+        $paymentMethods = $store->paymentMethods()->wherePivot('is_active', true)->get();
 
         // Calculate payment amount
         // For Live First orders, show the transaction amount (10% down payment)
@@ -547,50 +572,46 @@ class CheckoutController extends Controller
             $paymentAmount = $order->transactions->first()->amount;
         }
 
-        return view('storefront.pages.select-payment-method', compact('store', 'order', 'paymentMethods', 'paymentAmount'));
+        return view('storefront.pages.select-payment-method', compact('store', 'order', 'paymentAmount', 'paymentMethods'));
     }
 
     public function selectPaymentMethod(Request $request, $store_subdomain, Order $order)
     {
         $validated = $request->validate([
-            'payment_method_id' => 'required|exists:payment_methods,id',
+            'payment_method' => 'required|in:paystack,bank_transfer',
         ]);
 
         $store = Store::where('slug', $store_subdomain)->where('status', 'active')->firstOrFail();
-        
+
         if ($order->store_id !== $store->id) {
             abort(404);
         }
 
-        $paymentMethodId = $validated['payment_method_id'];
-        $paymentMethod = PaymentMethod::findOrFail($paymentMethodId);
+        $methodCode = $validated['payment_method'];
 
-        $order->update([
-            'payment_method_id' => $paymentMethodId,
-        ]);
+        $order->update(['payment_method_id' => null]);
 
         Log::info('payment_method_selected', [
             'order_id' => $order->id,
-            'payment_method_id' => $paymentMethodId,
-            'payment_method_code' => $paymentMethod->code,
+            'payment_method' => $methodCode,
         ]);
 
         // If Paystack is selected, initialize payment immediately
-        if ($paymentMethod->code === 'paystack') {
+        if ($methodCode === 'paystack') {
             return $this->initializePaystackPayment($request, $order, $store);
         }
 
         // If Bank Transfer is selected, create transaction and redirect to bank transfer page
-        if ($paymentMethod->code === 'bank_transfer') {
+        if ($methodCode === 'bank_transfer') {
             $transaction = $order->transactions()->first();
             if ($transaction) {
                 $transaction->update([
-                    'payment_method_id' => $paymentMethodId,
+                    'payment_method_id' => null,
                 ]);
             } else {
                 $transaction = Transaction::create([
                     'order_id' => $order->id,
-                    'payment_method_id' => $paymentMethodId,
+                    'payment_method_id' => null,
                     'amount' => $order->total,
                     'status' => 'pending',
                 ]);
@@ -1012,7 +1033,7 @@ class CheckoutController extends Controller
 
                 if ($stockLoc && $stockLoc->quantity >= $cartItem->qty) {
                     $product->decrement('quantity', $cartItem->qty);
-                    $ledger->recordRemoval($stockLoc, $cartItem->qty, $order, $customer, 'LiveFirst order — #' . $order->order_number);
+                    $ledger->recordRemoval($stockLoc, $cartItem->qty, $order, null, 'LiveFirst order — #' . $order->order_number);
                 } elseif ($product && $product->quantity >= $cartItem->qty) {
                     $product->decrement('quantity', $cartItem->qty);
                     $stockLoc = \App\Models\StockLocation::firstOrCreate([
@@ -1020,7 +1041,7 @@ class CheckoutController extends Controller
                         'locationable_type' => \App\Models\Store::class,
                         'locationable_id' => $store->id,
                     ], ['quantity' => $product->quantity + $cartItem->qty, 'business_id' => $store->business_id]);
-                    $ledger->recordRemoval($stockLoc, $cartItem->qty, $order, $customer, 'LiveFirst order — #' . $order->order_number);
+                    $ledger->recordRemoval($stockLoc, $cartItem->qty, $order, null, 'LiveFirst order — #' . $order->order_number);
                 }
             }
 
@@ -1059,7 +1080,7 @@ class CheckoutController extends Controller
 
             // Redirect to payment methods page
             return redirect()->route('checkout.payment-methods', [
-                'store_slug' => $store_slug,
+                'store_subdomain' => $store_slug,
                 'order' => $order->order_number,
             ])->with('success', 'Live First order created! Please complete your 10% down payment.');
 
