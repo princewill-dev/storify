@@ -15,7 +15,7 @@ class RegisterRequest extends FormRequest
     {
         return [
             'full_name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'email', 'max:255', 'unique:vendors,email'],
+            'email' => ['required', 'email', 'max:255', 'unique:users,email', 'unique:customers,email'],
             'phone' => ['required', 'string', 'max:50'],
             'password' => ['required', 'string', 'min:8', 'confirmed'],
         ];
@@ -25,7 +25,7 @@ class RegisterRequest extends FormRequest
     {
         return [
             'full_name.required' => 'Enter your full name.',
-            'email.unique' => 'This email is already associated with a vendor account.',
+            'email.unique' => 'This email is already registered. Please log in instead.',
         ];
     }
 }
