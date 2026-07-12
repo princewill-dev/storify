@@ -47,9 +47,13 @@
                 </td>
                 <td class="px-5 py-3 hidden sm:table-cell"><x-management.status-badge :status="$store->status" /></td>
                 <td class="px-5 py-3 text-right">
-                    <a href="{{ route('management.stores.show', $store) }}#settings" class="px-2.5 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-100 rounded-lg">
-                        Manage <i class="fi fi-rr-arrow-small-right text-[10px]"></i>
-                    </a>
+                    <div class="flex items-center justify-end gap-1">
+                        <a href="{{ route('management.stores.show', $store) }}#settings" class="px-2.5 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-100 rounded-lg">Manage</a>
+                        <form method="POST" action="{{ route('management.payment-settings.unassign-store', ['id' => request()->route('id'), 'type' => $gateway ? 'gateway' : 'bank', 'store_id' => $store->id]) }}" onsubmit="return confirm('Remove from {{ $store->name }}?')">
+                            @csrf @method('DELETE')
+                            <button class="px-2 py-1 text-[11px] font-medium text-red-500 hover:bg-red-50 rounded-lg">Remove</button>
+                        </form>
+                    </div>
                 </td>
             </tr>
             @endforeach
@@ -65,7 +69,7 @@
         <div class="relative w-full max-w-sm bg-white rounded-2xl shadow-xl p-6">
             <h3 class="text-base font-semibold text-slate-800 mb-1">Assign to Store</h3>
             <p class="text-sm text-slate-500 mb-4">Select a store to assign this payment method to.</p>
-            <form method="POST" action="{{ route('management.payment-settings.assign-store', ['id' => $gateway?->id ?? $bank?->id, 'type' => $gateway ? 'gateway' : 'bank']) }}" class="space-y-4">
+            <form method="POST" action="{{ route('management.payment-settings.assign-store', ['id' => request()->route('id'), 'type' => $gateway ? 'gateway' : 'bank']) }}" class="space-y-4">
                 @csrf
                 <div>
                     <label class="block text-sm font-medium text-slate-700 mb-1.5">Store</label>

@@ -155,11 +155,13 @@ Route::prefix('payment/paystack')->name('payment.paystack.')->group(function () 
 Route::get('/payment/{reference}/success', function($reference) {
     $transaction = \App\Models\Transaction::where('reference', $reference)->firstOrFail();
     $order = $transaction->order;
-    return view('payment.success', compact('order', 'transaction'));
+    $store = $order->store;
+    return view('storefront.pages.payment.success', compact('order', 'transaction', 'store'));
 })->name('order.success');
 
 Route::get('/payment/{reference}/failed', function($reference) {
     $transaction = \App\Models\Transaction::where('reference', $reference)->firstOrFail();
     $order = $transaction->order;
-    return view('payment.failed', compact('order', 'transaction'));
+    $store = $order->store;
+    return view('storefront.pages.payment.failed', compact('order', 'transaction', 'store'));
 })->name('order.failed');

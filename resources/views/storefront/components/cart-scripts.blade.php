@@ -1,6 +1,7 @@
 <script>
     const StorefrontCart = {
         storeSlug: "{{ $store->slug ?? 'store' }}",
+        cartApiPrefix: "{{ config('app.env') === 'local' ? '/' . ($store->slug ?? 'store') : '' }}",
         cartItemCount: 0,
         pendingBuyNow: null,
         
@@ -105,7 +106,7 @@
             btn.prop('disabled', true);
 
             $.ajax({
-                url: '/cart/add',
+                url: this.cartApiPrefix + '/cart/add',
                 type: 'POST',
                 data: {
                     _token: '{{ csrf_token() }}',
@@ -177,7 +178,7 @@
             btn.text('Processing...').prop('disabled', true);
 
             $.ajax({
-                url: '/cart/buy-now',
+                url: this.cartApiPrefix + '/cart/buy-now',
                 type: 'POST',
                 data: {
                     _token: '{{ csrf_token() }}',
@@ -239,7 +240,7 @@
 
         refreshCart: function() {
             $.ajax({
-                url: '/cart/json',
+                url: this.cartApiPrefix + '/cart/json',
                 type: 'GET',
                 success: function(response) {
                     StorefrontCart.updateCartCount(response.item_count);
@@ -345,7 +346,7 @@
         updateItemQty: function(itemId, newQty) {
             if (newQty < 1) return;
              $.ajax({
-                url: '/cart/item/' + itemId,
+                url: this.cartApiPrefix + '/cart/item/' + itemId,
                 type: 'PATCH',
                 data: {
                     _token: '{{ csrf_token() }}',
@@ -364,7 +365,7 @@
 
         removeItem: function(itemId) {
             $.ajax({
-                url: '/cart/item/' + itemId,
+                url: this.cartApiPrefix + '/cart/item/' + itemId,
                 type: 'DELETE',
                 data: {
                     _token: '{{ csrf_token() }}',

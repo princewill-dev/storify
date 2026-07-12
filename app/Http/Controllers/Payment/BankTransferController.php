@@ -7,6 +7,7 @@ use App\Models\BankAccount;
 use App\Models\Order;
 use App\Models\Transaction;
 use App\Models\Store;
+use App\Models\User;
 use App\Enums\TransactionStatus;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -29,8 +30,8 @@ class BankTransferController extends Controller
             abort(404);
         }
 
-        // Get store bank accounts
-        $bankAccounts = $store->banks;
+        // Get business bank accounts (store assignment via store_payment_method pivot)
+        $bankAccounts = \App\Models\StoreBank::where('business_id', $store->business_id)->get();
 
         if ($bankAccounts->isEmpty()) {
             return redirect()->back()->with('error', 'This store has no bank details configured. Please contact support.');
@@ -47,7 +48,7 @@ class BankTransferController extends Controller
             ? $order->total * 0.10 
             : $order->total;
 
-        return view('payment.bank-transfer', compact('order', 'store', 'bankAccounts', 'transaction', 'paymentAmount'));
+        return view('storefront.pages.payment.bank-transfer', compact('order', 'store', 'bankAccounts', 'transaction', 'paymentAmount'));
     }
 
     /**
@@ -152,6 +153,6 @@ class BankTransferController extends Controller
             abort(404);
         }
 
-        return view('payment.pending_payment', compact('order', 'store'));
+        return view('storefront.pages.payment.pending_payment', compact('order', 'store'));
     }
 }

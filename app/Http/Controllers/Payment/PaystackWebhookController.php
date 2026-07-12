@@ -147,7 +147,7 @@ class PaystackWebhookController extends Controller
             $computed = hash_hmac('sha512', $payload, $secretKey);
 
             if (hash_equals($computed, $signature)) {
-                $gw = new \App\Models\BusinessGateway(['public_key' => $config['public_key'] ?? '', 'secret_key' => $secretKey]);
+                $gw = (object)['public_key' => $config['public_key'] ?? '', 'secret_key' => $secretKey, 'id' => $row->id, 'business_id' => $row->business_id];
                 $gw->id = $row->id; $gw->business_id = $row->business_id;
                 return $gw;
             }

@@ -297,30 +297,6 @@
 
                         <div class="summary-body mt-4">
                                                       
-                           <!-- Delivery Route Selector -->
-                           <div class="summary-row" style="flex-direction: column; gap: 10px; align-items: stretch; margin-bottom: 20px;">
-                                <div class="d-flex justify-content-between">
-                                    <span>Delivery:</span>
-                                    <span id="deliveryFeeDisplay">select delivery location</span>
-                                </div>
-                                
-                                <select id="deliveryState" class="form-select form-select-sm" style="background: #2b3948; color: #fff; border-color: rgba(255,255,255,0.1);">
-                                    <option value="">Select State</option>
-                                    @foreach($states as $state)
-                                        <option value="{{ $state }}">{{ $state }}</option>
-                                    @endforeach
-                                </select>
-                                
-                                <div id="areaSpinner" class="text-center py-2" style="display: none;">
-                                    <div class="spinner-border spinner-border-sm text-light" role="status">
-                                        <span class="visually-hidden">Loading...</span>
-                                    </div>
-                                </div>
-
-                                <select id="deliveryArea" class="form-select form-select-sm" style="background: #2b3948; color: #fff; border-color: rgba(255,255,255,0.1); display: none;">
-                                    <option value="">Select Area</option>
-                                </select>
-                           </div>
 
                            <div class="summary-row">
                                 <span>Subtotal:</span>
@@ -335,7 +311,7 @@
                     </div>
 
                     <div class="mt-4" id="checkoutBtnContainer">
-                        <button type="button" id="checkoutBtn" class="checkout-btn" data-ready="false" style="opacity: 0.5;">
+                        <button type="button" id="checkoutBtn" class="checkout-btn" data-ready="true">
                             Check Out.
                         </button>
                     </div>
@@ -365,41 +341,22 @@
 
 <script>
 
-    const cartAreasByState = @json($areasByState);
     const proceedUrl = "{{ request()->routeIs('local.*') ? route('local.store.cart.proceed', ['store_subdomain' => $store->slug]) : route('home.store.cart.proceed', ['store_subdomain' => $store->slug]) }}";
     const hasPaymentMethods = {{ $hasPaymentMethods ? 'true' : 'false' }};
 
     document.addEventListener('DOMContentLoaded', function() {
         // ... existing code ...
         
-        const stateSelect = document.getElementById('deliveryState');
-        const areaSelect = document.getElementById('deliveryArea');
-        const feeDisplay = document.getElementById('deliveryFeeDisplay');
         const totalEl = document.getElementById('cartPageTotal');
         const checkoutBtn = document.getElementById('checkoutBtn');
         const checkoutBtnContainer = document.getElementById('checkoutBtnContainer');
-        const spinner = document.getElementById('areaSpinner');
-        
-        let currentSubtotal = 0;
-        let shippingFee = 0;
-        let deliveryRouteSelected = false;
 
-        // Helper to update button visibility
-        function updateCheckoutButton() {
-            if (!hasPaymentMethods || !deliveryRouteSelected) {
-                checkoutBtn.dataset.ready = "false";
-                checkoutBtn.style.opacity = '0.5';
-            } else {
-                checkoutBtn.dataset.ready = "true";
-                checkoutBtn.style.opacity = '1';
-            }
-        }
+        let currentSubtotal = 0;
 
         // Helper to update total
         function updateCartTotal() {
-            const total = currentSubtotal + shippingFee;
             const fmt = new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN' });
-            totalEl.innerText = fmt.format(total);
+            totalEl.innerText = fmt.format(currentSubtotal);
         }
         
         // Helper to show error modal
@@ -418,13 +375,12 @@
         // Checkout button click handler
         checkoutBtn.addEventListener('click', function(e) {
             e.preventDefault();
-            
-            if (this.dataset.ready === "false" || !deliveryRouteSelected) {
-                showModalError("Please select your state and delivery area before checking out.");
+
+            if (!hasPaymentMethods) {
+                showModalError("This store hasn't set up any payment methods yet. Please contact the store owner.");
                 return;
             }
-            
-            const routeId = areaSelect.value;
+
             const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
             
             // Show loading state
@@ -440,9 +396,7 @@
                     'Accept': 'application/json',
                     'X-CSRF-TOKEN': csrfToken
                 },
-                body: JSON.stringify({
-                    delivery_route_id: routeId || null
-                })
+                body: JSON.stringify({})
             })
             .then(async response => {
                 const isJson = response.headers.get('content-type')?.includes('application/json');
@@ -497,61 +451,6 @@
             updateCartTotal(); // Recalculate with current shipping fee
         };
 
-        // State change handler
-        stateSelect.addEventListener('change', function() {
-            const state = this.value;
-            areaSelect.innerHTML = '<option value="">Select Area</option>';
-            areaSelect.style.display = 'none';
-            
-            if (state) {
-                // Show spinner
-                spinner.style.display = 'block';
-                
-                // Small timeout to simulate loading/allow UI update
-                setTimeout(() => {
-                    spinner.style.display = 'none';
-                    
-                    if (cartAreasByState[state]) {
-                        cartAreasByState[state].forEach(route => {
-                            const opt = document.createElement('option');
-                            opt.value = route.id;
-                            opt.text = route.area ? `${route.area} (₦${(route.fee/100).toLocaleString()})` : `All Areas (₦${(route.fee/100).toLocaleString()})`;
-                            opt.dataset.fee = route.fee;
-                            areaSelect.appendChild(opt);
-                        });
-                        areaSelect.style.display = 'block';
-                    }
-                }, 500); // 500ms delay for visual feedback
-            } else {
-                spinner.style.display = 'none';
-            }
-            
-            // Reset fee when state changes
-            shippingFee = 0;
-            deliveryRouteSelected = false;
-            feeDisplay.innerText = 'Please choose area';
-            updateCartTotal();
-            updateCheckoutButton();
-        });
-
-        // Area change handler
-        areaSelect.addEventListener('change', function() {
-            const selectedOpt = this.options[this.selectedIndex];
-            if (selectedOpt.value) {
-                const feeKobo = parseInt(selectedOpt.dataset.fee || 0);
-                shippingFee = feeKobo / 100;
-                deliveryRouteSelected = true;
-                
-                const fmt = new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN' });
-                feeDisplay.innerText = fmt.format(shippingFee);
-            } else {
-                shippingFee = 0;
-                deliveryRouteSelected = false;
-                feeDisplay.innerText = 'Please choose area';
-            }
-            updateCartTotal();
-            updateCheckoutButton();
-        });
     });
 
 

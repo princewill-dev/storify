@@ -21,7 +21,7 @@ class PaymentMethod extends Model
     public function businesses(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
     {
         return $this->belongsToMany(Business::class, 'business_payment_method')
-            ->withPivot('is_active', 'config')->withTimestamps();
+            ->withPivot('id', 'is_active', 'config')->withTimestamps();
     }
 
     public function stores(): \Illuminate\Database\Eloquent\Relations\BelongsToMany

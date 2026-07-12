@@ -102,10 +102,7 @@ class Business extends Model
         return $this->hasMany(Payment::class);
     }
 
-    public function gateways(): HasMany
-    {
-        return $this->hasMany(BusinessGateway::class);
-    }
+
 
     public function kycApplications(): HasMany
     {

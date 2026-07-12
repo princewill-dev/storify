@@ -42,7 +42,7 @@
     {{-- Metric Cards --}}
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <x-management.metric-card
-            :value="'₦' . number_format($revenueThisMonth / 100, 0)"
+            :value="'₦' . number_format($revenueThisMonth, 0)"
             label="Revenue (This Month)"
             :subtitle="$revenueChange >= 0 ? '+' . $revenueChange . '% vs last month' : $revenueChange . '% vs last month'"
             icon="fi-rr-chart-histogram" />

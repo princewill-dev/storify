@@ -298,7 +298,7 @@ class PosController extends Controller
         ]);
 
         if ($txnStatus === 'confirmed') {
-            $store->creditBalance((int) round($total));
+            $store->creditBalance((int) round($total * 100));
         }
 
         $ledger = app(\App\Services\StockLedgerService::class);

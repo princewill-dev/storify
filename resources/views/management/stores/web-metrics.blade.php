@@ -34,7 +34,7 @@
         icon="fi-rr-shopping-cart" />
 
     <x-management.metric-card
-        :value="'₦' . number_format($webRevenue / 100, 0)"
+        :value="'₦' . number_format($webRevenue, 0)"
         label="Web Revenue"
         subtitle="Revenue from online orders"
         icon="fi-rr-chart-histogram" />

@@ -150,6 +150,7 @@ Route::prefix('management')->name('management.')->group(function () {
                 Route::post('/payment-settings/gateways/{gateway}/test', [PaymentSettingsController::class, 'testGateway'])->name('payment-settings.gateways.test');
                 Route::get('/payment-method/{type}/{id}/info', [PaymentSettingsController::class, 'methodInfo'])->name('payment-settings.method-info');
                 Route::post('/payment-method/{id}/assign/{type}', [PaymentSettingsController::class, 'assignStore'])->name('payment-settings.assign-store');
+                Route::delete('/payment-method/{id}/unassign/{type}/{store_id}', [PaymentSettingsController::class, 'unassignStore'])->name('payment-settings.unassign-store');
 
                 // Payment Mode
                 Route::post('/payment-settings/stores/{store}/toggle-mode', [PaymentSettingsController::class, 'togglePaymentMode'])->name('payment-settings.toggle-mode');

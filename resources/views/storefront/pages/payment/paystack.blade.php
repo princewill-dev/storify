@@ -1,4 +1,4 @@
-@extends('home.layout')
+@extends('storefront.layout')
 
 @section('title', 'Pay with Paystack')
 

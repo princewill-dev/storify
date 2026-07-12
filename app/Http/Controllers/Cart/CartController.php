@@ -16,41 +16,18 @@ class CartController extends Controller
     {
         $store = Store::where('slug', $store_slug)->firstOrFail();
 
-        // Delivery routes: build states and areas map from active routes
-        $routes = DeliveryRoute::query()
-            ->where('store_id', $store->id)
-            ->where('active', true)
-            ->orderBy('state')
-            ->orderBy('area')
-            ->get(['id','state','area','fee','delivery_days']);
-
-        $states = $routes->pluck('state')->unique()->values()->all();
-        $areasByState = $routes->groupBy('state')->map(function($items){
-            return $items->map(function($r){
-                return [
-                    'id' => $r->id,
-                    'area' => $r->area,
-                    'fee' => (int) $r->fee,
-                    'days' => $r->delivery_days,
-                ];
-            })->values()->all();
-        })->toArray();
-
         // VAT percentage: from active VAT or latest
         $vatPercentage = optional(Vat::active()->orderByDesc('effective_at')->orderByDesc('id')->first())->percentage
             ?? optional(Vat::current())->percentage
             ?? 0;
 
-        // Check if there are any active payment methods globally
-        // (Payment methods are platform-wide, not store-specific)
-        $hasPaymentMethods = \App\Models\PaymentMethod::where('is_active', true)->exists();
+        // Check if store has active payment methods assigned
+        $hasPaymentMethods = $store->paymentMethods()->wherePivot('is_active', true)->exists();
 
         return view('storefront.pages.cart', [
             'store_slug' => $store_slug,
             'store' => $store,
-            'states' => $states,
             'vatPercentage' => $vatPercentage,
-            'areasByState' => $areasByState,
             'hasPaymentMethods' => $hasPaymentMethods,
         ]);
     }

@@ -107,12 +107,6 @@ class Store extends Model
         return $this->hasMany(StoreBank::class);
     }
 
-    public function bankAccounts(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
-    {
-        return $this->belongsToMany(StoreBank::class, 'store_bank', 'store_id', 'store_bank_id')
-            ->withTimestamps();
-    }
-
     public function paymentMethods(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
     {
         return $this->belongsToMany(\App\Models\PaymentMethod::class, 'store_payment_method', 'store_id', 'payment_method_id')

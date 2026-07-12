@@ -1,4 +1,4 @@
-@extends('home.layout')
+@extends('storefront.layout')
 
 @section('title', 'Payment Failed')
 
@@ -51,13 +51,13 @@
                                 <a href="{{ route('account.order.show', ['orderNumber' => $order->order_number]) }}" class="btn btn-outline-secondary">
                                     <i class="fa fa-eye me-2"></i>View Order Details
                                 </a>
-                                <a href="{{ route('home.index') }}" class="btn btn-primary btn-lg">
-                                    <i class="fa fa-home me-2"></i>Go to Home
+                                <a href="{{ request()->getHost() === parse_url(config('app.url'), PHP_URL_HOST) ? url($store->slug) : url('/') }}" class="btn btn-primary btn-lg">
+                                    <i class="fa fa-shopping-cart me-2"></i>Continue Shopping
                                 </a>
                             </div>
                         @else
-                            <a href="{{ route('home.index') }}" class="btn btn-primary btn-lg">
-                                <i class="fa fa-home me-2"></i>Go to Home
+                            <a href="{{ request()->getHost() === parse_url(config('app.url'), PHP_URL_HOST) ? url($store->slug) : url('/') }}" class="btn btn-primary btn-lg">
+                                <i class="fa fa-shopping-cart me-2"></i>Continue Shopping
                             </a>
                         @endif
 

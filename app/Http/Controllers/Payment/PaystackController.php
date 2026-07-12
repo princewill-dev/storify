@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Models\Order;
 use App\Models\PaymentMethod;
 use App\Models\Transaction;
+use App\Models\User;
+use App\Enums\TransactionStatus;
 use App\Services\PaystackService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -158,7 +160,7 @@ class PaystackController extends Controller
             }
 
             // If already verified, redirect
-            if ($transaction->status === 'completed' || $transaction->status->value === 'completed') {
+            if ($transaction->status === TransactionStatus::CONFIRMED) {
                 return redirect()->route('order.success', ['reference' => $reference])
                     ->with('success', 'Payment already verified');
             }
@@ -182,7 +184,7 @@ class PaystackController extends Controller
                     ]);
 
                     $transaction->update([
-                        'status' => 'cancelled',
+                        'status' => TransactionStatus::CANCELED->value,
                         'metadata' => array_merge($transaction->metadata ?? [], [
                             'first_verification_failed' => true,
                             'error_message' => $firstVerification['message'],
@@ -205,7 +207,7 @@ class PaystackController extends Controller
                     ]);
 
                     $transaction->update([
-                        'status' => 'cancelled',
+                        'status' => TransactionStatus::CANCELED->value,
                         'metadata' => array_merge($transaction->metadata ?? [], [
                             'first_verification' => 'passed',
                             'second_verification_failed' => true,
@@ -229,7 +231,7 @@ class PaystackController extends Controller
                     ]);
 
                     $transaction->update([
-                        'status' => 'cancelled',
+                        'status' => TransactionStatus::CANCELED->value,
                         'metadata' => array_merge($transaction->metadata ?? [], [
                             'paystack_status' => $paymentData['status'],
                             'payment_data' => $paymentData,
@@ -244,7 +246,7 @@ class PaystackController extends Controller
 
                 // Payment successful - update transaction
                 $transaction->update([
-                    'status' => 'completed',
+                    'status' => TransactionStatus::CONFIRMED->value,
                     'paid_at' => now(),
                     'metadata' => array_merge($transaction->metadata ?? [], [
                         'double_verified' => true,
@@ -258,10 +260,20 @@ class PaystackController extends Controller
 
                 // Update order
                 $order = $transaction->order;
-                $order->update([
-                    // 'payment_status' => 'paid', // Derived from transaction
-                    'payment_method' => 'Paystack',
-                ]);
+                $order->update(['status' => \App\Enums\OrderStatus::PROCESSING->value]);
+
+                // Credit store balance
+                $store = $order->store;
+                if ($store) {
+                    $amountInKobo = (int) round($transaction->amount * 100);
+                    $balanceBefore = $store->balance;
+                    $store->creditBalance($amountInKobo);
+                    $transaction->update([
+                        'balance_updated_at' => now(),
+                        'store_balance_before' => $balanceBefore,
+                        'store_balance_after' => $store->fresh()->balance,
+                    ]);
+                }
 
                 Log::info('paystack.payment_successful', [
                     'reference' => $reference,
@@ -384,7 +396,7 @@ class PaystackController extends Controller
             ? $transaction->status->value 
             : $transaction->status;
 
-        if (!$transaction || $transactionStatus === 'completed') {
+        if (!$transaction || $transactionStatus === TransactionStatus::CONFIRMED->value) {
             return;
         }
 
@@ -394,7 +406,7 @@ class PaystackController extends Controller
         if ($verification['success'] && $verification['data']['status'] === 'success') {
             DB::transaction(function () use ($transaction, $data) {
                 $transaction->update([
-                    'status' => 'completed',
+                    'status' => TransactionStatus::CONFIRMED->value,
                     'paid_at' => now(),
                     'metadata' => array_merge($transaction->metadata ?? [], [
                         'webhook_received' => true,
@@ -404,8 +416,20 @@ class PaystackController extends Controller
 
                 $transaction->order->update([
                     // 'payment_status' => 'paid', // Derived from transaction
-                    'payment_method' => 'Paystack',
                 ]);
+
+                // Credit store balance
+                $store = $transaction->order->store;
+                if ($store) {
+                    $amountInKobo = (int) round($transaction->amount * 100);
+                    $balanceBefore = $store->balance;
+                    $store->creditBalance($amountInKobo);
+                    $transaction->update([
+                        'balance_updated_at' => now(),
+                        'store_balance_before' => $balanceBefore,
+                        'store_balance_after' => $store->fresh()->balance,
+                    ]);
+                }
 
                 Log::info('paystack.webhook.payment_updated', [
                     'reference' => $transaction->reference,
@@ -459,12 +483,12 @@ class PaystackController extends Controller
             ? $transaction->status->value 
             : $transaction->status;
 
-        if (!$transaction || $transactionStatus === 'completed') {
+        if (!$transaction || $transactionStatus === TransactionStatus::CONFIRMED->value) {
             return;
         }
 
         $transaction->update([
-            'status' => 'cancelled',
+            'status' => TransactionStatus::CANCELED->value,
             'metadata' => array_merge($transaction->metadata ?? [], [
                 'webhook_failed' => true,
                 'webhook_data' => $data,

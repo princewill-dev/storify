@@ -64,44 +64,24 @@
         {{-- Store Payment Methods --}}
         <x-management.card header="Payment Methods">
             @php
-                $storeBanks = $store->bankAccounts;
-                $storePaystack = $store->paymentGateways->where('gateway', 'paystack')->first();
+                $storeMethods = $store->paymentMethods()->wherePivot('is_active', true)->get();
             @endphp
             <div class="space-y-4">
-                <div>
-                    <div class="flex items-center justify-between mb-2">
-                        <h4 class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Bank Accounts</h4>
-                    </div>
-                    @if($storeBanks->isEmpty())
-                    <p class="text-xs text-slate-400 py-1">No bank accounts. Add bank accounts from <a href="{{ route('management.payment-settings.index') }}" class="text-blue-600 hover:underline">Payment Settings</a>.</p>
-                    @else
-                    <div class="space-y-2">
-                        @foreach($storeBanks as $bank)
-                        <div class="flex items-center justify-between text-sm">
-                            <div>
-                                <span class="font-medium text-slate-700">{{ $bank->bank_name }}</span>
-                                <span class="text-slate-400 ml-1.5">{{ $bank->account_number }}</span>
-                                @if($bank->is_primary)<span class="inline-flex items-center rounded-full bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-600 ml-1.5">Primary</span>@endif
-                            </div>
-                            <span class="text-xs text-slate-400">{{ $bank->account_name }}</span>
+                @if($storeMethods->isEmpty())
+                <p class="text-xs text-slate-400 py-1">No payment methods assigned. Configure from <a href="{{ route('management.payment-settings.index') }}" class="text-blue-600 hover:underline">Payment Settings</a>.</p>
+                @else
+                <div class="space-y-2">
+                    @foreach($storeMethods as $method)
+                    <div class="flex items-center justify-between text-sm">
+                        <div class="flex items-center gap-2">
+                            <span class="w-2 h-2 rounded-full {{ $method->type === 'gateway' ? 'bg-indigo-500' : 'bg-amber-500' }}"></span>
+                            <span class="font-medium text-slate-700">{{ $method->name }}</span>
                         </div>
-                        @endforeach
+                        <span class="text-xs text-slate-400">{{ $method->type === 'gateway' ? 'Card Payment' : 'Bank Transfer' }}</span>
                     </div>
-                    @endif
+                    @endforeach
                 </div>
-                <div class="pt-3 border-t border-slate-100">
-                    <div class="flex items-center justify-between mb-2">
-                        <h4 class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Paystack</h4>
-                    </div>
-                    @if($storePaystack && $storePaystack->is_active)
-                    <div class="flex items-center gap-2 text-sm">
-                        <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                        <span class="text-slate-600">Connected</span>
-                        <code class="text-xs text-slate-400">{{ $storePaystack->masked_public_key }}</code>
-                    </div>
-                    @else
-                    <p class="text-xs text-slate-400">Using business-wide Paystack gateway from <a href="{{ route('management.payment-settings.index') }}" class="text-blue-600 hover:underline">Payment Settings</a>.</p>
-                    @endif
+                @endif
                 </div>
             </div>
         </x-management.card>

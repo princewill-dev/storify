@@ -15,7 +15,7 @@
         </div>
         <div class="bg-white rounded-xl border border-slate-200 p-4">
             <p class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Web Revenue</p>
-            <p class="text-2xl font-bold text-slate-800 mt-1">₦{{ number_format($webRevenue / 100, 0) }}</p>
+            <p class="text-2xl font-bold text-slate-800 mt-1">₦{{ number_format($webRevenue, 0) }}</p>
         </div>
     </div>
 

@@ -30,71 +30,54 @@
             </tr>
         </thead>
         <tbody class="divide-y divide-slate-100">
-            @forelse($gateways as $gw)
+            @forelse($methods as $m)
+            @php $cfg = json_decode($m->businesses->first()?->pivot?->config ?? '{}', true); @endphp
             <tr class="hover:bg-slate-50/50 transition-colors">
                 <td class="px-5 py-3">
                     <div class="flex items-center gap-2.5">
-                        <span class="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-500 shrink-0"><i class="fi fi-rr-credit-card text-sm"></i></span>
-                        <span class="text-sm font-medium text-slate-800">Paystack</span>
+                        <span class="w-8 h-8 rounded-lg {{ $m->type === 'gateway' ? 'bg-indigo-50 text-indigo-500' : 'bg-amber-50 text-amber-500' }} flex items-center justify-center shrink-0">
+                            <i class="fi {{ $m->type === 'gateway' ? 'fi-rr-credit-card' : 'fi-rr-building-columns' }} text-sm"></i>
+                        </span>
+                        <span class="text-sm font-medium text-slate-800">{{ $m->name }}</span>
                     </div>
                 </td>
-                <td class="px-5 py-3"><span class="inline-flex items-center rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-600">Gateway</span></td>
-                <td class="px-5 py-3 hidden sm:table-cell"><code class="text-xs text-slate-500">{{ $gw->masked_public_key }}</code></td>
-                <td class="px-5 py-3 text-center">
-                    <a href="{{ route('management.payment-settings.method-info', ['type' => 'gateway', 'id' => $gw->id]) }}" class="text-sm font-semibold text-slate-700 hover:text-blue-600">{{ $gw->assigned_count ?? 0 }}</a>
+                <td class="px-5 py-3"><span class="inline-flex items-center rounded-full {{ $m->type === 'gateway' ? 'bg-indigo-50 text-indigo-600' : 'bg-amber-50 text-amber-600' }} px-2 py-0.5 text-[11px] font-medium">{{ $m->type === 'gateway' ? 'Gateway' : 'Traditional' }}</span></td>
+                <td class="px-5 py-3 hidden sm:table-cell">
+                    @if($m->type === 'gateway')
+                    <code class="text-xs text-slate-500">{{ substr($cfg['public_key'] ?? '', 0, 8) }}****</code>
+                    @else
+                    <span class="text-xs text-slate-500">{{ $cfg['account_number'] ?? $cfg['bank_name'] ?? $m->description }}</span>
+                    @endif
                 </td>
                 <td class="px-5 py-3 text-center">
-                    <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium {{ $gw->is_active ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500' }}">
-                        <span class="w-1.5 h-1.5 rounded-full {{ $gw->is_active ? 'bg-emerald-500' : 'bg-slate-400' }}"></span>
-                        {{ $gw->is_active ? 'Active' : 'Inactive' }}
-                    </span>
-                </td>
-                <td class="px-5 py-3 text-right" x-data="{ open: false }" @click.outside="open = false">
-                    <button @click="open = !open" class="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg"><svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M10 6a2 2 0 110-4 2 2 0 010 4zm0 6a2 2 0 110-4 2 2 0 010 4zm0 6a2 2 0 110-4 2 2 0 010 4z"/></svg></button>
-                    <div x-show="open" x-transition class="absolute right-0 mt-1 w-40 bg-white rounded-xl shadow-lg border border-slate-200 py-1 z-50">
-                        <a href="{{ route('management.payment-settings.method-info', ['type' => 'gateway', 'id' => $gw->id]) }}" class="flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"><i class="fi fi-rr-info w-4 text-slate-400"></i> View</a>
-                        <button onclick="editGateway(@js($gw->only(['id'])))" class="flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 w-full text-left"><i class="fi fi-rr-edit w-4 text-slate-400"></i> Edit</button>
-                        <form method="POST" action="{{ route('management.payment-settings.gateways.toggle', $gw->id) }}">
-                            @csrf @method('PATCH')
-                            <button class="flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 w-full text-left"><i class="fi fi-rr-power w-4 text-slate-400"></i> {{ $gw->is_active ? 'Disable' : 'Enable' }}</button>
-                        </form>
-                        <hr class="border-slate-100 my-1">
-                        <button onclick="deleteGateway({{ $gw->id }})" class="flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 w-full text-left"><i class="fi fi-rr-trash w-4"></i> Remove</button>
-                    </div>
-                </td>
-            </tr>
-            @endforeach
-            @foreach($bankAccounts as $bank)
-            <tr class="hover:bg-slate-50/50 transition-colors">
-                <td class="px-5 py-3">
-                    <div class="flex items-center gap-2.5">
-                        <span class="w-8 h-8 rounded-lg bg-amber-50 flex items-center justify-center text-amber-500 shrink-0"><i class="fi fi-rr-building-columns text-sm"></i></span>
-                        <span class="text-sm font-medium text-slate-800">{{ $bank->bank_name }}</span>
-                    </div>
-                </td>
-                <td class="px-5 py-3"><span class="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-600">Traditional</span></td>
-                <td class="px-5 py-3 hidden sm:table-cell"><span class="text-xs text-slate-500">{{ $bank->account_number }} · {{ $bank->account_name }}</span></td>
-                <td class="px-5 py-3 text-center">
-                    <a href="{{ route('management.payment-settings.method-info', ['type' => 'bank', 'id' => $bank->id]) }}" class="text-sm font-semibold text-slate-700 hover:text-blue-600">{{ $bank->assigned_count ?? 0 }}</a>
+                    <a href="{{ route('management.payment-settings.method-info', ['type' => $m->type === 'gateway' ? 'gateway' : 'bank', 'id' => $m->businesses->first()?->pivot?->id]) }}" class="text-sm font-semibold text-slate-700 hover:text-blue-600">{{ $m->assigned_count ?? 0 }}</a>
                 </td>
                 <td class="px-5 py-3 text-center">
-                    <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium bg-emerald-50 text-emerald-700">
-                        <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Active
+                    <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium {{ ($m->businesses->first()?->pivot?->is_active ?? false) ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500' }}">
+                        <span class="w-1.5 h-1.5 rounded-full {{ ($m->businesses->first()?->pivot?->is_active ?? false) ? 'bg-emerald-500' : 'bg-slate-400' }}"></span>
+                        {{ ($m->businesses->first()?->pivot?->is_active ?? false) ? 'Active' : 'Inactive' }}
                     </span>
                 </td>
                 <td class="px-5 py-3 text-right relative" x-data="{ open: false }" @click.outside="open = false">
                     <button @click="open = !open" class="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg"><svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M10 6a2 2 0 110-4 2 2 0 010 4zm0 6a2 2 0 110-4 2 2 0 010 4zm0 6a2 2 0 110-4 2 2 0 010 4z"/></svg></button>
+                    @php $pivotId = $m->businesses->first()?->pivot?->id; @endphp
                     <div x-show="open" x-transition class="absolute right-0 mt-1 w-40 bg-white rounded-xl shadow-lg border border-slate-200 py-1 z-50">
-                        <a href="{{ route('management.payment-settings.method-info', ['type' => 'bank', 'id' => $bank->id]) }}" class="flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"><i class="fi fi-rr-info w-4 text-slate-400"></i> View</a>
+                        <a href="{{ route('management.payment-settings.method-info', ['type' => $m->type === 'gateway' ? 'gateway' : 'bank', 'id' => $pivotId]) }}" class="flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"><i class="fi fi-rr-info w-4 text-slate-400"></i> View</a>
+                        @if($m->type === 'gateway')
+                        <button onclick="editGateway(@js(['id' => $pivotId]))" class="flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 w-full text-left"><i class="fi fi-rr-edit w-4 text-slate-400"></i> Edit</button>
+                        <form method="POST" action="{{ route('management.payment-settings.gateways.toggle', $pivotId) }}">
+                            @csrf @method('PATCH')
+                            <button class="flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 w-full text-left"><i class="fi fi-rr-power w-4 text-slate-400"></i> {{ ($m->businesses->first()?->pivot?->is_active ?? false) ? 'Disable' : 'Enable' }}</button>
+                        </form>
+                        @endif
                         <hr class="border-slate-100 my-1">
-                        <button onclick="deleteBank({{ $bank->id }}, '{{ $bank->bank_name }}')" class="flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 w-full text-left"><i class="fi fi-rr-trash w-4"></i> Remove</button>
+                        <button onclick="deleteMethod({{ $pivotId }})" class="flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 w-full text-left"><i class="fi fi-rr-trash w-4"></i> Remove</button>
                     </div>
                 </td>
             </tr>
-            @endforeach
-            @if($gateways->isEmpty() && $bankAccounts->isEmpty())
+            @empty
             <tr><td colspan="6" class="px-5 py-12 text-center text-sm text-slate-400">No payment methods configured yet. Click "Add Payment Method" to get started.</td></tr>
-            @endif
+            @endforelse
         </tbody>
     </table>
 </div>
@@ -182,8 +165,7 @@
 <script>
 function openAddMethodModal(){document.getElementById('addMethodModal').classList.remove('hidden')}
 function editGateway(gw){document.getElementById('editGatewayForm').action='/management/payment-settings/gateways/'+gw.id;document.getElementById('editGatewayModal').classList.remove('hidden')}
-function deleteGateway(id){if(!confirm('Remove this gateway?'))return;const f=document.createElement('form');f.method='POST';f.action='/management/payment-settings/gateways/'+id;f.innerHTML='<input type=hidden name=_token value={{ csrf_token() }}><input type=hidden name=_method value=DELETE>';document.body.appendChild(f);f.submit()}
-function deleteBank(id,name){if(!confirm('Remove '+name+'?'))return;const f=document.createElement('form');f.method='POST';f.action='/management/payment-settings/bank-accounts/'+id;f.innerHTML='<input type=hidden name=_token value={{ csrf_token() }}><input type=hidden name=_method value=DELETE>';document.body.appendChild(f);f.submit()}
+function deleteMethod(id){if(!confirm('Remove this payment method?'))return;const f=document.createElement('form');f.method='POST';f.action='/management/payment-settings/gateways/'+id;f.innerHTML='<input type=hidden name=_token value={{ csrf_token() }}><input type=hidden name=_method value=DELETE>';document.body.appendChild(f);f.submit()}
 function testGateway(id){fetch('/management/payment-settings/gateways/'+id+'/test',{method:'POST',headers:{'X-CSRF-TOKEN':'{{ csrf_token() }}','Accept':'application/json'}}).then(r=>r.json()).then(d=>{alert(d.success?'Connected!':'Failed: '+(d.message||'Error'))}).catch(()=>alert('Test failed'))}
 function verifyBank(){const c=document.getElementById('bankCode').value,n=document.getElementById('acctNumber').value,b=document.getElementById('verifyBtn'),r=document.getElementById('verifyResult');if(!c||n.length!==10){r.textContent='Select bank and enter 10-digit number';r.className='text-xs text-red-500';return}b.disabled=true;b.textContent='Verifying...';fetch('{{ route("management.payment-settings.verify-bank") }}',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-TOKEN':'{{ csrf_token() }}','Accept':'application/json'},body:JSON.stringify({bank_code:c,account_number:n})}).then(r=>r.json()).then(d=>{if(d.success&&d.account_name){document.getElementById('acctName').value=d.account_name;document.getElementById('saveBankBtn').disabled=false;r.textContent='Verified: '+d.account_name;r.className='text-xs text-emerald-600'}else{r.textContent=d.message||'Could not verify';r.className='text-xs text-red-500'}}).catch(()=>{r.textContent='Verification failed';r.className='text-xs text-red-500'}).finally(()=>{b.disabled=false;b.textContent='Verify'})}
 document.getElementById('acctNumber')?.addEventListener('input',function(){document.getElementById('saveBankBtn').disabled=true;if(this.value.length===10)verifyBank()})

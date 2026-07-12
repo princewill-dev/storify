@@ -381,7 +381,7 @@ class StoreController extends Controller
             $monthKey = $now->copy()->subMonths($i)->format('Y-m');
             $monthlyRevenue[] = [
                 'month' => $now->copy()->subMonths($i)->startOfMonth()->format('M'),
-                'total' => (int) (($monthlyData->get($monthKey)?->total ?? 0) / 100),
+                'total' => (int) ($monthlyData->get($monthKey)?->total ?? 0),
             ];
         }
 
