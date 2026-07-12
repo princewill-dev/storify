@@ -96,7 +96,7 @@
                         <a href="{{ route('management.auth.register') }}" class="btn btn-primary">Create Your Store &rarr;</a>
                     </div>
                     <div class="col-lg-6"><div class="media-block">
-                        <img src="{{ asset('home/images/sample-storefront-01.png') }}" alt="Storefront preview" style="width:100%;max-width:600px;border-radius:12px;position:relative;z-index:1;">
+                        <img src="{{ asset('home/images/sample-storefront-01.webp') }}" alt="Storefront preview" style="width:100%;max-width:600px;border-radius:12px;position:relative;z-index:1;">
                     </div></div>
                 </div>
             </div>
@@ -117,7 +117,7 @@
                         <a href="{{ route('management.auth.register') }}" class="btn btn-primary">Start Managing Inventory &rarr;</a>
                     </div>
                     <div class="col-lg-6"><div class="media-block">
-                        <img src="{{ asset('home/images/sample-inventory.01.png') }}" alt="Inventory preview" style="width:100%;max-width:600px;border-radius:12px;position:relative;z-index:1;">
+                        <img src="{{ asset('home/images/sample-inventory.01.webp') }}" alt="Inventory preview" style="width:100%;max-width:600px;border-radius:12px;position:relative;z-index:1;">
                     </div></div>
                 </div>
             </div>
@@ -138,7 +138,7 @@
                         <a href="{{ route('management.auth.register') }}" class="btn btn-primary">Try POS Terminal &rarr;</a>
                     </div>
                     <div class="col-lg-6"><div class="media-block">
-                        <img src="{{ asset('home/images/sample-pos-01.png') }}" alt="POS preview" style="width:100%;max-width:600px;border-radius:12px;position:relative;z-index:1;">
+                        <img src="{{ asset('home/images/sample-pos-01.webp') }}" alt="POS preview" style="width:100%;max-width:600px;border-radius:12px;position:relative;z-index:1;">
                     </div></div>
                 </div>
             </div>
@@ -159,7 +159,7 @@
                         <a href="{{ route('management.auth.register') }}" class="btn btn-primary">Get Started &rarr;</a>
                     </div>
                     <div class="col-lg-6"><div class="media-block">
-                        <img src="{{ asset('home/images/sample-payments.png') }}" alt="Payments preview" style="width:100%;max-width:600px;border-radius:12px;position:relative;z-index:1;">
+                        <img src="{{ asset('home/images/sample-payments.webp') }}" alt="Payments preview" style="width:100%;max-width:600px;border-radius:12px;position:relative;z-index:1;">
                     </div></div>
                 </div>
             </div>
