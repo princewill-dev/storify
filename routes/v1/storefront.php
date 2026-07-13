@@ -73,9 +73,9 @@ if (config('app.env') === 'local') {
             Route::post('/checkout', [CheckoutController::class, 'process'])->name('local.checkout.process');
             Route::get('/checkout/payment/{order}', [CheckoutController::class, 'payment'])->name('local.checkout.payment');
 
-            // Tracking (using home names for consistency/reusability of controller)
-            Route::get('/track/{orderNumber?}', [StoreOrderController::class, 'track'])->name('home.store.order.track');
-            Route::post('/track', [StoreOrderController::class, 'findOrder'])->name('home.store.order.find');
+            // Tracking (local dev path-based routes)
+            Route::get('/track/{orderNumber?}', [StoreOrderController::class, 'track'])->name('local.store.order.track');
+            Route::post('/track', [StoreOrderController::class, 'findOrder'])->name('local.store.order.find');
         });
 }
 
