@@ -20,6 +20,19 @@
                             </div>
                         </div>
                         <div class="product__proprietor-body">
+                                {{-- Flash Messages --}}
+                                @if(session('error'))
+                                <div class="alert alert-danger mb-3 py-2 small">{{ session('error') }}</div>
+                                @endif
+                                @if(session('success'))
+                                <div class="alert alert-success mb-3 py-2 small">{{ session('success') }}</div>
+                                @endif
+                                @if($errors->any())
+                                <div class="alert alert-danger mb-3 py-2 small">
+                                    @foreach($errors->all() as $e)<div>{{ $e }}</div>@endforeach
+                                </div>
+                                @endif
+
                                 {{-- Login/Register prompt for guest users --}}
                                 @unless(auth()->guard('customer')->check())
                                 <div class="alert alert-light border mb-4 p-3 d-flex align-items-center justify-content-between" style="background:#f8f9fa;">

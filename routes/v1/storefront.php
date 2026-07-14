@@ -72,6 +72,12 @@ if (config('app.env') === 'local') {
             Route::get('/checkout/{token}', [CheckoutController::class, 'index'])->name('local.checkout.index');
             Route::post('/checkout', [CheckoutController::class, 'process'])->name('local.checkout.process');
             Route::get('/checkout/payment/{order}', [CheckoutController::class, 'payment'])->name('local.checkout.payment');
+            Route::get('/checkout/{order}/payment-methods', [CheckoutController::class, 'showPaymentMethods'])->name('local.checkout.payment-methods');
+            Route::post('/checkout/{order}/payment-methods', [CheckoutController::class, 'selectPaymentMethod'])->name('local.checkout.payment-methods.select');
+            Route::post('/checkout/{order}/confirm-payment', [CheckoutController::class, 'confirmPayment'])->name('local.checkout.confirm-payment');
+            Route::get('/checkout/{order}/bank-transfer', [\App\Http\Controllers\Payment\BankTransferController::class, 'show'])->name('local.payment.bank-transfer');
+            Route::post('/checkout/{order}/bank-transfer/confirm', [\App\Http\Controllers\Payment\BankTransferController::class, 'confirmPayment'])->name('local.payment.bank-transfer.confirm');
+            Route::get('/checkout/{order}/payment-pending', [\App\Http\Controllers\Payment\BankTransferController::class, 'pending'])->name('local.payment.pending');
 
             // Tracking (local dev path-based routes)
             Route::get('/track/{orderNumber?}', [StoreOrderController::class, 'track'])->name('local.store.order.track');

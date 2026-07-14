@@ -30,6 +30,12 @@ use App\Enums\OrderStatus;
 
 class CheckoutController extends Controller
 {
+    /** Get the correct route name for the current environment */
+    private function routeName(string $name): string
+    {
+        return app()->environment('local') ? 'local.' . $name : $name;
+    }
+
     public function index(Request $request, $store_subdomain, $token)
     {
         $customer = auth()->guard('customer')->user();
@@ -536,7 +542,7 @@ class CheckoutController extends Controller
             ]);
 
             // Redirect directly to payment method selection
-            return redirect()->route('checkout.payment-methods', [
+            return redirect()->route($this->routeName('checkout.payment-methods'), [
                 'store_subdomain' => $store_subdomain,
                 'order' => $order->order_number
             ]);
@@ -624,7 +630,7 @@ class CheckoutController extends Controller
                 ]);
             }
 
-            return redirect()->route('payment.bank-transfer', [
+            return redirect()->route($this->routeName('payment.bank-transfer'), [
                 'store_subdomain' => $store_subdomain,
                 'order' => $order
             ]);
@@ -646,7 +652,7 @@ class CheckoutController extends Controller
             ]);
         }
 
-        return redirect()->route('checkout.payment', [
+        return redirect()->route($this->routeName('checkout.payment'), [
                 'store_subdomain' => $store_subdomain,
             'order' => $order->order_number
         ]);
@@ -804,7 +810,7 @@ class CheckoutController extends Controller
         // Clear pending order from session
         session()->forget('pending_order_id');
 
-        return redirect()->route('checkout.payment', [
+        return redirect()->route($this->routeName('checkout.payment'), [
                 'store_subdomain' => $store_subdomain,
             'order' => $order->order_number
         ])->with('success', 'Payment confirmed! Your order is being processed.');

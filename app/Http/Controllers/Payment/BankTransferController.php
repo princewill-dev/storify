@@ -19,6 +19,10 @@ use App\Mail\VendorOrderNotificationMail;
 
 class BankTransferController extends Controller
 {
+    private function routeName(string $name): string
+    {
+        return app()->environment('local') ? 'local.' . $name : $name;
+    }
     /**
      * Show bank transfer payment page with bank details
      */
@@ -134,12 +138,12 @@ class BankTransferController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Payment confirmed successfully!',
-                'redirect_url' => route('payment.pending', ['store_subdomain' => $store_subdomain, 'order' => $order->order_number]),
+                'redirect_url' => route($this->routeName('payment.pending'), ['store_subdomain' => $store_subdomain, 'order' => $order->order_number]),
             ]);
         }
 
         // Redirect to pending page for regular requests
-        return redirect()->route('payment.pending', ['store_subdomain' => $store_subdomain, 'order' => $order->order_number]);
+        return redirect()->route($this->routeName('payment.pending'), ['store_subdomain' => $store_subdomain, 'order' => $order->order_number]);
     }
 
     /**
