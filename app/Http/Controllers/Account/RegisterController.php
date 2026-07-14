@@ -296,10 +296,7 @@ class RegisterController extends Controller
                 }
                 $token = $activeCart?->checkout_token ?? $request->checkout_code;
                 $storeSlug = $request->store;
-                if (app()->environment('local')) {
-                    return redirect()->route('local.checkout.index', ['store_subdomain' => $storeSlug, 'token' => $token]);
-                }
-                return redirect()->route('checkout.index', ['token' => $token]);
+                return redirect()->route('checkout.index', ['store_subdomain' => $storeSlug, 'token' => $token]);
             }
 
             return redirect()->route('account.dashboard');
