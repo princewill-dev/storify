@@ -111,7 +111,6 @@ class KycController extends Controller
         $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'KYC Verification']];
 
         return view('management.kyc', compact(
-            'vendor',
             'application',
             'routes',
             'routeTree',

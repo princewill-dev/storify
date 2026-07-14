@@ -9,7 +9,7 @@
     <x-management.card>
         <div class="flex items-center gap-3 mb-4">
             <x-management.status-badge :status="$application->status" />
-            <span class="text-sm text-slate-500">Submitted {{ $application->created_at->diffForHumans() }}</span>
+            <span class="text-sm text-slate-500">Submitted {{ $application->created_at?->diffForHumans() ?? 'recently' }}</span>
         </div>
     </x-management.card>
     @else

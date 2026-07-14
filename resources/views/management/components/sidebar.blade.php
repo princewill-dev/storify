@@ -116,6 +116,9 @@ if (request()->routeIs('management.stores.*') || request()->routeIs('management.
            class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('management.staff.*') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
             <i class="fi fi-rr-users text-base w-5 text-center"></i>
             <span>Staff</span>
+            @if(($sidebarStaffCount ?? 0) > 0)
+            <span class="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-slate-700 text-[10px] font-bold text-slate-300 px-1.5">{{ $sidebarStaffCount }}</span>
+            @endif
         </a>
         <a href="{{ route('management.roles.index') }}" 
            class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('management.roles.*') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
@@ -133,6 +136,9 @@ if (request()->routeIs('management.stores.*') || request()->routeIs('management.
            class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('management.customers.*') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
             <i class="fi fi-rr-users-alt text-base w-5 text-center"></i>
             <span>Customers</span>
+            @if(($sidebarCustomersCount ?? 0) > 0)
+            <span class="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-slate-700 text-[10px] font-bold text-slate-300 px-1.5">{{ $sidebarCustomersCount }}</span>
+            @endif
         </a>
         @endcan
 
@@ -142,6 +148,9 @@ if (request()->routeIs('management.stores.*') || request()->routeIs('management.
            class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('management.orders.*') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
             <i class="fi fi-rr-shopping-cart text-base w-5 text-center"></i>
             <span>Orders</span>
+            @if(($sidebarPendingOrdersCount ?? 0) > 0)
+            <span class="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-amber-500 text-[10px] font-bold text-white px-1.5">{{ $sidebarPendingOrdersCount }}</span>
+            @endif
         </a>
         @endcan
 
@@ -151,6 +160,9 @@ if (request()->routeIs('management.stores.*') || request()->routeIs('management.
            class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('management.dispatches.*') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
             <i class="fi fi-rr-truck-side text-base w-5 text-center"></i>
             <span>Dispatches</span>
+            @if(($sidebarDispatchesCount ?? 0) > 0)
+            <span class="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-blue-500 text-[10px] font-bold text-white px-1.5">{{ $sidebarDispatchesCount }}</span>
+            @endif
         </a>
         @endcan
 
@@ -204,6 +216,9 @@ if (request()->routeIs('management.stores.*') || request()->routeIs('management.
            class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('management.transactions.*') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
             <i class="fi fi-rr-file-invoice-dollar text-base w-5 text-center"></i>
             <span>Transactions</span>
+            @if(($sidebarPendingTransactionsCount ?? 0) > 0)
+            <span class="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-amber-500 text-[10px] font-bold text-white px-1.5">{{ $sidebarPendingTransactionsCount }}</span>
+            @endif
         </a>
         @endcan
         @can('settings payment')
