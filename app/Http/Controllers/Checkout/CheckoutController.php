@@ -127,6 +127,8 @@ class CheckoutController extends Controller
             'customer' => $customer,
             'preselectedRoute' => $preselectedRoute,
             'shippingFee' => $shippingFee,
+            'savedAddresses' => $customer ? $customer->deliveryAddresses()->with('deliveryRoute')->latest()->get() : collect(),
+            'defaultAddress' => $customer?->defaultDeliveryAddress,
         ]);
     }
 

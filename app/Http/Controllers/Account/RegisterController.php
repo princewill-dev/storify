@@ -145,6 +145,8 @@ class RegisterController extends Controller
             'email' => ['required','email','max:190','unique:users,email','unique:customers,email'],
             'phone' => ['required','string','max:50'],
             'password' => ['required','string','min:8','confirmed'],
+        ], [
+            'email.unique' => 'This email already has an account. Please login or use Forgot Password to set up your account.',
         ]);
 
         // Split name into first and last name
@@ -198,19 +200,16 @@ class RegisterController extends Controller
                 Log::warning('email.account_otp.failed', ['error' => $e->getMessage()]);
             }
             session(['customer_otp_last_sent_at' => time()]);
-            
-            // Pass flow parameter if bulk-buy, family-pack, or live-first
-            $params = [];
-            if (session('bulk_buy_redirect')) {
-                $params['flow'] = 'bulk-buy';
+
+            $params = ['email' => $customer->email];
+            if ($request->filled('checkout_code')) {
+                $params['checkout_code'] = $request->checkout_code;
+                $params['store'] = $request->store;
             }
-            if (session('family_pack_redirect')) {
-                $params['flow'] = 'family_pack';
-            }
-            if (session('live_first_redirect')) {
-                $params['flow'] = 'live-first';
-            }
-            
+            if (session('bulk_buy_redirect')) $params['flow'] = 'bulk-buy';
+            if (session('family_pack_redirect')) $params['flow'] = 'family_pack';
+            if (session('live_first_redirect')) $params['flow'] = 'live-first';
+
             return redirect()->route('account.verify', $params);
         }
     }
@@ -219,13 +218,17 @@ class RegisterController extends Controller
     public function showVerify(Request $request, ?string $list = null)
     {
         $flow = $request->query('flow');
-        return view('account.otp', ['listId' => $list, 'flow' => $flow]);
+        $email = $request->query('email', session('pending_customer_email', 'your email'));
+        $checkoutCode = $request->query('checkout_code');
+        $checkoutStore = $request->query('store');
+        return view('account.otp', ['listId' => $list, 'flow' => $flow, 'email' => $email, 'checkoutCode' => $checkoutCode, 'checkoutStore' => $checkoutStore]);
     }
 
     // POST /shop4me/{list}/verify
     public function verify(Request $request, ?string $list = null)
     {
         $data = $request->validate([
+            'email' => ['nullable', 'email'],
             'otp' => ['required','digits:6'],
         ]);
         
@@ -255,8 +258,8 @@ class RegisterController extends Controller
             Log::info('customer.email.verified', ['list_id' => $req->list_id, 'customer_id' => $customer?->id]);
             return redirect()->route('shop4me.checkout', ['list' => $req->list_id]);
         } else {
-            // Get email from session (stored during registration)
-            $email = session('pending_customer_email');
+            // Get email from form submission, fallback to session
+            $email = $request->input('email', session('pending_customer_email'));
             if (!$email) {
                 return back()->withErrors(['otp' => 'Session expired. Please register again.']);
             }
@@ -281,36 +284,24 @@ class RegisterController extends Controller
             
             // Clear pending customer session data
             session()->forget(['pending_customer_id', 'pending_customer_email']);
-            
-            // Check if coming from live first enrollment
-            if (session('live_first_redirect')) {
-                $storeSlug = session('live_first_store_slug', 'zimozi_swift');
-                session()->forget(['live_first_redirect', 'live_first_store_slug']);
-                Log::info('customer.register.live_first_redirect', ['customer_id' => $customer?->id, 'store_slug' => $storeSlug]);
-                return redirect()->route('home.live-first.kyc', ['store_slug' => $storeSlug]);
-            }
-            
-            // Check if coming from family pack checkout
-            if (session('family_pack_redirect')) {
-                $storeSlug = session('family_pack_store_slug');
-                session()->forget(['family_pack_redirect', 'family_pack_store_slug']);
-                return redirect()->route('family-pack.checkout', ['store_slug' => $storeSlug]);
+
+            // Check if coming from checkout (URL-based, no session)
+            if ($request->filled('checkout_code') && $request->filled('store')) {
+                // Guest cart was merged/deleted — find/generate token for customer's active cart
+                $activeCart = \App\Models\Cart::where('user_id', $customer->id)
+                    ->where('status', 'active')
+                    ->latest()->first();
+                if ($activeCart && !$activeCart->checkout_token) {
+                    $activeCart->update(['checkout_token' => \Illuminate\Support\Str::random(32)]);
+                }
+                $token = $activeCart?->checkout_token ?? $request->checkout_code;
+                $storeSlug = $request->store;
+                if (app()->environment('local')) {
+                    return redirect()->route('local.checkout.index', ['store_subdomain' => $storeSlug, 'token' => $token]);
+                }
+                return redirect()->route('checkout.index', ['token' => $token]);
             }
 
-            // Check if coming from bulk buy checkout
-            if (session('bulk_buy_redirect')) {
-                $storeSlug = session('bulk_buy_store_slug');
-                session()->forget(['bulk_buy_redirect', 'bulk_buy_store_slug']);
-                return redirect()->route('bulk.checkout', ['store_slug' => $storeSlug]);
-            }
-            
-            // Check if coming from regular checkout
-            if (session('checkout_redirect')) {
-                $storeSlug = session('checkout_store_slug');
-                session()->forget(['checkout_redirect', 'checkout_store_slug']);
-                return redirect()->route('checkout.index', ['store_slug' => $storeSlug]);
-            }
-            
             return redirect()->route('account.dashboard');
         }
     }

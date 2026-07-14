@@ -1,153 +1,137 @@
-@extends('home.layout')
-@section('title', 'Account Information')
+@extends('account.layout')
+@section('title', 'Profile & Addresses')
+@section('subtitle', 'Profile & Addresses')
 
 @section('content')
-
-<br><br><br><br>
-
-<div class="page-content">
-    <section class="content-inner-1">
-        <div class="container">
-            <div class="row">
-                <!-- Sidebar -->
-                <div class="col-lg-3 col-md-4 mb-4">
-                    <div class="card">
-                        <div class="card-body">
-                            <div class="text-center mb-4">
-                                <div class="avatar avatar-xl bg-primary text-white rounded-circle d-inline-flex align-items-center justify-content-center" style="width: 80px; height: 80px; font-size: 32px;">
-                                    {{ strtoupper(substr($customer->first_name, 0, 1)) }}
-                                </div>
-                                <h5 class="mt-3 mb-1">{{ $customer->first_name }} {{ $customer->last_name }}</h5>
-                                <p class="text-muted small">{{ $customer->email }}</p>
-                            </div>
-                            <nav class="nav flex-column">
-                                <a class="nav-link" href="{{ route('account.dashboard') }}">
-                                    <i class="fas fa-home me-2"></i> Dashboard
-                                </a>
-                                <a class="nav-link active" href="{{ route('account.info') }}">
-                                    <i class="fas fa-user me-2"></i> Account Info
-                                </a>
-                                <a class="nav-link" href="{{ route('account.orders') }}">
-                                    <i class="fas fa-shopping-bag me-2"></i> My Orders
-                                </a>
-                                <a class="nav-link" href="{{ route('account.transactions') }}">
-                                    <i class="fas fa-credit-card me-2"></i> Transactions
-                                </a>
-                                <form method="POST" action="{{ route('account.logout') }}" class="d-inline">
-                                    @csrf
-                                    <button type="submit" class="nav-link border-0 bg-transparent text-danger w-100 text-start">
-                                        <i class="fas fa-sign-out-alt me-2"></i> Logout
-                                    </button>
-                                </form>
-                            </nav>
-                        </div>
+<div class="row g-4">
+    <div class="col-lg-5">
+        <div class="card">
+            <div class="px-4 py-3 border-bottom"><h6 class="mb-0 fw-semibold">Profile</h6></div>
+            <div class="p-4">
+                <form method="POST" action="{{ route('account.info') }}">
+                    @csrf
+                    <div class="mb-3">
+                        <label class="form-label small fw-medium">First Name</label>
+                        <input type="text" name="first_name" value="{{ old('first_name', $customer->first_name) }}" class="form-control" required>
                     </div>
-                </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-medium">Last Name</label>
+                        <input type="text" name="last_name" value="{{ old('last_name', $customer->last_name) }}" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-medium">Email</label>
+                        <input type="email" value="{{ $customer->email }}" class="form-control bg-light" disabled>
+                        <small class="text-muted">Email cannot be changed</small>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-medium">Phone</label>
+                        <input type="text" name="phone" value="{{ old('phone', $customer->phone) }}" class="form-control" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-sm px-4">Save Changes</button>
+                </form>
+            </div>
+        </div>
+    </div>
 
-                <!-- Main Content -->
-                <div class="col-lg-9 col-md-8">
-                    <h2 class="mb-4">Account Information</h2>
-
-                    @if(session('success'))
-                        <div class="alert alert-success alert-dismissible fade show" role="alert">
-                            {{ session('success') }}
-                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                        </div>
-                    @endif
-
-                    @if($errors->any())
-                        <div class="alert alert-danger alert-dismissible fade show" role="alert">
-                            @foreach($errors->all() as $error)
-                                <div>{{ $error }}</div>
-                            @endforeach
-                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                        </div>
-                    @endif
-
-                    <form method="POST" action="{{ route('account.info') }}">
+    <div class="col-lg-7">
+        <div class="card">
+            <div class="d-flex align-items-center justify-content-between px-4 py-3 border-bottom">
+                <h6 class="mb-0 fw-semibold">Saved Addresses</h6>
+                <button class="btn btn-primary btn-sm" data-bs-toggle="collapse" data-bs-target="#addAddressForm">
+                    <i class="fa-solid fa-plus me-1"></i> Add New
+                </button>
+            </div>
+            <div class="collapse {{ $addresses->isEmpty() ? 'show' : '' }} border-bottom" id="addAddressForm">
+                <div class="p-4 bg-light">
+                    <form method="POST" action="{{ route('account.addresses.store') }}">
                         @csrf
-                        
-                        <!-- Personal Information -->
-                        <div class="card mb-4">
-                            <div class="card-header">
-                                <h5 class="mb-0">Personal Information</h5>
+                        <div class="row g-2">
+                            <div class="col-6">
+                                <label class="form-label small">Label</label>
+                                <select name="label" class="form-select form-select-sm">
+                                    <option value="Home">Home</option>
+                                    <option value="Work">Work</option>
+                                    <option value="Other">Other</option>
+                                </select>
                             </div>
-                            <div class="card-body">
-                                <div class="row">
-                                    <div class="col-md-6 mb-3">
-                                        <label class="form-label">Full Name</label>
-                                        <input type="text" name="name" class="form-control" value="{{ old('name', $customer->first_name . ' ' . $customer->last_name) }}" required>
-                                    </div>
-                                    <div class="col-md-6 mb-3">
-                                        <label class="form-label">Email Address</label>
-                                        <input type="email" class="form-control" value="{{ $customer->email }}" disabled>
-                                        <small class="text-muted">Email cannot be changed</small>
-                                    </div>
-                                    <div class="col-md-6 mb-3">
-                                        <label class="form-label">First Name</label>
-                                        <input type="text" name="first_name" class="form-control" value="{{ old('first_name', $customer->first_name ?? '') }}" required>
-                                    </div>
-                                    <div class="col-md-6 mb-3">
-                                        <label class="form-label">Last Name</label>
-                                        <input type="text" name="last_name" class="form-control" value="{{ old('last_name', $customer->last_name ?? '') }}" required>
-                                    </div>
-                                    <div class="col-md-6 mb-3">
-                                        <label class="form-label">Phone Number</label>
-                                        <input type="text" name="phone" class="form-control" value="{{ old('phone', $customer->phone) }}">
-                                    </div>
-                                    <div class="col-md-6 mb-3">
-                                        <label class="form-label">Company Name (Optional)</label>
-                                        <input type="text" name="company_name" class="form-control" value="{{ old('company_name', $customer->company_name ?? '') }}">
-                                    </div>
+                            <div class="col-6">
+                                <label class="form-label small">Recipient Name</label>
+                                <input type="text" name="recipient_name" value="{{ $customer->full_name }}" class="form-control form-control-sm" required>
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label small">Phone</label>
+                                <input type="text" name="recipient_phone" value="{{ $customer->phone }}" class="form-control form-control-sm" required>
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label small">Delivery Route</label>
+                                <select name="delivery_route_id" class="form-select form-select-sm">
+                                    <option value="">Select route...</option>
+                                    @foreach(\App\Models\DeliveryRoute::where('active', true)->orderBy('state')->orderBy('area')->limit(50)->get() as $route)
+                                    <option value="{{ $route->id }}">{{ $route->area }}, {{ $route->state }}</option>
+                                    @endforeach
+                                </select>
+                            </div>
+                            <div class="col-8">
+                                <label class="form-label small">Street Address</label>
+                                <input type="text" name="street_address" class="form-control form-control-sm" placeholder="House no., street name" required>
+                            </div>
+                            <div class="col-4">
+                                <label class="form-label small">Apartment</label>
+                                <input type="text" name="apartment" class="form-control form-control-sm" placeholder="Apt, suite, etc.">
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label small">City</label>
+                                <input type="text" name="city" class="form-control form-control-sm">
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label small">State</label>
+                                <input type="text" name="state" class="form-control form-control-sm">
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label small">Country</label>
+                                <input type="text" name="country" value="Nigeria" class="form-control form-control-sm">
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label small">ZIP Code</label>
+                                <input type="text" name="zip_code" class="form-control form-control-sm">
+                            </div>
+                            <div class="col-12">
+                                <div class="form-check mt-2">
+                                    <input type="checkbox" name="is_default" value="1" class="form-check-input" id="setDefault">
+                                    <label class="form-check-label small" for="setDefault">Set as default address</label>
                                 </div>
                             </div>
                         </div>
-
-                        <!-- Address Information -->
-                        <div class="card mb-4">
-                            <div class="card-header">
-                                <h5 class="mb-0">Address Information</h5>
-                            </div>
-                            <div class="card-body">
-                                <div class="row">
-                                    <div class="col-md-12 mb-3">
-                                        <label class="form-label">Street Address</label>
-                                        <input type="text" name="street_address" class="form-control" value="{{ old('street_address', $customer->street_address ?? '') }}">
-                                    </div>
-                                    <div class="col-md-6 mb-3">
-                                        <label class="form-label">Apartment/Suite (Optional)</label>
-                                        <input type="text" name="apartment" class="form-control" value="{{ old('apartment', $customer->apartment ?? '') }}">
-                                    </div>
-                                    <div class="col-md-6 mb-3">
-                                        <label class="form-label">City</label>
-                                        <input type="text" name="city" class="form-control" value="{{ old('city', $customer->city ?? '') }}">
-                                    </div>
-                                    <div class="col-md-6 mb-3">
-                                        <label class="form-label">State</label>
-                                        <input type="text" name="state" class="form-control" value="{{ old('state', $customer->state ?? '') }}">
-                                    </div>
-                                    <div class="col-md-6 mb-3">
-                                        <label class="form-label">ZIP/Postal Code</label>
-                                        <input type="text" name="zip_code" class="form-control" value="{{ old('zip_code', $customer->zip_code ?? '') }}">
-                                    </div>
-                                    <div class="col-md-12 mb-3">
-                                        <label class="form-label">Country</label>
-                                        <input type="text" name="country" class="form-control" value="{{ old('country', $customer->country ?? '') }}">
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="text-end">
-                            <button type="submit" class="btn btn-primary btn-lg">
-                                <i class="fas fa-save me-2"></i> Save Changes
-                            </button>
-                        </div>
+                        <button type="submit" class="btn btn-primary btn-sm mt-3 px-4">Save Address</button>
                     </form>
                 </div>
             </div>
-        </div>
-    </section>
-</div>
 
+            <div class="p-0">
+                @forelse($addresses as $addr)
+                <div class="d-flex align-items-start gap-3 p-4 {{ !$loop->last ? 'border-bottom' : '' }}">
+                    <div class="rounded-circle bg-secondary bg-opacity-10 d-flex align-items-center justify-content-center flex-shrink-0" style="width:36px;height:36px;">
+                        <i class="fa-solid {{ $addr->label === 'Work' ? 'fa-briefcase' : 'fa-house' }} text-secondary small"></i>
+                    </div>
+                    <div class="flex-grow-1 min-w-0">
+                        <div class="d-flex align-items-center gap-2 mb-1">
+                            <span class="fw-semibold small">{{ $addr->label ?? 'Address' }}</span>
+                            @if($addr->is_default)
+                            <span class="badge bg-dark bg-opacity-10 text-dark" style="font-size:10px;">Default</span>
+                            @endif
+                        </div>
+                        <p class="mb-1 small">{{ $addr->recipient_name }} · {{ $addr->recipient_phone }}</p>
+                        <p class="mb-0 text-muted" style="font-size:12px;">{{ $addr->full_address }}</p>
+                    </div>
+                </div>
+                @empty
+                <div class="text-center py-5 text-muted">
+                    <i class="fa-solid fa-map-location-dot fa-2x mb-3 d-block"></i>
+                    <p class="small">No saved addresses yet</p>
+                </div>
+                @endforelse
+            </div>
+        </div>
+    </div>
+</div>
 @endsection

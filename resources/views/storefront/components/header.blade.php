@@ -44,6 +44,20 @@
             <div class="col-xxl-3 col-xl-3 col-lg-2 col-md-8 col-6">
                <div class="header__action d-flex align-items-center justify-content-end">
                   
+                  {{-- Account --}}
+                  @if(auth()->guard('customer')->check())
+                     @php $c = auth('customer')->user(); @endphp
+                     <a href="{{ route('account.dashboard') }}" style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; color: #333; margin-right: 10px; text-decoration: none; font-size: 13px; font-weight: 500;" title="My Account">
+                        <span style="display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; background: #7c5cfc; color: #fff; font-size: 12px; font-weight: 600;">{{ strtoupper(substr($c->first_name, 0, 1)) }}</span>
+                        <span class="d-none d-md-inline">{{ $c->first_name }}</span>
+                     </a>
+                  @else
+                     <a href="{{ route('account.login') }}" style="display: inline-flex; align-items: center; gap: 4px; padding: 8px; color: #333; margin-right: 10px; text-decoration: none; font-size: 13px;" title="Login">
+                        <i class="fas fa-user" style="font-size: 20px;"></i>
+                        <span class="d-none d-md-inline">Account</span>
+                     </a>
+                  @endif
+
                   <a href="javascript:void(0);" class="cart-toggle-btn" style="position: relative; display: inline-flex; padding: 8px; color: #333; margin-right: 15px;">
                      <i class="fas fa-shopping-cart" style="font-size: 24px;"></i>
                      <span style="position: absolute; top: -5px; right: -5px; background: #7c5cfc; color: #fff; font-size: 12px; font-weight: 600; width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center;">0</span>

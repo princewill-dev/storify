@@ -1,94 +1,76 @@
-@extends('home.layout')
-@section('title', 'Login')
+<!DOCTYPE html>
+<html lang="en" class="h-100 bg-slate-50">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Login — {{ config('app.name', 'Storify') }}</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <style>
+        body { background: #f1f5f9; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+        .login-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 16px; padding: 40px 32px; width: 100%; max-width: 420px; box-shadow: 0 1px 3px rgba(0,0,0,.04); }
+        .login-card h4 { font-weight: 700; color: #0f172a; }
+        .form-control { border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 14px; font-size: 14px; }
+        .form-control:focus { border-color: #0f172a; box-shadow: 0 0 0 3px rgba(15,23,42,.06); }
+        .btn-dark { background: #0f172a; border: none; border-radius: 10px; padding: 12px; font-weight: 600; font-size: 14px; }
+        .btn-dark:hover { background: #1e293b; }
+        .info-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; margin-top: 20px; }
+        .info-box p { font-size: 13px; }
+        a { color: #0f172a; font-weight: 500; }
+    </style>
+</head>
+<body>
+<div class="login-card">
+    @php $backUrl = request('store') ? url(request('store')) : url('/'); @endphp
+    <a href="{{ $backUrl }}" class="d-block text-muted small mb-3 text-decoration-none">← Back to Store</a>
+    <div class="text-center mb-4">
+        <h4>Welcome Back</h4>
+        <p class="text-muted small mb-0">
+            @if(session('checkout_redirect'))
+                Login to continue with your checkout
+            @else
+                Sign in to your account
+            @endif
+        </p>
+    </div>
 
-@section('content')
+    @if(session('success'))
+        <div class="alert alert-success small py-2">{{ session('success') }}</div>
+    @endif
 
-<br>
-<br>
-<br>
-<br>
-<br>
-<br>
-<br>
-<br>
-
-<div class="page-content">
-    <section class="px-3">
-        <div class="row align-center-center">
-            <div class="col-md-6 mx-auto">
-                <div class="login-area">
-                    <h2 class="text-secondary text-center">Welcome Back Customer</h2>
-                    <p class="text-center m-b30">
-                        @if(session('checkout_redirect'))
-                            Please login to continue with your checkout
-                        @else
-                            Please login to your account
-                        @endif
-                    </p>
-                    
-                    @if(session('success'))
-                        <div class="alert alert-success alert-dismissible fade show" role="alert">
-                            {{ session('success') }}
-                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                        </div>
-                    @endif
-
-                    @if($errors->any())
-                        <div class="alert alert-danger alert-dismissible fade show" role="alert">
-                            @foreach($errors->all() as $error)
-                                <div>{{ $error }}</div>
-                            @endforeach
-                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                        </div>
-                    @endif
-
-                    <form method="post" action="{{ route('account.login') }}">
-                        @csrf
-                        <div class="m-b25">
-                            <label class="label-title">Email Address</label>
-                            <input name="email" required class="form-control" placeholder="Email Address" type="email" value="{{ old('email') }}" autofocus>
-                        </div>
-                        <div class="m-b25">
-                            <label class="label-title">Password</label>
-                            <input name="password" required class="form-control" placeholder="Password" type="password">
-                        </div>
-                        <div class="m-b25 d-flex justify-content-between align-items-center">
-                            <div class="form-check">
-                                <input class="form-check-input" type="checkbox" name="remember" id="remember">
-                                <label class="form-check-label" for="remember">
-                                    Remember Me
-                                </label>
-                            </div>
-                            <a href="{{ route('account.forgot-password') }}" class="text-primary">Forgot Password?</a>
-                        </div>
-                        <div class="text-center">
-                            <button type="submit" class="btn btn-secondary btnhover text-uppercase me-2 w-100">Login</button>
-                        </div>
-
-                        <hr>
-                        <p class="text-center">Don't have an account? 
-                            @if(isset($flow) && $flow)
-                                <a href="{{ route('account.register', ['flow' => $flow]) }}">Sign Up</a>
-                            @elseif(session('checkout_redirect'))
-                                <a href="{{ route('account.register') }}?checkout=1">Sign Up</a>
-                            @else
-                                <a href="{{ route('account.register') }}">Sign Up</a>
-                            @endif
-                        </p>
-                        
-                    </form>
-                    
-                </div>
-                <br>
-                <p class="text-center">Are you a vendor? <a href="{{ route('management.auth.login') }}">Login</a></p>
-            </div>
+    @if($errors->any())
+        <div class="alert alert-danger small py-2">
+            @foreach($errors->all() as $error)
+                <div>{{ $error }}</div>
+            @endforeach
         </div>
-    </section>
+    @endif
+
+    <form method="post" action="{{ route('account.login') }}">
+        @csrf
+        @if(request('checkout_code'))<input type="hidden" name="checkout_code" value="{{ request('checkout_code') }}"><input type="hidden" name="store" value="{{ request('store') }}">@endif
+        <div class="mb-3">
+            <label class="form-label small fw-medium">Email Address</label>
+            <input name="email" type="email" class="form-control" value="{{ old('email') }}" placeholder="you@example.com" required autofocus>
+        </div>
+        <div class="mb-3">
+            <label class="form-label small fw-medium">Password</label>
+            <input name="password" type="password" class="form-control" placeholder="••••••••" required>
+        </div>
+        <button type="submit" class="btn btn-dark w-100">Sign In</button>
+        <div class="text-center mt-3">
+            <a href="{{ route('account.forgot-password', request('checkout_code') ? ['checkout_code' => request('checkout_code')] : []) }}" class="small text-muted">Forgot Password?</a>
+        </div>
+    </form>
+
+    <div class="info-box text-center">
+        <p class="mb-1 fw-medium">First time here?</p>
+        <p class="text-muted mb-2" style="font-size:12px;">Ordered before but never set a password? Use <strong>Forgot Password</strong> to activate your account.</p>
+        <a href="{{ route('account.forgot-password') }}" class="btn btn-sm btn-outline-dark">Set Up My Account</a>
+    </div>
+
+    <p class="text-center small mt-3 mb-0">
+        No account? <a href="{{ route('account.register') }}">Create one</a>
+    </p>
 </div>
-
-<br>
-<br>
-<br>
-<br>
-
-@endsection
+</body>
+</html>

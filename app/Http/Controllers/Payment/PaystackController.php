@@ -259,9 +259,9 @@ class PaystackController extends Controller
                     ]),
                 ]);
 
-                // Update order
+                // Update order — auto-accept since payment is verified
                 $order = $transaction->order;
-                $order->update(['status' => \App\Enums\OrderStatus::PROCESSING->value]);
+                $order->update(['status' => \App\Enums\OrderStatus::ACCEPTED->value]);
 
                 // Credit store balance
                 $store = $order->store;

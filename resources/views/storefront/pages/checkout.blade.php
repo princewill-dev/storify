@@ -20,6 +20,30 @@
                             </div>
                         </div>
                         <div class="product__proprietor-body">
+                                {{-- Login/Register prompt for guest users --}}
+                                @unless(auth()->guard('customer')->check())
+                                <div class="alert alert-light border mb-4 p-3 d-flex align-items-center justify-content-between" style="background:#f8f9fa;">
+                                    <div>
+                                        <p class="mb-1 fw-semibold small">Have an account?</p>
+                                        <p class="mb-0 text-muted" style="font-size:12px;">Login or create an account to save your info for faster checkout next time.</p>
+                                    </div>
+                                    <div class="d-flex gap-2 flex-shrink-0 ms-3">
+                                        <a href="{{ route('account.login', ['checkout_code' => $cart->checkout_token, 'store' => $store->slug]) }}" class="btn btn-sm btn-outline-dark">Login</a>
+                                        <a href="{{ route('account.register', ['checkout_code' => $cart->checkout_token, 'store' => $store->slug]) }}" class="btn btn-sm btn-dark">Register</a>
+                                    </div>
+                                </div>
+                                @else
+                                <div class="alert alert-light border mb-4 p-3 d-flex align-items-center gap-3" style="background:#f8f9fa;">
+                                    <div class="rounded-circle bg-secondary bg-opacity-10 d-flex align-items-center justify-content-center flex-shrink-0" style="width:36px;height:36px;">
+                                        <span class="fw-bold small">{{ strtoupper(substr($customer->first_name ?? 'U', 0, 1)) }}</span>
+                                    </div>
+                                    <div>
+                                        <p class="mb-0 fw-semibold small">Welcome back, {{ $customer->first_name }}</p>
+                                        <p class="mb-0 text-muted" style="font-size:12px;">Your info is pre-filled from your account. <a href="{{ route('account.dashboard') }}">Manage addresses →</a></p>
+                                    </div>
+                                </div>
+                                @endunless
+
                                 <form action="{{ route('checkout.process', ['store_subdomain' => $store->slug]) }}" method="POST" id="checkoutForm">
                                     @csrf
                                     <input type="hidden" name="checkout_token" value="{{ $cart->checkout_token ?? '' }}">
@@ -51,6 +75,33 @@
                                 <hr>
 
                                 <h6 class="mb-3 mt-4">Delivery Information</h6>
+
+                                {{-- Saved Addresses (logged-in customers only) --}}
+                                @if(auth()->guard('customer')->check() && isset($savedAddresses) && $savedAddresses->isNotEmpty())
+                                <div class="mb-3">
+                                    <label class="form-label">Use Saved Address</label>
+                                    <select class="form-select" id="savedAddressSelect" onchange="fillSavedAddress(this)">
+                                        <option value="">— Enter new address —</option>
+                                        @foreach($savedAddresses as $addr)
+                                        <option value="{{ $addr->id }}"
+                                            data-name="{{ $addr->recipient_name }}"
+                                            data-phone="{{ $addr->recipient_phone }}"
+                                            data-street="{{ $addr->street_address }}"
+                                            data-apartment="{{ $addr->apartment }}"
+                                            data-city="{{ $addr->city }}"
+                                            data-state="{{ $addr->state }}"
+                                            data-country="{{ $addr->country }}"
+                                            data-zip="{{ $addr->zip_code }}"
+                                            data-route="{{ $addr->delivery_route_id }}"
+                                            {{ $addr->is_default ? 'selected' : '' }}>
+                                            {{ $addr->label }} — {{ $addr->street_address }}, {{ $addr->city }}
+                                            @if($addr->is_default)(Default)@endif
+                                        </option>
+                                        @endforeach
+                                    </select>
+                                </div>
+                                @endif
+
                                 <div class="row mb-4">
                                     <div class="col-md-6 mb-3">
                                         <label class="form-label">Country *</label>
@@ -132,4 +183,36 @@
     </div>
 </section>
 
+@push('scripts')
+<script>
+function fillSavedAddress(select) {
+    if (!select.value) return;
+    var opt = select.selectedOptions[0];
+    var fields = {
+        'input[name="first_name"]': opt.dataset.name ? opt.dataset.name.split(' ')[0] : '',
+        'input[name="last_name"]': opt.dataset.name ? opt.dataset.name.split(' ').slice(1).join(' ') : '',
+        'input[name="phone"]': opt.dataset.phone || '',
+        'textarea[name="street_address"]': opt.dataset.street || '',
+        'input[name="apartment"]': opt.dataset.apartment || '',
+        'input[name="city"]': opt.dataset.city || '',
+        'input[name="state"]': opt.dataset.state || '',
+        'input[name="country"]': opt.dataset.country || 'Nigeria',
+        'input[name="zip_code"]': opt.dataset.zip || '',
+    };
+    for (var selector in fields) {
+        var el = document.querySelector(selector);
+        if (el) el.value = fields[selector];
+    }
+    if (opt.dataset.route) {
+        var routeEl = document.querySelector('input[name="delivery_route_id"], select[name="delivery_route_id"]');
+        if (routeEl) routeEl.value = opt.dataset.route;
+    }
+}
+// Auto-fill on page load if default is selected
+document.addEventListener('DOMContentLoaded', function() {
+    var sel = document.getElementById('savedAddressSelect');
+    if (sel && sel.value) fillSavedAddress(sel);
+});
+</script>
+@endpush
 @endsection

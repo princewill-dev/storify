@@ -103,40 +103,37 @@ class AccountController extends Controller
                 return redirect()->route('family-pack.checkout', ['store_slug' => $storeSlug]);
             }
 
-            // Check if coming from bulk buy checkout
-            if (session('bulk_buy_redirect')) {
-                $storeSlug = session('bulk_buy_store_slug');
-                session()->forget(['bulk_buy_redirect', 'bulk_buy_store_slug']);
-                
-                Log::info('customer.login.bulk_buy_redirect', [
-                    'customer_id' => $customer->id,
-                    'store_slug' => $storeSlug,
-                ]);
-                
-                return redirect()->route('bulk.checkout', ['store_slug' => $storeSlug]);
+            // Check if coming from checkout (URL-based, no session)
+            if ($request->filled('checkout_code') && $request->filled('store')) {
+                // Guest cart may have been merged — get the customer's active cart token
+                $activeCart = \App\Models\Cart::where('user_id', $customer->id)
+                    ->where('status', 'active')
+                    ->latest()->first();
+                if ($activeCart && !$activeCart->checkout_token) {
+                    $activeCart->update(['checkout_token' => \Illuminate\Support\Str::random(32)]);
+                }
+                $token = $activeCart?->checkout_token ?? $request->checkout_code;
+                $storeSlug = $request->store;
+                if (app()->environment('local')) {
+                    return redirect()->route('local.checkout.index', ['store_subdomain' => $storeSlug, 'token' => $token]);
+                }
+                return redirect()->route('checkout.index', ['token' => $token]);
             }
-            
-            // Check if coming from regular checkout
-            if (session('checkout_redirect')) {
-                $storeSlug = session('checkout_store_slug');
-                session()->forget(['checkout_redirect', 'checkout_store_slug']);
-                
-                Log::info('customer.login.checkout_redirect', [
-                    'customer_id' => $customer->id,
-                    'store_slug' => $storeSlug,
-                ]);
-                
-                return redirect()->route('checkout.index', ['store_slug' => $storeSlug]);
-            }
-            
+
             return redirect()->intended(route('account.dashboard'));
         }
 
         Log::warning('customer.login.failed', ['email' => $request->email]);
-        
-        return back()->withErrors([
+
+        $redirect = redirect()->route('account.login')->withErrors([
             'email' => 'The provided credentials do not match our records.',
-        ])->onlyInput('email');
+        ]);
+        if ($request->filled('checkout_code') && $request->filled('store')) {
+            $redirect = redirect()->route('account.login', ['checkout_code' => $request->checkout_code, 'store' => $request->store])->withErrors([
+                'email' => 'The provided credentials do not match our records.',
+            ]);
+        }
+        return $redirect->withInput($request->only('email'));
     }
 
     /**
@@ -178,6 +175,7 @@ class AccountController extends Controller
                         $customerCart = Cart::create([
                             'store_id' => $guestCart->store_id,
                             'user_id' => $customer->id,
+                            'checkout_token' => \Illuminate\Support\Str::random(32),
                             'currency' => $guestCart->currency,
                             'status' => 'active',
                             'guest_token' => null,
@@ -278,25 +276,25 @@ class AccountController extends Controller
     public function sendResetOtp(Request $request): RedirectResponse
     {
         $request->validate([
-            'email' => ['required', 'email', 'exists:users,email'],
+            'email' => ['required', 'email', 'exists:customers,email'],
         ]);
 
-        $user = User::where('email', $request->email)->first();
-        
-        if (!$user) {
-            return back()->withErrors(['email' => 'User not found.']);
+        $customer = \App\Models\Customer::where('email', $request->email)->first();
+
+        if (!$customer) {
+            return back()->withErrors(['email' => 'Customer not found.']);
         }
 
         // Generate 6-digit OTP
         $otp = (string) random_int(100000, 999999);
-        $cacheKey = 'password_reset_otp:' . $user->email;
-        
+        $cacheKey = 'password_reset_otp:' . $customer->email;
+
         // Store OTP for 10 minutes
         Cache::put($cacheKey, $otp, now()->addMinutes(10));
 
         try {
-            Mail::to($user->email)->queue(new PasswordResetOtpMail($user, $otp));
-            Log::info('password_reset.otp_sent', ['user_id' => $user->id, 'email' => $user->email]);
+            Mail::to($customer->email)->queue(new PasswordResetOtpMail($customer, $otp));
+            Log::info('password_reset.otp_sent', ['customer_id' => $customer->id, 'email' => $customer->email]);
         } catch (\Throwable $e) {
             Log::error('password_reset.otp_failed', ['error' => $e->getMessage()]);
             return back()->withErrors(['email' => 'Failed to send OTP. Please try again.']);
@@ -377,15 +375,15 @@ class AccountController extends Controller
             'password' => ['required', 'string', 'min:8', 'confirmed'],
         ]);
 
-        $user = User::where('email', $email)->first();
-        
-        if (!$user) {
+        $customer = \App\Models\Customer::where('email', $email)->first();
+
+        if (!$customer) {
             return redirect()->route('account.forgot-password')
-                ->withErrors(['email' => 'User not found.']);
+                ->withErrors(['email' => 'Customer not found.']);
         }
 
-        $user->password = Hash::make($request->password);
-        $user->save();
+        $customer->password = Hash::make($request->password);
+        $customer->save();
 
         Cache::forget('password_reset_token:' . $token);
 
@@ -426,8 +424,9 @@ class AccountController extends Controller
     public function showAccountInfo(): View
     {
         $customer = Auth::guard('customer')->user();
+        $addresses = $customer->deliveryAddresses()->with('deliveryRoute')->latest()->get();
 
-        return view('account.info', compact('customer'));
+        return view('account.info', compact('customer', 'addresses'));
     }
 
     /**
