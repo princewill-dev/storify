@@ -46,9 +46,7 @@ class StoreController extends Controller
         $businessTypes = BusinessType::orderBy('name')->get(['id', 'name']);
         $currencies = Currency::orderBy('name')->get();
         $activeStaff = User::where('business_id', $user->business_id)->where('role', 'staff')->where('status', 'active')->with('roles')->get(['id', 'name']);
-        $userBanks = StoreBank::where(function ($q) use ($user) {
-            $q->whereIn('store_id', $user->stores()->pluck('id'))->orWhereNull('store_id');
-        })->with('store')->get();
+        $userBanks = StoreBank::where('business_id', $user->business_id)->get();
 
         $prefill = session('pending_store_defaults', []);
         $defaults = [

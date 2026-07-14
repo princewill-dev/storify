@@ -112,12 +112,11 @@ class PaymentSettingsController extends Controller
         $user = $request->user();
         $storeIds = $user->stores()->pluck('id');
 
-        if ($bank->store_id && !$storeIds->contains($bank->store_id)) {
+        if ($bank->business_id !== $user->business_id) {
             abort(403, 'Unauthorized');
         }
 
         $validated = $request->validate([
-            'store_id' => 'nullable|exists:stores,id',
             'bank_code' => 'required|string',
             'bank_name' => 'required|string|max:255',
             'account_number' => 'required|string|max:20',
@@ -125,19 +124,12 @@ class PaymentSettingsController extends Controller
             'is_primary' => 'boolean',
         ]);
 
-        $newStoreId = $validated['store_id'] ?? null;
-
-        if ($newStoreId && !$storeIds->contains($newStoreId)) {
-            abort(403, 'Unauthorized');
-        }
-
         if ($request->boolean('is_primary')) {
-            StoreBank::where('store_id', $newStoreId)->where('id', '!=', $bank->id)
+            StoreBank::where('business_id', $user->business_id)->where('id', '!=', $bank->id)
                 ->update(['is_primary' => false]);
         }
 
         $bank->update([
-            'store_id' => $newStoreId,
             'bank_name' => $validated['bank_name'],
             'bank_code' => $validated['bank_code'],
             'account_number' => $validated['account_number'],
@@ -154,7 +146,7 @@ class PaymentSettingsController extends Controller
         $user = $request->user();
         $storeIds = $user->stores()->pluck('id');
 
-        if ($bank->store_id && !$storeIds->contains($bank->store_id)) {
+        if ($bank->business_id !== $user->business_id) {
             abort(403, 'Unauthorized');
         }
 
@@ -359,7 +351,7 @@ class PaymentSettingsController extends Controller
         }
 
         if ($newMode === 'manual') {
-            $hasBank = StoreBank::where('store_id', $store->id)->exists();
+            $hasBank = StoreBank::where('business_id', $store->business_id)->exists();
             if (!$hasBank) {
                 return back()->with('error', 'Add a bank account first.');
             }
