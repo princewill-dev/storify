@@ -90,7 +90,7 @@ class OrderController extends Controller
             'returned' => (int) $orderStats->returned,
         ];
 
-        $stores = $user->stores()->where('status', '!=', 'deleted')->orderBy('name')->get();
+        $stores = $user->accessibleStores()->where('status', '!=', 'deleted')->orderBy('name')->get();
         $statusOptions = \App\Enums\OrderStatus::cases();
         $activeFilters = $request->only(['search', 'status', 'store_id', 'source', 'date_from', 'date_to']);
 

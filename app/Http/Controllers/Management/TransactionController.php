@@ -45,7 +45,7 @@ class TransactionController extends Controller
         $transactions = $query->latest()->paginate(15)->withQueryString();
 
         // Get stores for the filter dropdown
-        $stores = $user->stores()->where('status', '!=', 'deleted')->orderBy('name')->get();
+        $stores = $user->accessibleStores()->where('status', '!=', 'deleted')->orderBy('name')->get();
 
         $activeFilters = $request->only(['reference', 'status', 'store_id', 'date_from', 'date_to']);
 

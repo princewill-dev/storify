@@ -25,7 +25,7 @@ class ProductController extends Controller
 
     private function userStoreIds(User $user): array
     {
-        return $user->stores()->where('status', '!=', 'deleted')->pluck('id')->all();
+        return $user->accessibleStores()->where('status', '!=', 'deleted')->pluck('id')->all();
     }
 
     public function index(Request $request): View|RedirectResponse
@@ -45,7 +45,7 @@ class ProductController extends Controller
         $selectedStore = null;
 
         if ($selectedPublicStoreId) {
-            $selectedStore = $user->stores()
+            $selectedStore = $user->accessibleStores()
                 ->where('store_id', $selectedPublicStoreId)
                 ->first();
             
@@ -164,7 +164,7 @@ class ProductController extends Controller
             'perPage' => $perPage,
             'productImages' => $productImages,
             'displayPrices' => $displayPrices,
-            'stores' => $user->stores()->where('status', '!=', 'deleted')->orderBy('name')->get(),
+            'stores' => $user->accessibleStores()->where('status', '!=', 'deleted')->orderBy('name')->get(),
             'breadcrumbs' => $breadcrumbs,
         ]);
     }
@@ -220,7 +220,7 @@ class ProductController extends Controller
             return redirect()->route('management.auth.login');
         }
 
-        $stores = $user->stores()->where('status', '!=', 'deleted')->orderBy('name')->get();
+        $stores = $user->accessibleStores()->where('status', '!=', 'deleted')->orderBy('name')->get();
         $sizeUnits = DB::table('size_units')->orderBy('name')->get();
         $weightUnits = DB::table('weight_units')->orderBy('name')->get();
         $currencies = Currency::orderBy('name')->get();
@@ -260,7 +260,7 @@ class ProductController extends Controller
             return redirect()->route('management.auth.login');
         }
 
-        $stores = $user->stores()->where('status', '!=', 'deleted')->pluck('id')->all();
+        $stores = $user->accessibleStores()->where('status', '!=', 'deleted')->pluck('id')->all();
         if ($request->filled('store_id') && !in_array((int) $request->input('store_id'), $stores, true)) {
             return back()->with('error', 'Invalid store selection.')->withInput();
         }
@@ -347,7 +347,7 @@ class ProductController extends Controller
             return redirect()->route('management.auth.login');
         }
 
-        $stores = $user->stores()->where('status', '!=', 'deleted')->pluck('id')->all();
+        $stores = $user->accessibleStores()->where('status', '!=', 'deleted')->pluck('id')->all();
         if (!in_array((int)$request->input('store_id'), $stores, true)) {
             return back()->with('error', 'Invalid store selection.')->withInput();
         }

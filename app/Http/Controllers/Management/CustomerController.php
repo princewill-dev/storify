@@ -83,7 +83,7 @@ class CustomerController extends Controller
             ->orderBy('dr.country')
             ->pluck('dr.country');
 
-        $stores = $user->stores()->where('status', '!=', 'deleted')->orderBy('name')->get();
+        $stores = $user->accessibleStores()->where('status', '!=', 'deleted')->orderBy('name')->get();
 
         $activeFilters = $request->only(['search', 'status', 'country', 'store_id']);
 

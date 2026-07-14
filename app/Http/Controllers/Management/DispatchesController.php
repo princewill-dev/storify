@@ -51,7 +51,7 @@ class DispatchesController extends Controller
             'failed' => OrderDelivery::where('business_id', $user->business_id)->whereIn('status', ['failed', 'returned'])->count(),
         ];
 
-        $stores = $user->stores()->where('status', '!=', 'deleted')->orderBy('name')->get();
+        $stores = $user->accessibleStores()->where('status', '!=', 'deleted')->orderBy('name')->get();
         $activeFilters = $request->only(['status', 'store_id', 'search', 'date_from', 'date_to']);
 
         $breadcrumbs = [

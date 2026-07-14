@@ -39,7 +39,7 @@ class DashboardController extends Controller
 
         $storeIds = $user->isStaff()
             ? $user->assignedStores()->where('status', '!=', 'deleted')->pluck('stores.id')
-            : $user->stores()->where('status', '!=', 'deleted')->pluck('id');
+            : $user->accessibleStores()->where('status', '!=', 'deleted')->pluck('id');
 
         $now = Carbon::now();
         $startOfMonth = $now->copy()->startOfMonth();
@@ -108,7 +108,7 @@ class DashboardController extends Controller
         })->count();
 
         // ── Stores ──
-        $storeRelation = $user->isStaff() ? $user->assignedStores() : $user->stores();
+        $storeRelation = $user->isStaff() ? $user->assignedStores() : $user->accessibleStores();
         $allStoresQuery = (clone $storeRelation)->where('status', '!=', 'deleted');
         $totalStores = (clone $allStoresQuery)->count();
         $activeStores = (clone $allStoresQuery)->where('status', 'active')->count();
@@ -307,7 +307,7 @@ class DashboardController extends Controller
 
         $request->validate(['store_id' => 'exists:stores,id']);
 
-        $storeRelation = $user->isStaff() ? $user->assignedStores() : $user->stores();
+        $storeRelation = $user->isStaff() ? $user->assignedStores() : $user->accessibleStores();
         if (!$storeRelation->where('status', '!=', 'deleted')->where('id', $request->store_id)->exists()) {
             return back()->with('error', 'Unauthorized store access.');
         }

@@ -77,9 +77,30 @@ class User extends Authenticatable
         return $this->hasOne(LiveFirstApplication::class);
     }
 
+    /**
+     * Get stores the user owns (for business owners).
+     * For staff, use assignedStores().
+     */
     public function stores(): HasMany
     {
         return $this->hasMany(Store::class);
+    }
+
+    /**
+     * Get all stores accessible to this user — owned stores for business owners,
+     * assigned stores for staff. Use this in controllers that serve both roles.
+     */
+    public function accessibleStores(): \Illuminate\Database\Eloquent\Builder|\Illuminate\Database\Eloquent\Relations\MorphToMany|\Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->isStaff() ? $this->assignedStores() : $this->stores();
+    }
+
+    /**
+     * Get all warehouses accessible to this user.
+     */
+    public function accessibleWarehouses(): \Illuminate\Database\Eloquent\Builder|\Illuminate\Database\Eloquent\Relations\MorphToMany|\Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->isStaff() ? $this->assignedWarehouses() : $this->warehouses();
     }
 
     public function warehouses(): HasMany

@@ -23,7 +23,7 @@ class ServiceController extends Controller
 
     private function userStoreIds(User $user): array
     {
-        return $user->stores()->where('status', '!=', 'deleted')->pluck('id')->all();
+        return $user->accessibleStores()->where('status', '!=', 'deleted')->pluck('id')->all();
     }
 
     public function index(Request $request): View|RedirectResponse
@@ -46,7 +46,7 @@ class ServiceController extends Controller
         $selectedStore = null;
 
         if ($selectedPublicStoreId) {
-            $selectedStore = $user->stores()
+            $selectedStore = $user->accessibleStores()
                 ->where('store_id', $selectedPublicStoreId)
                 ->first();
             
@@ -107,7 +107,7 @@ class ServiceController extends Controller
     {
         $user = $request->user();
 
-        $stores = $user->stores()->where('status', '!=', 'deleted')->orderBy('name')->get();
+        $stores = $user->accessibleStores()->where('status', '!=', 'deleted')->orderBy('name')->get();
 
         if ($stores->isEmpty()) {
             return redirect()->route('management.services.index')
@@ -120,7 +120,7 @@ class ServiceController extends Controller
         $selectedStoreId = null;
 
         if ($selectedPublicStoreId) {
-            $selectedStoreId = $user->stores()
+            $selectedStoreId = $user->accessibleStores()
                 ->where('store_id', $selectedPublicStoreId)
                 ->value('id');
         }
@@ -145,7 +145,7 @@ class ServiceController extends Controller
             'images.*' => 'image|mimes:jpeg,png,jpg,gif|max:2048'
         ]);
 
-        $store = $user->stores()->where('id', $request->input('store_id'))->first();
+        $store = $user->accessibleStores()->where('id', $request->input('store_id'))->first();
         if (!$store) {
             return back()->with('error', 'Invalid store selected.');
         }
@@ -200,7 +200,7 @@ class ServiceController extends Controller
             return redirect()->route('management.auth.login');
         }
 
-        $stores = $user->stores()->where('status', '!=', 'deleted')->orderBy('name')->get();
+        $stores = $user->accessibleStores()->where('status', '!=', 'deleted')->orderBy('name')->get();
         $currencies = Currency::orderBy('name')->get();
         $defaultCurrencyId = Currency::where('is_default', true)->value('id');
         $service->load('images', 'store'); // Eager load 'store' relationship

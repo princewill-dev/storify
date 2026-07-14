@@ -30,7 +30,7 @@ class StaffController extends Controller
 
         $store = null;
         if ($request->filled('store_id')) {
-            $store = $user->stores()->where('store_id', $request->query('store_id'))->first();
+            $store = $user->accessibleStores()->where('store_id', $request->query('store_id'))->first();
             if ($store) {
                 $query->whereHas('assignedStores', fn($q) => $q->where('assignmentable_id', $store->id));
             }
@@ -50,7 +50,7 @@ class StaffController extends Controller
         }
 
         $roles = Role::where('business_id', $user->business_id)->get();
-        $stores = $user->stores()->where('status', '!=', 'deleted')->get();
+        $stores = $user->accessibleStores()->where('status', '!=', 'deleted')->get();
         $warehouses = $user->warehouses()->where('status', '!=', 'deleted')->get();
 
         $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Staff', 'url' => route('management.staff.index')], ['label' => 'Create']];

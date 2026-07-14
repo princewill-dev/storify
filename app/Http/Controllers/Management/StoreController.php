@@ -109,7 +109,7 @@ class StoreController extends Controller
 
 
         $pendingDefaults = session('pending_store_defaults', []);
-        $hadStores = $user->stores()->exists();
+        $hadStores = $user->accessibleStores()->exists();
 
         $data = $request->validated();
 
@@ -133,7 +133,7 @@ class StoreController extends Controller
                 $bank = StoreBank::find($request->bank_id);
                 $isOwned = $bank && (
                     $bank->store_id === null ||
-                    in_array($bank->store_id, $user->stores()->pluck('id')->toArray())
+                    in_array($bank->store_id, $user->accessibleStores()->pluck('id')->toArray())
                 );
                 if ($isOwned) {
                     $bank->update(['store_id' => $store->id, 'is_primary' => true]);
@@ -231,7 +231,8 @@ class StoreController extends Controller
         $from = $request->query('from');
         $to = $request->query('to');
 
-        $storesQuery = $user->stores()->with(['ownershipType', 'businessType'])->withCount(['products', 'categories']);
+        $storesQuery = ($user->isStaff() ? $user->assignedStores() : $user->accessibleStores())
+            ->with(['ownershipType', 'businessType'])->withCount(['products', 'categories']);
 
         if (in_array($status, ['active', 'inactive', 'suspended', 'deleted'], true)) {
             $storesQuery->where('status', $status);

@@ -418,7 +418,7 @@ class SubscriptionController extends Controller
                         ]);
                     }
 
-                    $inactiveStores = $user->stores()->whereIn('status', [
+                    $inactiveStores = $user->accessibleStores()->whereIn('status', [
                         \App\Models\Store::STATUS_PENDING,
                         \App\Models\Store::STATUS_SUSPENDED,
                     ])->get();
@@ -609,7 +609,7 @@ class SubscriptionController extends Controller
             }
 
             // Activate all pending/suspended stores
-            $stores = $user->stores()->whereIn('status', [
+            $stores = $user->accessibleStores()->whereIn('status', [
                 Store::STATUS_PENDING,
                 Store::STATUS_SUSPENDED,
             ])->get();
@@ -621,7 +621,7 @@ class SubscriptionController extends Controller
             $earlyPass->markAsUsed($user->id, $activeStore?->id);
 
             // Get the first store for the success redirect
-            $store = $user->stores()->first();
+            $store = $user->accessibleStores()->first();
 
             DB::commit();
 
@@ -716,7 +716,7 @@ class SubscriptionController extends Controller
     private function sendStoreActivationEmails(User $user): void
     {
         // Get the latest store
-        $store = $user->stores()->latest()->first();
+        $store = $user->accessibleStores()->latest()->first();
         
         if (!$store) {
             Log::warning('vendor.subscription.email.no_store', [

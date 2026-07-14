@@ -37,7 +37,7 @@ class SearchController extends Controller
         if ($user->can('products view')) {
             $storeIds = $user->isStaff()
                 ? $user->assignedStores()->pluck('stores.id')
-                : $user->stores()->pluck('id');
+                : $user->accessibleStores()->pluck('id');
 
             $products = Product::whereIn('store_id', $storeIds)
                 ->where(function ($q) use ($like) {
@@ -62,7 +62,7 @@ class SearchController extends Controller
 
         // Stores
         if ($user->can('stores view')) {
-            $storesQuery = $user->isStaff() ? $user->assignedStores() : $user->stores();
+            $storesQuery = $user->isStaff() ? $user->assignedStores() : $user->accessibleStores();
             $stores = (clone $storesQuery)->where('name', 'like', $like)
                 ->where('status', '!=', 'deleted')
                 ->limit(5)

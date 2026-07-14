@@ -20,7 +20,7 @@ class CategoryController extends Controller
 
     private function businessStoreIds(User $user): array
     {
-        return $user->stores()->where('status', '!=', 'deleted')->pluck('id')->all();
+        return $user->accessibleStores()->where('status', '!=', 'deleted')->pluck('id')->all();
     }
 
     public function index(Request $request): View|RedirectResponse
@@ -33,7 +33,7 @@ class CategoryController extends Controller
         $selectedStore = null;
 
         if ($selectedPublicStoreId) {
-            $selectedStore = $user->stores()
+            $selectedStore = $user->accessibleStores()
                 ->where('store_id', $selectedPublicStoreId)
                 ->first();
             
@@ -58,7 +58,7 @@ class CategoryController extends Controller
         return view('management.categories.index', [
             'user' => $user,
             'categories' => $categories,
-            'stores' => $user->stores()->where('status', '!=', 'deleted')->orderBy('name')->get(),
+            'stores' => $user->accessibleStores()->where('status', '!=', 'deleted')->orderBy('name')->get(),
             'selectedStore' => $selectedStore,
             'breadcrumbs' => $breadcrumbs,
         ]);
@@ -68,12 +68,12 @@ class CategoryController extends Controller
     {
         $user = $request->user();
 
-        $stores = $user->stores()->where('status', '!=', 'deleted')->orderBy('name')->get();
+        $stores = $user->accessibleStores()->where('status', '!=', 'deleted')->orderBy('name')->get();
         $selectedPublicStoreId = $request->query('store_id');
         $selectedStoreId = null;
 
         if ($selectedPublicStoreId) {
-            $selectedStoreId = $user->stores()
+            $selectedStoreId = $user->accessibleStores()
                 ->where('store_id', $selectedPublicStoreId)
                 ->value('id');
         }
@@ -136,7 +136,7 @@ class CategoryController extends Controller
             return redirect()->route('management.auth.login');
         }
 
-        $stores = $user->stores()->where('status', '!=', 'deleted')->orderBy('name')->get();
+        $stores = $user->accessibleStores()->where('status', '!=', 'deleted')->orderBy('name')->get();
 
         $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Categories', 'url' => route('management.categories.index')], ['label' => $category->name, 'url' => route('management.categories.edit', $category)], ['label' => 'Edit']];
 

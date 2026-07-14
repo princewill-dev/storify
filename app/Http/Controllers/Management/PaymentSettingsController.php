@@ -34,7 +34,7 @@ class PaymentSettingsController extends Controller
         // Count assigned stores per method
         foreach ($methods as $m) {
             $m->assigned_count = $m->stores()
-                ->whereIn('stores.id', $user->stores()->pluck('id'))
+                ->whereIn('stores.id', $user->accessibleStores()->pluck('id'))
                 ->wherePivot('is_active', true)->count();
         }
 
@@ -50,7 +50,7 @@ class PaymentSettingsController extends Controller
             $banks = [];
         }
 
-        $stores = $user->stores()->where('status', '!=', 'deleted')->orderBy('name')->get();
+        $stores = $user->accessibleStores()->where('status', '!=', 'deleted')->orderBy('name')->get();
 
         $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Payment Settings']];
 
@@ -94,7 +94,7 @@ class PaymentSettingsController extends Controller
         // If a store was selected, assign via pivot
         $storeId = $validated['store_id'] ?? null;
         if ($storeId) {
-            $store = $user->stores()->findOrFail($storeId);
+            $store = $user->accessibleStores()->findOrFail($storeId);
             DB::table('store_payment_method')->insertOrIgnore([
                 'store_id' => $store->id, 'payment_method_id' => $bid, 'is_active' => true,
                 'created_at' => now(), 'updated_at' => now(),
@@ -110,7 +110,7 @@ class PaymentSettingsController extends Controller
     public function updateBankAccount(Request $request, StoreBank $bank): RedirectResponse
     {
         $user = $request->user();
-        $storeIds = $user->stores()->pluck('id');
+        $storeIds = $user->accessibleStores()->pluck('id');
 
         if ($bank->business_id !== $user->business_id) {
             abort(403, 'Unauthorized');
@@ -144,7 +144,7 @@ class PaymentSettingsController extends Controller
     public function destroyBankAccount(Request $request, StoreBank $bank): RedirectResponse
     {
         $user = $request->user();
-        $storeIds = $user->stores()->pluck('id');
+        $storeIds = $user->accessibleStores()->pluck('id');
 
         if ($bank->business_id !== $user->business_id) {
             abort(403, 'Unauthorized');
@@ -246,20 +246,20 @@ class PaymentSettingsController extends Controller
             $gateway->masked_public_key = $name;
             // Only stores that have this gateway active
             $pid = $this->paystackPivotId();
-            $assignedStores = $user->stores()->where('status', '!=', 'deleted')
+            $assignedStores = $user->accessibleStores()->where('status', '!=', 'deleted')
                 ->whereHas('paymentMethods', fn($q) => $q->where('payment_method_id', $pid)->where('store_payment_method.is_active', true))
                 ->orderBy('name')->get();
-            $availableStores = $user->stores()->where('status', '!=', 'deleted')
+            $availableStores = $user->accessibleStores()->where('status', '!=', 'deleted')
                 ->whereDoesntHave('paymentMethods', fn($q) => $q->where('payment_method_id', $pid)->where('store_payment_method.is_active', true))
                 ->orderBy('name')->get();
         } elseif ($bank) {
             $typeLabel = 'Bank Account';
             $name = $bank->bank_name . ' — ' . $bank->account_number;
             $bid = \App\Models\PaymentMethod::where('code', 'bank_transfer')->value('id');
-            $assignedStores = $user->stores()->where('status', '!=', 'deleted')
+            $assignedStores = $user->accessibleStores()->where('status', '!=', 'deleted')
                 ->whereHas('paymentMethods', fn($q) => $q->where('payment_method_id', $bid)->where('store_payment_method.is_active', true))
                 ->orderBy('name')->get();
-            $availableStores = $user->stores()->where('status', '!=', 'deleted')
+            $availableStores = $user->accessibleStores()->where('status', '!=', 'deleted')
                 ->whereDoesntHave('paymentMethods', fn($q) => $q->where('payment_method_id', $bid)->where('store_payment_method.is_active', true))
                 ->orderBy('name')->get();
         } else {
@@ -280,7 +280,7 @@ class PaymentSettingsController extends Controller
         $user = $request->user();
         $validated = $request->validate(['store_id' => 'required|exists:stores,id']);
 
-        $store = $user->stores()->findOrFail($validated['store_id']);
+        $store = $user->accessibleStores()->findOrFail($validated['store_id']);
 
         if ($type === 'gateway') {
             $pid = $this->paystackPivotId();
@@ -303,7 +303,7 @@ class PaymentSettingsController extends Controller
     public function unassignStore(Request $request, $id, $type, $store_id): RedirectResponse
     {
         $user = $request->user();
-        $store = $user->stores()->findOrFail($store_id);
+        $store = $user->accessibleStores()->findOrFail($store_id);
         $pid = $type === 'gateway' ? $this->paystackPivotId() : \App\Models\PaymentMethod::where('code', 'bank_transfer')->value('id');
         DB::table('store_payment_method')->where('store_id', $store->id)->where('payment_method_id', $pid)->delete();
         return redirect()->route('management.payment-settings.method-info', ['type' => $type, 'id' => $id])

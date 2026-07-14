@@ -19,13 +19,13 @@ class PosController extends Controller
     public function index(Request $request): View
     {
         $user = $request->user();
-        $storeIds = $user->isStaff() ? $user->assignedStores()->pluck('stores.id') : $user->stores()->pluck('id');
+        $storeIds = $user->isStaff() ? $user->assignedStores()->pluck('stores.id') : $user->accessibleStores()->pluck('id');
 
         $sessionsQuery = PosSession::whereIn('store_id', $storeIds)
             ->with(['store', 'staff']);
 
         if ($request->filled('store_id')) {
-            $store = ($user->isStaff() ? $user->assignedStores() : $user->stores())
+            $store = ($user->isStaff() ? $user->assignedStores() : $user->accessibleStores())
                 ->where('store_id', $request->query('store_id'))->first();
             if ($store) {
                 $sessionsQuery->where('store_id', $store->id);
@@ -158,7 +158,7 @@ class PosController extends Controller
         $staffSessions = PosSession::where('staff_id', $session->staff_id)
             ->whereIn('store_id', $user->isStaff()
                 ? $user->assignedStores()->pluck('id')
-                : $user->stores()->pluck('id'))
+                : $user->accessibleStores()->pluck('id'))
             ->with('store')
             ->latest()
             ->take(20)

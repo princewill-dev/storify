@@ -2,7 +2,8 @@
 @section('subtitle', $order->order_number)
 
 @section('content')
-<div x-data="{ acceptModal: false, processModal: false, dispatchModal: false, deliverModal: false, completeModal: false, cancelModal: false, returnModal: false }">
+@php $pendingTx = $order->transactions->first(); $txPending = $pendingTx && $pendingTx->status->value === 'pending'; @endphp
+<div x-data="{ acceptModal: false, processModal: false, dispatchModal: false, deliverModal: false, completeModal: false, cancelModal: false, returnModal: false, paymentWarningModal: false }">
 
 <x-management.page-header :breadcrumbs="$breadcrumbs" :title="$order->order_number" subtitle="{{ $order->store?->name ?? 'N/A' }} · {{ $order->created_at->format('d M Y H:i') }}">
     <x-slot:actions>
@@ -12,7 +13,7 @@
             @php $s = $order->status->value; @endphp
 
             @if($s === 'pending')
-                <button @click="acceptModal = true" class="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3.5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 transition-colors">
+                <button @click="{{ $txPending ? 'paymentWarningModal = true' : 'acceptModal = true' }}" class="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3.5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 transition-colors">
                     <i class="fi fi-rr-check text-xs"></i> Accept
                 </button>
                 <button @click="cancelModal = true" class="inline-flex items-center gap-1.5 rounded-lg border border-red-300 bg-white px-3.5 py-2 text-sm font-semibold text-red-600 shadow-sm hover:bg-red-50 transition-colors">
@@ -254,6 +255,32 @@
     </div>
 
     {{-- ═══ MODALS ═══ --}}
+
+    {{-- Payment Warning Modal --}}
+    @if($txPending)
+    <div x-show="paymentWarningModal" x-cloak class="fixed inset-0 z-50 overflow-y-auto" aria-modal="true">
+        <div class="flex min-h-screen items-center justify-center px-4 py-8 text-center">
+            <div x-show="paymentWarningModal" x-transition:enter="ease-out duration-300" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100" x-transition:leave="ease-in duration-200" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0" class="fixed inset-0 bg-slate-900/50 transition-opacity" @click="paymentWarningModal = false" aria-hidden="true"></div>
+            <div x-show="paymentWarningModal" x-transition:enter="ease-out duration-300" x-transition:enter-start="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95" x-transition:enter-end="opacity-100 translate-y-0 sm:scale-100" x-transition:leave="ease-in duration-200" x-transition:leave-start="opacity-100 translate-y-0 sm:scale-100" x-transition:leave-end="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95" class="relative z-10 inline-block transform overflow-hidden rounded-xl bg-white text-left align-bottom shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-md sm:align-middle">
+                <div class="bg-white px-6 py-5 border-b border-slate-200">
+                    <div class="flex items-center gap-3">
+                        <div class="flex-shrink-0 w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center"><i class="fi fi-rr-exclamation text-amber-600 text-lg"></i></div>
+                        <div><h3 class="text-lg font-semibold text-slate-900">Payment Pending</h3><p class="text-sm text-slate-500">Please confirm the payment before accepting this order.</p></div>
+                    </div>
+                </div>
+                <div class="bg-slate-50 px-6 py-4 space-y-3">
+                    <div class="flex justify-between text-sm"><span class="text-slate-500">Transaction</span><span class="font-mono font-semibold text-slate-900">{{ $pendingTx->reference }}</span></div>
+                    <div class="flex justify-between text-sm"><span class="text-slate-500">Amount</span><span class="font-semibold text-slate-900">₦{{ number_format($pendingTx->amount, 2) }}</span></div>
+                    <div class="flex justify-between text-sm"><span class="text-slate-500">Status</span><span class="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 ring-1 ring-inset ring-amber-600/20">Pending</span></div>
+                </div>
+                <div class="bg-white px-6 py-4 flex items-center justify-between border-t border-slate-200">
+                    <button @click="paymentWarningModal = false" class="text-sm text-slate-500 hover:text-slate-700">Dismiss</button>
+                    <a href="{{ route('management.transactions.show', $pendingTx) }}" class="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700"><i class="fi fi-rr-arrow-right text-xs"></i> Review Payment</a>
+                </div>
+            </div>
+        </div>
+    </div>
+    @endif
 
     {{-- Accept Modal --}}
     <div x-show="acceptModal" x-cloak class="fixed inset-0 z-50 overflow-y-auto" aria-modal="true">
