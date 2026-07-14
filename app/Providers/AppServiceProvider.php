@@ -293,61 +293,18 @@ class AppServiceProvider extends ServiceProvider
                 return;
             }
 
-            // Cache sidebar data for 60 seconds to avoid repeated queries on every page load
-            $cacheKey = 'sidebar_data:' . $user->id;
-            $sidebarData = Cache::remember($cacheKey, 300, function () use ($user, $company) {
-                if ($user->isStaff()) {
-                    $stores = $user->assignedStores()->where('status', '!=', 'deleted')->get();
-                    $warehouses = $user->assignedWarehouses()->with('sections')->get();
-                    $posStores = $user->assignedStores()->where('pos_enabled', true)->where('status', '!=', 'deleted')
-                        ->withCount(['posSessions as active_pos_sessions_count' => fn($q) => $q->where('status', 'open')])
-                        ->orderBy('name')->get();
-                    $posOpenCount = $posStores->sum('active_pos_sessions_count');
-                    $store = $stores->first();
-                    $brandLogo = $store?->logo_path ? asset('storage/' . $store->logo_path) : ($company->favicon ?? asset('vendor_files/assets/images/logo.png'));
-                    $brandName = $store?->name ?? $user->name ?? ($company->name ?? config('app.name'));
-
-                    return [
-                        'vendorBrandLogo' => $brandLogo,
-                        'vendorBrandName' => $brandName,
-                        'vendorBrandStore' => $store,
-                        'vendorBrandVendor' => $user,
-                        'headerVendor' => $user,
-                        'headerStores' => $stores,
-                        'sidebarUser' => $user,
-                        'sidebarStores' => $stores,
-                        'sidebarStoreCount' => $stores->count(),
-                        'sidebarWarehouses' => $warehouses,
-                        'sidebarPosStores' => $posStores,
-                        'sidebarPosOpenCount' => $posOpenCount,
-                    ];
-                }
-
-                if (!$user->isBusinessOwner()) {
-                    return [
-                        'headerVendor' => $user,
-                        'headerStores' => collect(),
-                        'sidebarUser' => $user,
-                        'sidebarStores' => collect(),
-                        'sidebarStoreCount' => 0,
-                        'sidebarWarehouses' => collect(),
-                    ];
-                }
-
-                $stores = $user->stores()->where('status', '!=', 'deleted')->get();
-                $warehouses = $user->warehouses()->with('sections')->where('status', '!=', 'deleted')->get();
-                $posStores = $user->stores()->where('pos_enabled', true)->where('status', '!=', 'deleted')
+            if ($user->isStaff()) {
+                $stores = $user->assignedStores()->where('status', '!=', 'deleted')->get();
+                $warehouses = $user->assignedWarehouses()->with('sections')->get();
+                $posStores = $user->assignedStores()->where('pos_enabled', true)->where('status', '!=', 'deleted')
                     ->withCount(['posSessions as active_pos_sessions_count' => fn($q) => $q->where('status', 'open')])
-                    ->orderBy('name')
-                    ->get();
+                    ->orderBy('name')->get();
                 $posOpenCount = $posStores->sum('active_pos_sessions_count');
                 $store = $stores->first();
-                $brandLogo = $store?->logo_path
-                    ? asset('storage/' . $store->logo_path)
-                    : ($company->favicon ?? asset('vendor_files/assets/images/logo.png'));
+                $brandLogo = $store?->logo_path ? asset('storage/' . $store->logo_path) : ($company->favicon ?? asset('vendor_files/assets/images/logo.png'));
                 $brandName = $store?->name ?? $user->name ?? ($company->name ?? config('app.name'));
 
-                return [
+                $sidebarData = [
                     'vendorBrandLogo' => $brandLogo,
                     'vendorBrandName' => $brandName,
                     'vendorBrandStore' => $store,
@@ -361,7 +318,44 @@ class AppServiceProvider extends ServiceProvider
                     'sidebarPosStores' => $posStores,
                     'sidebarPosOpenCount' => $posOpenCount,
                 ];
-            });
+            } elseif (!$user->isBusinessOwner()) {
+                $sidebarData = [
+                    'headerVendor' => $user,
+                    'headerStores' => collect(),
+                    'sidebarUser' => $user,
+                    'sidebarStores' => collect(),
+                    'sidebarStoreCount' => 0,
+                    'sidebarWarehouses' => collect(),
+                ];
+            } else {
+                $stores = $user->stores()->where('status', '!=', 'deleted')->get();
+                $warehouses = $user->warehouses()->with('sections')->where('status', '!=', 'deleted')->get();
+                $posStores = $user->stores()->where('pos_enabled', true)->where('status', '!=', 'deleted')
+                    ->withCount(['posSessions as active_pos_sessions_count' => fn($q) => $q->where('status', 'open')])
+                    ->orderBy('name')
+                    ->get();
+                $posOpenCount = $posStores->sum('active_pos_sessions_count');
+                $store = $stores->first();
+                $brandLogo = $store?->logo_path
+                    ? asset('storage/' . $store->logo_path)
+                    : ($company->favicon ?? asset('vendor_files/assets/images/logo.png'));
+                $brandName = $store?->name ?? $user->name ?? ($company->name ?? config('app.name'));
+
+                $sidebarData = [
+                    'vendorBrandLogo' => $brandLogo,
+                    'vendorBrandName' => $brandName,
+                    'vendorBrandStore' => $store,
+                    'vendorBrandVendor' => $user,
+                    'headerVendor' => $user,
+                    'headerStores' => $stores,
+                    'sidebarUser' => $user,
+                    'sidebarStores' => $stores,
+                    'sidebarStoreCount' => $stores->count(),
+                    'sidebarWarehouses' => $warehouses,
+                    'sidebarPosStores' => $posStores,
+                    'sidebarPosOpenCount' => $posOpenCount,
+                ];
+            }
 
             // Resolve active store outside the cache so store switches take effect immediately
             $stores = $sidebarData['sidebarStores'] ?? collect();
