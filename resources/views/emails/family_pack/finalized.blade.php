@@ -22,7 +22,7 @@
     </ul>
 
     <p>
-        <a href="{{ route('checkout.payment-methods', ['store_slug' => $familyPackOrder->store->slug, 'order' => $order->order_number]) }}"
+        <a href="{{ route('checkout.payment-methods', ['store_subdomain' => $familyPackOrder->store->slug, 'order' => $order->order_number]) }}"
            style="background-color:#4f46e5;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;display:inline-block;">
            Choose Payment Method
         </a>

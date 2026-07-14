@@ -20,7 +20,7 @@
     <p>Please click the button below to select your payment method and complete the purchase.</p>
     
     <p style="margin: 30px 0;">
-        <a href="{{ route('checkout.payment-methods', ['store_slug' => $bulkOrder->store->slug, 'order' => $order->order_number]) }}" 
+        <a href="{{ route('checkout.payment-methods', ['store_subdomain' => $bulkOrder->store->slug, 'order' => $order->order_number]) }}" 
            style="background-color: #28a745; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block;">
             Proceed to Payment
         </a>

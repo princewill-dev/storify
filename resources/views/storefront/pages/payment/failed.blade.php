@@ -63,7 +63,7 @@
 
                         <div class="mt-4">
                             <small class="text-muted">
-                                Need help? <a href="{{ route('home.support.index', ['store_slug' => config('app.main_store_slug', 'zimozi_swift')]) }}">Contact Support</a>
+                                Need help? <a href="{{ route('home.support.index', ['store_subdomain' => $store->slug]) }}">Contact Support</a>
                             </small>
                         </div>
                     </div>
