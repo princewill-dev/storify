@@ -52,85 +52,26 @@ if (request()->routeIs('management.stores.*') || request()->routeIs('management.
 
         {{-- Stores --}}
         @can('stores view')
-        <div>
-            <button @click="openGroup = openGroup === 'stores' ? null : 'stores'"
-                    class="flex items-center gap-3 px-3 py-2.5 rounded-lg w-full transition-colors {{ request()->routeIs('management.stores.*') || request()->routeIs('management.orders.*') || (request()->routeIs('management.staff.*') && request()->filled('store_id')) ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
-                <i class="fi fi-rr-shop text-base w-5 text-center"></i>
-                <span class="flex-1 text-left text-xs font-semibold uppercase tracking-wider">Stores</span>
-                <span class="text-[10px] text-slate-500">{{ $sidebarStoreCount }}</span>
-                <i class="fi fi-rr-angle-small-down text-xs transition-transform" :class="{ 'rotate-180': openGroup === 'stores' }"></i>
-            </button>
-            <div x-show="openGroup === 'stores'" x-collapse class="ml-5 mt-1 space-y-1 border-l border-slate-700 pl-3">
-                @forelse($sidebarStores->sortBy('name') as $s)
-                <a href="{{ route('management.stores.show', $s) }}"
-                   class="block px-3 py-2 rounded-lg text-sm transition-colors {{ request()->route('store')?->id == $s->id || $activeSidebarStoreId == $s->id ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white hover:bg-slate-800' }}">
-                    <span class="truncate block">{{ $s->name }}</span>
-                </a>
-                @empty
-                @can('stores create')
-                <a href="{{ route('management.stores.create') }}" class="block px-3 py-2 rounded-lg text-sm text-slate-400 hover:text-white hover:bg-slate-800 transition-colors">
-                    <i class="fi fi-rr-plus text-xs mr-1.5"></i>Create a Store
-                </a>
-                @endcan
-                @endforelse
-                <div class="pt-1 mt-1 border-t border-slate-700/50 space-y-1">
-                    @if($sidebarStores->isNotEmpty())
-                    <a href="{{ route('management.stores.index') }}" class="block px-3 py-1.5 rounded-lg text-[11px] text-slate-500 hover:text-slate-300 transition-colors">
-                        <i class="fi fi-rr-list mr-1.5 opacity-50"></i>View All Stores
-                    </a>
-                    @endif
-                    @can('stores create')
-                    <a href="{{ route('management.stores.create') }}" class="block px-3 py-1.5 rounded-lg text-[11px] text-slate-500 hover:text-slate-300 transition-colors">
-                        <i class="fi fi-rr-plus mr-1.5 opacity-50"></i>Add Store
-                    </a>
-                    @endcan
-                    @can('stores settings')
-                    <a href="{{ route('management.stores.index') }}" class="block px-3 py-1.5 rounded-lg text-[11px] text-slate-500 hover:text-slate-300 transition-colors">
-                        <i class="fi fi-rr-globe mr-1.5 opacity-50"></i>Create Storefront
-                    </a>
-                    @endcan
-                </div>
-            </div>
-        </div>
+        <a href="{{ route('management.stores.index') }}"
+           class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('management.stores.*') || request()->routeIs('management.orders.*') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
+            <i class="fi fi-rr-shop text-base w-5 text-center"></i>
+            <span>Stores</span>
+            @if($sidebarStoreCount > 0)
+            <span class="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-slate-700 text-[10px] font-bold text-slate-300 px-1.5">{{ $sidebarStoreCount }}</span>
+            @endif
+        </a>
         @endcan
 
         {{-- Warehouses --}}
         @can('warehouses view')
-        <div>
-            <button @click="openGroup = openGroup === 'warehouses' ? null : 'warehouses'"
-                    class="flex items-center gap-3 px-3 py-2.5 rounded-lg w-full transition-colors {{ request()->routeIs('management.warehouses.*') || request()->routeIs('management.sections.*') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
-                <i class="fi fi-rr-warehouse-alt text-base w-5 text-center"></i>
-                <span class="flex-1 text-left text-xs font-semibold uppercase tracking-wider">Warehouses</span>
-                <span class="text-[10px] text-slate-500">{{ $sidebarWarehouses->count() }}</span>
-                <i class="fi fi-rr-angle-small-down text-xs transition-transform" :class="{ 'rotate-180': openGroup === 'warehouses' }"></i>
-            </button>
-            <div x-show="openGroup === 'warehouses'" x-collapse class="ml-5 mt-1 space-y-1 border-l border-slate-700 pl-3">
-                @forelse($sidebarWarehouses->sortBy('name') as $wh)
-                <a href="{{ route('management.warehouses.show', $wh) }}"
-                   class="block px-3 py-2 rounded-lg text-sm transition-colors {{ request()->route('warehouse')?->id == $wh->id || $activeSidebarWarehouseId == $wh->id ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white hover:bg-slate-800' }}">
-                    <span class="truncate block">{{ $wh->name }}</span>
-                </a>
-                @empty
-                @can('warehouses create')
-                <a href="{{ route('management.warehouses.create') }}" class="block px-3 py-2 rounded-lg text-sm text-slate-400 hover:text-white hover:bg-slate-800 transition-colors">
-                    <i class="fi fi-rr-plus text-xs mr-1.5"></i>Create Warehouse
-                </a>
-                @endcan
-                @endforelse
-                <div class="pt-1 mt-1 border-t border-slate-700/50 space-y-1">
-                    @if($sidebarWarehouses->isNotEmpty())
-                    <a href="{{ route('management.warehouses.index') }}" class="block px-3 py-1.5 rounded-lg text-[11px] text-slate-500 hover:text-slate-300 transition-colors">
-                        <i class="fi fi-rr-list mr-1.5 opacity-50"></i>View All Warehouses
-                    </a>
-                    @endif
-                    @can('warehouses create')
-                    <a href="{{ route('management.warehouses.create') }}" class="block px-3 py-1.5 rounded-lg text-[11px] text-slate-500 hover:text-slate-300 transition-colors">
-                        <i class="fi fi-rr-plus mr-1.5 opacity-50"></i>Add Warehouse
-                    </a>
-                    @endcan
-                </div>
-            </div>
-        </div>
+        <a href="{{ route('management.warehouses.index') }}"
+           class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('management.warehouses.*') || request()->routeIs('management.sections.*') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
+            <i class="fi fi-rr-warehouse-alt text-base w-5 text-center"></i>
+            <span>Warehouses</span>
+            @if($sidebarWarehouses->count() > 0)
+            <span class="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-slate-700 text-[10px] font-bold text-slate-300 px-1.5">{{ $sidebarWarehouses->count() }}</span>
+            @endif
+        </a>
         @endcan
 
         {{-- Products --}}
