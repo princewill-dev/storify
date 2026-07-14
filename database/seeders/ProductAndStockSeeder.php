@@ -443,21 +443,32 @@ class ProductAndStockSeeder extends Seeder
 
     protected function attachImage(Product $product, int $seed): void
     {
-        $url = 'https://picsum.photos/seed/' . ($seed * 9973 + $product->id) . '/400/300';
+        $sourceDir = base_path('.temp_products');
+        if (!is_dir($sourceDir)) {
+            return;
+        }
+
+        $files = glob($sourceDir . '/*.{jpg,jpeg,png,webp}', GLOB_BRACE);
+        if (empty($files)) {
+            return;
+        }
+
         try {
             \Storage::disk('public')->makeDirectory('products/seeds');
-            $response = \Illuminate\Support\Facades\Http::timeout(10)->get($url);
-            if ($response->successful()) {
-                $filename = 'products/seeds/' . $product->product_code . '.jpg';
-                \Storage::disk('public')->put($filename, $response->body());
-                \App\Models\ProductImage::create([
-                    'product_id' => $product->id,
-                    'business_id' => $product->business_id,
-                    'path' => $filename,
-                    'is_primary' => true,
-                    'position' => 0,
-                ]);
-            }
+
+            $sourcePath = $files[$seed % count($files)];
+            $ext = strtolower(pathinfo($sourcePath, PATHINFO_EXTENSION));
+            $filename = 'products/seeds/' . $product->product_code . '.' . $ext;
+
+            \Storage::disk('public')->put($filename, file_get_contents($sourcePath));
+
+            \App\Models\ProductImage::create([
+                'product_id' => $product->id,
+                'business_id' => $product->business_id,
+                'path' => $filename,
+                'is_primary' => true,
+                'position' => 0,
+            ]);
         } catch (\Throwable $e) {
             // Silently skip — seed images are optional
         }
