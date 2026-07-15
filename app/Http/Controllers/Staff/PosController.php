@@ -20,7 +20,10 @@ class PosController extends Controller
             return redirect()->route('staff.password.change');
         }
 
-        $assignedStores = $user->assignedStores()->where('pos_enabled', true)->where('status', '!=', 'deleted')->get();
+        // Superadmins get all POS-enabled stores; staff get assigned ones
+        $assignedStores = ($user->isPlatformAdmin() ?? false)
+            ? Store::where('pos_enabled', true)->where('status', '!=', 'deleted')->get()
+            : $user->assignedStores()->where('pos_enabled', true)->where('status', '!=', 'deleted')->get();
 
         if ($assignedStores->isEmpty()) {
             return view('staff.pos.no-store');

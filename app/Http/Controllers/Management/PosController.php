@@ -61,12 +61,14 @@ class PosController extends Controller
     {
         $user = $request->user();
 
-        if ($user->isStaff()) {
-            if (!$user->assignedStores()->where('stores.id', $store->id)->exists()) {
+        if (!$user->isPlatformAdmin()) {
+            if ($user->isStaff()) {
+                if (!$user->assignedStores()->where('stores.id', $store->id)->exists()) {
+                    abort(403);
+                }
+            } elseif ($store->user_id !== $user->id) {
                 abort(403);
             }
-        } elseif ($store->user_id !== $user->id) {
-            abort(403);
         }
 
         if (!$store->pos_enabled) {
@@ -75,7 +77,7 @@ class PosController extends Controller
         }
 
         $session = PosSession::where('store_id', $store->id)
-            ->where('staff_id', $user->id)
+            ->when(!$user->isPlatformAdmin(), fn($q) => $q->where('staff_id', $user->id))
             ->where('status', PosSession::STATUS_OPEN)
             ->latest()
             ->first();
@@ -179,16 +181,18 @@ class PosController extends Controller
     {
         $user = $request->user();
 
-        if ($user->isStaff()) {
-            if (!$user->assignedStores()->where('stores.id', $store->id)->exists()) {
+        if (!$user->isPlatformAdmin()) {
+            if ($user->isStaff()) {
+                if (!$user->assignedStores()->where('stores.id', $store->id)->exists()) {
+                    abort(403);
+                }
+            } elseif ($store->user_id !== $user->id) {
                 abort(403);
             }
-        } elseif ($store->user_id !== $user->id) {
-            abort(403);
         }
 
         $session = PosSession::where('store_id', $store->id)
-            ->where('staff_id', $user->id)
+            ->when(!$user->isPlatformAdmin(), fn($q) => $q->where('staff_id', $user->id))
             ->where('status', PosSession::STATUS_OPEN)
             ->latest()
             ->first();
@@ -340,12 +344,14 @@ class PosController extends Controller
     {
         $user = $request->user();
 
-        if ($user->isStaff()) {
-            if (!$user->assignedStores()->where('stores.id', $store->id)->exists()) {
+        if (!$user->isPlatformAdmin()) {
+            if ($user->isStaff()) {
+                if (!$user->assignedStores()->where('stores.id', $store->id)->exists()) {
+                    abort(403);
+                }
+            } elseif ($store->user_id !== $user->id) {
                 abort(403);
             }
-        } elseif ($store->user_id !== $user->id) {
-            abort(403);
         }
 
         $order->load(['items', 'transactions.paymentMethod']);

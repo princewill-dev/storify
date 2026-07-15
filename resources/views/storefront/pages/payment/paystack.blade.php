@@ -29,7 +29,7 @@
                                 </div>
                                 <div class="d-flex justify-content-between mb-2">
                                     <span>Status:</span>
-                                    <span class="badge bg-warning">{{ ucfirst($order->payment_status) }}</span>
+                                    <span class="badge bg-warning">{{ $order->payment_status->label() ?? ucfirst($order->payment_status->value) }}</span>
                                 </div>
                             </div>
 

@@ -11,6 +11,11 @@
             <i class="fi fi-rr-globe text-xs"></i> Visit Storefront
         </a>
         @endif
+        @if($store->pos_enabled)
+        <a href="{{ route('pos.index') }}" target="_blank" rel="noopener" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-lg transition-colors">
+            <i class="fi fi-rr-terminal text-xs"></i> Open POS Portal
+        </a>
+        @endif
         <a href="{{ route('management.transfers.index') }}" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors">
             <i class="fi fi-rr-arrows-exchange text-xs"></i> Stock Adjustment
         </a>

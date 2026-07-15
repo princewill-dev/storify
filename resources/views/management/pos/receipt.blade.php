@@ -63,7 +63,7 @@
                 </div>
                 <div class="flex justify-between">
                     <span class="text-slate-500">Status</span>
-                    <span class="font-semibold {{ $tx->status === 'confirmed' ? 'text-emerald-600' : 'text-amber-600' }}">{{ ucfirst($tx->status) }}</span>
+                    <span class="font-semibold {{ $tx->status->value === 'confirmed' ? 'text-emerald-600' : 'text-amber-600' }}">{{ $tx->status->label() }}</span>
                 </div>
                 @endif
                 @if(($order->meta['customer_name'] ?? null) || ($order->meta['customer_phone'] ?? null))
