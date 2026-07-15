@@ -131,7 +131,13 @@
                             {{ strtoupper(substr($staffMember->name, 0, 2)) }}
                         </div>
                         <div>
-                            <p class="text-sm font-medium text-slate-800">{{ $staffMember->name }}</p>
+                            <div class="flex items-center gap-2">
+                                <p class="text-sm font-medium text-slate-800">{{ $staffMember->name }}</p>
+                                @php $roles = $staffMember->getRoleNames(); @endphp
+                                @if($roles->isNotEmpty())
+                                <span class="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600 ring-1 ring-inset ring-slate-500/10">{{ $roles->join(', ') }}</span>
+                                @endif
+                            </div>
                             <p class="text-xs text-slate-400">{{ $staffMember->email }}</p>
                         </div>
                     </div>

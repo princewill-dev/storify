@@ -23,7 +23,10 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        // Disable all caching via CACHE_ENABLED=false in .env
+        if (env('CACHE_ENABLED', true) === false) {
+            config(['cache.default' => 'array']);
+        }
     }
 
     /**

@@ -664,7 +664,7 @@ class StoreController extends Controller
             abort(403);
         }
 
-        $store->load(['ownershipType', 'businessType', 'business', 'banks', 'deliveryRoutes', 'assignedStaff']);
+        $store->load(['ownershipType', 'businessType', 'business', 'banks', 'deliveryRoutes', 'assignedStaff.roles']);
         $availableStaff = User::where('business_id', $user->business_id)
             ->where('role', 'staff')
             ->where('status', 'active')
@@ -1005,7 +1005,7 @@ class StoreController extends Controller
 
     private function tabSettings(Store $store, User $user): View
     {
-        $store->load(['ownershipType', 'businessType', 'business', 'banks', 'deliveryRoutes', 'assignedStaff']);
+        $store->load(['ownershipType', 'businessType', 'business', 'banks', 'deliveryRoutes', 'assignedStaff.roles']);
         $availableStaff = User::where('business_id', $user->business_id)
             ->where('role', 'staff')
             ->where('status', 'active')
