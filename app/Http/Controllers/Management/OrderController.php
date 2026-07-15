@@ -27,6 +27,9 @@ class OrderController extends Controller
         $query = Order::query()
             ->with(['customer', 'store', 'items', 'staff']);
         $this->forBusiness($query, $user);
+        if ($user->isStaff()) {
+            $query->whereIn('store_id', $user->assignedStores()->pluck('stores.id'));
+        }
 
         if ($request->filled('status')) {
             $query->where('status', $request->status);

@@ -15,6 +15,9 @@ class DispatchesController extends Controller
 
         $query = OrderDelivery::with(['order.store', 'order.customer', 'deliveryRoute', 'createdBy']);
         $this->forBusiness($query, $user);
+        if ($user->isStaff()) {
+            $query->whereHas('order', fn($q) => $q->whereIn('store_id', $user->assignedStores()->pluck('stores.id')));
+        }
 
         if ($request->filled('status')) {
             $query->where('status', $request->status);

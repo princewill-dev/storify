@@ -33,6 +33,9 @@ class CustomerController extends Controller
             ->with('deliveryAddresses')
             ->withCount(['orders as orders_count' => fn($q) => $q->where('user_id', $user->id)]);
         $this->forBusiness($query, $user);
+        if ($user->isStaff()) {
+            $query->whereHas('orders', fn($q) => $q->whereIn('store_id', $user->assignedStores()->pluck('stores.id')));
+        }
 
         if ($request->filled('search')) {
             $search = $request->search;
