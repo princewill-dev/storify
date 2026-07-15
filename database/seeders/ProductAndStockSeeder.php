@@ -452,12 +452,18 @@ class ProductAndStockSeeder extends Seeder
             return;
         }
 
+        $productIds = Product::where('store_id', $store->id)->pluck('id');
+
+        // Delete child records first to avoid FK constraint issues
+        \App\Models\ProductImage::whereIn('product_id', $productIds)->delete();
+        \App\Models\ProductVariant::whereIn('product_id', $productIds)->delete();
+        \App\Models\StockMovement::whereIn('product_id', $productIds)->delete();
+        StockLocation::where('locationable_type', Store::class)->where('locationable_id', $store->id)->delete();
+
         $productCount = Product::where('store_id', $store->id)->delete();
         $categoryCount = Category::where('store_id', $store->id)->delete();
-        $stockCount = StockLocation::where('locationable_type', Store::class)
-            ->where('locationable_id', $store->id)->delete();
 
-        echo "Wiped store [{$store->name}]: {$productCount} products, {$categoryCount} categories, {$stockCount} stock locations." . PHP_EOL;
+        echo "Wiped store [{$store->name}]: {$productCount} products, {$categoryCount} categories." . PHP_EOL;
     }
 
     protected function attachImage(Product $product, int $seed): void
