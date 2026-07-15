@@ -21,8 +21,8 @@ class TransactionController extends Controller
 
         $query = Transaction::with(['order.customer', 'order.store', 'paymentMethod']);
         $this->forBusiness($query, $user);
-        if ($user->isStaff()) {
-            $query->whereHas('order', fn($q) => $q->whereIn('store_id', $user->assignedStores()->pluck('stores.id')));
+        if ($user->isRestrictedStaff()) {
+            $query->whereHas('order', fn($q) => $q->whereIn('store_id', $user->assignedStores()->pluck('id')));
         }
 
         if ($request->filled('reference')) {

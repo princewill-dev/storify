@@ -301,7 +301,7 @@ class AppServiceProvider extends ServiceProvider
                 return;
             }
 
-            if ($user->isStaff()) {
+            if ($user->isRestrictedStaff()) {
                 $stores = $user->assignedStores()->where('status', '!=', 'deleted')->get();
                 $warehouses = $user->assignedWarehouses()->with('sections')->get();
                 $posStores = $user->assignedStores()->where('pos_enabled', true)->where('status', '!=', 'deleted')
@@ -334,7 +334,7 @@ class AppServiceProvider extends ServiceProvider
                     'sidebarDispatchesCount' => \App\Models\OrderDelivery::whereHas('order', fn($q) => $q->whereIn('store_id', $stores->pluck('id')))->whereNotIn('status', ['delivered', 'failed', 'returned'])->count(),
                     'sidebarStaffCount' => \App\Models\User::where('business_id', $user->business_id)->where('role', 'staff')->where('status', 'active')->count(),
                 ];
-            } elseif (!$user->isBusinessOwner()) {
+            } elseif (!$user->isBusinessOwner() && !$user->isStaff()) {
                 $sidebarData = [
                     'headerVendor' => $user,
                     'headerStores' => collect(),

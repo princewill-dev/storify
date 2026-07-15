@@ -183,6 +183,14 @@ class User extends Authenticatable
         return in_array($this->role, [self::ROLE_ADMIN, self::ROLE_SUPERADMIN]);
     }
 
+    /**
+     * Staff limited to assigned stores only (no system-wide permissions like CFO).
+     */
+    public function isRestrictedStaff(): bool
+    {
+        return $this->isStaff() && !$this->can('transactions view');
+    }
+
     public function isPlatformAdmin(): bool
     {
         return $this->business_id === null && $this->role === self::ROLE_SUPERADMIN;
