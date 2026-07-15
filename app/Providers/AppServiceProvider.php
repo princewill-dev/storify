@@ -327,8 +327,8 @@ class AppServiceProvider extends ServiceProvider
                     'sidebarPosOpenCount' => $posOpenCount,
                     'sidebarPendingOrdersCount' => $pendingOrdersCount,
                     'sidebarPendingTransactionsCount' => \App\Models\Transaction::whereIn('order_id', \App\Models\Order::whereIn('store_id', $stores->pluck('id'))->pluck('id'))->where('status', 'pending')->count(),
-                    'sidebarCustomersCount' => \App\Models\Customer::where('business_id', $user->business_id)->count(),
-                    'sidebarDispatchesCount' => \App\Models\OrderDelivery::where('business_id', $user->business_id)->whereNotIn('status', ['delivered', 'failed', 'returned'])->count(),
+                    'sidebarCustomersCount' => \App\Models\Customer::whereHas('orders', fn($q) => $q->whereIn('store_id', $stores->pluck('id')))->count(),
+                    'sidebarDispatchesCount' => \App\Models\OrderDelivery::whereHas('order', fn($q) => $q->whereIn('store_id', $stores->pluck('id')))->whereNotIn('status', ['delivered', 'failed', 'returned'])->count(),
                     'sidebarStaffCount' => \App\Models\User::where('business_id', $user->business_id)->where('role', 'staff')->where('status', 'active')->count(),
                 ];
             } elseif (!$user->isBusinessOwner()) {
