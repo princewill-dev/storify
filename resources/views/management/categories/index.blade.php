@@ -103,6 +103,6 @@
 </div>
 </div>
 @push('scripts')
-<script>document.addEventListener('alpine:init',()=>{Alpine.data('catManager',()=>({showCreateModal:false,editing:null,deleting:null,categories:{!! json_encode($categories->items() ? collect($categories->items())->map->only(['id','name','status','store_id']) : []) !!},editCategory(id){this.editing=this.categories.find(c=>c.id===id)||null},deleteCategory(id){this.deleting=this.categories.find(c=>c.id===id)||null}}))});</script>
+<script>document.addEventListener('alpine:init',()=>{Alpine.data('catManager',()=>({showCreateModal:false,editing:null,deleting:null,categories:@js($categories->items() ? collect($categories->items())->map->only(['id','name','status','store_id']) : []),editCategory(id){this.editing=this.categories.find(c=>c.id===id)||null},deleteCategory(id){this.deleting=this.categories.find(c=>c.id===id)||null}}))});</script>
 @endpush
 @endsection

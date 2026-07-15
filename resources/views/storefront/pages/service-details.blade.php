@@ -53,7 +53,7 @@
                            </ul>
                         </div>
                         <div class="product__details-text mb-30">
-                           {!! $service->description !!}
+                           {!! strip_tags($service->description, '<p><b><i><strong><em><br><ul><ol><li><a><h1><h2><h3><h4><h5><h6><span><div><hr>') !!}
                         </div>
                         <div class="product__details-action">
                            <a href="https://wa.me/{{ $store->whatsapp_number }}?text=I'm interested in your service: {{ $service->name }}" target="_blank" class="m-btn m-btn-border m-btn-border-5">

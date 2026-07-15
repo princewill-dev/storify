@@ -226,8 +226,8 @@
 (function () {
     var options = {
         chart: { type: 'area', height: 300, toolbar: { show: false }, fontFamily: 'inherit' },
-        series: [{ name: 'Revenue', data: {!! json_encode(array_column($monthlyRevenue, 'total')) !!} }],
-        xaxis: { categories: {!! json_encode(array_column($monthlyRevenue, 'month')) !!}, labels: { style: { colors: '#94a3b8', fontSize: '12px' } } },
+        series: [{ name: 'Revenue', data: @js(array_column($monthlyRevenue, 'total')) }],
+        xaxis: { categories: @js(array_column($monthlyRevenue, 'month')), labels: { style: { colors: '#94a3b8', fontSize: '12px' } } },
         yaxis: { labels: { formatter: function(v) { return '₦' + (v >= 1e6 ? (v/1e6).toFixed(1)+'M' : v >= 1e3 ? (v/1e3).toFixed(0)+'k' : v); }, style: { colors: '#94a3b8', fontSize: '12px' } } },
         stroke: { curve: 'smooth', width: 2 },
         fill: { type: 'gradient', gradient: { shadeIntensity: 1, opacityFrom: 0.3, opacityTo: 0.05, stops: [0, 100] } },
@@ -459,7 +459,7 @@ function checkStoreSlug() {
             if (data.available) {
                 document.getElementById('wsSlugStatus').innerHTML = '<span class="text-emerald-600 font-medium">✓ Available</span>';
             } else if (data.slug) {
-                document.getElementById('wsSlugStatus').innerHTML = '<span class="text-amber-600 font-medium">Suggested: ' + data.slug + '</span>';
+                document.getElementById('wsSlugStatus').textContent = 'Suggested: ' + data.slug;
             }
         })
         .catch(function () {

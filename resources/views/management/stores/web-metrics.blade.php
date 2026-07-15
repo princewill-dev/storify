@@ -119,8 +119,8 @@
 (function () {
     var options = {
         chart: { type: 'bar', height: 280, toolbar: { show: false }, fontFamily: 'inherit' },
-        series: [{ name: 'Web Orders', data: {!! json_encode(array_column($monthlyWebOrders, 'count')) !!} }],
-        xaxis: { categories: {!! json_encode(array_column($monthlyWebOrders, 'month')) !!}, labels: { style: { colors: '#94a3b8', fontSize: '12px' } } },
+        series: [{ name: 'Web Orders', data: @js(array_column($monthlyWebOrders, 'count')) }],
+        xaxis: { categories: @js(array_column($monthlyWebOrders, 'month')), labels: { style: { colors: '#94a3b8', fontSize: '12px' } } },
         yaxis: { labels: { style: { colors: '#94a3b8', fontSize: '12px' } } },
         colors: ['#2563eb'],
         plotOptions: { bar: { borderRadius: 4, columnWidth: '50%' } },

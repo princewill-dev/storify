@@ -20,7 +20,7 @@
                             We have received your payment submission for order <br>
                             <div class="d-inline-flex align-items-center gap-2 mt-2">
                                 <strong id="orderNumber">#{{ $order->order_number }}</strong>
-                                <button type="button" class="btn btn-sm btn-light p-1 lh-1" onclick="copyOrderNumber('{{ $order->order_number }}', this)" style="border: 1px solid #e2e8f0;" title="Copy Order Number">
+                                <button type="button" class="btn btn-sm btn-light p-1 lh-1" onclick="copyOrderNumber({{ Js::from($order->order_number) }}, this)" style="border: 1px solid #e2e8f0;" title="Copy Order Number">
                                     <i class="fa fa-copy" style="font-size: 12px; color: #64748b;"></i>
                                 </button>
                             </div>

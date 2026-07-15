@@ -85,7 +85,7 @@
                 </div>
                 <div class="col-12">
                   <div class="mb-1 text-muted">Description</div>
-                  <div class="border rounded p-2 bg-light">{!! $product->description !!}</div>
+                  <div class="border rounded p-2 bg-light">{!! strip_tags($product->description, '<p><b><i><strong><em><br><ul><ol><li><a>') !!}</div>
                 </div>
               </div>
             </div>

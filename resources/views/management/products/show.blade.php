@@ -78,7 +78,7 @@
                     @if($product->description)
                     <div class="mt-5 pt-4 border-t border-slate-100">
                         <p class="text-xs text-slate-400 uppercase tracking-wider mb-2">Description</p>
-                        <div class="text-sm text-slate-600 prose prose-sm max-w-none">{!! $product->description !!}</div>
+                        <div class="text-sm text-slate-600 prose prose-sm max-w-none">{!! strip_tags($product->description, '<p><b><i><strong><em><br><ul><ol><li><a>') !!}</div>
                     </div>
                     @endif
                 </x-management.card>

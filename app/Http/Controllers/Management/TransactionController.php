@@ -14,6 +14,32 @@ use Illuminate\View\View;
 class TransactionController extends Controller
 {
 
+    protected function forBusiness($query, $user): void
+    {
+        if (!$user->business_id) {
+            return;
+        }
+        $query->whereHas('order', function ($q) use ($user) {
+            $q->where('business_id', $user->business_id);
+        });
+    }
+
+    protected function userOwnsTransaction(User $user, Transaction $transaction): bool
+    {
+        if (!$transaction->order) {
+            return false;
+        }
+
+        if ($user->isRestrictedStaff()) {
+            $storeIds = $user->assignedStores()->pluck('id')->toArray();
+            return in_array($transaction->order->store_id, $storeIds);
+        }
+
+        return $transaction->order->business_id === null
+            || $user->business_id === null
+            || $transaction->order->business_id === $user->business_id;
+    }
+
 
     public function index(Request $request): View|RedirectResponse
     {
@@ -70,6 +96,10 @@ class TransactionController extends Controller
             return redirect()->route('management.auth.login');
         }
 
+        if (!$this->userOwnsTransaction($user, $transaction)) {
+            abort(403, 'You do not have access to this transaction.');
+        }
+
         $transaction->load(['order.customer', 'order.store', 'order.items', 'paymentMethod', 'storeBank']);
 
         $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Transactions', 'url' => route('management.transactions.index')], ['label' => $transaction->reference]];
@@ -87,6 +117,10 @@ class TransactionController extends Controller
         $user = $request->user();
         if (!$user) {
             return redirect()->route('management.auth.login');
+        }
+
+        if (!$this->userOwnsTransaction($user, $transaction)) {
+            abort(403, 'You do not have access to this transaction.');
         }
 
         // Validate transaction is pending
@@ -186,6 +220,10 @@ class TransactionController extends Controller
             return redirect()->route('management.auth.login');
         }
 
+        if (!$this->userOwnsTransaction($user, $transaction)) {
+            abort(403, 'You do not have access to this transaction.');
+        }
+
         // Validate transaction is pending
         if ($transaction->status !== TransactionStatus::PENDING) {
             return back()->with('error', 'Only pending transactions can be rejected.');
@@ -262,6 +300,10 @@ class TransactionController extends Controller
         $user = $request->user();
         if (!$user) {
             return redirect()->route('management.auth.login');
+        }
+
+        if (!$this->userOwnsTransaction($user, $transaction)) {
+            abort(403, 'You do not have access to this transaction.');
         }
 
         // Validate transaction is confirmed

@@ -424,7 +424,7 @@ class StoreController extends Controller
             'facebook_url' => ['nullable', 'url', 'max:255'],
             'twitter_url' => ['nullable', 'url', 'max:255'],
             'tiktok_url' => ['nullable', 'url', 'max:255'],
-            'logo' => ['nullable', 'image', 'max:2048'],
+            'logo' => ['nullable', 'image', 'mimes:jpeg,png,jpg,webp', 'max:2048'],
         ]);
 
         if (empty($data['slug']) && !empty($data['name'])) {
@@ -694,17 +694,17 @@ class StoreController extends Controller
             'user_id' => 'required|exists:users,id',
         ]);
 
-        $user = User::findOrFail($validated['user_id']);
+        $staffUser = User::findOrFail($validated['user_id']);
 
-        if ($user->business_id !== $user->business_id || $user->role !== 'staff') {
+        if ($user->business_id !== $staffUser->business_id || $staffUser->role !== 'staff') {
             return back()->with('error', 'Invalid staff member.');
         }
 
-        if (!$store->assignedStaff->contains($user->id)) {
-            $store->assignedStaff()->attach($user->id);
+        if (!$store->assignedStaff->contains($staffUser->id)) {
+            $store->assignedStaff()->attach($staffUser->id);
         }
 
-        return back()->with('success', $user->name . ' assigned to this store.');
+        return back()->with('success', $staffUser->name . ' assigned to this store.');
     }
 
     public function enablePos(Request $request, Store $store): RedirectResponse

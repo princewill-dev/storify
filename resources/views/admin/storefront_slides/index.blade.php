@@ -160,6 +160,7 @@
       || '';
   }
   const csrf = getCsrf();
+  const esc = (s) => { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; };
   const existingIds = new Set(@json($slides->pluck('product_id')->filter()->values()));
   function debounce(fn, delay){ let t; return (...args)=>{ clearTimeout(t); t=setTimeout(()=>fn(...args), delay); } }
 
@@ -201,7 +202,7 @@
           const a = document.createElement('a');
           a.href = 'javascript:void(0)';
           a.className = 'list-group-item list-group-item-action';
-          a.innerHTML = `${p.name} — ${p.product_code} — $${Number(p.amount||0).toFixed(2)} ${disabled ? '<span class="badge bg-secondary ms-2">Already in slides</span>' : ''}`;
+          a.innerHTML = `${esc(p.name)} — ${esc(p.product_code)} — $${Number(p.amount||0).toFixed(2)} ${disabled ? '<span class="badge bg-secondary ms-2">Already in slides</span>' : ''}`;
           if (disabled){
             a.classList.add('disabled','text-muted');
             a.style.pointerEvents = 'none';
@@ -298,8 +299,8 @@
             <input type="checkbox" class="form-check-input" value="${p.id}" ${disabled ? 'disabled' : ''}>
             <img src="${p.primary_image_path ? `${window.location.origin}/storage/${p.primary_image_path}` : ''}" alt="" style="width:48px;height:32px;object-fit:cover;background:#f5f5f5">
             <div class="flex-grow-1">
-              <div>${p.name} ${disabled ? '<span class=\"badge bg-secondary ms-2\">Already in slides</span>' : ''}</div>
-              <div class="small text-muted">${p.product_code} • $${Number(p.amount||0).toFixed(2)}</div>
+              <div>${esc(p.name)} ${disabled ? '<span class=\"badge bg-secondary ms-2\">Already in slides</span>' : ''}</div>
+              <div class="small text-muted">${esc(p.product_code)} • $${Number(p.amount||0).toFixed(2)}</div>
             </div>
           `;
           row.querySelector('input[type="checkbox"]').addEventListener('change', updateButtonState);

@@ -162,12 +162,12 @@
                                         <li>
                                             @if($customer->status === \App\Models\Customer::STATUS_ACTIVE)
                                                 <button class="dropdown-item d-flex align-items-center" type="button"
-                                                        onclick="showSuspendModal('{{ $customer->account_id }}', '{{ $customer->full_name }}')">
+                                                        onclick="showSuspendModal({{ Js::from($customer->account_id) }}, {{ Js::from($customer->full_name) }})">
                                                     <i class="fa fa-ban me-2 text-muted"></i>Suspend
                                                 </button>
                                             @elseif($customer->status === \App\Models\Customer::STATUS_SUSPENDED)
                                                 <button class="dropdown-item d-flex align-items-center" type="button"
-                                                        onclick="showActivateModal('{{ $customer->account_id }}', '{{ $customer->full_name }}')">
+                                                        onclick="showActivateModal({{ Js::from($customer->account_id) }}, {{ Js::from($customer->full_name) }})">
                                                     <i class="fa fa-check me-2 text-muted"></i>Activate
                                                 </button>
                                             @endif

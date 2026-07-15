@@ -219,6 +219,10 @@ class ServiceController extends Controller
         $request->validate([
             'name' => 'required|string|max:255',
             'amount' => 'required|numeric|min:0',
+            'images.*' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:2048',
+            'primary_image_id' => 'nullable|integer|exists:service_images,id',
+            'delete_image_ids' => 'nullable|array',
+            'delete_image_ids.*' => 'nullable|integer',
         ]);
 
         try {

@@ -34,7 +34,7 @@ class ProductRequest extends FormRequest
             'has_variants' => 'sometimes|boolean',
             'discount_percentage' => 'nullable|numeric|min:0|max:100',
             // Media (images/videos) and update-only fields
-            'images.*' => 'nullable|mimes:jpeg,jpg,png,gif,webp,mp4,mpeg,mov,avi,webm|max:307200',
+            'images.*' => 'nullable|mimes:jpeg,jpg,png,gif,webp|max:20480',
             'primary_image' => 'sometimes|integer',
             'primary_image_id' => 'sometimes|integer',
             'delete_image_ids' => 'sometimes|array',

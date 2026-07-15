@@ -211,7 +211,7 @@ function checkSlugAvailability() {
             if (data.available) {
                 document.getElementById('slugStatus').innerHTML = '<span class="text-emerald-600 font-medium">✓ Available</span>';
             } else if (data.slug) {
-                document.getElementById('slugStatus').innerHTML = '<span class="text-amber-600 font-medium">Suggested: ' + data.slug + '</span>';
+                document.getElementById('slugStatus').textContent = 'Suggested: ' + data.slug;
             }
         })
         .catch(function () {

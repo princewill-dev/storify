@@ -87,22 +87,22 @@
                     @if($canProcessSale)
                     <input type="text" id="productSearch" class="w-full rounded-lg border-slate-300 px-3.5 py-2.5 shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500 text-sm mb-3" placeholder="Search products..." autofocus>
                     @endif
-                    <div id="productGrid" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                    <div id="productGrid" class="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-2">
                         @foreach($products as $product)
                         @php $img = $product->images->first(); @endphp
-                        <div class="product-card bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm" @if($canProcessSale) onclick="addToCart(@js($product->only(['id','name','amount','quantity'])))" @endif>
-                            <div class="aspect-[4/3] bg-slate-100 flex items-center justify-center overflow-hidden">
+                        <div class="product-card bg-white rounded-lg border border-slate-200 overflow-hidden shadow-sm" @if($canProcessSale) onclick="addToCart(@js($product->only(['id','name','amount','quantity'])))" @endif>
+                            <div class="aspect-square bg-slate-100 flex items-center justify-center overflow-hidden">
                                 @if($img && $img->path)
                                 <img src="{{ asset('storage/' . $img->path) }}" alt="{{ $product->name }}" class="w-full h-full object-cover">
                                 @else
-                                <i class="fi fi-rr-cube text-slate-300 text-2xl"></i>
+                                <i class="fi fi-rr-cube text-slate-300 text-xl"></i>
                                 @endif
                             </div>
-                            <div class="p-2.5">
-                                <p class="text-xs font-semibold text-slate-800 truncate">{{ $product->name }}</p>
-                                <div class="flex items-center justify-between mt-1">
-                                    <span class="text-sm font-bold text-slate-700">₦{{ number_format($product->amount, 2) }}</span>
-                                    <span class="text-[10px] text-slate-400">{{ $product->quantity }} left</span>
+                            <div class="p-2">
+                                <p class="text-[11px] font-semibold text-slate-800 truncate leading-tight">{{ $product->name }}</p>
+                                <div class="flex items-center justify-between mt-0.5">
+                                    <span class="text-xs font-bold text-slate-700">₦{{ number_format($product->amount, 0) }}</span>
+                                    <span class="text-[10px] text-slate-400">{{ $product->quantity }}</span>
                                 </div>
                             </div>
                         </div>
@@ -127,6 +127,10 @@
             </div>
 
             <div id="tabContentHistory" class="hidden flex-1 overflow-y-auto p-4">
+                <div class="mb-3 flex items-center">
+                    <input type="text" id="historySearch" oninput="filterHistory()" placeholder="Search by order number or amount..." class="flex-1 rounded-l-lg border border-slate-300 border-r-0 px-3 py-2 text-sm focus:border-slate-400 focus:ring-0" autocomplete="off">
+                    <button class="rounded-r-lg border border-slate-300 bg-slate-50 px-4 py-2 text-sm text-slate-500 hover:bg-slate-100"><i class="fi fi-rr-search"></i></button>
+                </div>
                 <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
                     <table class="w-full text-sm">
                         <thead><tr class="border-b border-slate-100">
@@ -137,7 +141,7 @@
                             <th class="px-4 py-3 text-right text-[11px] font-semibold text-slate-400 uppercase hidden md:table-cell">Time</th>
                             <th class="px-4 py-3 text-right text-[11px] font-semibold text-slate-400 uppercase"></th>
                         </tr></thead>
-                        <tbody class="divide-y divide-slate-50">
+                        <tbody class="divide-y divide-slate-50" id="historyTableBody">
                             @forelse($recentOrders as $order)
                             @php $tx = $order->transactions->first(); @endphp
                             <tr class="hover:bg-slate-50/50">
@@ -228,10 +232,10 @@
                     <label class="block text-sm font-medium text-slate-700 mb-1.5">Payment Method</label>
                     <div class="flex flex-wrap gap-2">
                         <input type="radio" name="payment_method" id="payCash" value="cash" checked class="hidden peer">
-                        <label for="payCash" class="flex-1 text-center px-3 py-2 rounded-lg text-sm font-medium border-2 cursor-pointer transition-colors peer-checked:border-slate-900 peer-checked:bg-slate-50 border-slate-200 text-slate-600 hover:border-slate-300" onclick="selectPayTab('cash')"><i class="fi fi-rr-money-bill-wave text-xs mr-1"></i> Cash</label>
+                        <label for="payCash" class="flex-1 text-center px-3 py-2.5 rounded-lg text-sm font-semibold border-2 cursor-pointer transition-all duration-150 border-slate-200 bg-white text-slate-500 hover:border-slate-300" onclick="selectPayTab('cash')"><i class="fi fi-rr-money-bill-wave text-sm mr-1.5"></i>Cash</label>
                         @foreach($paymentMethods as $pm)
                         <input type="radio" name="payment_method" id="pay{{ ucfirst($pm['id']) }}" value="{{ $pm['id'] }}" class="hidden peer">
-                        <label for="pay{{ ucfirst($pm['id']) }}" class="flex-1 text-center px-3 py-2 rounded-lg text-sm font-medium border-2 cursor-pointer transition-colors peer-checked:border-slate-900 peer-checked:bg-slate-50 border-slate-200 text-slate-600 hover:border-slate-300" onclick="selectPayTab('{{ $pm['id'] }}')"><i class="fi fi-rr-{{ $pm['icon'] }} text-xs mr-1"></i> {{ $pm['label'] }}</label>
+                        <label for="pay{{ ucfirst($pm['id']) }}" class="flex-1 text-center px-3 py-2.5 rounded-lg text-sm font-semibold border-2 cursor-pointer transition-all duration-150 border-slate-200 bg-white text-slate-500 hover:border-slate-300" onclick="selectPayTab('{{ $pm['id'] }}')"><i class="fi fi-rr-{{ $pm['icon'] }} text-sm mr-1.5"></i>{{ $pm['label'] }}</label>
                         @endforeach
                     </div>
                 </div>
@@ -291,6 +295,8 @@
 let cart = [];
 const csrf = '{{ csrf_token() }}';
 
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
 function addToCart(product) {
     let ex = cart.find(i => i.product_id === product.id);
     if (ex) { ex.quantity += 1; } else { cart.push({ product_id: product.id, name: product.name, price: parseFloat(product.amount), quantity: 1 }); }
@@ -303,7 +309,20 @@ function renderCart() {
     let h = '', t = 0;
     cart.forEach((item, i) => {
         let it = item.price * item.quantity; t += it;
-        h += `<div class="flex items-center justify-between py-2 border-b border-slate-50"><div class="flex-1 min-w-0"><p class="text-sm font-medium text-slate-800 truncate">${item.name}</p><div class="flex items-center gap-2 mt-1"><button class="w-5 h-5 rounded bg-slate-100 text-slate-500 text-xs flex items-center justify-center" onclick="updateQty(${i},-1)">−</button><span class="text-xs w-5 text-center">${item.quantity}</span><button class="w-5 h-5 rounded bg-slate-100 text-slate-500 text-xs flex items-center justify-center" onclick="updateQty(${i},1)">+</button></div></div><div class="text-right shrink-0 ml-3"><p class="text-sm font-semibold">₦${it.toFixed(2)}</p><button class="text-[10px] text-slate-400 hover:text-red-500 mt-0.5" onclick="removeFromCart(${i})">Remove</button></div></div>`;
+        h += `<div class="flex py-2.5 border-b border-slate-100">
+            <div class="flex-1 min-w-0">
+                <p class="text-sm font-medium text-slate-800 truncate leading-6">${esc(item.name)}</p>
+                <div class="flex items-center gap-2 mt-1">
+                    <span class="text-xs font-semibold text-slate-600 w-16">₦${item.price.toFixed(2)}</span>
+                    <div class="flex items-center gap-1">
+                        <button class="w-6 h-6 rounded bg-slate-100 text-slate-500 text-sm hover:bg-slate-200" onclick="updateQty(${i},-1)">−</button>
+                        <span class="w-6 text-center text-sm font-medium text-slate-800">${item.quantity}</span>
+                        <button class="w-6 h-6 rounded bg-slate-100 text-slate-500 text-sm hover:bg-slate-200" onclick="updateQty(${i},1)">+</button>
+                    </div>
+                </div>
+            </div>
+            <button class="w-8 h-8 rounded bg-red-500 text-white text-base font-bold flex items-center justify-center shrink-0 hover:bg-red-600 self-center ml-2" onclick="removeFromCart(${i})" title="Remove">×</button>
+        </div>`;
     });
     document.getElementById('cartItems').innerHTML = h || '<div class="text-center text-slate-400 py-6 text-sm">Cart is empty — click a product</div>';
     document.getElementById('cartSubtotal').textContent = '₦' + t.toFixed(2);
@@ -320,9 +339,15 @@ function openCheckout() {
     document.getElementById('checkoutModal').classList.remove('hidden');
 }
 function selectPayTab(m) {
-    document.querySelectorAll('#checkoutModal label[for^="pay"]').forEach(l => { l.classList.remove('border-slate-900','bg-slate-50'); l.classList.add('border-slate-200'); });
+    document.querySelectorAll('#checkoutModal label[for^="pay"]').forEach(l => {
+        l.classList.remove('border-slate-900','bg-slate-900','text-white','shadow-md','ring-2','ring-slate-900/20','scale-[1.02]');
+        l.classList.add('border-slate-200','bg-white','text-slate-500');
+    });
     const lb = document.querySelector(`label[for="pay${m.charAt(0).toUpperCase()+m.slice(1)}"]`);
-    if (lb) { lb.classList.add('border-slate-900','bg-slate-50'); lb.classList.remove('border-slate-200'); }
+    if (lb) {
+        lb.classList.add('border-slate-900','bg-slate-900','text-white','shadow-md','ring-2','ring-slate-900/20','scale-[1.02]');
+        lb.classList.remove('border-slate-200','bg-white','text-slate-500','hover:border-slate-300');
+    }
     document.getElementById('cashFields').classList.toggle('hidden', m !== 'cash');
     document.getElementById('bankFields').classList.toggle('hidden', m !== 'transfer');
     document.getElementById('cardNotice').classList.toggle('hidden', m !== 'card');
@@ -381,19 +406,19 @@ async function doCheckout() {
 
 function showReceiptModal(receipt) {
     const itemsHtml = receipt.items.map(i =>
-        `<div class="flex justify-between text-sm"><span>${i.name} × ${i.qty}</span><span class="font-medium">₦${i.subtotal.toFixed(2)}</span></div>`
+        `<div class="flex justify-between text-sm"><span>${esc(i.name)} × ${i.qty}</span><span class="font-medium">₦${i.subtotal.toFixed(2)}</span></div>`
     ).join('');
     document.getElementById('receiptContent').innerHTML = `
         <div class="text-center mb-4">
-            <h3 class="text-lg font-bold text-slate-800">${receipt.store_name}</h3>
-            ${receipt.store_address ? `<p class="text-xs text-slate-400">${receipt.store_address}</p>` : ''}
+            <h3 class="text-lg font-bold text-slate-800">${esc(receipt.store_name)}</h3>
+            ${receipt.store_address ? `<p class="text-xs text-slate-400">${esc(receipt.store_address)}</p>` : ''}
         </div>
         <div class="border-t border-b border-dashed border-slate-200 py-3 space-y-2 mb-3">
-            <div class="flex justify-between text-xs text-slate-500"><span>Order</span><span class="font-mono font-medium text-slate-700">#${receipt.order_number}</span></div>
-            <div class="flex justify-between text-xs text-slate-500"><span>Date</span><span>${receipt.date}</span></div>
-            <div class="flex justify-between text-xs text-slate-500"><span>Cashier</span><span>${receipt.cashier}</span></div>
-            <div class="flex justify-between text-xs text-slate-500"><span>Payment</span><span class="capitalize">${receipt.payment_method}</span></div>
-            ${receipt.customer_name ? `<div class="flex justify-between text-xs text-slate-500"><span>Customer</span><span>${receipt.customer_name}</span></div>` : ''}
+            <div class="flex justify-between text-xs text-slate-500"><span>Order</span><span class="font-mono font-medium text-slate-700">#${esc(receipt.order_number)}</span></div>
+            <div class="flex justify-between text-xs text-slate-500"><span>Date</span><span>${esc(receipt.date)}</span></div>
+            <div class="flex justify-between text-xs text-slate-500"><span>Cashier</span><span>${esc(receipt.cashier)}</span></div>
+            <div class="flex justify-between text-xs text-slate-500"><span>Payment</span><span class="capitalize">${esc(receipt.payment_method)}</span></div>
+            ${receipt.customer_name ? `<div class="flex justify-between text-xs text-slate-500"><span>Customer</span><span>${esc(receipt.customer_name)}</span></div>` : ''}
         </div>
         <div class="space-y-1.5 mb-3">${itemsHtml}</div>
         <div class="border-t border-slate-200 pt-3 space-y-1">
@@ -424,6 +449,53 @@ function switchTab(t) {
     document.getElementById('tabContentHistory').classList.toggle('hidden', t !== 'history');
     document.getElementById('tabProducts').classList.toggle('active', t === 'products');
     document.getElementById('tabHistory').classList.toggle('active', t === 'history');
+    if (t === 'history') { document.getElementById('historySearch').value = ''; loadHistory(); }
+}
+let historyOrders = [];
+async function loadHistory() {
+    const tbody = document.querySelector('#tabContentHistory tbody');
+    tbody.innerHTML = '<tr><td colspan="6" class="px-4 py-12 text-center text-sm text-slate-400">Loading...</td></tr>';
+    try {
+        const resp = await fetch('/pos/{{ $activeStore->store_id }}/history?t=' + Date.now(), { headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' } });
+        historyOrders = await resp.json();
+        renderHistoryTable(historyOrders);
+    } catch(e) { tbody.innerHTML = '<tr><td colspan="6" class="px-4 py-12 text-center text-sm text-slate-400">Failed to load history.</td></tr>'; historyOrders = []; }
+}
+function filterHistory() {
+    const q = document.getElementById('historySearch').value.toLowerCase().trim();
+    if (!q) { renderHistoryTable(historyOrders); return; }
+    const filtered = historyOrders.filter(o => {
+        const orderNum = String(o.order_number || o.id).toLowerCase();
+        const total = parseFloat(o.total).toFixed(2);
+        return orderNum.includes(q) || total.includes(q);
+    });
+    renderHistoryTable(filtered);
+}
+function renderHistoryTable(orders) {
+    const tbody = document.querySelector('#tabContentHistory tbody');
+    if (!orders.length) {
+        tbody.innerHTML = '<tr><td colspan="6" class="px-4 py-12 text-center text-sm text-slate-400">No matching sales found.</td></tr>';
+        return;
+    }
+    tbody.innerHTML = orders.map(o => {
+        const tx = o.transactions?.[0];
+        let statusHtml = '<span class="text-[10px] text-slate-400">—</span>';
+        if (tx) {
+            if (tx.status === 'confirmed') statusHtml = '<span class="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">Paid</span>';
+            else if (tx.status === 'refund_pending') statusHtml = '<span class="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">Refund Pending</span>';
+            else if (tx.status === 'refunded') statusHtml = '<span class="inline-flex items-center rounded-full bg-purple-50 px-2 py-0.5 text-[10px] font-medium text-purple-700">Refunded</span>';
+            else statusHtml = '<span class="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600">' + esc(tx.status_label || tx.status) + '</span>';
+        }
+        const refundBtn = tx && tx.status === 'confirmed' ? '<button onclick="openRefundModal({id:'+o.id+',order_number:\''+(o.order_number||o.id)+'\',total:'+o.total+'})" class="px-2 py-1 text-[10px] font-medium text-amber-600 bg-amber-50 hover:bg-amber-100 rounded">Refund</button>' : '';
+        return `<tr class="hover:bg-slate-50/50">
+            <td class="px-4 py-3"><span class="text-xs font-medium text-slate-800">#${esc(o.order_number || o.id)}</span></td>
+            <td class="px-4 py-3 text-center hidden sm:table-cell"><span class="text-xs text-slate-600">${o.items_count || 0}</span></td>
+            <td class="px-4 py-3 text-right"><span class="text-xs font-semibold text-slate-800">₦${parseFloat(o.total).toFixed(2)}</span></td>
+            <td class="px-4 py-3 text-center hidden sm:table-cell">${statusHtml}</td>
+            <td class="px-4 py-3 text-right hidden md:table-cell"><span class="text-[11px] text-slate-400">${new Date(o.created_at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</span></td>
+            <td class="px-4 py-3 text-right"><div class="flex items-center justify-end gap-1">${refundBtn}<a href="/pos/{{ $activeStore->store_id }}/receipt/${o.order_number || o.id}" class="px-2 py-1 text-[10px] font-medium text-slate-500 bg-slate-100 hover:bg-slate-200 rounded">View</a></div></td>
+        </tr>`;
+    }).join('');
 }
 function openRefundModal(order) {
     document.getElementById('refundForm').action = '/pos/{{ $activeStore->store_id }}/refund/' + order.id;

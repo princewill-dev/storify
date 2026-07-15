@@ -32,16 +32,16 @@ use App\Http\Controllers\Staff\InvitationController;
 Route::prefix('management')->name('management.')->group(function () {
     // Public auth routes (redirect to old vendor auth for now)
     Route::get('/register', [BusinessAuthController::class, 'showRegister'])->name('auth.register');
-    Route::post('/register', [BusinessAuthController::class, 'register'])->name('auth.register.store');
+    Route::post('/register', [BusinessAuthController::class, 'register'])->name('auth.register.store')->middleware('throttle:6,1');
     Route::get('/login', [BusinessAuthController::class, 'showLogin'])->name('auth.login');
-    Route::post('/login', [BusinessAuthController::class, 'login'])->name('auth.login.store');
+    Route::post('/login', [BusinessAuthController::class, 'login'])->name('auth.login.store')->middleware('throttle:6,1');
     Route::get('/forgot-password', [BusinessAuthController::class, 'showForgotPassword'])->name('auth.forgot-password');
-    Route::post('/forgot-password', [BusinessAuthController::class, 'sendResetOtp'])->name('auth.forgot-password.send');
+    Route::post('/forgot-password', [BusinessAuthController::class, 'sendResetOtp'])->name('auth.forgot-password.send')->middleware('throttle:3,10');
     Route::get('/reset-password', [BusinessAuthController::class, 'showResetPassword'])->name('auth.reset-password');
     Route::post('/reset-password', [BusinessAuthController::class, 'resetPassword'])->name('auth.reset-password.update');
     Route::get('/verify-email', [BusinessAuthController::class, 'showVerifyOtp'])->name('auth.verify-otp');
-    Route::post('/verify-email', [BusinessAuthController::class, 'verifyOtp'])->name('auth.verify-otp.store');
-    Route::post('/verify-email/resend', [BusinessAuthController::class, 'resendOtp'])->name('auth.verify-otp.resend');
+    Route::post('/verify-email', [BusinessAuthController::class, 'verifyOtp'])->name('auth.verify-otp.store')->middleware('throttle:6,1');
+    Route::post('/verify-email/resend', [BusinessAuthController::class, 'resendOtp'])->name('auth.verify-otp.resend')->middleware('throttle:3,10');
 
     Route::get('/staff/invitation/{token}', [InvitationController::class, 'showAccept'])->name('staff.invitation.accept');
     Route::post('/staff/invitation/{token}', [InvitationController::class, 'accept'])->name('staff.invitation.accept.store');

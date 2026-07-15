@@ -53,7 +53,7 @@
                                             <div class="text-muted small mb-1">Account number</div>
                                             <div class="d-flex align-items-center gap-2">
                                                 <code class="bg-white px-3 py-2 border" style="font-size: 16px; color: #1a1a1a; border-radius: 4px; letter-spacing: 0.5px;">{{ $bankAccount->account_number }}</code>
-                                                <button type="button" class="btn btn-sm btn-light copy-btn" onclick="copyAccountNumber('{{ $bankAccount->account_number }}', {{ $bankAccount->id }})" style="border: 1px solid #e6ebf1;">
+                                                <button type="button" class="btn btn-sm btn-light copy-btn" onclick="copyAccountNumber({{ Js::from($bankAccount->account_number) }}, {{ $bankAccount->id }})" style="border: 1px solid #e6ebf1;">
                                                     <i class="fa fa-copy" style="font-size: 12px;"></i>
                                                 </button>
                                             </div>

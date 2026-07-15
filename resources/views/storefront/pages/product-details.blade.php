@@ -102,7 +102,7 @@
                            $thumbIsVideo = in_array($thumbExt, ['mp4', 'webm', 'mov', 'avi', 'mpeg']);
                         @endphp
                         <div class="gallery-thumb position-relative {{ $index === 0 ? 'active' : '' }}" 
-                             onclick="changeMainMedia('{{ $thumbPath }}', '{{ $thumbExt }}', {{ $thumbIsVideo ? 'true' : 'false' }}, this)"
+                             onclick="changeMainMedia({{ Js::from($thumbPath) }}, {{ Js::from($thumbExt) }}, {{ $thumbIsVideo ? 'true' : 'false' }}, this)"
                              style="cursor: pointer;">
                            @if($thumbIsVideo)
                               <video style="width: 100%; height: 80px; object-fit: cover; pointer-events: none;" muted>
@@ -255,7 +255,7 @@
                   <div class="details-content">
                      @if($product->description)
                         <div class="description-content">
-                           {!! $product->description !!}
+                            {!! strip_tags($product->description, '<p><b><i><strong><em><br><ul><ol><li><a><h1><h2><h3><h4><h5><h6><span><div><table><tr><td><th><img><blockquote><pre><code>') !!}
                         </div>
                      @endif
                      

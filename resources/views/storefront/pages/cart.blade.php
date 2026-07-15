@@ -474,6 +474,8 @@
         const list = document.getElementById('cartPageList');
         const subtotalEl = document.getElementById('cartPageSubtotal');
         const totalEl = document.getElementById('cartPageTotal');
+
+        const esc = (s) => { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; };
         
         list.innerHTML = '';
         const fmt = new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN' });
@@ -530,8 +532,8 @@
                             </a>
                         </div>
                         <div class="cart-details">
-                            <h5><a href="${productUrl}" class="text-dark text-decoration-none">${item.name}</a></h5>
-                            <p class="text-muted">Code: ${item.code || 'N/A'}</p>
+                            <h5><a href="${productUrl}" class="text-dark text-decoration-none">${esc(item.name)}</a></h5>
+                            <p class="text-muted">Code: ${esc(item.code || 'N/A')}</p>
                         </div>
                     </div>
                     

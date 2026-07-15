@@ -18,11 +18,11 @@
                         <i class="fi fi-rr-pencil"></i> Edit
                     </a>
                     @if($customer->status === \App\Models\Customer::STATUS_ACTIVE)
-                        <button class="btn btn-outline-danger" onclick="showSuspendModal('{{ $customer->account_id }}', '{{ $customer->full_name }}')">
+                        <button class="btn btn-outline-danger" onclick="showSuspendModal({{ Js::from($customer->account_id) }}, {{ Js::from($customer->full_name) }})">
                             <i class="fi fi-rr-ban"></i> Suspend
                         </button>
                     @elseif($customer->status === \App\Models\Customer::STATUS_SUSPENDED)
-                        <button class="btn btn-outline-success" onclick="showActivateModal('{{ $customer->account_id }}', '{{ $customer->full_name }}')">
+                        <button class="btn btn-outline-success" onclick="showActivateModal({{ Js::from($customer->account_id) }}, {{ Js::from($customer->full_name) }})">
                             <i class="fi fi-rr-check-circle"></i> Activate
                         </button>
                     @endif

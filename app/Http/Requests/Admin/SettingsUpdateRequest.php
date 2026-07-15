@@ -16,7 +16,9 @@ class SettingsUpdateRequest extends FormRequest
         return [
             'company_name' => ['nullable', 'string', 'max:255'],
             'company_logo' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
+            'company_favicon' => ['nullable', 'image', 'mimes:png,ico,jpg,jpeg,webp', 'max:1024'],
             'company_certificate' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png,webp', 'max:5120'],
+            'og_image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
             'support_email' => ['nullable', 'email', 'max:255'],
             'support_phone' => ['nullable', 'string', 'max:50'],
             'company_address' => ['nullable', 'string', 'max:2000'],

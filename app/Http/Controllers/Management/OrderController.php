@@ -433,6 +433,19 @@ class OrderController extends Controller
         if (!$user) {
             abort(401);
         }
+
+        if ($user->isRestrictedStaff()) {
+            $storeIds = $user->assignedStores()->pluck('id')->toArray();
+            if (!in_array($order->store_id, $storeIds)) {
+                abort(403, 'You do not have access to this order.');
+            }
+            return $user;
+        }
+
+        if ($order->business_id && $user->business_id && $order->business_id !== $user->business_id) {
+            abort(403, 'You do not have access to this order.');
+        }
+
         return $user;
     }
 

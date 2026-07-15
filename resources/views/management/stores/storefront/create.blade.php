@@ -180,9 +180,9 @@ if (nameInput) {
             .then(data => {
                 document.getElementById('slugUrl').textContent = data.url;
                 document.getElementById('slugInput').value = data.slug || '';
-                document.getElementById('slugStatus').innerHTML = data.available
-                    ? '<span class="text-emerald-600 font-medium">✓</span>'
-                    : '<span class="text-amber-600 font-medium">' + (data.slug || '') + '</span>';
+                document.getElementById('slugStatus').textContent = data.available
+                    ? ''
+                    : (data.slug || '');
             })
             .catch(() => { document.getElementById('slugStatus').textContent = ''; });
         }, 500);
