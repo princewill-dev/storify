@@ -441,6 +441,25 @@ class ProductAndStockSeeder extends Seeder
         echo "Wiped warehouse [{$warehouse->name}]: {$productCount} products, {$sectionCount} sections, {$stockCount} stock locations." . PHP_EOL;
     }
 
+    public static function wipeStore($storeId): void
+    {
+        $store = is_numeric($storeId)
+            ? Store::find($storeId)
+            : Store::where('store_id', $storeId)->first();
+
+        if (!$store) {
+            echo "Store '{$storeId}' not found." . PHP_EOL;
+            return;
+        }
+
+        $productCount = Product::where('store_id', $store->id)->delete();
+        $categoryCount = Category::where('store_id', $store->id)->delete();
+        $stockCount = StockLocation::where('locationable_type', Store::class)
+            ->where('locationable_id', $store->id)->delete();
+
+        echo "Wiped store [{$store->name}]: {$productCount} products, {$categoryCount} categories, {$stockCount} stock locations." . PHP_EOL;
+    }
+
     protected function attachImage(Product $product, int $seed): void
     {
         $sourceDir = base_path('.temp_products');
