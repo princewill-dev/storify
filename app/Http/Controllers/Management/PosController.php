@@ -19,13 +19,13 @@ class PosController extends Controller
     public function index(Request $request): View
     {
         $user = $request->user();
-        $storeIds = $user->isStaff() ? $user->assignedStores()->pluck('stores.id') : $user->accessibleStores()->pluck('id');
+        $storeIds = $user->isRestrictedStaff() ? $user->assignedStores()->pluck('stores.id') : $user->accessibleStores()->pluck('id');
 
         $sessionsQuery = PosSession::whereIn('store_id', $storeIds)
             ->with(['store', 'staff']);
 
         if ($request->filled('store_id')) {
-            $store = ($user->isStaff() ? $user->assignedStores() : $user->accessibleStores())
+            $store = ($user->isRestrictedStaff() ? $user->assignedStores() : $user->accessibleStores())
                 ->where('store_id', $request->query('store_id'))->first();
             if ($store) {
                 $sessionsQuery->where('store_id', $store->id);
@@ -45,7 +45,7 @@ class PosController extends Controller
             ->whereNotNull('pos_session_id')
             ->whereDate('created_at', today())->sum('total');
 
-        $allStores = ($user->isStaff() ? $user->assignedStores : $user->stores)->where('status', '!=', 'deleted')->sortBy('name');
+        $allStores = ($user->isRestrictedStaff() ? $user->assignedStores : $user->stores)->where('status', '!=', 'deleted')->sortBy('name');
 
         $breadcrumbs = [
             ['label' => 'Dashboard', 'url' => route('management.dashboard')],
@@ -62,7 +62,7 @@ class PosController extends Controller
         $user = $request->user();
 
         if (!$user->isPlatformAdmin()) {
-            if ($user->isStaff()) {
+            if ($user->isRestrictedStaff()) {
                 if (!$user->assignedStores()->where('stores.id', $store->id)->exists()) {
                     abort(403);
                 }
@@ -143,7 +143,7 @@ class PosController extends Controller
     {
         $user = $request->user();
 
-        if ($user->isStaff()) {
+        if ($user->isRestrictedStaff()) {
             if (!$user->assignedStores()->where('stores.id', $session->store->id)->exists()) {
                 abort(403);
             }
@@ -158,7 +158,7 @@ class PosController extends Controller
         $orderCount = $orders->count();
 
         $staffSessions = PosSession::where('staff_id', $session->staff_id)
-            ->whereIn('store_id', $user->isStaff()
+            ->whereIn('store_id', $user->isRestrictedStaff()
                 ? $user->assignedStores()->pluck('id')
                 : $user->accessibleStores()->pluck('id'))
             ->with('store')
@@ -182,7 +182,7 @@ class PosController extends Controller
         $user = $request->user();
 
         if (!$user->isPlatformAdmin()) {
-            if ($user->isStaff()) {
+            if ($user->isRestrictedStaff()) {
                 if (!$user->assignedStores()->where('stores.id', $store->id)->exists()) {
                     abort(403);
                 }
@@ -345,7 +345,7 @@ class PosController extends Controller
         $user = $request->user();
 
         if (!$user->isPlatformAdmin()) {
-            if ($user->isStaff()) {
+            if ($user->isRestrictedStaff()) {
                 if (!$user->assignedStores()->where('stores.id', $store->id)->exists()) {
                     abort(403);
                 }

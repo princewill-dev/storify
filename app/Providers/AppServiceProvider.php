@@ -345,9 +345,9 @@ class AppServiceProvider extends ServiceProvider
                     'sidebarPendingOrdersCount' => 0,
                 ];
             } else {
-                $stores = $user->stores()->where('status', '!=', 'deleted')->get();
-                $warehouses = $user->warehouses()->with('sections')->where('status', '!=', 'deleted')->get();
-                $posStores = $user->stores()->where('pos_enabled', true)->where('status', '!=', 'deleted')
+                $stores = $user->accessibleStores()->where('status', '!=', 'deleted')->get();
+                $warehouses = $user->accessibleWarehouses()->with('sections')->where('status', '!=', 'deleted')->get();
+                $posStores = $user->accessibleStores()->where('pos_enabled', true)->where('status', '!=', 'deleted')
                     ->withCount(['posSessions as active_pos_sessions_count' => fn($q) => $q->where('status', 'open')])
                     ->orderBy('name')
                     ->get();

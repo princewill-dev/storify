@@ -21,7 +21,7 @@ class PosController extends Controller
         }
 
         // Superadmins get all POS-enabled stores; staff get assigned ones
-        $assignedStores = ($user->isPlatformAdmin() ?? false)
+        $assignedStores = (!$user->isRestrictedStaff())
             ? Store::where('pos_enabled', true)->where('status', '!=', 'deleted')->get()
             : $user->assignedStores()->where('pos_enabled', true)->where('status', '!=', 'deleted')->get();
 

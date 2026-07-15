@@ -37,7 +37,7 @@ class DashboardController extends Controller
 
         $activeStoreId = session('active_store_id');
 
-        $storeIds = $user->isStaff()
+        $storeIds = $user->isRestrictedStaff()
             ? $user->assignedStores()->where('status', '!=', 'deleted')->pluck('stores.id')
             : $user->accessibleStores()->where('status', '!=', 'deleted')->pluck('id');
 
@@ -108,7 +108,7 @@ class DashboardController extends Controller
         })->count();
 
         // ── Stores ──
-        $storeRelation = $user->isStaff() ? $user->assignedStores() : $user->accessibleStores();
+        $storeRelation = $user->isRestrictedStaff() ? $user->assignedStores() : $user->accessibleStores();
         $allStoresQuery = (clone $storeRelation)->where('status', '!=', 'deleted');
         $totalStores = (clone $allStoresQuery)->count();
         $activeStores = (clone $allStoresQuery)->where('status', 'active')->count();
@@ -122,7 +122,7 @@ class DashboardController extends Controller
         $totalProducts = (clone $productsQuery)->count();
         $activeProducts = (clone $productsQuery)->where('status', 'active')->count();
 
-        $warehouseIds = $user->isStaff()
+        $warehouseIds = $user->isRestrictedStaff()
             ? $user->assignedWarehouses()->where('status', '!=', 'deleted')->pluck('warehouses.id')
             : $user->warehouses()->where('status', '!=', 'deleted')->pluck('id');
 
@@ -189,7 +189,7 @@ class DashboardController extends Controller
         }
 
         // ── Warehouses ──
-        $warehouseQuery = $user->isStaff() ? $user->assignedWarehouses() : $user->warehouses();
+        $warehouseQuery = $user->isRestrictedStaff() ? $user->assignedWarehouses() : $user->warehouses();
         $totalWarehouses = (clone $warehouseQuery)->count();
         $activeWarehouses = (clone $warehouseQuery)->where('status', '!=', 'deleted')->count();
         $warehouseTotalStock = StockLocation::whereIn('locationable_id', (clone $warehouseQuery)->pluck('warehouses.id'))
@@ -307,7 +307,7 @@ class DashboardController extends Controller
 
         $request->validate(['store_id' => 'exists:stores,id']);
 
-        $storeRelation = $user->isStaff() ? $user->assignedStores() : $user->accessibleStores();
+        $storeRelation = $user->isRestrictedStaff() ? $user->assignedStores() : $user->accessibleStores();
         if (!$storeRelation->where('status', '!=', 'deleted')->where('id', $request->store_id)->exists()) {
             return back()->with('error', 'Unauthorized store access.');
         }

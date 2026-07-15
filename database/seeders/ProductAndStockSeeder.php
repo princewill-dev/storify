@@ -17,74 +17,74 @@ use Illuminate\Support\Str;
 class ProductAndStockSeeder extends Seeder
 {
     protected array $categoryNames = [
-        'Electronics',
-        'Fashion',
-        'Home & Kitchen',
-        'Beauty & Health',
-        'Sports & Outdoors',
+        'Paints & Mediums',
+        'Brushes & Tools',
+        'Canvas & Surfaces',
+        'Sketching & Drawing',
+        'Craft & Sculpting',
     ];
 
     protected array $productCatalog = [
-        'Electronics' => [
-            ['Wireless Bluetooth Headphones', 'SoundWave', 12500, 350, 120],
-            ['USB-C Fast Charger 65W', 'PowerUp', 8000, 180, 80],
-            ['Portable Bluetooth Speaker', 'SoundWave', 9500, 420, 200],
-            ['Wireless Ergonomic Mouse', 'ClickPro', 4500, 95, 60],
-            ['HDMI 4K Cable 2m', 'LinkFast', 2200, 50, 30],
-            ['Laptop Cooling Stand', 'CoolTech', 6500, 750, 300],
-            ['Webcam 1080p with Mic', 'ClearView', 11000, 210, 100],
-            ['Mechanical Gaming Keyboard', 'TypeForce', 18500, 890, 400],
+        'Paints & Mediums' => [
+            ['Acrylic Paint Set 24x12ml', 'Arteza', 8500, 480, 150],
+            ['Professional Oil Paint Set 12x40ml', 'Winsor & Newton', 18500, 620, 80],
+            ['Watercolour Paint Tin 36 Colours', 'Van Gogh', 12000, 350, 100],
+            ['Heavy Body Acrylic 200ml — Titanium White', 'Liquitex', 4500, 220, 200],
+            ['Gouache Paint Set 18x30ml', 'Holbein', 9500, 420, 120],
+            ['Acrylic Pouring Medium 500ml', 'Mont Marte', 3200, 510, 90],
+            ['Linseed Oil Refined 250ml', 'Art Spectrum', 2500, 260, 180],
+            ['Spray Paint — Matte Black 400ml', 'MTN Colors', 3800, 400, 140],
         ],
-        'Fashion' => [
-            ['Classic Leather Watch', 'TimeMark', 15000, 85, 40],
-            ['Polarized Aviator Sunglasses', 'SunGear', 7500, 45, 25],
-            ['Canvas Leather Backpack', 'CarryAll', 12000, 680, 300],
-            ['Merino Wool Beanie', 'WarmCove', 3500, 60, 30],
-            ['Minimalist Canvas Sneakers', 'StrideX', 9500, 520, 250],
-            ['Stainless Steel Bracelet', 'Metaluxe', 5500, 28, 15],
-            ['Waterproof Nylon Belt', 'HoldFast', 4200, 75, 40],
-            ['Cotton Bucket Hat', 'ShadeCo', 2800, 55, 30],
+        'Brushes & Tools' => [
+            ['Professional Brush Set 12pc — Taklon', 'da Vinci', 11000, 180, 100],
+            ['Palette Knife Set 5pc — Stainless Steel', 'RGM', 5500, 160, 85],
+            ['Flat Wash Brush 2-inch — Hog Bristle', 'Princeton', 2800, 70, 150],
+            ['Fine Detail Liner Brush Set 7pc', 'Winsor & Newton', 6500, 50, 120],
+            ['Silicone Painting Wedge Set 5pc', 'Catalyst', 4200, 120, 75],
+            ['Brush Cleaner & Restorer 250ml', 'General Pencil', 1800, 270, 200],
+            ['Watercolour Mop Brush — Squirrel Hair #8', 'Escoda', 7500, 30, 60],
+            ['Artist Brush Roll-Up Organizer 24-Slot', 'Art Advantage', 5200, 220, 80],
         ],
-        'Home & Kitchen' => [
-            ['Stainless Steel French Press', 'BrewMate', 6500, 480, 220],
-            ['Cast Iron Skillet 12-inch', 'IronChef', 11000, 2100, 900],
-            ['Bamboo Cutting Board Set', 'EcoPrep', 4500, 380, 180],
-            ['Glass Meal Prep Containers 5-Pack', 'FreshKeep', 8000, 750, 350],
-            ['Silicone Spatula Set of 4', 'FlexCook', 2800, 110, 55],
-            ['Digital Kitchen Scale', 'PreciseMeasure', 5200, 230, 100],
-            ['Airtight Coffee Canister', 'BrewGuard', 3500, 280, 130],
-            ['Non-Stick Baking Mat', 'BakePro', 2200, 65, 35],
+        'Canvas & Surfaces' => [
+            ['Stretched Cotton Canvas 16x20in 5-Pack', 'Masterpiece', 15000, 2400, 60],
+            ['Canvas Panel Board 11x14in 10-Pack', 'Fredrix', 8000, 1100, 100],
+            ['Wood Painting Panel Cradle 12x12in', 'Ampersand', 6800, 850, 70],
+            ['Watercolour Paper Pad A4 300gsm 20 Sheets', 'Arches', 9500, 380, 140],
+            ['Mixed Media Art Journal A5 80 Pages', 'Strathmore', 4500, 320, 120],
+            ['Gallery Wrapped Canvas 24x36in — Deep Edge', 'Blick Studio', 22000, 3600, 35],
+            ['Painting Panel Round 30cm 3-Pack', 'Artlicious', 3500, 580, 90],
+            ['Canvas Roll 1.5m x 3m — Cotton Duck', 'Fabriano', 14500, 4200, 40],
         ],
-        'Beauty & Health' => [
-            ['Vitamin C Serum 30ml', 'GlowUp', 8500, 38, 20],
-            ['Bamboo Hair Brush Set', 'NaturalTouch', 4800, 72, 35],
-            ['Hypoallergenic Face Moisturiser', 'PureSkin', 6200, 95, 45],
-            ['Organic Lip Balm 3-Pack', 'KissEco', 1800, 22, 12],
-            ['Natural Deodorant Stick', 'FreshDay', 2500, 50, 25],
-            ['Collagen Peptide Powder 500g', 'FlexBody', 13500, 340, 160],
-            ['Reusable Makeup Remover Pads', 'CleanFace', 1500, 18, 10],
-            ['Essential Oil Diffuser', 'AromaZen', 9800, 420, 200],
+        'Sketching & Drawing' => [
+            ['Graphite Pencil Set 24pc — 6H to 8B', 'Faber-Castell', 7500, 180, 160],
+            ['Charcoal Drawing Set 12pc — Willow & Compressed', 'Generals', 4200, 250, 120],
+            ['Soft Pastel Set 48pc — Half Sticks', 'Rembrandt', 13500, 380, 80],
+            ['Sketchbook A4 Hardbound 120 Pages 110gsm', 'Moleskine', 6500, 420, 140],
+            ['Coloured Pencil Set 72pc — Oil-Based', 'Prismacolor', 18000, 520, 90],
+            ['Fineliner Pen Set 12pc — Pigment Ink', 'Staedtler', 3800, 80, 200],
+            ['Kneaded Eraser & Blending Stump Kit', 'Tombow', 1500, 40, 250],
+            ['Metallic Marker Set 10pc — Dual Tip', 'Ohuhu', 5200, 150, 110],
         ],
-        'Sports & Outdoors' => [
-            ['Insulated Water Bottle 1L', 'HydroKeep', 4500, 310, 140],
-            ['Quick-Dry Gym Towel', 'DryFit', 2200, 85, 40],
-            ['Adjustable Resistance Bands', 'PowerFlex', 3800, 160, 75],
-            ['Yoga Mat Non-Slip 6mm', 'BalancePro', 7500, 900, 400],
-            ['Compression Running Socks', 'SpeedStride', 2800, 40, 20],
-            ['Collapsible Camping Chair', 'TrekKing', 15000, 3200, 1400],
-            ['LED Headlamp Rechargeable', 'TrailLight', 5500, 95, 45],
-            ['First Aid Kit Ultra-Compact', 'SafeStep', 3200, 180, 85],
+        'Craft & Sculpting' => [
+            ['Air-Dry Modelling Clay 2.5kg — White', 'Jovi', 4500, 2550, 70],
+            ['Polymer Clay Starter Kit 24 Colours', 'Sculpey', 8500, 680, 90],
+            ['Wire Armature Figure 30cm — Adjustable', 'Armature Pro', 3200, 180, 45],
+            ['Modelling Tool Set 15pc — Wood & Metal', 'Mont Marte', 5500, 350, 100],
+            ['Plaster of Paris 5kg — Fine Casting', 'DAP', 2800, 5100, 60],
+            ['Mosaic Tile Assortment 500g — Glass', 'Mosaic Mercantile', 6200, 520, 80],
+            ['Resin Art Kit — UV Crystal Clear 500ml', 'ArtResin', 11000, 600, 55],
+            ['Pottery Carving Ribbon Tool Set 8pc', 'Kemper', 4800, 120, 120],
         ],
     ];
 
     protected array $sectionNames = [
-        'Aisle A — Electronics & Gadgets',
-        'Aisle B — Bulk Storage',
-        'Cold Storage — Perishables',
-        'Receiving Bay — Inbound',
-        'Picking Zone — Outbound',
-        'Overflow — Seasonal Items',
-        'High-Value Cage — Secure Storage',
+        'Aisle A — Paints & Inks',
+        'Aisle B — Canvas & Surfaces',
+        'Climate-Controlled — Paper & Prints',
+        'Bulk Storage — Clay & Plaster',
+        'Fulfilment — Orders & Packing',
+        'Overflow — Seasonal Art Kits',
+        'High-Value Cage — Premium Pigments',
     ];
 
     public function run(?int $businessId = null, $warehouseId = null): void
@@ -412,13 +412,13 @@ class ProductAndStockSeeder extends Seeder
     protected function sectionDescriptions(): array
     {
         return [
-            'High-value electronics and gadgets stored in locked cabinets.',
-            'Pallet racks for bulk inventory and oversized items.',
-            'Temperature-controlled zone for perishable goods.',
-            'Incoming shipments are staged here for quality checks and counting.',
-            'Orders are picked and packed in this zone before dispatch.',
-            'Excess stock and seasonal items temporarily stored here.',
-            'Restricted-access cage for expensive items and sensitive inventory.',
+            'Premium paints, inks, and pigments stored in climate-controlled cabinets.',
+            'Stretched canvases, panels, and rolled fabric in vertical storage racks.',
+            'Temperature and humidity regulated zone for fine art papers and prints.',
+            'Bulk clay, plaster, and heavy sculpting materials stored on pallet racks.',
+            'Picked, packed, and dispatched art supply orders in this zone.',
+            'Seasonal art kits, gift sets, and promotional bundles temporarily stored.',
+            'High-value pigments, gold leaf, and rare materials in secure locked storage.',
         ];
     }
 

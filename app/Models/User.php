@@ -92,7 +92,13 @@ class User extends Authenticatable
      */
     public function accessibleStores(): \Illuminate\Database\Eloquent\Builder|\Illuminate\Database\Eloquent\Relations\MorphToMany|\Illuminate\Database\Eloquent\Relations\HasMany
     {
-        return $this->isStaff() ? $this->assignedStores() : $this->stores();
+        if ($this->isRestrictedStaff()) {
+            return $this->assignedStores();
+        }
+        if ($this->isPlatformAdmin()) {
+            return Store::where('status', '!=', 'deleted');
+        }
+        return $this->isStaff() ? Store::where('business_id', $this->business_id)->where('status', '!=', 'deleted') : $this->stores();
     }
 
     /**
@@ -100,7 +106,13 @@ class User extends Authenticatable
      */
     public function accessibleWarehouses(): \Illuminate\Database\Eloquent\Builder|\Illuminate\Database\Eloquent\Relations\MorphToMany|\Illuminate\Database\Eloquent\Relations\HasMany
     {
-        return $this->isStaff() ? $this->assignedWarehouses() : $this->warehouses();
+        if ($this->isRestrictedStaff()) {
+            return $this->assignedWarehouses();
+        }
+        if ($this->isPlatformAdmin()) {
+            return Warehouse::where('status', '!=', 'deleted');
+        }
+        return $this->isStaff() ? Warehouse::where('business_id', $this->business_id)->where('status', '!=', 'deleted') : $this->warehouses();
     }
 
     public function warehouses(): HasMany
@@ -193,7 +205,8 @@ class User extends Authenticatable
 
     public function isPlatformAdmin(): bool
     {
-        return $this->business_id === null && $this->role === self::ROLE_SUPERADMIN;
+        return $this->business_id === null && $this->role === self::ROLE_SUPERADMIN
+            || $this->hasRole('Chief Financial Officer');
     }
 
     public function scopeNotDeleted($query)
