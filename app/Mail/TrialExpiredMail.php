@@ -2,7 +2,7 @@
 
 namespace App\Mail;
 
-use App\Models\Subscription;
+use App\Models\User;
 
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -15,17 +15,17 @@ class TrialExpiredMail extends Mailable implements ShouldQueue
 {
     use Queueable, SerializesModels;
 
-    public Subscription $subscription;
+    public User $user;
 
-    public function __construct(Subscription $subscription)
+    public function __construct(User $user)
     {
-        $this->subscription = $subscription;
+        $this->user = $user;
     }
 
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: 'Your free trial has expired — store is now offline',
+            subject: 'Your free trial has expired — stores are now offline',
         );
     }
 

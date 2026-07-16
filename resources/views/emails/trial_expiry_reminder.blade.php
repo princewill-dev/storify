@@ -17,19 +17,19 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>⏰ Trial Expiring Soon</h1>
+            <h1>Trial Expiring Soon</h1>
         </div>
 
         <div class="content">
-            <p>Hello {{ $subscription->vendor->name }},</p>
+            <p>Hello {{ $user->name }},</p>
 
             <div class="highlight-box">
                 @if($daysRemaining > 0)
                     <h2 style="margin: 0; color: #f59e0b;">{{ $daysRemaining }} day{{ $daysRemaining > 1 ? 's' : '' }} remaining</h2>
-                    <p style="margin: 10px 0 0; color: #666;">Your free trial ends on {{ $subscription->expires_at->format('M d, Y') }}</p>
+                    <p style="margin: 10px 0 0; color: #666;">Your free trial ends on {{ $user->trial_ends_at?->format('M d, Y') }}</p>
                 @else
                     <h2 style="margin: 0; color: #ef4444;">Your trial expires today!</h2>
-                    <p style="margin: 10px 0 0; color: #666;">Your store will go offline tomorrow if you don't upgrade</p>
+                    <p style="margin: 10px 0 0; color: #666;">Your store will go offline soon if you don't upgrade</p>
                 @endif
             </div>
 
@@ -43,7 +43,7 @@
             </ul>
 
             <p style="text-align: center;">
-                <a href="{{ route('management.subscription.plan', ['vendor' => $subscription->vendor]) }}" class="button">Upgrade Now</a>
+                <a href="{{ route('management.subscription.payment') }}" class="button">Upgrade Now</a>
             </p>
 
             <p style="color: #666; font-size: 14px;">If you have any questions, our support team is happy to help.</p>

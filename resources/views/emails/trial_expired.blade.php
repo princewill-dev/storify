@@ -17,18 +17,18 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>🔴 Free Trial Expired</h1>
+            <h1>Free Trial Expired</h1>
         </div>
 
         <div class="content">
-            <p>Hello {{ $subscription->vendor->name }},</p>
+            <p>Hello {{ $user->name }},</p>
 
             <div class="alert-box">
                 <h2 style="margin: 0; color: #ef4444;">Your free trial has ended</h2>
-                <p style="margin: 10px 0 0; color: #666;">Your store is now <strong>offline</strong> and not visible to customers.</p>
+                <p style="margin: 10px 0 0; color: #666;">Your stores are now <strong>offline</strong> and not visible to customers.</p>
             </div>
 
-            <p>Don't worry — your store data, products, and settings are all still saved. You can reactivate your store instantly by subscribing to a paid plan.</p>
+            <p>Don't worry — your store data, products, and settings are all still saved. You can reactivate your stores instantly by subscribing to a paid plan.</p>
 
             <p><strong>What happened:</strong></p>
             <ul>
@@ -38,10 +38,10 @@
             </ul>
 
             <p><strong>To get back online:</strong></p>
-            <p>Simply log in and choose a subscription plan to reactivate your store immediately.</p>
+            <p>Simply log in and subscribe to a plan to reactivate your stores immediately.</p>
 
             <p style="text-align: center;">
-                <a href="{{ route('management.subscription.plan', ['vendor' => $subscription->vendor]) }}" class="button">Reactivate My Store</a>
+                <a href="{{ route('management.subscription.payment') }}" class="button">Reactivate My Stores</a>
             </p>
 
             <p style="color: #666; font-size: 14px;">Need help? Our support team is here for you.</p>

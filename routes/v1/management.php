@@ -51,10 +51,12 @@ Route::prefix('management')->name('management.')->group(function () {
         Route::get('/logout', [BusinessAuthController::class, 'logout'])->name('auth.logout.get');
         
         Route::get('/subscription', [SubscriptionController::class, 'showSubscriptionPlan'])->name('subscription.plan');
-        Route::post('/subscription/initialize', [SubscriptionController::class, 'initializePayment'])->name('subscription.initialize');
+        Route::post('/subscription/select-plan', [SubscriptionController::class, 'selectPlan'])->name('subscription.select-plan');
+        Route::get('/subscription/payment', [SubscriptionController::class, 'showPayment'])->name('subscription.payment');
+        Route::post('/subscription/process-payment', [SubscriptionController::class, 'processPayment'])->name('subscription.process-payment');
+        Route::post('/subscription/change-plan', [SubscriptionController::class, 'changePlan'])->name('subscription.change-plan');
         Route::get('/subscription/callback', [SubscriptionController::class, 'handleCallback'])->name('subscription.callback');
         Route::post('/subscription/check-early-pass', [SubscriptionController::class, 'checkEarlyPass'])->name('subscription.check-early-pass');
-        Route::post('/subscription/activate-trial', [SubscriptionController::class, 'activateTrial'])->name('subscription.activate-trial');
         
         Route::get('/plans', [SubscriptionController::class, 'showPlans'])->name('plans.index');
         Route::get('/plans/checkout/{plan}', [SubscriptionController::class, 'showCheckout'])->name('plans.checkout');

@@ -32,8 +32,6 @@ class SubscriptionPlanController extends Controller
             'interval_count' => 'required|integer|min:1',
             'is_active' => 'boolean',
             'is_default' => 'boolean',
-            'is_trial' => 'boolean',
-            'trial_days' => 'nullable|integer|min:1',
             'features' => 'nullable|string',
             'sort_order' => 'integer|min:0',
         ]);
@@ -78,8 +76,6 @@ class SubscriptionPlanController extends Controller
             'interval_count' => 'required|integer|min:1',
             'is_active' => 'boolean',
             'is_default' => 'boolean',
-            'is_trial' => 'boolean',
-            'trial_days' => 'nullable|integer|min:1',
             'features' => 'nullable|string',
             'sort_order' => 'integer|min:0',
         ]);

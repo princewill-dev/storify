@@ -27,6 +27,7 @@ class User extends Authenticatable
         'role', 'status', 'is_verified', 'last_login_at', 'location',
         'ip_address', 'password', 'business_id',
         'invitation_token', 'invited_at', 'accepted_at', 'force_password_change',
+        'trial_ends_at', 'selected_plan_id',
     ];
 
     protected $hidden = [
@@ -44,6 +45,7 @@ class User extends Authenticatable
             'accepted_at' => 'datetime',
             'force_password_change' => 'boolean',
             'live_first_status' => LiveFirstStatus::class,
+            'trial_ends_at' => 'datetime',
         ];
     }
 
@@ -207,6 +209,33 @@ class User extends Authenticatable
     {
         return $this->business_id === null && $this->role === self::ROLE_SUPERADMIN
             || $this->hasRole('Chief Financial Officer');
+    }
+
+    public function selectedPlan(): BelongsTo
+    {
+        return $this->belongsTo(SubscriptionPlan::class, 'selected_plan_id');
+    }
+
+    public function isOnTrial(): bool
+    {
+        return $this->trial_ends_at !== null
+            && $this->trial_ends_at->isFuture()
+            && !$this->business?->hasActiveSubscription();
+    }
+
+    public function trialHasExpired(): bool
+    {
+        return $this->trial_ends_at !== null
+            && $this->trial_ends_at->isPast()
+            && !$this->business?->hasActiveSubscription();
+    }
+
+    public function daysLeftOnTrial(): ?int
+    {
+        if (!$this->trial_ends_at) {
+            return null;
+        }
+        return max(0, (int) now()->diffInDays($this->trial_ends_at, false));
     }
 
     public function scopeNotDeleted($query)

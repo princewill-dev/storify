@@ -36,6 +36,42 @@
     </x-slot:actions>
 </x-management.page-header>
 
+@if(!$user->business?->hasActiveSubscription())
+    @if($user->isOnTrial() && $user->daysLeftOnTrial() <= 2)
+    <div class="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-xl flex items-center justify-between">
+        <div>
+            <p class="font-semibold text-blue-800">Your free trial ends in {{ $user->daysLeftOnTrial() }} day{{ $user->daysLeftOnTrial() !== 1 ? 's' : '' }}</p>
+            <p class="text-sm text-blue-600 mt-0.5">Subscribe now to keep your stores running smoothly.</p>
+        </div>
+        <a href="{{ route('management.subscription.payment') }}" class="shrink-0 px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition-colors">Upgrade Now</a>
+    </div>
+    @elseif($user->trialHasExpired())
+    <div class="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl flex items-center justify-between">
+        <div>
+            <p class="font-semibold text-red-800">Your free trial has expired</p>
+            <p class="text-sm text-red-600 mt-0.5">Your stores are paused. Subscribe to reactivate them.</p>
+        </div>
+        <a href="{{ route('management.subscription.payment') }}" class="shrink-0 px-4 py-2 bg-red-600 text-white text-sm font-semibold rounded-lg hover:bg-red-700 transition-colors">Subscribe Now</a>
+    </div>
+    @elseif($user->selected_plan_id && !$user->isOnTrial())
+    <div class="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between">
+        <div>
+            <p class="font-semibold text-amber-800">Complete your subscription</p>
+            <p class="text-sm text-amber-600 mt-0.5">You chose the <strong>{{ $user->selectedPlan?->name }}</strong> plan. Pay now to activate your stores.</p>
+        </div>
+        <a href="{{ route('management.subscription.payment') }}" class="shrink-0 px-4 py-2 bg-amber-600 text-white text-sm font-semibold rounded-lg hover:bg-amber-700 transition-colors">Pay Now</a>
+    </div>
+    @elseif(!$user->isOnTrial() && $user->business?->needsSubscription())
+    <div class="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between">
+        <div>
+            <p class="font-semibold text-amber-800">Complete your subscription</p>
+            <p class="text-sm text-amber-600 mt-0.5">Select a plan to activate your stores and start selling.</p>
+        </div>
+        <a href="{{ route('management.subscription.plan') }}" class="shrink-0 px-4 py-2 bg-amber-600 text-white text-sm font-semibold rounded-lg hover:bg-amber-700 transition-colors">Choose Plan</a>
+    </div>
+    @endif
+@endif
+
 {{-- Metric Cards --}}
 <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
     @can('transactions view')

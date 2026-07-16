@@ -116,20 +116,17 @@ class BusinessSeeder extends Seeder
                 'city' => 'Lagos',
                 'state' => 'Lagos',
                 'country' => 'Nigeria',
-                'is_active' => true,
+                'status' => \App\Models\Warehouse::STATUS_ACTIVE,
             ]);
         }
 
-        // Create trial subscription
-        $trialPlan = SubscriptionPlan::where('is_trial', true)->first();
-        if ($trialPlan && !Subscription::where('business_id', $business->id)->exists()) {
-            Subscription::create([
-                'business_id' => $business->id,
-                'user_id' => $owner->id,
-                'subscription_plan_id' => $trialPlan->id,
-                'status' => 'active',
-                'starts_at' => now(),
-                'expires_at' => now()->addDays(7),
+        $defaultPlan = SubscriptionPlan::where('is_default', true)->first()
+            ?? SubscriptionPlan::where('is_trial', false)->first();
+
+        if ($defaultPlan) {
+            $owner->update([
+                'trial_ends_at' => now()->addDays(7),
+                'selected_plan_id' => $defaultPlan->id,
             ]);
         }
     }

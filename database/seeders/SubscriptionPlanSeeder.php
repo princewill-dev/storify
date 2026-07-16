@@ -10,21 +10,51 @@ class SubscriptionPlanSeeder extends Seeder
 {
     public function run(): void
     {
-        // 7-day free trial plan
+        SubscriptionPlan::where('is_trial', true)->delete();
+        SubscriptionPlan::whereNotIn('name', ['Starter Monthly', 'Starter Annual'])
+            ->update(['is_active' => false, 'is_default' => false]);
+
         SubscriptionPlan::updateOrCreate(
-            ['is_trial' => true],
+            ['name' => 'Starter Monthly'],
             [
                 'plan_code' => Str::random(24),
-                'name' => 'Free Trial',
-                'description' => 'Try Storify free for 7 days — full access to all features',
-                'amount' => 0.00,
+                'name' => 'Starter Monthly',
+                'description' => 'Monthly subscription — full access to all Storify features',
+                'amount' => 5000.00,
                 'currency' => 'NGN',
-                'interval' => 'daily',
-                'interval_count' => 7,
+                'interval' => 'monthly',
+                'interval_count' => 1,
                 'is_active' => true,
                 'is_default' => false,
-                'is_trial' => true,
-                'trial_days' => 7,
+                'is_trial' => false,
+                'trial_days' => null,
+                'sort_order' => 2,
+                'features' => [
+                    'Create and manage your store',
+                    'Unlimited product listings',
+                    'Order management dashboard',
+                    'Customer management',
+                    'Transaction tracking',
+                    'Analytics and reports',
+                    '24/7 customer support',
+                ],
+            ]
+        );
+
+        SubscriptionPlan::updateOrCreate(
+            ['name' => 'Starter Annual'],
+            [
+                'plan_code' => Str::random(24),
+                'name' => 'Starter Annual',
+                'description' => 'Annual subscription — save 17% with yearly billing',
+                'amount' => 50000.00,
+                'currency' => 'NGN',
+                'interval' => 'yearly',
+                'interval_count' => 1,
+                'is_active' => true,
+                'is_default' => true,
+                'is_trial' => false,
+                'trial_days' => null,
                 'sort_order' => 1,
                 'features' => [
                     'Create and manage your store',
@@ -38,31 +68,10 @@ class SubscriptionPlanSeeder extends Seeder
             ]
         );
 
-        // Yearly paid plan
-        SubscriptionPlan::updateOrCreate(
-            ['is_default' => true],
-            [
-                'plan_code' => Str::random(24),
-                'name' => 'Vendor Yearly Subscription',
-                'description' => 'Annual subscription plan for vendor services on the platform',
-                'amount' => 50000.00,
-                'currency' => 'NGN',
-                'interval' => 'yearly',
-                'interval_count' => 1,
-                'is_active' => true,
-                'is_default' => true,
-                'is_trial' => false,
-                'sort_order' => 2,
-                'features' => [
-                    'Create and manage your store',
-                    'Unlimited product listings',
-                    'Order management dashboard',
-                    'Customer management',
-                    'Transaction tracking',
-                    'Analytics and reports',
-                    '24/7 customer support',
-                ],
-            ]
-        );
+        SubscriptionPlan::where('is_default', true)
+            ->update(['is_default' => false]);
+
+        SubscriptionPlan::where('name', 'Starter Annual')
+            ->update(['is_default' => true]);
     }
 }

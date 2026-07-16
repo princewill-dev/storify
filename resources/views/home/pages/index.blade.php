@@ -206,26 +206,21 @@
             </div>
         </div>
         <div class="row g-4 justify-content-center">
-            @php $plans = [
-                ['Starter', '0', 'Free forever', ['1 Store','100 products','Online storefront','Basic analytics','Email support'], false],
-                ['Pro', '15,000', '/month', ['3 Stores','Unlimited products','POS terminal','Inventory tracking','Priority support','Team roles'], true],
-                ['Business', '45,000', '/month', ['10 Stores','Unlimited products','Multi-warehouse','Advanced analytics','API access','Dedicated support'], false],
-            ]; @endphp
             @foreach($plans as $plan)
-            <div class="col-lg-4 col-md-6">
-                <div class="pricing-card {{ $plan[4] ? 'featured' : '' }} text-center h-100 d-flex flex-column">
-                    <h3 class="h3 mb-1">{{ $plan[0] }}</h3>
+            <div class="col-md-6">
+                <div class="pricing-card {{ $plan->is_default ? 'featured' : '' }} text-center h-100 d-flex flex-column">
+                    <h3 class="h3 mb-1">{{ $plan->name }}</h3>
                     <div class="mb-4">
-                        <span style="font-size:48px;font-weight:700;font-family:'Space Grotesk',sans-serif;color:#fff;">&#8358;{{ $plan[1] }}</span>
-                        <span class="body-md d-block mt-1">{{ $plan[2] }}</span>
+                        <span style="font-size:48px;font-weight:700;font-family:'Space Grotesk',sans-serif;color:#fff;">&#8358;{{ number_format($plan->amount, 0) }}</span>
+                        <span class="body-md d-block mt-1">{{ $plan->interval === 'yearly' ? 'per year' : 'per month' }}</span>
                     </div>
                     <ul class="list-unstyled text-start mb-4 flex-grow-1" style="font-size:14px;color:var(--text-secondary);line-height:2.2;">
-                        @foreach($plan[3] as $feat)
+                        @foreach($plan->features as $feat)
                         <li><span style="color:var(--accent);font-weight:700;margin-right:8px;">&#10003;</span> {{ $feat }}</li>
                         @endforeach
                     </ul>
-                    <a href="{{ route('management.auth.register') }}" class="btn {{ $plan[4] ? 'btn-primary' : 'btn-ghost' }} w-100 justify-content-center">
-                        {{ $plan[0] === 'Starter' ? 'Start Free' : 'Get Started' }}
+                    <a href="{{ route('management.auth.register') }}" class="btn {{ $plan->is_default ? 'btn-primary' : 'btn-ghost' }} w-100 justify-content-center">
+                        Start Free Trial
                     </a>
                 </div>
             </div>
@@ -303,11 +298,11 @@
                 </div>
                 @php $faqs = [
                     ['What is '.$company->name.'?', $company->name.' is an all-in-one e-commerce and inventory management platform for Nigerian businesses. Run your online store, manage stock across warehouses, process POS sales, and accept payments — all from one place.'],
-                    ['Is it really free?', 'Yes! The Starter plan is free forever — one store, up to 100 products, and a full online storefront at zero cost. Upgrade when your business is ready.'],
+                    ['Is it really free?', 'Yes! Start with a 7-day free trial — full access, no payment required. Choose a plan before your trial ends.'],
                     ['Can I use it for my physical store?', 'Absolutely. Our POS terminal lets you process walk-in sales from the same inventory as your online store. Everything syncs automatically.'],
                     ['What payment methods are supported?', 'Paystack (card payments), bank transfers with automatic verification, and cash payments through POS. Your customers can pay however they prefer.'],
                     ['Do I need technical skills?', 'Not at all. If you can fill out a form, you can run your store. We handle hosting, security, and updates.'],
-                    ['Can I manage multiple stores?', 'Yes. Pro and Business plans support multiple stores and warehouses with role-based team access from one dashboard.'],
+                    ['Can I manage multiple stores?', 'Yes. All plans support multiple stores and warehouses with role-based team access from one dashboard.'],
                 ]; @endphp
                 @foreach($faqs as $faq)
                 <div class="faq-item">

@@ -29,9 +29,10 @@ class HomePageController extends Controller
 
         $storeCount = \App\Models\Store::where('status', 'active')->count();
         $productCount = \App\Models\Product::where('status', 'active')->count();
+        $plans = \App\Models\SubscriptionPlan::active()->where('is_trial', false)->orderBy('sort_order')->get();
 
         return view('home.pages.index', compact(
-            'stores', 'testimonials', 'storeCount', 'productCount'
+            'stores', 'testimonials', 'storeCount', 'productCount', 'plans'
         ));
     }
 
@@ -88,6 +89,7 @@ class HomePageController extends Controller
     public function pricing()
     {
         $plans = \App\Models\SubscriptionPlan::active()
+            ->where('is_trial', false)
             ->orderBy('sort_order')
             ->get();
             

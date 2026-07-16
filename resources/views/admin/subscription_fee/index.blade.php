@@ -37,11 +37,7 @@
                                     <small class="text-muted">{{ Str::limit($plan->description, 50) }}</small>
                                 </td>
                                 <td>
-                                    @if($plan->is_trial)
-                                        <span class="text-success fw-bold">Free</span>
-                                    @else
-                                        <span class="fw-bold">{{ $plan->currency }} {{ number_format($plan->amount, 2) }}</span>
-                                    @endif
+                                    <span class="fw-bold">{{ $plan->currency }} {{ number_format($plan->amount, 2) }}</span>
                                 </td>
                                 <td>
                                     {{ ucfirst($plan->interval) }}
@@ -50,18 +46,15 @@
                                     @endif
                                 </td>
                                 <td>
-                                    @if($plan->is_trial)
-                                        <span class="badge bg-info">Trial ({{ $plan->trial_days }}d)</span>
-                                    @else
-                                        <span class="badge bg-secondary">Paid</span>
+                                    @if($plan->is_default)
+                                        <span class="badge bg-primary">Default</span>
                                     @endif
-                                </td>
-                                <td>
                                     @if($plan->is_active)
                                         <span class="badge bg-success">Active</span>
                                     @else
                                         <span class="badge bg-secondary">Inactive</span>
                                     @endif
+                                </td>
                                     
                                     @if($plan->is_default)
                                         <span class="badge bg-primary ms-1">Default</span>

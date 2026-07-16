@@ -27,7 +27,7 @@
                     @foreach($plans as $plan)
                     <!-- PRICING PLAN -->
                     <div class="col">
-                        <div class="p-table pricing-1-table bg-white block-shadow r-12 wow fadeInUp" style="color: #111827 !important; {{ $plan->is_trial ? 'border:2px solid #22c55e;' : ($plan->is_default ? 'border:2px solid #0054ff;' : '') }}">
+                        <div class="p-table pricing-1-table bg-white block-shadow r-12 wow fadeInUp" style="color: #111827 !important; {{ $plan->is_default ? 'border:2px solid #0054ff;' : '' }}">
 
                             <!-- TABLE HEADER -->
                             <div class="pricing-table-header">
@@ -35,26 +35,17 @@
                                 <!-- Title -->
                                 <h5 class="s-24 w-700" style="color: #111827 !important;">{{ $plan->name }}</h5>
                                 
-                                @if($plan->is_trial)
-                                    <span class="badge bg-success text-white mb-2">🎈 Free Trial</span>
-                                @elseif($plan->is_default)
+                                @if($plan->is_default)
                                     <span class="badge bg-primary text-white mb-2">⭐ Popular</span>
                                 @endif
 
                                 <!-- Price -->
                                 <div class="price mt-15">
-                                    @if($plan->is_trial)
-                                        <div class="price2">
-                                            <span class="s-40 w-700 text-success">Free</span>
-                                        </div>
-                                        <p class="p-sm" style="color: #4b5563 !important;">for {{ $plan->trial_days }} days</p>
-                                    @else
-                                        <div class="price2">
-                                            <span style="color: #111827 !important;">{{ $plan->currency }}</span>
-                                            <span class="s-40 w-700" style="color: #111827 !important;">{{ number_format($plan->amount, 2) }}</span>
-                                        </div>
-                                        <p class="p-sm" style="color: #4b5563 !important;">{{ ucfirst($plan->interval) }}ly Billing</p>
-                                    @endif
+                                    <div class="price2">
+                                        <span style="color: #111827 !important;">{{ $plan->currency }}</span>
+                                        <span class="s-40 w-700" style="color: #111827 !important;">{{ number_format($plan->amount, 2) }}</span>
+                                    </div>
+                                    <p class="p-sm" style="color: #4b5563 !important;">{{ ucfirst($plan->interval) }}ly Billing</p>
                                 </div>
 
                                 <!-- Text -->
@@ -71,7 +62,7 @@
                                     @if($plan->features && is_array($plan->features))
                                         @foreach($plan->features as $feature)
                                         <li class="list-item">
-                                            <p style="color: #111827 !important;"><i class="fas fa-check {{ $plan->is_trial ? 'text-success' : 'color--theme' }} me-2"></i> {{ $feature }}</p>
+                                            <p style="color: #111827 !important;"><i class="fas fa-check color--theme me-2"></i> {{ $feature }}</p>
                                         </li>
                                         @endforeach
                                     @else
@@ -85,11 +76,7 @@
 
                             <!-- TABLE BUTTON -->
                             <div class="pricing-table-btn">
-                                @if($plan->is_trial)
-                                    <a style="border:2px solid #22c55e;" href="{{ route('management.auth.register') }}" class="btn btn--success hover--theme">Start Free Trial</a>
-                                @else
-                                    <a href="{{ route('management.auth.register') }}" class="btn {{ $plan->is_default ? 'btn--theme' : 'btn--tra-black hover--theme' }}">Get Started</a>
-                                @endif
+                                <a href="{{ route('management.auth.register') }}" class="btn {{ $plan->is_default ? 'btn--theme' : 'btn--tra-black hover--theme' }}">Start Free Trial</a>
                             </div>
 
                         </div>

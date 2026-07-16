@@ -79,6 +79,8 @@ class AdminSettingsController extends Controller
             'api_keys' => $apiKeys,
             'main_store_id' => $request->main_store_id,
             'store_creation_limit' => $request->store_creation_limit ?? 5,
+            'trial_enabled' => $request->has('trial_enabled'),
+            'trial_days' => (int) ($request->trial_days ?? 7),
             // SEO
             'og_title' => $request->og_title,
             'og_description' => $request->og_description,

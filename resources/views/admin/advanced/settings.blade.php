@@ -111,6 +111,24 @@
 
                             <div class="row align-items-center mb-4">
                                 <div class="col-md-3">
+                                    <label class="form-label mb-md-0">Free Trial</label>
+                                </div>
+                                <div class="col-md-9">
+                                    <div class="form-check form-switch mb-2">
+                                        <input class="form-check-input" type="checkbox" name="trial_enabled" id="trialEnabled" value="1" @checked(old('trial_enabled', $settings->trial_enabled ?? true))>
+                                        <label class="form-check-label" for="trialEnabled">Enable free trial for new users</label>
+                                    </div>
+                                    <div class="d-flex align-items-center gap-2" id="trialDaysRow">
+                                        <label class="text-nowrap">Duration:</label>
+                                        <input type="number" name="trial_days" class="form-control" style="width:100px" value="{{ old('trial_days', $settings->trial_days ?? 7) }}" min="1" max="90">
+                                        <span class="text-muted">days</span>
+                                    </div>
+                                    <small class="text-muted">New businesses get a free trial period before being billed.</small>
+                                </div>
+                            </div>
+
+                            <div class="row align-items-center mb-4">
+                                <div class="col-md-3">
                                     <label class="form-label mb-md-0">Homepage Store</label>
                                 </div>
                                 <div class="col-md-9">

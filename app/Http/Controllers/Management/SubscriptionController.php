@@ -24,6 +24,7 @@ use Illuminate\View\View;
 use App\Mail\VendorStoreCreated;
 use App\Mail\AdminStoreCreated;
 use App\Models\Coupon;
+use App\Models\Setting;
 
 class SubscriptionController extends Controller
 {
@@ -34,6 +35,19 @@ class SubscriptionController extends Controller
         $this->paystackService = $paystackService;
     }
 
+    protected function trialSettings(): array
+    {
+        static $settings;
+        if ($settings === null) {
+            $s = Setting::first();
+            $settings = [
+                'enabled' => $s?->trial_enabled ?? true,
+                'days' => (int) ($s?->trial_days ?? 7),
+            ];
+        }
+        return $settings;
+    }
+
     public function showSubscriptionPlan(Request $request): View|RedirectResponse
     {
         $user = $request->user();
@@ -42,30 +56,17 @@ class SubscriptionController extends Controller
             return redirect()->route('management.auth.login');
         }
 
-        if ($user->business?->hasActiveSubscription()) {
-            Log::info('vendor.subscription.already_subscribed', [
-                'user_id' => $user->id,
-                'subscription_id' => $user->activeSubscription->id ?? null,
-            ]);
-            return redirect()->route('management.dashboard')
-                ->with('info', 'You already have an active subscription.');
+        $subscription = $user->business?->activeSubscription()?->first();
+        $payments = collect();
+        $plans = SubscriptionPlan::active()->where('is_trial', false)->orderBy('sort_order')->get();
+        $trial = $this->trialSettings();
+
+        if ($subscription) {
+            $payments = Payment::where('vendor_subscription_id', $subscription->id)
+                ->latest()
+                ->take(20)
+                ->get();
         }
-
-        $plans = SubscriptionPlan::active()->orderBy('sort_order')->get();
-        $defaultPlan = $plans->where('is_default', true)->first() ?? $plans->where('is_trial', false)->first();
-
-        if ($plans->isEmpty()) {
-            Log::error('vendor.subscription.no_plan_available', [
-                'user_id' => $user->id,
-            ]);
-            return redirect()->route('management.dashboard')
-                ->with('error', 'No subscription plan available at the moment. Please contact support.');
-        }
-
-        Log::info('vendor.subscription.plan_viewed', [
-            'user_id' => $user->id,
-            'plans_count' => $plans->count(),
-        ]);
 
         $breadcrumbs = [
             ['label' => 'Dashboard', 'url' => route('management.dashboard')],
@@ -74,17 +75,55 @@ class SubscriptionController extends Controller
 
         return view('management.subscription.plan', [
             'user' => $user,
+            'subscription' => $subscription,
+            'payments' => $payments,
             'plans' => $plans,
-            'defaultPlan' => $defaultPlan,
-            'paystackPublicKey' => $this->paystackService->getPublicKey(),
+            'trialEnabled' => $trial['enabled'],
+            'trialDays' => $trial['days'],
             'breadcrumbs' => $breadcrumbs,
         ]);
     }
 
-    /**
-     * Activate a free trial subscription for the vendor.
-     */
-    public function activateTrial(Request $request): RedirectResponse
+    public function changePlan(Request $request): RedirectResponse
+    {
+        $user = $request->user();
+
+        if (!$user) {
+            return redirect()->route('management.auth.login');
+        }
+
+        $subscription = $user->business?->activeSubscription()?->first();
+
+        if (!$subscription) {
+            return redirect()->route('management.subscription.plan')
+                ->with('error', 'No active subscription found.');
+        }
+
+        $request->validate(['plan_id' => 'required|exists:subscription_plans,id']);
+
+        $newPlan = SubscriptionPlan::where('id', $request->plan_id)
+            ->where('is_trial', false)
+            ->active()
+            ->first();
+
+        if (!$newPlan || $newPlan->id === $subscription->subscription_plan_id) {
+            return back()->with('error', 'Invalid plan selection.');
+        }
+
+        $subscription->update([
+            'subscription_plan_id' => $newPlan->id,
+        ]);
+
+        Log::info('subscription.plan_changed', [
+            'user_id' => $user->id,
+            'old_plan_id' => $subscription->getOriginal('subscription_plan_id'),
+            'new_plan_id' => $newPlan->id,
+        ]);
+
+        return back()->with('success', "Your plan has been changed to {$newPlan->name}. The new billing amount will apply on your next renewal.");
+    }
+
+    public function selectPlan(Request $request): RedirectResponse
     {
         $user = $request->user();
 
@@ -97,50 +136,35 @@ class SubscriptionController extends Controller
                 ->with('warning', 'You already have an active subscription.');
         }
 
-        $plan = $request->plan_id
-            ? SubscriptionPlan::find($request->plan_id)
-            : SubscriptionPlan::active()->trial()->first();
+        $request->validate(['plan_id' => 'required|exists:subscription_plans,id']);
 
-        if (!$plan || !$plan->is_trial) {
-            return back()->with('error', 'No trial plan available.');
+        $plan = SubscriptionPlan::where('id', $request->plan_id)
+            ->where('is_trial', false)
+            ->active()
+            ->first();
+
+        if (!$plan) {
+            return back()->with('error', 'Invalid plan selection.');
         }
 
-        DB::beginTransaction();
-        try {
-            SubscriptionModel::create([
-                'user_id' => $user->id,
-                'business_id' => $user->business_id,
-                'subscription_plan_id' => $plan->id,
-                'status' => 'active',
-                'starts_at' => now(),
-                'expires_at' => $plan->getTrialExpiresAt(),
-                'metadata' => [
-                    'is_trial' => true,
-                    'trial_days' => $plan->trial_days,
-                    'activated_at' => now()->toDateTimeString(),
-                ],
-            ]);
+        $trial = $this->trialSettings();
 
-            $user->update([
-                'is_verified' => true,
-            ]);
+        $user->update([
+            'selected_plan_id' => $plan->id,
+            'is_verified' => true,
+            'trial_ends_at' => $trial['enabled'] ? now()->addDays($trial['days']) : null,
+        ]);
 
-            DB::commit();
-
-            return redirect()->route('management.dashboard')
-                ->with('success', 'Free trial activated! Welcome to Storify.');
-
-        } catch (\Throwable $e) {
-            DB::rollBack();
-            Log::error('subscription.trial.failed', [
-                'user_id' => $user->id,
-                'error' => $e->getMessage(),
-            ]);
-            return back()->with('error', 'Something went wrong. Please try again.');
+        if (!$trial['enabled']) {
+            return redirect()->route('management.subscription.payment')
+                ->with('info', 'Please complete payment to activate your subscription.');
         }
+
+        return redirect()->route('management.dashboard')
+            ->with('success', "Your {$trial['days']}-day free trial has started! Your stores are live. Choose a paid plan before your trial ends to keep selling.");
     }
 
-    public function initializePayment(Request $request): RedirectResponse
+    public function showPayment(Request $request): View|RedirectResponse
     {
         $user = $request->user();
 
@@ -149,19 +173,56 @@ class SubscriptionController extends Controller
         }
 
         if ($user->business?->hasActiveSubscription()) {
-            Log::warning('vendor.subscription.payment.already_subscribed', [
-                'user_id' => $user->id,
-            ]);
+            return redirect()->route('management.dashboard')
+                ->with('info', 'You already have an active subscription.');
+        }
+
+        if (!$user->selected_plan_id) {
+            return redirect()->route('management.subscription.plan')
+                ->with('warning', 'Please select a plan first.');
+        }
+
+        $plan = SubscriptionPlan::find($user->selected_plan_id);
+
+        if (!$plan) {
+            return redirect()->route('management.subscription.plan')
+                ->with('error', 'Selected plan no longer available.');
+        }
+
+        $breadcrumbs = [
+            ['label' => 'Dashboard', 'url' => route('management.dashboard')],
+            ['label' => 'Subscription', 'url' => route('management.subscription.plan')],
+            ['label' => 'Payment'],
+        ];
+
+        return view('management.subscription.payment', [
+            'user' => $user,
+            'plan' => $plan,
+            'paystackPublicKey' => $this->paystackService->getPublicKey(),
+            'isOnTrial' => $user->isOnTrial(),
+            'daysLeft' => $user->daysLeftOnTrial(),
+            'breadcrumbs' => $breadcrumbs,
+        ]);
+    }
+
+    public function processPayment(Request $request): RedirectResponse
+    {
+        $user = $request->user();
+
+        if (!$user) {
+            return redirect()->route('management.auth.login');
+        }
+
+        if ($user->business?->hasActiveSubscription()) {
             return redirect()->route('management.dashboard')
                 ->with('error', 'You already have an active subscription.');
         }
 
-        $plan = $request->plan_id ? SubscriptionPlan::find($request->plan_id) : SubscriptionPlan::active()->default()->first();
+        $plan = $user->selected_plan_id
+            ? SubscriptionPlan::find($user->selected_plan_id)
+            : SubscriptionPlan::active()->default()->first();
 
         if (!$plan) {
-            Log::error('vendor.subscription.payment.no_plan', [
-                'user_id' => $user->id,
-            ]);
             return back()->with('error', 'No subscription plan available.');
         }
 
@@ -169,7 +230,6 @@ class SubscriptionController extends Controller
         try {
             $amount = (float) $plan->amount;
             $couponCode = session('applied_coupon_code', $request->coupon_code);
-            $coupon = null;
 
             if ($couponCode) {
                 $coupon = Coupon::where('code', $couponCode)->first();
@@ -197,12 +257,10 @@ class SubscriptionController extends Controller
                 'metadata' => [
                     'plan_name' => $plan->name,
                     'plan_id' => $plan->id,
-                    'vendor_email' => $user->email,
                     'coupon_code' => $couponCode ?? null,
                 ],
             ]);
 
-            // Create Transaction record
             $paystackMethod = PaymentMethod::where('code', 'paystack')->first();
             Transaction::create([
                 'reference' => $payment->reference,
@@ -218,15 +276,6 @@ class SubscriptionController extends Controller
                 ],
             ]);
 
-            Log::info('vendor.subscription.payment.created', [
-                'user_id' => $user->id,
-                'payment_id' => $payment->id,
-                'payment_code' => $payment->payment_code,
-                'subscription_id' => $subscription->id,
-                'amount' => $payment->amount,
-                'reference' => $payment->reference,
-            ]);
-
             $paystackData = [
                 'email' => $user->email,
                 'amount' => $payment->amount * 100,
@@ -235,9 +284,7 @@ class SubscriptionController extends Controller
                 'callback_url' => route('management.subscription.callback'),
                 'metadata' => [
                     'user_id' => $user->id,
-                    'vendor_account_id' => $user->account_id,
                     'payment_id' => $payment->id,
-                    'payment_code' => $payment->payment_code,
                     'subscription_id' => $subscription->id,
                     'plan_name' => $plan->name,
                 ],
@@ -247,35 +294,20 @@ class SubscriptionController extends Controller
 
             if (!$result['success']) {
                 DB::rollBack();
-                Log::error('vendor.subscription.payment.initialize_failed', [
-                    'user_id' => $user->id,
-                    'payment_id' => $payment->id,
-                    'error' => $result['message'],
-                ]);
                 return back()->with('error', 'Failed to initialize payment. Please try again.');
             }
 
-            $payment->update([
-                'gateway_response' => $result['data'],
-            ]);
-
+            $payment->update(['gateway_response' => $result['data']]);
             DB::commit();
-
-            Log::info('vendor.subscription.payment.initialized', [
-                'user_id' => $user->id,
-                'payment_id' => $payment->id,
-                'authorization_url' => $result['data']['authorization_url'] ?? null,
-            ]);
 
             session(['pending_subscription_payment' => $payment->id]);
 
             return redirect()->away($result['data']['authorization_url']);
         } catch (\Throwable $e) {
             DB::rollBack();
-            Log::error('vendor.subscription.payment.exception', [
+            Log::error('subscription.payment.exception', [
                 'user_id' => $user->id,
                 'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
             ]);
             return back()->with('error', 'An error occurred. Please try again.');
         }
@@ -285,19 +317,13 @@ class SubscriptionController extends Controller
     {
         $user = $request->user();
         $reference = $request->query('reference');
-        $trxref = $request->query('trxref');
 
-        Log::info('vendor.subscription.callback.received', [
+        Log::info('subscription.callback.received', [
             'user_id' => $user->id,
             'reference' => $reference,
-            'trxref' => $trxref,
-            'query_params' => $request->query(),
         ]);
 
         if (!$reference) {
-            Log::warning('vendor.subscription.callback.no_reference', [
-                'user_id' => $user->id,
-            ]);
             return redirect()->route('management.subscription.plan')
                 ->with('error', 'Invalid payment reference.');
         }
@@ -307,19 +333,11 @@ class SubscriptionController extends Controller
             ->first();
 
         if (!$payment) {
-            Log::error('vendor.subscription.callback.payment_not_found', [
-                'user_id' => $user->id,
-                'reference' => $reference,
-            ]);
             return redirect()->route('management.subscription.plan')
                 ->with('error', 'Payment record not found.');
         }
 
         if ($payment->status === Payment::STATUS_SUCCESS) {
-            Log::info('vendor.subscription.callback.already_processed', [
-                'user_id' => $user->id,
-                'payment_id' => $payment->id,
-            ]);
             return redirect()->route('management.dashboard')
                 ->with('success', 'Payment already processed successfully!');
         }
@@ -327,19 +345,11 @@ class SubscriptionController extends Controller
         $verification = $this->paystackService->doubleVerifyPayment($reference);
 
         if (!$verification['success']) {
-            Log::error('vendor.subscription.callback.verification_failed', [
-                'user_id' => $user->id,
-                'payment_id' => $payment->id,
-                'reference' => $reference,
-                'error' => $verification['message'],
-            ]);
-
             $payment->update([
                 'status' => Payment::STATUS_FAILED,
                 'failure_reason' => $verification['message'],
             ]);
-
-            return redirect()->route('management.subscription.plan')
+            return redirect()->route('management.subscription.payment')
                 ->with('error', 'Payment verification failed. Please try again.');
         }
 
@@ -356,7 +366,6 @@ class SubscriptionController extends Controller
                     'paid_at' => now(),
                 ]);
 
-                // Update Transaction record
                 $transaction = Transaction::where('reference', $payment->reference)->first();
                 if ($transaction) {
                     $transaction->update([
@@ -368,8 +377,11 @@ class SubscriptionController extends Controller
                 }
 
                 if ($payment->vendorSubscription) {
+                    $plan = $payment->vendorSubscription->subscriptionPlan;
                     $startsAt = now();
-                    $expiresAt = now()->addYear();
+                    $expiresAt = $plan->interval === 'monthly'
+                        ? now()->addMonth()
+                        : now()->addYear();
 
                     $payment->vendorSubscription->update([
                         'status' => SubscriptionModel::STATUS_ACTIVE,
@@ -382,23 +394,14 @@ class SubscriptionController extends Controller
                         ],
                     ]);
 
-                    Log::info('vendor.subscription.activated', [
-                        'user_id' => $user->id,
-                        'subscription_id' => $payment->vendorSubscription->id,
-                        'payment_id' => $payment->id,
-                        'amount_paid' => $payment->amount,
-                        'starts_at' => $startsAt,
-                        'expires_at' => $expiresAt,
-                    ]);
+                    $user->update(['trial_ends_at' => null]);
 
                     if ($user->status !== 'active' || !$user->is_verified) {
-                        $oldVendorStatus = $user->status;
                         $user->update([
                             'status' => 'active',
                             'is_verified' => true,
                         ]);
-                        
-                        // Auto-approve KYC to allow store creation
+
                         KycApplication::updateOrCreate(
                             ['user_id' => $user->id],
                             [
@@ -409,34 +412,16 @@ class SubscriptionController extends Controller
                                 'payload' => ['auto_approved_via_subscription' => true],
                             ]
                         );
-
-                        Log::info('vendor.account.auto_activated_and_verified', [
-                            'user_id' => $user->id,
-                            'old_status' => $oldVendorStatus,
-                            'new_status' => 'active',
-                            'subscription_id' => $payment->vendorSubscription->id,
-                        ]);
                     }
 
-                    $inactiveStores = $user->accessibleStores()->whereIn('status', [
-                        \App\Models\Store::STATUS_PENDING,
-                        \App\Models\Store::STATUS_SUSPENDED,
+                    $inactiveStores = $user->stores()->whereIn('status', [
+                        Store::STATUS_PENDING,
+                        Store::STATUS_SUSPENDED,
                     ])->get();
 
-                    $inactiveStoreIds = $inactiveStores->pluck('id')->all();
-                    if (!empty($inactiveStoreIds)) {
-                        \App\Models\Store::whereIn('id', $inactiveStoreIds)
-                            ->update(['status' => \App\Models\Store::STATUS_ACTIVE]);
-                    }
-                    foreach ($inactiveStores as $store) {
-                        Log::info('vendor.store.auto_activated', [
-                            'user_id' => $user->id,
-                            'store_id' => $store->id,
-                            'store_code' => $store->store_id,
-                            'old_status' => $store->status,
-                            'new_status' => \App\Models\Store::STATUS_ACTIVE,
-                            'subscription_id' => $payment->vendorSubscription->id,
-                        ]);
+                    if ($inactiveStores->isNotEmpty()) {
+                        Store::whereIn('id', $inactiveStores->pluck('id')->all())
+                            ->update(['status' => Store::STATUS_ACTIVE]);
                     }
                 }
 
@@ -445,7 +430,6 @@ class SubscriptionController extends Controller
                 session()->forget('pending_subscription_payment');
                 session()->forget('applied_coupon_code');
 
-                // Increment coupon usage if applied
                 if ($payment->metadata['coupon_code'] ?? null) {
                     $usedCoupon = Coupon::where('code', $payment->metadata['coupon_code'])->first();
                     if ($usedCoupon) $usedCoupon->incrementUsage();
@@ -461,7 +445,6 @@ class SubscriptionController extends Controller
                     'failure_reason' => $txnData['gateway_response'] ?? 'Payment was not successful',
                 ]);
 
-                // Update Transaction record
                 $transaction = Transaction::where('reference', $payment->reference)->first();
                 if ($transaction) {
                     $transaction->update([
@@ -472,105 +455,56 @@ class SubscriptionController extends Controller
 
                 DB::commit();
 
-                Log::warning('vendor.subscription.payment.not_successful', [
-                    'user_id' => $user->id,
-                    'payment_id' => $payment->id,
-                    'txn_status' => $txnStatus,
-                ]);
-
-                return redirect()->route('management.subscription.plan')
+                return redirect()->route('management.subscription.payment')
                     ->with('error', 'Payment was not successful. Please try again.');
             }
         } catch (\Throwable $e) {
             DB::rollBack();
-            Log::error('vendor.subscription.callback.exception', [
+            Log::error('subscription.callback.exception', [
                 'user_id' => $user->id,
                 'payment_id' => $payment->id,
                 'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
             ]);
-            return redirect()->route('management.subscription.plan')
+            return redirect()->route('management.subscription.payment')
                 ->with('error', 'An error occurred while processing your payment.');
         }
     }
 
-    /**
-     * Check and apply an early pass code to skip payment.
-     */
     public function checkEarlyPass(Request $request): JsonResponse
     {
         $user = $request->user();
         $code = trim($request->input('code', ''));
-        
-        Log::info('vendor.early_pass.check_request', [
-            'user_id' => $user->id,
-            'code' => $code,
-            'ip' => $request->ip(),
-        ]);
 
         if (empty($code)) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Please enter a code',
-            ]);
+            return response()->json(['success' => false, 'message' => 'Please enter a code']);
         }
 
-        // Find the early pass
         $earlyPass = EarlyPass::where('code', $code)->first();
 
         if (!$earlyPass) {
-            Log::info('vendor.early_pass.not_found', [
-                'user_id' => $user->id,
-                'code' => $code,
-            ]);
-            return response()->json([
-                'success' => false,
-                'message' => 'Invalid code. Please check and try again.',
-            ]);
+            return response()->json(['success' => false, 'message' => 'Invalid code. Please check and try again.']);
         }
 
         if (!$earlyPass->isAvailable()) {
-            Log::info('vendor.early_pass.not_active', [
-                'user_id' => $user->id,
-                'code' => $code,
-            ]);
-            return response()->json([
-                'success' => false,
-                'message' => 'This code is not valid or expired.',
-            ]);
+            return response()->json(['success' => false, 'message' => 'This code is not valid or expired.']);
         }
 
         if ($earlyPass->usages()->where('user_id', $user->id)->exists()) {
-             return response()->json([
-                 'success' => false,
-                 'message' => 'You have already used this code.',
-             ]);
+            return response()->json(['success' => false, 'message' => 'You have already used this code.']);
         }
 
-        // Check if vendor already has active subscription
         if ($user->business?->hasActiveSubscription()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'You already have an active subscription.',
-            ]);
+            return response()->json(['success' => false, 'message' => 'You already have an active subscription.']);
         }
 
-        // Get the default plan
         $plan = SubscriptionPlan::active()->default()->first();
 
         if (!$plan) {
-            Log::error('vendor.early_pass.no_plan', [
-                'user_id' => $user->id,
-            ]);
-            return response()->json([
-                'success' => false,
-                'message' => 'No subscription plan available.',
-            ]);
+            return response()->json(['success' => false, 'message' => 'No subscription plan available.']);
         }
 
         DB::beginTransaction();
         try {
-            // Create subscription (free via early pass)
             $subscription = SubscriptionModel::create([
                 'user_id' => $user->id,
                 'business_id' => $user->business_id,
@@ -586,16 +520,11 @@ class SubscriptionController extends Controller
                 ],
             ]);
 
+            $user->update(['trial_ends_at' => null]);
 
-
-            // Activate vendor
             if ($user->status !== 'active' || !$user->is_verified) {
-                $user->update([
-                    'status' => 'active',
-                    'is_verified' => true,
-                ]);
+                $user->update(['status' => 'active', 'is_verified' => true]);
 
-                // Auto-approve KYC to allow store creation
                 KycApplication::updateOrCreate(
                     ['user_id' => $user->id],
                     [
@@ -608,66 +537,47 @@ class SubscriptionController extends Controller
                 );
             }
 
-            // Activate all pending/suspended stores
-            $stores = $user->accessibleStores()->whereIn('status', [
+            $stores = $user->stores()->whereIn('status', [
                 Store::STATUS_PENDING,
                 Store::STATUS_SUSPENDED,
             ])->get();
 
             Store::whereIn('id', $stores->pluck('id'))->update(['status' => Store::STATUS_ACTIVE]);
 
-            // Mark early pass as used
             $activeStore = $stores->first();
             $earlyPass->markAsUsed($user->id, $activeStore?->id);
 
-            // Get the first store for the success redirect
-            $store = $user->accessibleStores()->first();
+            $store = $user->stores()->first();
 
             DB::commit();
 
-            Log::info('vendor.early_pass.applied_successfully', [
-                'user_id' => $user->id,
-                'early_pass_id' => $earlyPass->id,
-                'subscription_id' => $subscription->id,
-                'stores_activated' => $stores->count(),
-            ]);
-
-            // Send "Store is Live" email to vendor and admin
             $this->sendStoreActivationEmails($user);
 
-            // No session needed - success page will query the database
             return response()->json([
                 'success' => true,
                 'message' => 'Early access activated! Redirecting...',
                 'redirect_url' => route('management.store.success', ['user' => $user]),
             ]);
-
         } catch (\Throwable $e) {
             DB::rollBack();
-            Log::error('vendor.early_pass.apply_failed', [
+            Log::error('early_pass.apply_failed', [
                 'user_id' => $user->id,
                 'code' => $code,
                 'error' => $e->getMessage(),
             ]);
-
-            return response()->json([
-                'success' => false,
-                'message' => 'An error occurred. Please try again.',
-            ]);
+            return response()->json(['success' => false, 'message' => 'An error occurred. Please try again.']);
         }
     }
 
-    /**
-     * Send "Store is Live" email notifications to vendor and admin
-     */
     public function showPlans(Request $request): View|RedirectResponse
     {
         $user = $request->user();
         if (!$user) return redirect()->route('management.auth.login');
         if (!$user->is_verified) return redirect()->route('management.auth.verify-otp', ['user' => $user]);
 
-        $plans = SubscriptionPlan::active()->orderBy('sort_order')->get();
-        return view('auth.business.plans', compact('user', 'plans'));
+        $plans = SubscriptionPlan::active()->where('is_trial', false)->orderBy('sort_order')->get();
+        $trial = $this->trialSettings();
+        return view('auth.business.plans', compact('user', 'plans', 'trial'));
     }
 
     public function validateCoupon(Request $request): JsonResponse
@@ -693,70 +603,38 @@ class SubscriptionController extends Controller
         ]);
     }
 
-    public function showCheckout(Request $request, SubscriptionPlan $plan): View|RedirectResponse
+    public function showCheckout(Request $request, SubscriptionPlan $plan): RedirectResponse
     {
-        $user = $request->user();
-        if (!$user) return redirect()->route('management.auth.login');
-
-        $couponCode = session('applied_coupon_code', $request->coupon_code);
-        $discount = 0;
-
-        if ($couponCode) {
-            $coupon = Coupon::where('code', $couponCode)->first();
-            if ($coupon && $coupon->isValid()) {
-                $discount = $coupon->calculateDiscount((float) $plan->amount);
-            }
-        }
-
-        $total = max(0, (float) $plan->amount - $discount);
-
-        return view('auth.business.checkout', compact('user', 'plan', 'couponCode', 'discount', 'total'));
+        return redirect()->route('management.subscription.plan')
+            ->with('warning', 'Please select a plan to start your free trial.');
     }
 
     private function sendStoreActivationEmails(User $user): void
     {
-        // Get the latest store
-        $store = $user->accessibleStores()->latest()->first();
-        
+        $store = $user->stores()->latest()->first();
+
         if (!$store) {
-            Log::warning('vendor.subscription.email.no_store', [
-                'user_id' => $user->id,
-            ]);
             return;
         }
 
-        // Send email to vendor
         if (!empty($user->email)) {
             try {
                 Mail::to($user->email)->queue(new VendorStoreCreated($store));
-                Log::info('vendor.subscription.store_live_email_sent', [
-                    'user_id' => $user->id,
-                    'store_id' => $store->id,
-                    'recipient' => $user->email,
-                ]);
             } catch (\Throwable $e) {
-                Log::error('vendor.subscription.store_live_email_failed', [
+                Log::error('store_live_email_failed', [
                     'user_id' => $user->id,
-                    'store_id' => $store->id,
                     'error' => $e->getMessage(),
                 ]);
             }
         }
 
-        // Send email to admins
         $admins = User::where('role', 'superadmin')->pluck('email')->filter()->all();
         if (!empty($admins)) {
             try {
                 Mail::to($admins)->queue(new AdminStoreCreated($store));
-                Log::info('vendor.subscription.admin_notification_sent', [
-                    'user_id' => $user->id,
-                    'store_id' => $store->id,
-                    'admin_count' => count($admins),
-                ]);
             } catch (\Throwable $e) {
-                Log::error('vendor.subscription.admin_notification_failed', [
+                Log::error('admin_notification_failed', [
                     'user_id' => $user->id,
-                    'store_id' => $store->id,
                     'error' => $e->getMessage(),
                 ]);
             }

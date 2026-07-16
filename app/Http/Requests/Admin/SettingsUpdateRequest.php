@@ -28,6 +28,8 @@ class SettingsUpdateRequest extends FormRequest
             'main_store_id' => ['nullable', 'integer', 'exists:stores,id'],
             'default_currency_id' => ['nullable', 'integer', 'exists:currencies,id'],
             'store_creation_limit' => ['nullable', 'integer', 'min:1'],
+            'trial_enabled' => ['boolean'],
+            'trial_days' => ['nullable', 'integer', 'min:1', 'max:90'],
         ];
     }
 }

@@ -22,6 +22,8 @@ class Setting extends Model
         'store_creation_limit',
         'api_keys',
         'main_store_id',
+        'trial_enabled',
+        'trial_days',
         // SEO
         'og_title',
         'og_description',
@@ -38,5 +40,7 @@ class Setting extends Model
         'main_store_id' => 'integer',
         'greeting_modal_enabled' => 'boolean',
         'store_creation_limit' => 'integer',
+        'trial_enabled' => 'boolean',
+        'trial_days' => 'integer',
     ];
 }
