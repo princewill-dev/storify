@@ -118,7 +118,7 @@ class StoreController extends Controller
         $data['address'] = $data['address'] ?? $pendingDefaults['address'] ?? $user->location;
         $data['user_id'] = $user->id;
         $data['business_id'] = $user->business_id;
-        $data['status'] = $user->business?->hasActiveSubscription() ? 'active' : 'inactive';
+        $data['status'] = 'pending';
 
         if ($request->hasFile('logo')) {
             $data['logo_path'] = $request->file('logo')->store('stores/logos', 'public');
@@ -530,6 +530,11 @@ class StoreController extends Controller
             'store_id' => $store->id,
             'reason' => $reason
         ]);
+
+        $kyc = $user->kycApplication;
+        if (!$kyc || $kyc->status !== KycApplication::STATUS_APPROVED) {
+            return back()->with('error', 'You must complete KYC verification before activating your store. <a href="' . route('management.kyc.show') . '" class="underline text-blue-600">Complete KYC now</a>.');
+        }
 
         $store->update(['status' => 'active']);
 

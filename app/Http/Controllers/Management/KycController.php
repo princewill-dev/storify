@@ -18,8 +18,6 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
-use App\Mail\VendorStoreCreated;
-use App\Mail\AdminStoreCreated;
 use Illuminate\Support\Str;
 use Illuminate\View\View;
 
@@ -27,102 +25,21 @@ class KycController extends Controller
 {
     public function show(Request $request): View|RedirectResponse
     {
-        /** @var User|null $user */
         $user = $request->user();
-        Log::info('vendor.kyc.show_requested', [
-            'route_path' => $request->path(),
-            'vendor_account_id' => $user?->account_id,
-        ]);
 
-        
-
-        $existingApplication = $user->kycApplication;
-        if ($existingApplication) {
-            return redirect()->route('management.dashboard')
-                ->with('status', 'Your KYC is already in progress.');
-        }
-
-        $application = new KycApplication();
-
-        $routes = DeliveryRoute::query()
-            ->select('country', 'state', 'area')
-            ->where('active', true)
-            ->orderBy('country')
-            ->orderBy('state')
-            ->orderBy('area')
-            ->get()
-            ->groupBy('country')
-            ->map(function ($states) {
-                return $states->groupBy('state')->map(function ($areas) {
-                    return $areas->pluck('area')->unique()->sort()->values();
-                })->sortKeys();
-            })->sortKeys();
-
-        $routeTree = $routes
-            ->map(fn ($states) => $states->map(fn ($areas) => $areas->values()->toArray())->toArray())
-            ->toArray();
-
-        $countryOptions = $routes->keys();
-
+        $kycApp = $user->kycApplication;
         $documentTypes = KycDocumentType::query()
             ->where('is_active', true)
             ->orderBy('name')
             ->get(['id', 'name']);
 
-        $selectedCountry = old('country', $application->country ?? '');
-        if (!$selectedCountry && $countryOptions->count() === 1) {
-            $selectedCountry = $countryOptions->first();
-        }
-
-        $stateOptions = collect();
-        if ($selectedCountry && $routes->has($selectedCountry)) {
-            $stateOptions = $routes->get($selectedCountry)->keys();
-        }
-
-        $selectedState = old('state', $application->state ?? '');
-        if (!$selectedState && $stateOptions->count() === 1) {
-            $selectedState = $stateOptions->first();
-        }
-
-        $selectedDocumentTypeId = old('kyc_document_type_id', $application->kyc_document_type_id ?? $user->kyc_document_type_id ?? '');
-        $documentIdValue = old('kyc_document_id', $application->kyc_document_id ?? $user->kyc_document_id ?? '');
-
-        if ($routes->isEmpty()) {
-            Log::warning('vendor.kyc.routes_missing', [
-                'user_id' => $user->id,
-            ]);
-        } else {
-            Log::info('vendor.kyc.routes_loaded', [
-                'user_id' => $user->id,
-                'countries_count' => $countryOptions->count(),
-                'selected_country' => $selectedCountry ?: null,
-                'state_options_count' => $stateOptions->count(),
-                'selected_state' => $selectedState ?: null,
-                'document_types_count' => $documentTypes->count(),
-                'selected_document_type_id' => $selectedDocumentTypeId ?: null,
-                'route_tree_snapshot' => array_key_exists($selectedCountry, $routeTree)
-                    ? array_keys($routeTree[$selectedCountry])
-                    : [],
-            ]);
-        }
-
-        $isKycSubmitted = $user->kycApplication?->status === KycApplication::STATUS_SUBMITTED;
-
-        $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'KYC Verification']];
+        $breadcrumbs = [
+            ['label' => 'Dashboard', 'url' => route('management.dashboard')],
+            ['label' => 'KYC Verification'],
+        ];
 
         return view('management.kyc', compact(
-            'application',
-            'routes',
-            'routeTree',
-            'selectedCountry',
-            'selectedState',
-            'selectedDocumentTypeId',
-            'documentIdValue',
-            'countryOptions',
-            'stateOptions',
-            'documentTypes',
-            'isKycSubmitted',
-            'breadcrumbs'
+            'user', 'kycApp', 'documentTypes', 'breadcrumbs'
         ));
     }
 
@@ -138,19 +55,15 @@ class KycController extends Controller
                 ->with('warning', 'Verify your email before submitting your KYC information.');
         }
 
-        $kycStatus = $user->kycApplication?->status;
+        $kyc = $user->kycApplication;
+        $kycStatus = $kyc?->status;
+
         if ($kycStatus === KycApplication::STATUS_SUBMITTED) {
-            return back()->with('warning', 'Your KYC is currently under review. We will notify you once it is processed.');
+            return back()->with('warning', 'Your KYC is currently under review.');
         }
 
         if ($kycStatus === KycApplication::STATUS_APPROVED) {
-            return redirect()->route('management.dashboard')
-                ->with('status', 'Your KYC has already been approved.');
-        }
-
-        if ($user->kycApplication()->exists()) {
-            return redirect()->route('management.dashboard')
-                ->with('status', 'Your KYC is already in progress.');
+            return back()->with('info', 'Your KYC has already been approved.');
         }
 
         $data = $request->validated();
@@ -237,7 +150,7 @@ class KycController extends Controller
         $application->save();
 
         $user->forceFill([
-            'status' => User::STATUS_PENDING,
+            'status' => 'pending',
         ])->save();
 
         Log::info('vendor.kyc.submitted', [
@@ -248,8 +161,8 @@ class KycController extends Controller
         $this->queueVendorNotification($user, $application);
         $this->queueAdminNotification($application);
 
-        return redirect()->route('management.store.create', ['user' => $user])
-            ->with('success', 'KYC submitted successfully! Continue setting up your store while we review your details.');
+        return redirect()->route('management.kyc.show')
+            ->with('success', 'KYC submitted successfully! We\'ll review your documents and notify you within 1-2 business days.');
     }
 
     private function detectDeviceType(string $userAgent): string

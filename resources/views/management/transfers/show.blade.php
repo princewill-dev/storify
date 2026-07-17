@@ -218,22 +218,16 @@
                 </form>
                 @endif
                 @if($transfer->canBeDispatched() && auth()->user()->can('transfers dispatch'))
-                <form method="POST" action="{{ route('management.transfers.dispatch', $transfer) }}" onsubmit="return confirm('Confirm dispatch?')">
-                    @csrf @method('PATCH')
-                    <button type="submit" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 text-white text-xs font-semibold rounded-md hover:bg-purple-700 transition-colors">Dispatch</button>
-                </form>
+                <button onclick="openModal('dispatchTransfer{{ $transfer->id }}')" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 text-white text-xs font-semibold rounded-md hover:bg-purple-700 transition-colors">Dispatch</button>
+                <x-management.confirm-modal id="dispatchTransfer{{ $transfer->id }}" title="Dispatch Transfer" message="Confirm dispatch?" action="{{ route('management.transfers.dispatch', $transfer) }}" method="PATCH" :danger="false" confirmText="Dispatch" />
                 @endif
                 @if($transfer->canBeReceived() && auth()->user()->can('transfers receive'))
-                <form method="POST" action="{{ route('management.transfers.receive', $transfer) }}" onsubmit="return confirm('Confirm receipt?')">
-                    @csrf @method('PATCH')
-                    <button type="submit" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white text-xs font-semibold rounded-md hover:bg-emerald-700 transition-colors">Receive</button>
-                </form>
+                <button onclick="openModal('receiveTransfer{{ $transfer->id }}')" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white text-xs font-semibold rounded-md hover:bg-emerald-700 transition-colors">Receive</button>
+                <x-management.confirm-modal id="receiveTransfer{{ $transfer->id }}" title="Receive Transfer" message="Confirm receipt?" action="{{ route('management.transfers.receive', $transfer) }}" method="PATCH" :danger="false" confirmText="Receive" />
                 @endif
                 @if($transfer->canBeCancelled())
-                <form method="POST" action="{{ route('management.transfers.cancel', $transfer) }}" onsubmit="return confirm('Cancel this transfer?')">
-                    @csrf @method('PATCH')
-                    <button type="submit" class="inline-flex items-center gap-1.5 px-3 py-1.5 border border-red-200 text-red-600 text-xs font-semibold rounded-md hover:bg-red-50 transition-colors">Cancel</button>
-                </form>
+                <button onclick="openModal('cancelTransfer{{ $transfer->id }}')" class="inline-flex items-center gap-1.5 px-3 py-1.5 border border-red-200 text-red-600 text-xs font-semibold rounded-md hover:bg-red-50 transition-colors">Cancel</button>
+                <x-management.confirm-modal id="cancelTransfer{{ $transfer->id }}" title="Cancel Transfer" message="Cancel this transfer?" action="{{ route('management.transfers.cancel', $transfer) }}" method="PATCH" confirmText="Cancel Transfer" />
                 @endif
             </div>
         </div>

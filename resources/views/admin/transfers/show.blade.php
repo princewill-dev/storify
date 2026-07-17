@@ -184,22 +184,16 @@
         <div class="card-header"><strong>Actions</strong></div>
         <div class="card-body">
           @if($transfer->canBeDispatched())
-          <form method="POST" action="{{ route('admin.transfers.dispatch', $transfer) }}" class="mb-2" onsubmit="return confirm('Confirm dispatch?')">
-            @csrf @method('PATCH')
-            <button class="btn btn-primary btn-sm w-100">Dispatch</button>
-          </form>
+          <button type="button" class="btn btn-primary btn-sm w-100" data-bs-toggle="modal" data-bs-target="#dispatchTransfer{{ $transfer->id }}">Dispatch</button>
+          <x-admin.confirm-modal id="dispatchTransfer{{ $transfer->id }}" title="Dispatch Transfer" message="Confirm dispatch?" action="{{ route('admin.transfers.dispatch', $transfer) }}" method="PATCH" confirmText="Dispatch" :danger="false" />
           @endif
           @if($transfer->canBeReceived())
-          <form method="POST" action="{{ route('admin.transfers.receive', $transfer) }}" class="mb-2" onsubmit="return confirm('Confirm receipt?')">
-            @csrf @method('PATCH')
-            <button class="btn btn-success btn-sm w-100">Confirm Receipt</button>
-          </form>
+          <button type="button" class="btn btn-success btn-sm w-100" data-bs-toggle="modal" data-bs-target="#receiveTransfer{{ $transfer->id }}">Confirm Receipt</button>
+          <x-admin.confirm-modal id="receiveTransfer{{ $transfer->id }}" title="Confirm Receipt" message="Confirm receipt?" action="{{ route('admin.transfers.receive', $transfer) }}" method="PATCH" confirmText="Confirm Receipt" :danger="false" />
           @endif
           @if($transfer->canBeCancelled())
-          <form method="POST" action="{{ route('management.transfers.cancel', $transfer) }}" onsubmit="return confirm('Cancel this transfer?')">
-            @csrf @method('PATCH')
-            <button class="btn btn-outline-danger btn-sm w-100">Cancel Transfer</button>
-          </form>
+          <button type="button" class="btn btn-outline-danger btn-sm w-100" data-bs-toggle="modal" data-bs-target="#cancelTransfer{{ $transfer->id }}">Cancel Transfer</button>
+          <x-admin.confirm-modal id="cancelTransfer{{ $transfer->id }}" title="Cancel Transfer" message="Cancel this transfer?" action="{{ route('management.transfers.cancel', $transfer) }}" method="PATCH" confirmText="Cancel Transfer" />
           @endif
         </div>
       </div>

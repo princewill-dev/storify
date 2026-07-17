@@ -23,10 +23,8 @@
               <td>{{ $t->name }}</td>
               <td class="text-end">
                 <a href="{{ route('admin.business-types.edit', $t) }}" class="btn btn-sm btn-outline-primary">Edit</a>
-                <form method="post" action="{{ route('admin.business-types.destroy', $t) }}" class="d-inline" onsubmit="return confirm('Delete this type?')">
-                  @csrf @method('DELETE')
-                  <button class="btn btn-sm btn-outline-danger">Delete</button>
-                </form>
+                <button type="button" class="btn btn-sm btn-outline-danger" data-bs-toggle="modal" data-bs-target="#deleteBusinessType{{ $t->id }}">Delete</button>
+                <x-admin.confirm-modal id="deleteBusinessType{{ $t->id }}" title="Delete Business Type" message="Delete this type?" action="{{ route('admin.business-types.destroy', $t) }}" method="DELETE" />
               </td>
             </tr>
           @empty

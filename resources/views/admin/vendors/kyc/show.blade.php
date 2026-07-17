@@ -69,11 +69,11 @@
                 </div>
                 <div class="card-body">
                     <div class="d-flex flex-column gap-1 mb-3">
-                        <span class="fw-semibold">{{ $application->vendor->name }}</span>
-                        <span class="text-muted small">{{ $application->vendor->email }}</span>
-                        <span class="text-muted small">Phone: {{ $application->vendor->phone ?? '—' }}</span>
+                        <span class="fw-semibold">{{ $application->user->name }}</span>
+                        <span class="text-muted small">{{ $application->user->email }}</span>
+                        <span class="text-muted small">Phone: {{ $application->user->phone ?? '—' }}</span>
                     </div>
-                    <a class="btn btn-outline-primary btn-sm w-100" href="{{ route('admin.vendors.show', $application->vendor) }}">
+                    <a class="btn btn-outline-primary btn-sm w-100" href="{{ route('admin.vendors.show', $application->user) }}">
                         View vendor profile
                     </a>
                 </div>

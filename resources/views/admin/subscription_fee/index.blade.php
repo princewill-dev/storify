@@ -65,11 +65,8 @@
                                     <button type="button" class="btn btn-sm btn-outline-primary me-1" data-bs-toggle="modal" data-bs-target="#editPlanModal{{ $plan->id }}">
                                         Edit
                                     </button>
-                                    <form action="{{ route('admin.subscription-plans.destroy', $plan) }}" method="POST" class="d-inline" onsubmit="return confirm('Delete this plan? This cannot be undone.')">
-                                        @csrf
-                                        @method('DELETE')
-                                        <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
-                                    </form>
+                                    <button type="button" class="btn btn-sm btn-outline-danger" data-bs-toggle="modal" data-bs-target="#deletePlan{{ $plan->id }}">Delete</button>
+                                    <x-admin.confirm-modal id="deletePlan{{ $plan->id }}" title="Delete Plan" message="Delete this plan?" warning="This cannot be undone." action="{{ route('admin.subscription-plans.destroy', $plan) }}" method="DELETE" />
                                 </td>
                             </tr>
 

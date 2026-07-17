@@ -245,10 +245,22 @@ if (request()->routeIs('management.stores.*') || request()->routeIs('management.
             <span>Profile</span>
         </a>
         @if(auth()->user()?->isBusinessOwner())
+        @php $kyc = auth()->user()?->kycApplication; @endphp
         <a href="{{ route('management.kyc.show') }}" 
            class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('management.kyc.*') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
             <i class="fi fi-rr-document text-base w-5 text-center"></i>
             <span>KYC Verification</span>
+            @if($kyc)
+                @if($kyc->status === \App\Models\KycApplication::STATUS_SUBMITTED)
+                <span class="ml-auto inline-flex items-center rounded-full bg-amber-400/20 px-1.5 py-0.5 text-[10px] font-medium text-amber-300">Pending</span>
+                @elseif($kyc->status === \App\Models\KycApplication::STATUS_APPROVED)
+                <span class="ml-auto inline-flex items-center rounded-full bg-emerald-400/20 px-1.5 py-0.5 text-[10px] font-medium text-emerald-300">Verified</span>
+                @elseif($kyc->status === \App\Models\KycApplication::STATUS_REJECTED)
+                <span class="ml-auto inline-flex items-center rounded-full bg-red-400/20 px-1.5 py-0.5 text-[10px] font-medium text-red-300">Rejected</span>
+                @endif
+            @else
+            <span class="ml-auto inline-flex items-center rounded-full bg-slate-400/20 px-1.5 py-0.5 text-[10px] font-medium text-slate-400">Required</span>
+            @endif
         </a>
         @endif
         @can('support view_tickets')

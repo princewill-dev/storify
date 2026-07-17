@@ -401,17 +401,6 @@ class SubscriptionController extends Controller
                             'status' => 'active',
                             'is_verified' => true,
                         ]);
-
-                        KycApplication::updateOrCreate(
-                            ['user_id' => $user->id],
-                            [
-                                'status' => KycApplication::STATUS_APPROVED,
-                                'approved_at' => now(),
-                                'legal_name' => $user->name,
-                                'phone_number' => $user->phone,
-                                'payload' => ['auto_approved_via_subscription' => true],
-                            ]
-                        );
                     }
 
                     $inactiveStores = $user->stores()->whereIn('status', [
@@ -524,17 +513,6 @@ class SubscriptionController extends Controller
 
             if ($user->status !== 'active' || !$user->is_verified) {
                 $user->update(['status' => 'active', 'is_verified' => true]);
-
-                KycApplication::updateOrCreate(
-                    ['user_id' => $user->id],
-                    [
-                        'status' => KycApplication::STATUS_APPROVED,
-                        'approved_at' => now(),
-                        'legal_name' => $user->name,
-                        'phone_number' => $user->phone,
-                        'payload' => ['auto_approved_via_early_pass' => true],
-                    ]
-                );
             }
 
             $stores = $user->stores()->whereIn('status', [

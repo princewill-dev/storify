@@ -51,16 +51,16 @@
                                 <td>
                                     <div class="d-flex flex-column">
                                         @if($application->business)
-                                            <a href="{{ route('admin.vendors.show', $application->vendor) }}" class="fw-semibold">
+                                            <a href="{{ route('admin.vendors.show', $application->user) }}" class="fw-semibold">
                                                 {{ $application->business->name }}
                                             </a>
                                             <span class="text-muted small font-monospace">{{ $application->business->business_code }}</span>
-                                            <span class="text-muted small">Owner: {{ $application->vendor?->name }}</span>
+                                            <span class="text-muted small">Owner: {{ $application->user?->name }}</span>
                                         @else
-                                            <a href="{{ route('admin.vendors.show', $application->vendor) }}" class="fw-semibold">
-                                                {{ $application->vendor->name }}
+                                            <a href="{{ route('admin.vendors.show', $application->user) }}" class="fw-semibold">
+                                                {{ $application->user->name }}
                                             </a>
-                                            <span class="text-muted small">{{ $application->vendor->email }}</span>
+                                            <span class="text-muted small">{{ $application->user->email }}</span>
                                         @endif
                                     </div>
                                 </td>

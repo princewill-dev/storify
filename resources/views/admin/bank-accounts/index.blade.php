@@ -54,10 +54,8 @@
                   </button>
                 </form>
                 <a href="{{ route('admin.bank-accounts.edit', $account) }}" class="btn btn-sm btn-outline-primary">Edit</a>
-                <form method="post" action="{{ route('admin.bank-accounts.destroy', $account) }}" class="d-inline" onsubmit="return confirm('Delete this bank account?')">
-                  @csrf @method('DELETE')
-                  <button class="btn btn-sm btn-outline-danger">Delete</button>
-                </form>
+                <button type="button" class="btn btn-sm btn-outline-danger" data-bs-toggle="modal" data-bs-target="#deleteBankAccount{{ $account->id }}">Delete</button>
+                <x-admin.confirm-modal id="deleteBankAccount{{ $account->id }}" title="Delete Bank Account" message="Delete this bank account?" action="{{ route('admin.bank-accounts.destroy', $account) }}" method="DELETE" />
               </td>
             </tr>
           @empty

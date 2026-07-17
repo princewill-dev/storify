@@ -65,13 +65,10 @@
                                                 <a href="{{ route('admin.styling.edit', $styling) }}" class="btn btn-sm btn-primary">
                                                     <i class="fi fi-rr-edit"></i>
                                                 </a>
-                                                <form action="{{ route('admin.styling.destroy', $styling) }}" method="POST" class="d-inline" onsubmit="return confirm('Are you sure you want to delete this styling?');">
-                                                    @csrf
-                                                    @method('DELETE')
-                                                    <button type="submit" class="btn btn-sm btn-danger">
-                                                        <i class="fi fi-rr-trash"></i>
-                                                    </button>
-                                                </form>
+                                                <button type="button" class="btn btn-sm btn-danger" data-bs-toggle="modal" data-bs-target="#deleteStyling{{ $styling->id }}">
+                                                    <i class="fi fi-rr-trash"></i>
+                                                </button>
+                                                <x-admin.confirm-modal id="deleteStyling{{ $styling->id }}" title="Delete Styling" message="Are you sure you want to delete this styling?" action="{{ route('admin.styling.destroy', $styling) }}" method="DELETE" />
                                             </div>
                                         </td>
                                     </tr>

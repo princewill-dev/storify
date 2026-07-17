@@ -149,13 +149,10 @@
                                     <a href="{{ route('admin.orders.edit', $order) }}" class="btn btn-outline-secondary btn-sm" title="Edit">
                                         <i class="fa fa-edit"></i>
                                     </a>
-                                    <form action="{{ route('admin.orders.destroy', $order) }}" method="POST" class="d-inline" onsubmit="return confirm('Are you sure you want to delete this order?')">
-                                        @csrf
-                                        @method('DELETE')
-                                        <button type="submit" class="btn btn-outline-danger btn-sm" title="Delete">
-                                            <i class="fa fa-trash"></i>
-                                        </button>
-                                    </form>
+                                    <button type="button" class="btn btn-outline-danger btn-sm" title="Delete" data-bs-toggle="modal" data-bs-target="#deleteOrder{{ $order->id }}">
+                                        <i class="fa fa-trash"></i>
+                                    </button>
+                                    <x-admin.confirm-modal id="deleteOrder{{ $order->id }}" title="Delete Order" message="Are you sure you want to delete this order?" action="{{ route('admin.orders.destroy', $order) }}" method="DELETE" />
                                 </div>
                             </td>
                         </tr>

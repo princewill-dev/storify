@@ -44,12 +44,10 @@
                 <a href="{{ route('management.products.edit', $product) }}" class="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg" title="Edit">
                     <i class="fi fi-rr-edit text-xs"></i>
                 </a>
-                <form method="POST" action="{{ route('management.products.destroy', $product) }}" onsubmit="return confirm('Delete this product?')" class="inline">
-                    @csrf @method('DELETE')
-                    <button type="submit" class="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg" title="Delete">
-                        <i class="fi fi-rr-trash text-xs"></i>
-                    </button>
-                </form>
+                <button onclick="openModal('deleteProduct{{ $product->id }}')" class="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg" title="Delete">
+                    <i class="fi fi-rr-trash text-xs"></i>
+                </button>
+                <x-management.confirm-modal id="deleteProduct{{ $product->id }}" title="Delete Product" message="Delete this product?" action="{{ route('management.products.destroy', $product) }}" method="DELETE" />
             </div>
         </td>
     </tr>

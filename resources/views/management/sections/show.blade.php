@@ -18,12 +18,10 @@
             <i class="fi fi-rr-edit text-xs"></i> Edit
         </a>
         @if($stats['count'] === 0)
-        <form method="POST" action="{{ route('management.sections.destroy', [$warehouse, $section]) }}" onsubmit="return confirm('Delete this section?')" class="inline">
-            @csrf @method('DELETE')
-            <button type="submit" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-red-600 bg-red-50 border border-red-200 hover:bg-red-100 rounded-lg transition-colors">
-                <i class="fi fi-rr-trash text-xs"></i> Delete
-            </button>
-        </form>
+        <button onclick="openModal('deleteSection{{ $section->id }}')" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-red-600 bg-red-50 border border-red-200 hover:bg-red-100 rounded-lg transition-colors">
+            <i class="fi fi-rr-trash text-xs"></i> Delete
+        </button>
+        <x-management.confirm-modal id="deleteSection{{ $section->id }}" title="Delete Section" message="Delete this section?" action="{{ route('management.sections.destroy', [$warehouse, $section]) }}" method="DELETE" />
         @endif
         <a href="{{ route('management.products.create', ['section_id' => $section->section_code]) }}" class="inline-flex items-center gap-1.5 px-4 py-2 bg-slate-900 text-white text-sm font-medium rounded-lg hover:bg-slate-800 transition-colors">
             <i class="fi fi-rr-plus text-xs"></i> Add Product

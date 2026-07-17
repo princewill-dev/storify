@@ -121,10 +121,8 @@
                             <div x-show="open" x-transition class="absolute right-0 mt-1 w-36 bg-white rounded-xl shadow-lg border border-slate-200 py-1 z-40">
                                 <a href="{{ route('management.products.show', $product) }}" class="flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"><i class="fi fi-rr-eye w-4 text-slate-400"></i> View</a>
                                 <a href="{{ route('management.products.edit', $product) }}" class="flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"><i class="fi fi-rr-edit w-4 text-slate-400"></i> Edit</a>
-                                <form method="POST" action="{{ route('management.products.destroy', $product) }}" onsubmit="return confirm('Delete this product?')" class="block">
-                                    @csrf @method('DELETE')
-                                    <button class="flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 w-full text-left"><i class="fi fi-rr-trash w-4"></i> Delete</button>
-                                </form>
+                                <button onclick="openModal('deleteProduct{{ $product->id }}')" class="flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 w-full text-left"><i class="fi fi-rr-trash w-4"></i> Delete</button>
+                                <x-management.confirm-modal id="deleteProduct{{ $product->id }}" title="Delete Product" message="Delete this product?" action="{{ route('management.products.destroy', $product) }}" method="DELETE" />
                             </div>
                         </div>
                     </div>

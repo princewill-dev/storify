@@ -47,12 +47,10 @@
                     <i class="fi fi-rr-edit text-xs"></i>
                 </a>
                 @if($section->products_count === 0)
-                <form method="POST" action="{{ route('management.sections.destroy', [$warehouse, $section]) }}" onsubmit="return confirm('Delete this section?')" class="inline">
-                    @csrf @method('DELETE')
-                    <button type="submit" class="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg" title="Delete">
-                        <i class="fi fi-rr-trash text-xs"></i>
-                    </button>
-                </form>
+                <button onclick="openModal('deleteSection{{ $section->id }}')" class="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg" title="Delete">
+                    <i class="fi fi-rr-trash text-xs"></i>
+                </button>
+                <x-management.confirm-modal id="deleteSection{{ $section->id }}" title="Delete Section" message="Delete this section?" action="{{ route('management.sections.destroy', [$warehouse, $section]) }}" method="DELETE" />
                 @endif
             </div>
         </td>

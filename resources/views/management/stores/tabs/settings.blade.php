@@ -237,6 +237,40 @@
                 <button type="button" @click="showReason = false" x-show="showReason" class="w-full py-2 text-xs text-slate-400 hover:text-slate-600 mt-1">Cancel</button>
             </form>
             @endif
+
+            <hr class="my-4 border-red-100">
+
+            <button onclick="document.getElementById('deleteStoreModal{{ $store->id }}').classList.remove('hidden')" class="w-full py-2.5 border border-red-200 text-red-600 text-xs font-semibold rounded-lg hover:bg-red-50 transition-colors">
+                <i class="fi fi-rr-trash mr-1.5"></i> Delete Store
+            </button>
+
+            {{-- Delete Confirmation Modal --}}
+            <div id="deleteStoreModal{{ $store->id }}" class="hidden fixed inset-0 z-50 overflow-y-auto">
+                <div class="flex min-h-full items-center justify-center p-4">
+                    <div class="fixed inset-0 bg-slate-900/50" onclick="document.getElementById('deleteStoreModal{{ $store->id }}').classList.add('hidden')"></div>
+                    <div class="relative w-full max-w-sm bg-white rounded-2xl shadow-xl">
+                        <div class="px-6 py-4 border-b border-slate-100">
+                            <h3 class="text-base font-semibold text-slate-800">Delete Store</h3>
+                        </div>
+                        <div class="p-6 space-y-4">
+                            <div class="text-center">
+                                <div class="inline-flex items-center justify-center w-12 h-12 rounded-full bg-red-100 mb-3">
+                                    <i class="fi fi-rr-trash text-xl text-red-500"></i>
+                                </div>
+                                <p class="text-sm text-slate-600">Are you sure you want to delete <strong>{{ $store->name }}</strong>?</p>
+                                <p class="text-xs text-slate-400 mt-2">This action cannot be undone. The store and all its data will be hidden from your account. Orders, products, and settings will be preserved.</p>
+                            </div>
+                            <form method="POST" action="{{ route('management.stores.destroy', $store) }}">
+                                @csrf @method('DELETE')
+                                <div class="flex items-center gap-3">
+                                    <button type="submit" class="flex-1 py-2.5 bg-red-600 text-white text-sm font-semibold rounded-lg hover:bg-red-700">Delete Store</button>
+                                    <button type="button" onclick="document.getElementById('deleteStoreModal{{ $store->id }}').classList.add('hidden')" class="flex-1 py-2 border border-slate-200 text-sm rounded-lg hover:bg-slate-50">Cancel</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </x-management.card>
     </div>
 </div>

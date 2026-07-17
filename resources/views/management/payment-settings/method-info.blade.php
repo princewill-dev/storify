@@ -49,10 +49,8 @@
                 <td class="px-5 py-3 text-right">
                     <div class="flex items-center justify-end gap-1">
                         <a href="{{ route('management.stores.show', $store) }}#settings" class="px-2.5 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-100 rounded-lg">Manage</a>
-                        <form method="POST" action="{{ route('management.payment-settings.unassign-store', ['id' => request()->route('id'), 'type' => $gateway ? 'gateway' : 'bank', 'store_id' => $store->id]) }}" onsubmit="return confirm('Remove from {{ $store->name }}?')">
-                            @csrf @method('DELETE')
-                            <button class="px-2 py-1 text-[11px] font-medium text-red-500 hover:bg-red-50 rounded-lg">Remove</button>
-                        </form>
+                        <button onclick="openModal('unassignStore{{ $store->id }}')" class="px-2 py-1 text-[11px] font-medium text-red-500 hover:bg-red-50 rounded-lg">Remove</button>
+                        <x-management.confirm-modal id="unassignStore{{ $store->id }}" title="Unassign from Store" message="Remove from {{ $store->name }}?" action="{{ route('management.payment-settings.unassign-store', ['id' => request()->route('id'), 'type' => $gateway ? 'gateway' : 'bank', 'store_id' => $store->id]) }}" method="DELETE" />
                     </div>
                 </td>
             </tr>

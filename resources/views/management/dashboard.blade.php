@@ -72,6 +72,32 @@
     @endif
 @endif
 
+@if($user->isBusinessOwner())
+    @php
+        $kycApp = $user->kycApplication;
+        $pendingStores = $user->stores()->whereIn('status', ['pending', 'inactive'])->count();
+        $kycNeeded = (!$kycApp || !in_array($kycApp->status, ['approved', 'submitted'])) && $pendingStores > 0;
+        $kycSubmitted = $kycApp && $kycApp->status === 'submitted' && $pendingStores > 0;
+    @endphp
+    @if($kycNeeded)
+    <div class="mb-6 p-4 bg-purple-50 border border-purple-200 rounded-xl flex items-center justify-between">
+        <div>
+            <p class="font-semibold text-purple-800">Complete KYC to publish your store{{ $pendingStores > 1 ? 's' : '' }}</p>
+            <p class="text-sm text-purple-600 mt-0.5">You have {{ $pendingStores }} store{{ $pendingStores > 1 ? 's' : '' }} waiting. Verify your identity to go live.</p>
+        </div>
+        <a href="{{ route('management.kyc.show') }}" class="shrink-0 px-4 py-2 bg-purple-600 text-white text-sm font-semibold rounded-lg hover:bg-purple-700 transition-colors">Complete KYC</a>
+    </div>
+    @elseif($kycSubmitted)
+    <div class="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between">
+        <div>
+            <p class="font-semibold text-amber-800">KYC under review</p>
+            <p class="text-sm text-amber-600 mt-0.5">Your documents are being verified. Stores will be activatable once approved.</p>
+        </div>
+        <a href="{{ route('management.kyc.show') }}" class="shrink-0 px-4 py-2 bg-amber-600 text-white text-sm font-semibold rounded-lg hover:bg-amber-700 transition-colors">View Status</a>
+    </div>
+    @endif
+@endif
+
 {{-- Metric Cards --}}
 <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
     @can('transactions view')

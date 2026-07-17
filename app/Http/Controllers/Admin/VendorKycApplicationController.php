@@ -5,10 +5,12 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Models\KycApplication;
+use App\Mail\KycApproved;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\View\View;
 
 class VendorKycApplicationController extends Controller
@@ -23,7 +25,7 @@ class VendorKycApplicationController extends Controller
         ];
 
         $query = KycApplication::query()
-            ->with(['vendor', 'business'])
+            ->with(['user', 'business'])
             ->latest('submitted_at')
             ->latest();
 
@@ -53,7 +55,7 @@ class VendorKycApplicationController extends Controller
 
     public function show(KycApplication $application): View
     {
-        $application->load(['vendor', 'reviewer']);
+        $application->load(['user', 'reviewer']);
 
         $badge = $application->status_metadata;
         return view('admin.vendors.kyc.show', [
@@ -79,9 +81,17 @@ class VendorKycApplicationController extends Controller
                 'rejected_at' => null,
             ])->save();
 
-            User::find($application->user_id)->forceFill([
-                'status' => 'active',
-            ])->save();
+            $user = User::find($application->user_id);
+            $user->forceFill(['status' => 'active'])->save();
+
+            try {
+                Mail::to($user->email)->queue(new KycApproved($user, $application));
+            } catch (\Throwable $e) {
+                Log::error('kyc_approve_mail_failed', [
+                    'application_id' => $application->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
         });
 
         Log::info('admin.vendor_kyc.approved', [

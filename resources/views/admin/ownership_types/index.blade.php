@@ -23,10 +23,8 @@
               <td>{{ $t->name }}</td>
               <td class="text-end">
                 <a href="{{ route('admin.ownership-types.edit', $t) }}" class="btn btn-sm btn-outline-primary">Edit</a>
-                <form method="post" action="{{ route('admin.ownership-types.destroy', $t) }}" class="d-inline" onsubmit="return confirm('Delete this type?')">
-                  @csrf @method('DELETE')
-                  <button class="btn btn-sm btn-outline-danger">Delete</button>
-                </form>
+                <button type="button" class="btn btn-sm btn-outline-danger" data-bs-toggle="modal" data-bs-target="#deleteOwnershipType{{ $t->id }}">Delete</button>
+                <x-admin.confirm-modal id="deleteOwnershipType{{ $t->id }}" title="Delete Ownership Type" message="Delete this type?" action="{{ route('admin.ownership-types.destroy', $t) }}" method="DELETE" />
               </td>
             </tr>
           @empty

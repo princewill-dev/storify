@@ -47,10 +47,8 @@
                   <td><span class="badge bg-light text-dark">{{ $slide->status }}</span></td>
                   <td class="text-end">
                     <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#editSlideModal{{ $slide->id }}">Edit</button>
-                    <form action="{{ route('admin.storefront-slides.destroy', [$store, $slide]) }}" method="POST" class="d-inline" onsubmit="return confirm('Delete slide?')">
-                      @csrf @method('DELETE')
-                      <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
-                    </form>
+                    <button type="button" class="btn btn-sm btn-outline-danger" data-bs-toggle="modal" data-bs-target="#deleteSlide{{ $slide->id }}">Delete</button>
+                    <x-admin.confirm-modal id="deleteSlide{{ $slide->id }}" title="Delete Slide" message="Delete slide?" action="{{ route('admin.storefront-slides.destroy', [$store, $slide]) }}" method="DELETE" />
                   </td>
                 </tr>
 

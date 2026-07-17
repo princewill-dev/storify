@@ -99,13 +99,10 @@
                                                         <i class="fas {{ $interval->is_active ? 'fa-ban' : 'fa-check' }}"></i>
                                                     </button>
                                                 </form>
-                                                <form action="{{ route('admin.delivery-intervals.destroy', $interval->id) }}" method="POST" class="d-inline" onsubmit="return confirm('Are you sure?');">
-                                                    @csrf
-                                                    @method('DELETE')
-                                                    <button type="submit" class="btn btn-sm btn-danger">
-                                                        <i class="fas fa-trash"></i>
-                                                    </button>
-                                                </form>
+                                                <button type="button" class="btn btn-sm btn-danger" data-bs-toggle="modal" data-bs-target="#deleteInterval{{ $interval->id }}">
+                                                    <i class="fas fa-trash"></i>
+                                                </button>
+                                                <x-admin.confirm-modal id="deleteInterval{{ $interval->id }}" title="Delete Interval" message="Are you sure?" action="{{ route('admin.delivery-intervals.destroy', $interval->id) }}" method="DELETE" />
                                             </div>
 
                                             <!-- Edit Modal -->
