@@ -66,12 +66,18 @@
     {{-- Right Panel — Form --}}
     <div class="flex flex-1 flex-col justify-center bg-white">
         {{-- Mobile logo (visible only on small screens) --}}
-        <div class="flex items-center gap-2 px-8 pt-8 lg:hidden">
-            <img src="{{ $company->favicon }}" alt="" class="h-7 w-7 rounded-lg">
-            <span class="text-base font-semibold text-slate-900">{{ $company->name ?? 'Storify' }}</span>
+        <div class="flex items-center justify-between px-8 pt-8 lg:hidden">
+            <div class="flex items-center gap-2">
+                <img src="{{ $company->favicon }}" alt="" class="h-7 w-7 rounded-lg">
+                <span class="text-base font-semibold text-slate-900">{{ $company->name ?? 'Storify' }}</span>
+            </div>
+            <a href="{{ route('home.index') }}" class="text-xs text-slate-400 hover:text-slate-600 transition-colors">← Home</a>
         </div>
 
         <div class="w-full max-w-md mx-auto px-6 lg:px-0">
+            <a href="{{ route('home.index') }}" class="hidden lg:inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600 transition-colors -mt-6 mb-4">
+                ← Back to Home
+            </a>
             @yield('form')
         </div>
     </div>

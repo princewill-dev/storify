@@ -76,6 +76,9 @@
             <a href="{{ route('account.transactions') }}" class="nav-link {{ request()->routeIs('account.transactions') || request()->routeIs('account.transaction.show') ? 'active' : '' }}">
                 <i class="fa-solid fa-credit-card me-2"></i> Transactions
             </a>
+            <a href="{{ route('home.index') }}" class="nav-link">
+                <i class="fa-solid fa-home me-2"></i> Back to Home
+            </a>
             <div class="mt-auto pt-3 border-top">
                 <form method="POST" action="{{ route('account.logout') }}">
                     @csrf

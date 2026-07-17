@@ -20,8 +20,7 @@
 </head>
 <body>
 <div class="login-card">
-    @php $backUrl = request('store') ? url(request('store')) : url('/'); @endphp
-    <a href="{{ $backUrl }}" class="d-block text-muted small mb-3 text-decoration-none">← Back to Store</a>
+    <a href="{{ route('home.index') }}" class="d-block text-muted small mb-3 text-decoration-none">← Back to Home</a>
     <div class="text-center mb-4">
         <h4>Welcome Back</h4>
         <p class="text-muted small mb-0">

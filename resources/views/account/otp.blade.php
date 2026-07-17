@@ -17,8 +17,7 @@
 </head>
 <body>
 <div class="card text-center">
-    @php $backUrl = request('store') ? url(request('store')) : url('/'); @endphp
-    <a href="{{ $backUrl }}" class="d-block text-muted small mb-3 text-start text-decoration-none">← Back to Store</a>
+    <a href="{{ route('home.index') }}" class="d-block text-muted small mb-3 text-decoration-none">← Back to Home</a>
     <h4>Verify Your Email</h4>
     <p class="text-muted small mb-4">We sent a 6-digit code to <strong>{{ $email }}</strong></p>
 

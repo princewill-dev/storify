@@ -17,7 +17,7 @@
 </head>
 <body>
 <div class="card text-center">
-    <a href="{{ url('/') }}" class="d-block text-muted small mb-3 text-start text-decoration-none">← Back to Store</a>
+    <a href="{{ route('home.index') }}" class="d-block text-muted small mb-3 text-decoration-none">← Back to Home</a>
     <h4>Enter Code</h4>
     <p class="text-muted small mb-4">We sent a 6-digit code to <strong>{{ $email ?? 'your email' }}</strong></p>
 

@@ -52,6 +52,8 @@
         </form>
 
         <div class="link">
+            <a href="{{ route('home.index') }}">← Back to Home</a>
+            <span class="mx-2" style="color:#ccc">|</span>
             <a href="{{ route('management.auth.login') }}">Management Login</a>
         </div>
     </div>

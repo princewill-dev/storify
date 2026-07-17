@@ -42,6 +42,9 @@
                     </form>
                 </div>
             </div>
+            <div class="text-center mt-3">
+                <a href="{{ route('home.index') }}" class="text-muted small">← Back to Home</a>
+            </div>
         </div>
     </div>
 </body>
