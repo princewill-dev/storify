@@ -22,34 +22,6 @@ class RegisterController extends Controller
     // GET /shop4me/{list}/register
     public function showRegister(Request $request, ?string $list = null)
     {
-        // Preserve bulk buy redirect if coming from bulk buy checkout
-        if ($request->has('flow') && $request->flow == 'bulk-buy') {
-            if (!session('bulk_buy_redirect')) {
-                session([
-                    'bulk_buy_redirect' => true,
-                    'bulk_buy_store_slug' => $request->get('store_slug', session('bulk_buy_store_slug')),
-                ]);
-            }
-        }
-        // Preserve family-pack redirect if coming from family pack checkout
-        if ($request->has('flow') && $request->flow == 'family_pack') {
-            if (!session('family_pack_redirect')) {
-                session([
-                    'family_pack_redirect' => true,
-                    'family_pack_store_slug' => $request->get('store_slug', session('family_pack_store_slug')),
-                ]);
-            }
-        }
-        
-        // Preserve live-first redirect if coming from live first enrollment
-        if ($request->has('flow') && $request->flow == 'live-first') {
-            if (!session('live_first_redirect')) {
-                session([
-                    'live_first_redirect' => true,
-                    'live_first_store_slug' => $request->get('store_slug', session('live_first_store_slug')),
-                ]);
-            }
-        }
         
         // Preserve checkout redirect if coming from checkout
         if ($request->has('checkout') && $request->checkout == '1') {
@@ -206,9 +178,6 @@ class RegisterController extends Controller
                 $params['checkout_code'] = $request->checkout_code;
                 $params['store'] = $request->store;
             }
-            if (session('bulk_buy_redirect')) $params['flow'] = 'bulk-buy';
-            if (session('family_pack_redirect')) $params['flow'] = 'family_pack';
-            if (session('live_first_redirect')) $params['flow'] = 'live-first';
 
             return redirect()->route('account.verify', $params);
         }

@@ -317,29 +317,27 @@
 
                     const html = `
                         <li>
-                            <div class="cartmini__thumb">
-                                <a href="#">
-                                    ${mediaHtml}
-                                </a>
+                            <div class="cart-slideout__thumb">
+                                ${mediaHtml}
                             </div>
-                            <div class="cartmini__content">
+                            <div class="cart-slideout__info">
                                 <h5><a href="#">${item.name}</a></h5>
-                                <div class="custom-qty-wrapper">
-                                    <button class="custom-qty-btn" type="button" onclick="StorefrontCart.updateItemQty('${item.id}', ${item.qty - 1})">−</button>
-                                    <input class="custom-qty-input" type="text" value="${item.qty}" readonly/>
-                                    <button class="custom-qty-btn" type="button" onclick="StorefrontCart.updateItemQty('${item.id}', ${item.qty + 1})">+</button>
-                                </div>
-                                <div class="product__sm-price-wrapper">
-                                    <span class="product__sm-price">${new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN' }).format(item.line_subtotal / 100)}</span>
+                                <div class="cart-slideout__price">${new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN' }).format(item.line_subtotal / 100)}</div>
+                                <div class="cart-slideout__qty">
+                                    <button type="button" onclick="StorefrontCart.updateItemQty('${item.id}', ${item.qty - 1})">−</button>
+                                    <input type="text" value="${item.qty}" readonly/>
+                                    <button type="button" onclick="StorefrontCart.updateItemQty('${item.id}', ${item.qty + 1})">+</button>
                                 </div>
                             </div>
-                            <a href="javascript:void(0);" class="cartmini__del" onclick="StorefrontCart.removeItem('${item.id}')"><i class="fal fa-times"></i></a>
+                            <button class="cart-slideout__remove" onclick="StorefrontCart.removeItem('${item.id}')">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                            </button>
                         </li>
                     `;
                     list.append(html);
                 });
             } else {
-                list.append('<li><div class="cartmini__content"><h5>Your cart is empty</h5></div></li>');
+                list.append('<li><div class="cart-slideout__empty">Your cart is empty</div></li>');
             }
         },
 

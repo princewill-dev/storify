@@ -2,150 +2,143 @@
 @section('subtitle', 'Company Services')
 
 @section('content')
-<div class="container-fluid">
-  <div class="d-flex justify-content-between align-items-center mb-3">
-    <h4 class="mb-0">Company Services</h4>
-    <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createServiceModal">New service</button>
-  </div>
+<div class="flex items-center justify-between mb-6">
+  <h2 class="text-lg font-bold text-slate-900">Company Services</h2>
+  <button type="button" onclick="openModal('createServiceModal')" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg bg-slate-900 text-white hover:bg-slate-800">New service</button>
+</div>
 
-  <div class="card">
-    <div class="card-body">
-      <div class="alert alert-info mb-3">
-        <i class="fa fa-info-circle me-2"></i>
-        <strong>Drag & Drop</strong> to reorder services. Changes are saved automatically.
-      </div>
-      
-      <div class="table-responsive">
-        <table class="table align-middle">
-          <thead>
-            <tr>
-              <th width="50">#</th>
-              <th>Title</th>
-              <th>Page Link</th>
-              <th>Status</th>
-              <th class="text-end">Actions</th>
-            </tr>
-          </thead>
-          <tbody id="sortable-services">
-            @forelse($services as $s)
-              <tr data-id="{{ $s->id }}" style="cursor: move;">
-                <td>
-                  <div class="d-flex align-items-center">
-                    <i class="fa fa-grip-vertical text-muted me-2"></i>
-                    <span class="badge bg-secondary">{{ $s->order }}</span>
-                  </div>
-                </td>
-                <td>{{ $s->title }}</td>
-                <td>
-                  @if($s->page_link)
-                    <code>/{{ $s->page_link }}</code>
-                  @else
-                    <span class="text-muted">—</span>
-                  @endif
-                </td>
-                <td><span class="badge bg-{{ $s->status==='active'?'success':'secondary' }}">{{ $s->status }}</span></td>
-                <td class="text-end">
-                  <div class="btn-group" role="group" aria-label="Actions">
-                    <a href="{{ $s->page_link ? url('/'.$s->page_link) : '#' }}" target="_blank" class="btn btn-light btn-sm border-0 @if(!$s->page_link) disabled @endif" title="Visit">
-                      <i class="fa fa-external-link-alt fa-lg"></i>
-                    </a>
-                    <button type="button" class="btn btn-lg btn-primary" title="Edit"
-                            data-bs-toggle="modal" data-bs-target="#editServiceModal"
-                            data-id="{{ $s->id }}" data-title="{{ $s->title }}" data-description='@json($s->description)'
-                            data-page_link="{{ $s->page_link }}" data-status="{{ $s->status }}" data-bg="{{ $s->background_image_path ? asset('storage/'.$s->background_image_path) : '' }}" data-order="{{ $s->order }}">
-                      <i class="fa fa-pen"></i>
-                    </button>
-                    <button type="button" class="btn btn-lg" title="{{ $s->status==='active'?'Deactivate':'Activate' }}"
-                            data-bs-toggle="modal" data-bs-target="#toggleServiceModal"
-                            data-action="{{ route('admin.company-services.toggle', $s) }}" data-title="{{ $s->title }}" data-status="{{ $s->status }}">
-                      @if($s->status==='active')
-                        <i class="fa fa-toggle-on text-success"></i>
-                      @else
-                        <i class="fa fa-toggle-off text"></i>
-                      @endif
-                    </button>
-                    <button type="button" class="btn btn-lg btn-danger" title="Delete"
-                            data-bs-toggle="modal" data-bs-target="#deleteServiceModal"
-                            data-action="{{ route('admin.company-services.destroy', $s) }}" data-title="{{ $s->title }}">
-                      <i class="fa fa-trash"></i>
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            @empty
-              <tr><td colspan="5" class="text-center text-muted">No services found</td></tr>
-            @endforelse
-          </tbody>
-        </table>
-      </div>
-      <div class="mt-3">{{ $services->links() }}</div>
+<div class="bg-white rounded-xl shadow-sm border border-slate-200">
+  <div class="px-6 py-4 border-b border-slate-100">
+    <div class="flex items-center gap-2 px-3 py-2 rounded-lg bg-sky-50 border border-sky-200 text-sm text-sky-700">
+      <i class="fi fi-rr-info text-sky-500"></i>
+      <strong>Drag & Drop</strong> to reorder services. Changes are saved automatically.
     </div>
   </div>
+
+  <table class="w-full text-sm">
+    <thead class="border-b border-slate-100">
+      <tr>
+        <th class="py-3 px-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider w-[50px]">#</th>
+        <th class="py-3 px-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Title</th>
+        <th class="py-3 px-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Page Link</th>
+        <th class="py-3 px-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
+        <th class="py-3 px-4 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider">Actions</th>
+      </tr>
+    </thead>
+    <tbody id="sortable-services" class="divide-y divide-slate-50">
+      @forelse($services as $s)
+        <tr data-id="{{ $s->id }}" class="cursor-move hover:bg-slate-50/50">
+          <td class="py-3 px-4">
+            <div class="flex items-center gap-2">
+              <i class="fi fi-rr-menu-dots text-slate-300"></i>
+              <span class="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">{{ $s->order }}</span>
+            </div>
+          </td>
+          <td class="py-3 px-4 text-slate-700">{{ $s->title }}</td>
+          <td class="py-3 px-4">
+            @if($s->page_link)
+              <code class="text-xs bg-slate-100 px-1.5 py-0.5 rounded text-slate-600">/{{ $s->page_link }}</code>
+            @else
+              <span class="text-slate-400">—</span>
+            @endif
+          </td>
+          <td class="py-3 px-4">
+            <span class="inline-flex items-center rounded-full {{ $s->status==='active' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600' }} px-2.5 py-0.5 text-xs font-medium">{{ $s->status }}</span>
+          </td>
+          <td class="py-3 px-4 text-right">
+            <div class="flex items-center justify-end gap-1">
+              <a href="{{ $s->page_link ? url('/'.$s->page_link) : '#' }}" target="_blank" class="inline-flex items-center justify-center p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 {{ !$s->page_link ? 'opacity-40 pointer-events-none' : '' }}" title="Visit">
+                <i class="fi fi-rr-arrow-up-right text-sm"></i>
+              </a>
+              <button type="button" class="inline-flex items-center justify-center p-2 rounded-lg text-slate-600 hover:text-slate-800 hover:bg-slate-100" title="Edit"
+                onclick="prepareEditService('{{ $s->id }}','{{ addslashes($s->title) }}','{{ addslashes($s->description) }}','{{ $s->page_link }}','{{ $s->status }}','{{ $s->background_image_path ? asset('storage/'.$s->background_image_path) : '' }}','{{ $s->order }}')">
+                <i class="fi fi-rr-pencil text-sm"></i>
+              </button>
+              <button type="button" class="inline-flex items-center justify-center p-2 rounded-lg {{ $s->status==='active' ? 'text-emerald-500 hover:bg-emerald-50' : 'text-slate-400 hover:bg-slate-100' }}" title="{{ $s->status==='active' ? 'Deactivate' : 'Activate' }}"
+                onclick="prepareToggleService('{{ route('admin.company-services.toggle', $s) }}','{{ addslashes($s->title) }}','{{ $s->status }}')">
+                @if($s->status==='active')
+                  <i class="fi fi-rr-toggle-on text-lg"></i>
+                @else
+                  <i class="fi fi-rr-toggle-off text-lg"></i>
+                @endif
+              </button>
+              <button type="button" class="inline-flex items-center justify-center p-2 rounded-lg text-red-600 hover:bg-red-50" title="Delete"
+                onclick="prepareDeleteService('{{ route('admin.company-services.destroy', $s) }}','{{ addslashes($s->title) }}')">
+                <i class="fi fi-rr-trash text-sm"></i>
+              </button>
+            </div>
+          </td>
+        </tr>
+      @empty
+        <tr><td colspan="5" class="py-12 text-center text-slate-400">No services found</td></tr>
+      @endforelse
+    </tbody>
+  </table>
+  <div class="px-4 py-3 border-t border-slate-100">{{ $services->links() }}</div>
 </div>
 
 <!-- Create Modal -->
-<div class="modal fade" id="createServiceModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title">New service</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+<div id="createServiceModal" class="hidden fixed inset-0 z-50 overflow-y-auto" role="dialog" aria-modal="true">
+  <div class="flex items-center justify-center min-h-screen p-4">
+    <div class="fixed inset-0 bg-slate-900/50" onclick="closeModal('createServiceModal')"></div>
+    <div class="relative bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-md p-6 max-h-[85vh] overflow-y-auto">
+      <div class="flex items-center justify-between mb-4">
+        <h5 class="text-base font-semibold text-slate-900">New service</h5>
+        <button onclick="closeModal('createServiceModal')" class="text-slate-400 hover:text-slate-600 text-lg leading-none">&times;</button>
       </div>
-      <form method="post" action="{{ route('admin.company-services.store') }}" enctype="multipart/form-data">
+      <form method="post" action="{{ route('admin.company-services.store') }}" enctype="multipart/form-data" class="space-y-4">
         @csrf
-        <div class="modal-body">
-          @if($errors->any())
-            <div class="alert alert-danger">
-              <ul class="mb-0">
-                @foreach($errors->all() as $error)
-                  <li>{{ $error }}</li>
-                @endforeach
-              </ul>
-            </div>
-          @endif
-          <div class="mb-3">
-            <label class="form-label">Display Order</label>
-            <input type="number" name="order" class="form-control @error('order') is-invalid @enderror" value="{{ old('order', 0) }}" min="0">
-            <div class="form-text">Lower numbers appear first (e.g., 1, 2, 3...)</div>
-            @error('order')<div class="invalid-feedback">{{ $message }}</div>@enderror
+        @if($errors->any())
+          <div class="px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700">
+            <ul class="list-disc pl-4">
+              @foreach($errors->all() as $error)
+                <li>{{ $error }}</li>
+              @endforeach
+            </ul>
           </div>
-          <div class="mb-3">
-            <label class="form-label">Title</label>
-            <input type="text" name="title" class="form-control @error('title') is-invalid @enderror" value="{{ old('title') }}" required>
-            @error('title')<div class="invalid-feedback">{{ $message }}</div>@enderror
-          </div>
-          <div class="mb-3">
-            <label class="form-label">Description</label>
-            <textarea name="description" class="form-control @error('description') is-invalid @enderror" rows="3">{{ old('description') }}</textarea>
-            @error('description')<div class="invalid-feedback">{{ $message }}</div>@enderror
-          </div>
-          <div class="mb-3">
-            <label class="form-label">Page link</label>
-            <div class="input-group">
-              <span class="input-group-text">{{ url('/') }}/</span>
-              <input type="text" name="page_link" class="form-control @error('page_link') is-invalid @enderror" value="{{ old('page_link') }}" placeholder="shop4me or main_store">
-            </div>
-            <div class="form-text">Enter a unique path without leading slash. Example: <code>shop4me</code></div>
-            @error('page_link')<div class="invalid-feedback d-block">{{ $message }}</div>@enderror
-          </div>
-          <div class="mb-3">
-            <label class="form-label">Background image</label>
-            <input type="file" name="background_image" class="form-control @error('background_image') is-invalid @enderror" accept=".jpg,.jpeg,.png,.webp">
-            <div class="form-text">Accepted: jpg, jpeg, png, webp. Max size 10MB.</div>
-            @error('background_image')<div class="invalid-feedback">{{ $message }}</div>@enderror
-          </div>
-          <div class="mb-2">
-            <label class="form-label">Status</label>
-            <select name="status" class="form-select @error('status') is-invalid @enderror" required>
-              <option value="active" {{ old('status') === 'active' ? 'selected' : '' }}>active</option>
-              <option value="inactive" {{ old('status') === 'inactive' ? 'selected' : '' }}>inactive</option>
-            </select>
-            @error('status')<div class="invalid-feedback">{{ $message }}</div>@enderror
-          </div>
+        @endif
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Display Order</label>
+          <input type="number" name="order" class="w-full rounded-lg border-slate-300 px-3.5 py-2.5 text-sm shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500 @error('order') border-red-300 focus:border-red-500 focus:ring-red-500 @enderror" value="{{ old('order', 0) }}" min="0">
+          <p class="mt-1 text-xs text-slate-400">Lower numbers appear first (e.g., 1, 2, 3...)</p>
+          @error('order')<p class="mt-1 text-xs text-red-600">{{ $message }}</p>@enderror
         </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
-          <button type="submit" class="btn btn-primary">Create</button>
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Title</label>
+          <input type="text" name="title" class="w-full rounded-lg border-slate-300 px-3.5 py-2.5 text-sm shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500 @error('title') border-red-300 focus:border-red-500 focus:ring-red-500 @enderror" value="{{ old('title') }}" required>
+          @error('title')<p class="mt-1 text-xs text-red-600">{{ $message }}</p>@enderror
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Description</label>
+          <textarea name="description" rows="3" class="w-full rounded-lg border-slate-300 px-3.5 py-2.5 text-sm shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500 @error('description') border-red-300 focus:border-red-500 focus:ring-red-500 @enderror">{{ old('description') }}</textarea>
+          @error('description')<p class="mt-1 text-xs text-red-600">{{ $message }}</p>@enderror
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Page link</label>
+          <div class="flex items-center">
+            <span class="inline-flex items-center px-3 py-2.5 text-sm border border-r-0 border-slate-300 rounded-l-lg bg-slate-50 text-slate-500">{{ url('/') }}/</span>
+            <input type="text" name="page_link" class="flex-1 rounded-r-lg border-slate-300 px-3.5 py-2.5 text-sm shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500 @error('page_link') border-red-300 focus:border-red-500 focus:ring-red-500 @enderror" value="{{ old('page_link') }}" placeholder="shop4me or main_store">
+          </div>
+          <p class="mt-1 text-xs text-slate-400">Enter a unique path without leading slash. Example: <code class="bg-slate-100 px-1 py-0.5 rounded text-slate-600">shop4me</code></p>
+          @error('page_link')<p class="mt-1 text-xs text-red-600">{{ $message }}</p>@enderror
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Background image</label>
+          <input type="file" name="background_image" class="w-full text-sm text-slate-600 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200 @error('background_image') border-red-300 @enderror" accept=".jpg,.jpeg,.png,.webp">
+          <p class="mt-1 text-xs text-slate-400">Accepted: jpg, jpeg, png, webp. Max size 10MB.</p>
+          @error('background_image')<p class="mt-1 text-xs text-red-600">{{ $message }}</p>@enderror
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Status</label>
+          <select name="status" class="w-full rounded-lg border-slate-300 px-3.5 py-2.5 text-sm shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500 @error('status') border-red-300 focus:border-red-500 focus:ring-red-500 @enderror" required>
+            <option value="active" {{ old('status') === 'active' ? 'selected' : '' }}>active</option>
+            <option value="inactive" {{ old('status') === 'inactive' ? 'selected' : '' }}>inactive</option>
+          </select>
+          @error('status')<p class="mt-1 text-xs text-red-600">{{ $message }}</p>@enderror
+        </div>
+        <div class="flex justify-end gap-2 pt-4 border-t border-slate-100">
+          <button type="button" onclick="closeModal('createServiceModal')" class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50">Cancel</button>
+          <button type="submit" class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg bg-slate-900 text-white hover:bg-slate-800">Create</button>
         </div>
       </form>
     </div>
@@ -153,60 +146,59 @@
 </div>
 
 <!-- Edit Modal -->
-<div class="modal fade" id="editServiceModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title">Edit service</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+<div id="editServiceModal" class="hidden fixed inset-0 z-50 overflow-y-auto" role="dialog" aria-modal="true">
+  <div class="flex items-center justify-center min-h-screen p-4">
+    <div class="fixed inset-0 bg-slate-900/50" onclick="closeModal('editServiceModal')"></div>
+    <div class="relative bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-md p-6 max-h-[85vh] overflow-y-auto">
+      <div class="flex items-center justify-between mb-4">
+        <h5 class="text-base font-semibold text-slate-900">Edit service</h5>
+        <button onclick="closeModal('editServiceModal')" class="text-slate-400 hover:text-slate-600 text-lg leading-none">&times;</button>
       </div>
-      <form method="post" id="editServiceForm" enctype="multipart/form-data">
+      <form method="post" id="editServiceForm" enctype="multipart/form-data" class="space-y-4">
         @csrf
         @method('PUT')
-        <div class="modal-body">
-          <div class="mb-3">
-            <label class="form-label">Display Order</label>
-            <input type="number" name="order" id="edit-order" class="form-control" min="0">
-            <div class="form-text">Lower numbers appear first (e.g., 1, 2, 3...)</div>
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Display Order</label>
+          <input type="number" name="order" id="edit-order" class="w-full rounded-lg border-slate-300 px-3.5 py-2.5 text-sm shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500" min="0">
+          <p class="mt-1 text-xs text-slate-400">Lower numbers appear first (e.g., 1, 2, 3...)</p>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Title</label>
+          <input type="text" name="title" id="edit-title" class="w-full rounded-lg border-slate-300 px-3.5 py-2.5 text-sm shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500" required>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Description</label>
+          <textarea name="description" id="edit-description" rows="3" class="w-full rounded-lg border-slate-300 px-3.5 py-2.5 text-sm shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500"></textarea>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Page link</label>
+          <div class="flex items-center">
+            <span class="inline-flex items-center px-3 py-2.5 text-sm border border-r-0 border-slate-300 rounded-l-lg bg-slate-50 text-slate-500">{{ url('/') }}/</span>
+            <input type="text" name="page_link" id="edit-page_link" class="flex-1 rounded-r-lg border-slate-300 px-3.5 py-2.5 text-sm shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500" placeholder="shop4me or main_store">
           </div>
-          <div class="mb-3">
-            <label class="form-label">Title</label>
-            <input type="text" name="title" id="edit-title" class="form-control" required>
-          </div>
-          <div class="mb-3">
-            <label class="form-label">Description</label>
-            <textarea name="description" id="edit-description" class="form-control" rows="3"></textarea>
-          </div>
-          <div class="mb-3">
-            <label class="form-label">Page link</label>
-            <div class="input-group">
-              <span class="input-group-text">{{ url('/') }}/</span>
-              <input type="text" name="page_link" id="edit-page_link" class="form-control" placeholder="shop4me or main_store">
+          <p class="mt-1 text-xs text-slate-400">Enter a unique path without leading slash. Example: <code class="bg-slate-100 px-1 py-0.5 rounded text-slate-600">shop4me</code></p>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Background image</label>
+          <input type="file" name="background_image" class="w-full text-sm text-slate-600 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200" accept=".jpg,.jpeg,.png,.webp">
+          <p class="mt-1 text-xs text-slate-400">Accepted: jpg, jpeg, png, webp. Max size 10MB. Uploading a new file will replace the current one.</p>
+          <div class="mt-2">
+            <small class="block text-xs text-slate-400">Current:</small>
+            <div id="edit-bg-preview" class="mt-1 w-[180px] h-20 rounded-lg border border-slate-200 bg-slate-50 flex items-center justify-center overflow-hidden bg-cover bg-center">
+              <span class="text-xs text-slate-400">No image</span>
             </div>
-            <div class="form-text">Enter a unique path without leading slash. Example: <code>shop4me</code></div>
-          </div>
-          <div class="mb-3">
-            <label class="form-label">Background image</label>
-            <input type="file" name="background_image" class="form-control" accept=".jpg,.jpeg,.png,.webp">
-            <div class="form-text">Accepted: jpg, jpeg, png, webp. Max size 10MB. Uploading a new file will replace the current one.</div>
-            <div class="mt-2">
-              <small class="text-muted d-block">Current:</small>
-              <div id="edit-bg-preview" style="width: 180px; height: 80px; border-radius: 6px; background:#f8f9fa; overflow:hidden; border:1px solid #e5e7eb; display:flex; align-items:center; justify-content:center;">
-                <span class="text-muted small">No image</span>
-              </div>
-            </div>
-          </div>
-          <div class="mb-2">
-            <label class="form-label">Status</label>
-            <select name="status" id="edit-status" class="form-select" required>
-              <option value="active">active</option>
-              <option value="inactive">inactive</option>
-            </select>
           </div>
         </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
-          <button type="submit" class="btn btn-primary">Save changes</button>
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Status</label>
+          <select name="status" id="edit-status" class="w-full rounded-lg border-slate-300 px-3.5 py-2.5 text-sm shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500" required>
+            <option value="active">active</option>
+            <option value="inactive">inactive</option>
+          </select>
+        </div>
+        <div class="flex justify-end gap-2 pt-4 border-t border-slate-100">
+          <button type="button" onclick="closeModal('editServiceModal')" class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50">Cancel</button>
+          <button type="submit" class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg bg-slate-900 text-white hover:bg-slate-800">Save changes</button>
         </div>
       </form>
     </div>
@@ -214,21 +206,20 @@
 </div>
 
 <!-- Toggle Status Modal -->
-<div class="modal fade" id="toggleServiceModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title">Change status</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+<div id="toggleServiceModal" class="hidden fixed inset-0 z-50 overflow-y-auto" role="dialog" aria-modal="true">
+  <div class="flex items-center justify-center min-h-screen p-4">
+    <div class="fixed inset-0 bg-slate-900/50" onclick="closeModal('toggleServiceModal')"></div>
+    <div class="relative bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-sm p-6">
+      <div class="flex items-center justify-between mb-4">
+        <h5 class="text-base font-semibold text-slate-900">Change status</h5>
+        <button onclick="closeModal('toggleServiceModal')" class="text-slate-400 hover:text-slate-600 text-lg leading-none">&times;</button>
       </div>
-      <form method="post" id="toggleServiceForm">
+      <form method="post" id="toggleServiceForm" class="space-y-4">
         @csrf
-        <div class="modal-body">
-          <div>Are you sure you want to <strong id="toggle-action"></strong> <strong id="toggle-title"></strong>?</div>
-        </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
-          <button type="submit" class="btn btn-warning">Confirm</button>
+        <p class="text-sm text-slate-600">Are you sure you want to <strong id="toggle-action" class="text-slate-800"></strong> <strong id="toggle-title" class="text-slate-800"></strong>?</p>
+        <div class="flex justify-end gap-2 pt-4 border-t border-slate-100">
+          <button type="button" onclick="closeModal('toggleServiceModal')" class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50">Cancel</button>
+          <button type="submit" class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg bg-amber-500 text-white hover:bg-amber-600">Confirm</button>
         </div>
       </form>
     </div>
@@ -236,22 +227,21 @@
 </div>
 
 <!-- Delete Modal -->
-<div class="modal fade" id="deleteServiceModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title">Delete service</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+<div id="deleteServiceModal" class="hidden fixed inset-0 z-50 overflow-y-auto" role="dialog" aria-modal="true">
+  <div class="flex items-center justify-center min-h-screen p-4">
+    <div class="fixed inset-0 bg-slate-900/50" onclick="closeModal('deleteServiceModal')"></div>
+    <div class="relative bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-sm p-6">
+      <div class="flex items-center justify-between mb-4">
+        <h5 class="text-base font-semibold text-slate-900">Delete service</h5>
+        <button onclick="closeModal('deleteServiceModal')" class="text-slate-400 hover:text-slate-600 text-lg leading-none">&times;</button>
       </div>
-      <form method="post" id="deleteServiceForm">
+      <form method="post" id="deleteServiceForm" class="space-y-4">
         @csrf
         @method('DELETE')
-        <div class="modal-body">
-          <div>Are you sure you want to delete <strong id="delete-title"></strong>?</div>
-        </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
-          <button type="submit" class="btn btn-danger">Delete</button>
+        <p class="text-sm text-slate-600">Are you sure you want to delete <strong id="delete-title" class="text-slate-800"></strong>?</p>
+        <div class="flex justify-end gap-2 pt-4 border-t border-slate-100">
+          <button type="button" onclick="closeModal('deleteServiceModal')" class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50">Cancel</button>
+          <button type="submit" class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg bg-red-600 text-white hover:bg-red-700">Delete</button>
         </div>
       </form>
     </div>
@@ -259,74 +249,51 @@
 </div>
 
 <script>
+  function prepareEditService(id, title, description, pageLink, status, order, bg) {
+    var form = document.getElementById('editServiceForm');
+    if (form) form.setAttribute('action', '{{ url('superadmin/company-services') }}' + '/' + id);
+    document.getElementById('edit-order').value = order;
+    document.getElementById('edit-title').value = title;
+    document.getElementById('edit-description').value = description.replace(/^\"|\"$/g, '');
+    document.getElementById('edit-page_link').value = pageLink;
+    document.getElementById('edit-status').value = status;
+    var prev = document.getElementById('edit-bg-preview');
+    if (prev) {
+      if (bg) {
+        prev.innerHTML = '';
+        prev.style.backgroundImage = 'url(' + bg + ')';
+        prev.style.backgroundSize = 'cover';
+        prev.style.backgroundPosition = 'center';
+      } else {
+        prev.style.backgroundImage = 'none';
+        prev.innerHTML = '<span class="text-xs text-slate-400">No image</span>';
+      }
+    }
+    openModal('editServiceModal');
+  }
+
+  function prepareToggleService(action, title, status) {
+    var form = document.getElementById('toggleServiceForm');
+    var actionEl = document.getElementById('toggle-action');
+    var titleEl = document.getElementById('toggle-title');
+    if (form) form.setAttribute('action', action);
+    if (actionEl) actionEl.textContent = status === 'active' ? 'deactivate' : 'activate';
+    if (titleEl) titleEl.textContent = title;
+    openModal('toggleServiceModal');
+  }
+
+  function prepareDeleteService(action, title) {
+    var form = document.getElementById('deleteServiceForm');
+    var titleEl = document.getElementById('delete-title');
+    if (form) form.setAttribute('action', action);
+    if (titleEl) titleEl.textContent = title;
+    openModal('deleteServiceModal');
+  }
+
   document.addEventListener('DOMContentLoaded', function(){
-    var editModal = document.getElementById('editServiceModal');
-    if (editModal) {
-      editModal.addEventListener('show.bs.modal', function (event) {
-        var btn = event.relatedTarget;
-        var id = btn.getAttribute('data-id');
-        var title = btn.getAttribute('data-title') || '';
-        var description = btn.getAttribute('data-description') || '';
-        var pageLink = btn.getAttribute('data-page_link') || '';
-        var status = btn.getAttribute('data-status') || 'active';
-        var order = btn.getAttribute('data-order') || '0';
-        var bg = btn.getAttribute('data-bg') || '';
-        var form = document.getElementById('editServiceForm');
-        if (form) form.setAttribute('action', '{{ url('superadmin/company-services') }}' + '/' + id);
-        document.getElementById('edit-order').value = order;
-        document.getElementById('edit-title').value = title;
-        document.getElementById('edit-description').value = description.replace(/^\"|\"$/g, '');
-        document.getElementById('edit-page_link').value = pageLink;
-        document.getElementById('edit-status').value = status;
-        // update preview
-        var prev = document.getElementById('edit-bg-preview');
-        if (prev) {
-          if (bg) {
-            prev.innerHTML = '';
-            prev.style.backgroundImage = 'url(' + bg + ')';
-            prev.style.backgroundSize = 'cover';
-            prev.style.backgroundPosition = 'center';
-          } else {
-            prev.style.backgroundImage = 'none';
-            prev.innerHTML = '<span class="text-muted small">No image</span>';
-          }
-        }
-      });
-    }
-
-    var toggleModal = document.getElementById('toggleServiceModal');
-    if (toggleModal) {
-      toggleModal.addEventListener('show.bs.modal', function (event) {
-        var btn = event.relatedTarget;
-        var action = btn.getAttribute('data-action');
-        var title = btn.getAttribute('data-title') || '';
-        var status = btn.getAttribute('data-status') || 'active';
-        var form = document.getElementById('toggleServiceForm');
-        var actionEl = document.getElementById('toggle-action');
-        var titleEl = document.getElementById('toggle-title');
-        if (form) form.setAttribute('action', action);
-        if (actionEl) actionEl.textContent = status==='active' ? 'deactivate' : 'activate';
-        if (titleEl) titleEl.textContent = title;
-      });
-    }
-
-    var deleteModal = document.getElementById('deleteServiceModal');
-    if (deleteModal) {
-      deleteModal.addEventListener('show.bs.modal', function (event) {
-        var btn = event.relatedTarget;
-        var action = btn.getAttribute('data-action');
-        var title = btn.getAttribute('data-title') || '';
-        var form = document.getElementById('deleteServiceForm');
-        var titleEl = document.getElementById('delete-title');
-        if (form) form.setAttribute('action', action);
-        if (titleEl) titleEl.textContent = title;
-      });
-    }
-
     // Auto-open create modal if there are validation errors
     @if($errors->any() && !request()->has('_method'))
-      var createModal = new bootstrap.Modal(document.getElementById('createServiceModal'));
-      createModal.show();
+      openModal('createServiceModal');
     @endif
 
     // Initialize drag-and-drop sorting
@@ -335,10 +302,9 @@
       var sortable = Sortable.create(sortableEl, {
         animation: 150,
         handle: 'tr',
-        ghostClass: 'sortable-ghost',
-        dragClass: 'sortable-drag',
+        ghostClass: 'opacity-40',
+        dragClass: 'shadow-lg bg-white',
         onEnd: function (evt) {
-          // Get new order
           var items = [];
           var rows = sortableEl.querySelectorAll('tr[data-id]');
           rows.forEach(function(row, index) {
@@ -348,7 +314,6 @@
             });
           });
 
-          // Send to server
           fetch('{{ route("admin.company-services.reorder") }}', {
             method: 'POST',
             headers: {
@@ -360,13 +325,10 @@
           .then(response => response.json())
           .then(data => {
             if (data.success) {
-              // Update order badges
               rows.forEach(function(row, index) {
-                var badge = row.querySelector('.badge.bg-secondary');
+                var badge = row.querySelector('span.inline-flex.bg-slate-100');
                 if (badge) badge.textContent = index + 1;
               });
-              
-              // Show success message
               showToast('Order updated successfully!', 'success');
             } else {
               showToast('Failed to update order', 'error');
@@ -381,12 +343,9 @@
     }
 
     function showToast(message, type) {
-      // Simple toast notification
       var toast = document.createElement('div');
-      toast.className = 'position-fixed top-0 end-0 p-3';
-      toast.style.zIndex = '9999';
-      toast.innerHTML = '<div class="toast show" role="alert"><div class="toast-body bg-' + 
-        (type === 'success' ? 'success' : 'danger') + ' text-white">' + message + '</div></div>';
+      toast.className = 'fixed top-4 right-4 z-50 px-4 py-2 rounded-lg shadow-lg text-sm text-white ' + (type === 'success' ? 'bg-emerald-600' : 'bg-red-600');
+      toast.textContent = message;
       document.body.appendChild(toast);
       setTimeout(function() {
         toast.remove();
@@ -397,19 +356,4 @@
 
 <!-- SortableJS CDN -->
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
-
-<style>
-  .sortable-ghost {
-    opacity: 0.4;
-    background: #f8f9fa;
-  }
-  .sortable-drag {
-    opacity: 1;
-    background: #fff;
-    box-shadow: 0 5px 15px rgba(0,0,0,0.2);
-  }
-  #sortable-services tr:hover {
-    background-color: #f8f9fa;
-  }
-</style>
 @endsection

@@ -8,7 +8,7 @@
     
     <p>Hello,</p>
     
-    <p>You have received a new order (<strong>#{{ $order->order_number }}</strong>) from your store <strong>{{ $order->store->name }}</strong>.</p>
+    <p>You have received a new order (<strong>#{{ $order->order_number }}</strong>) from your store <strong>{{ $order->store?->name ?? 'Your Store' }}</strong>.</p>
     
     <h3>Order Details:</h3>
     <ul>

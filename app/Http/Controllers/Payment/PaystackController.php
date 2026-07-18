@@ -49,7 +49,7 @@ class PaystackController extends Controller
             $order = Order::findOrFail($request->order_id);
 
             // Check if order is already paid
-            if ($order->payment_status === 'paid') {
+            if ($order->transactions()->where('status', 'confirmed')->exists()) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Order has already been paid',

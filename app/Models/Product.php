@@ -41,8 +41,6 @@ class Product extends Model
         'featured',
         'cod_available',
         'has_variants',
-        'bulk_quantity',
-        'bulk_price',
     ];
 
     protected static function boot()
@@ -141,25 +139,6 @@ class Product extends Model
         'featured' => 'boolean',
         'has_variants' => 'boolean',
     ];
-
-    /**
-     * Get bulk savings percentage
-     */
-    public function getBulkSavingsPercentAttribute(): float
-    {
-        if (!$this->amount || !$this->bulk_quantity || $this->bulk_quantity <= 0) {
-            return 0;
-        }
-
-        $unitPrice = $this->amount;
-        $bulkUnitPrice = $this->bulk_price / $this->bulk_quantity;
-        
-        if ($unitPrice <= 0) {
-            return 0;
-        }
-
-        return (($unitPrice - $bulkUnitPrice) / $unitPrice) * 100;
-    }
 
     public function scopeFeatured($query)
     {

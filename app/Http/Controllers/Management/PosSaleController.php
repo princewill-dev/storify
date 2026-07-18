@@ -79,6 +79,7 @@ class PosSaleController extends Controller
             'paystack_reference' => 'nullable|string',
             'customer_name' => 'nullable|string|max:255',
             'customer_phone' => 'nullable|string|max:20',
+            'customer_email' => 'nullable|email|max:255',
             'notes' => 'nullable|string|max:500',
         ]);
 
@@ -114,6 +115,7 @@ class PosSaleController extends Controller
         // Create customer record only if cashier entered customer details
         $customerName = trim((string) ($validated['customer_name'] ?? ''));
         $customerPhone = trim((string) ($validated['customer_phone'] ?? ''));
+        $customerEmail = trim((string) ($validated['customer_email'] ?? ''));
         $customerId = null;
 
         if ($customerName !== '' || $customerPhone !== '') {
@@ -122,7 +124,7 @@ class PosSaleController extends Controller
                 [
                     'first_name' => $customerName !== '' ? $customerName : 'Walk-in',
                     'last_name' => '',
-                    'email' => 'pos-' . \Illuminate\Support\Str::random(8) . '@walkin.local',
+                    'email' => $customerEmail !== '' ? $customerEmail : ('pos-' . \Illuminate\Support\Str::random(8) . '@walkin.local'),
                     'status' => 'active',
                     'password' => \Illuminate\Support\Str::random(32),
                 ]
@@ -145,6 +147,7 @@ class PosSaleController extends Controller
             'meta' => [
                 'customer_name' => $validated['customer_name'] ?? null,
                 'customer_phone' => $validated['customer_phone'] ?? null,
+                'customer_email' => $validated['customer_email'] ?? null,
                 'payment_method' => $validated['payment_method'],
                 'amount_tendered' => $validated['amount_tendered'] ?? null,
             ],
@@ -191,6 +194,14 @@ class PosSaleController extends Controller
 
         if ($txnStatus === 'confirmed') {
             $store->creditBalance((int) round($total * 100));
+        }
+
+        if ($customerEmail !== '') {
+            try {
+                \Mail::to($customerEmail)->queue(new \App\Mail\PosReceiptMail($order));
+            } catch (\Throwable $e) {
+                \Log::error('pos_receipt_email_failed', ['order_id' => $order->id, 'error' => $e->getMessage()]);
+            }
         }
 
         $ledger = app(\App\Services\StockLedgerService::class);

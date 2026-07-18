@@ -176,6 +176,8 @@ Route::prefix('management')->name('management.')->group(function () {
                 Route::get('/products/{product}/edit', [ProductController::class, 'edit'])->name('products.edit');
                 Route::put('/products/{product}', [ProductController::class, 'update'])->name('products.update');
                 Route::put('/products/{product}/status', [ProductController::class, 'updateStatus'])->name('products.status');
+                Route::post('/products/bulk-update', [ProductController::class, 'bulkUpdate'])->name('products.bulk-update');
+                Route::post('/products/bulk-status', [ProductController::class, 'bulkStatus'])->name('products.bulk-status');
             });
             Route::middleware('permission:products delete')->group(function () {
                 Route::delete('/products/{product}', [ProductController::class, 'destroy'])->name('products.destroy');

@@ -37,8 +37,8 @@
                         <div class="border-start ps-4">
                             <div class="text-muted small text-uppercase mb-1">Store</div>
                             <div class="fw-semibold">{{ $order->store?->name ?? 'Store' }}</div>
-                            @if($order->vendor)
-                                <div class="text-muted small">Handled by {{ $order->vendor->name }}</div>
+                            @if($order->store?->user)
+                                <div class="text-muted small">Handled by {{ $order->store?->user?->name ?? 'Store' }}</div>
                             @endif
                             <div class="text-muted small mt-2">Total paid: ₦{{ number_format($order->total, 2) }}</div>
                         </div>

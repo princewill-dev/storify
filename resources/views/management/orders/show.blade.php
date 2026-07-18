@@ -219,15 +219,15 @@
         @endif
 
         <x-management.card header="Customer">
-            @if($order->customer && $order->customer->email !== 'walkin@pos.local')
+            @if($order->customer?->email && $order->customer?->email !== 'walkin@pos.local')
             <div class="flex items-center gap-3">
                 <span class="inline-flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-sm font-semibold text-slate-600">
-                    {{ strtoupper(substr($order->customer->first_name, 0, 1)) }}{{ strtoupper(substr($order->customer->last_name, 0, 1)) }}
-                </span>
+                    {{ strtoupper(substr($order->customer?->first_name ?? 'W', 0, 1)) }}{{ strtoupper(substr($order->customer?->last_name ?? 'I', 0, 1)) }}
+                </div>
                 <div>
-                    <p class="text-sm font-semibold text-slate-800">{{ $order->customer->first_name }} {{ $order->customer->last_name }}</p>
-                    <p class="text-xs text-slate-400">{{ $order->customer->email }}</p>
-                    @if($order->customer->phone)<p class="text-xs text-slate-400">{{ $order->customer->phone }}</p>@endif
+                    <p class="text-sm font-semibold text-slate-800">{{ $order->customer?->first_name }} {{ $order->customer?->last_name }}</p>
+                    <p class="text-xs text-slate-400">{{ $order->customer?->email ?? '—' }}</p>
+                    @if($order->customer?->phone)<p class="text-xs text-slate-400">{{ $order->customer?->phone }}</p>@endif
                 </div>
             </div>
             @elseif($order->meta['customer_name'] ?? false)

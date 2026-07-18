@@ -2,81 +2,68 @@
 @section('subtitle', 'Stock Transfers')
 
 @section('content')
-<div class="row">
-    <div class="col-12">
-        <div class="card">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h6 class="card-title mb-0">Stock Transfers</h6>
-                <a href="{{ route('admin.transfers.index') }}" class="btn btn-light btn-sm">Reset</a>
-            </div>
-            <div class="card-body">
-                {{-- Filters --}}
-                <form method="GET" class="row g-2 mb-3">
-                    <div class="col-md-3">
-                        <select name="status" class="form-select form-select-sm">
-                            <option value="">All Statuses</option>
-                            @foreach($statuses as $s)
-                                <option value="{{ $s->value }}" @selected(($status ?? '') === $s->value)>{{ $s->label() }}</option>
-                            @endforeach
-                        </select>
-                    </div>
-                    <div class="col-md-5">
-                        <input type="text" name="q" value="{{ $q ?? '' }}" class="form-control form-control-sm" placeholder="Code, source, or destination name">
-                    </div>
-                    <div class="col-md-2">
-                        <button type="submit" class="btn btn-primary btn-sm w-100">Filter</button>
-                    </div>
-                </form>
+<div class="bg-white rounded-xl shadow-sm border border-slate-200">
+    <div class="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+        <h2 class="text-lg font-bold text-slate-900">Stock Transfers</h2>
+        <a href="{{ route('admin.transfers.index') }}" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50">Reset</a>
+    </div>
+    <div class="p-6">
+        <form method="GET" class="flex flex-wrap items-center gap-2 mb-4">
+            <select name="status" class="w-full sm:w-auto rounded-lg border-slate-300 px-3.5 py-2 text-sm shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500">
+                <option value="">All Statuses</option>
+                @foreach($statuses as $s)
+                    <option value="{{ $s->value }}" @selected(($status ?? '') === $s->value)>{{ $s->label() }}</option>
+                @endforeach
+            </select>
+            <input type="text" name="q" value="{{ $q ?? '' }}" class="flex-1 min-w-[200px] rounded-lg border-slate-300 px-3.5 py-2 text-sm shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500" placeholder="Code, source, or destination name">
+            <button type="submit" class="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold rounded-lg bg-slate-900 text-white hover:bg-slate-800">Filter</button>
+        </form>
 
-                <div class="table-responsive">
-                    <table class="table table-sm align-middle">
-                        <thead>
-                            <tr>
-                                <th>Code</th>
-                                <th>From</th>
-                                <th>To</th>
-                                <th>Items</th>
-                                <th>Requested By</th>
-                                <th>Status</th>
-                                <th>Date</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @forelse($transfers as $t)
-                                <tr>
-                                    <td>
-                                        <a href="{{ route('admin.transfers.show', $t) }}" class="font-monospace fw-semibold text-decoration-none">{{ $t->transfer_code }}</a>
-                                    </td>
-                                    <td>{{ $t->fromLocation?->name ?? '—' }}</td>
-                                    <td>{{ $t->toLocation?->name ?? '—' }}</td>
-                                    <td><span class="badge bg-light text-dark">{{ $t->items_count }}</span></td>
-                                    <td>{{ $t->requester?->name ?? '—' }}</td>
-                                    <td>
-                                        @php
-                                            $color = match($t->status->value) {
-                                                'draft' => 'secondary',
-                                                'pending' => 'warning',
-                                                'approved' => 'info',
-                                                'awaiting_acknowledgment' => 'warning',
-                                                'dispatched' => 'primary',
-                                                'received' => 'success',
-                                                'rejected', 'cancelled' => 'danger',
-                                                default => 'secondary',
-                                            };
-                                        @endphp
-                                        <span class="badge bg-{{ $color }}">{{ $t->status->label() }}</span>
-                                    </td>
-                                    <td class="small">{{ $t->created_at->format('d M H:i') }}</td>
-                                </tr>
-                            @empty
-                                <tr><td colspan="7" class="text-center text-muted">No transfers found.</td></tr>
-                            @endforelse
-                        </tbody>
-                    </table>
-                </div>
-                <div class="mt-2">{{ $transfers->links() }}</div>
-            </div>
-        </div>
+        <table class="w-full text-sm">
+            <thead class="border-b border-slate-100">
+                <tr>
+                    <th class="py-3 px-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Code</th>
+                    <th class="py-3 px-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">From</th>
+                    <th class="py-3 px-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">To</th>
+                    <th class="py-3 px-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Items</th>
+                    <th class="py-3 px-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Requested By</th>
+                    <th class="py-3 px-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
+                    <th class="py-3 px-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Date</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-50">
+                @forelse($transfers as $t)
+                    <tr class="hover:bg-slate-50/50">
+                        <td class="py-3 px-4">
+                            <a href="{{ route('admin.transfers.show', $t) }}" class="font-mono font-semibold text-slate-700 hover:text-slate-900">{{ $t->transfer_code }}</a>
+                        </td>
+                        <td class="py-3 px-4 text-slate-600">{{ $t->fromLocation?->name ?? '—' }}</td>
+                        <td class="py-3 px-4 text-slate-600">{{ $t->toLocation?->name ?? '—' }}</td>
+                        <td class="py-3 px-4"><span class="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-700">{{ $t->items_count }}</span></td>
+                        <td class="py-3 px-4 text-slate-600">{{ $t->requester?->name ?? '—' }}</td>
+                        <td class="py-3 px-4">
+                            @php
+                                $color = match($t->status->value) {
+                                    'draft' => 'bg-slate-100 text-slate-600',
+                                    'pending' => 'bg-amber-50 text-amber-700',
+                                    'approved' => 'bg-sky-50 text-sky-700',
+                                    'awaiting_acknowledgment' => 'bg-amber-50 text-amber-700',
+                                    'dispatched' => 'bg-blue-50 text-blue-700',
+                                    'received' => 'bg-emerald-50 text-emerald-700',
+                                    'rejected', 'cancelled' => 'bg-red-50 text-red-700',
+                                    default => 'bg-slate-100 text-slate-600',
+                                };
+                            @endphp
+                            <span class="inline-flex items-center rounded-full {{ $color }} px-2.5 py-0.5 text-xs font-medium">{{ $t->status->label() }}</span>
+                        </td>
+                        <td class="py-3 px-4 text-xs text-slate-500">{{ $t->created_at->format('d M H:i') }}</td>
+                    </tr>
+                @empty
+                    <tr><td colspan="7" class="py-12 text-center text-slate-400">No transfers found.</td></tr>
+                @endforelse
+            </tbody>
+        </table>
+        <div class="mt-4">{{ $transfers->links() }}</div>
     </div>
 </div>
 @endsection

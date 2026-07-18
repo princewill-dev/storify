@@ -62,7 +62,7 @@
 <section class="product-detail-page">
    <div class="container">
       <a href="{{ store_url($product->store->slug ?? 'store') }}" class="back-link">
-         <i class="fas fa-arrow-left"></i> Back to {{ $product->store->name ?? 'Store' }}
+          <i class="far fa-arrow-left"></i> Back to {{ $product->store?->name ?? 'Store' }}
       </a>
 
       <div class="row">
@@ -128,17 +128,17 @@
          <!-- Product Info -->
          <div class="col-lg-6">
             <div class="product-info">
-               <div class="product-category">{{ $product->category->name ?? ($product->store->name ?? 'Products') }}</div>
+                <div class="product-category">{{ $product->category?->name ?? ($product->store?->name ?? 'Products') }}</div>
                
                <h1 class="product-title">{{ $product->name }}</h1>
                
                <div class="product-rating">
-                  <div class="stars">
-                     <i class="fas fa-star"></i>
-                     <i class="fas fa-star"></i>
-                     <i class="fas fa-star"></i>
-                     <i class="fas fa-star"></i>
-                     <i class="fas fa-star"></i>
+                  <div class="stars" style="color:#f59e0b;display:flex;gap:1px;font-size:13px;">
+                     <i class="far fa-star"></i>
+                     <i class="far fa-star"></i>
+                     <i class="far fa-star"></i>
+                     <i class="far fa-star"></i>
+                     <i class="far fa-star"></i>
                   </div>
                   <span class="review-count">{{ $product->views ?? 0 }} views</span>
                </div>
@@ -199,13 +199,13 @@
                   @if(!$product->has_variants && $detailStock <= 0)
                     <button style="font-size:12px; background:#e5e7eb; color:#9ca3af; cursor:not-allowed; border:none;" class="add-to-cart-btn" disabled>Out of stock</button>
                   @else
-                    <button style="font-size: 12px;" id="addToCartDetails" class="add-to-cart-btn" data-product-id="{{ $product->id }}" data-max-stock="{{ $detailStock ?? '' }}" data-has-variants="{{ $product->has_variants ? 'true' : 'false' }}">Add to <i class="far fa-shopping-cart"></i></button>
+                    <button style="font-size:12px;" id="addToCartDetails" class="add-to-cart-btn" data-product-id="{{ $product->id }}" data-max-stock="{{ $detailStock ?? '' }}" data-has-variants="{{ $product->has_variants ? 'true' : 'false' }}"><i class="far fa-shopping-bag mr-1"></i> Add to cart</button>
                     <button style="font-size: 12px;" id="buyNowBtn" class="add-to-cart-btn" data-product-id="{{ $product->id }}">Buy Now</button>
                   @endif
                </div>
 
-               <div class="shipping-info">
-                  <i class="fas fa-truck"></i> Ships within 3-5 business days
+               <div class="shipping-info" style="display:flex;align-items:center;justify-content:center;gap:6px;">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg> Ships within 3-5 business days
                </div>
 
                <!-- Product Features -->
@@ -250,7 +250,7 @@
                <div class="product-details-section">
                   <div class="details-header" onclick="toggleDetails(this)">
                      <h4>Product Details</h4>
-                     <i class="fas fa-chevron-down"></i>
+                     <i class="far fa-chevron-down"></i>
                   </div>
                   <div class="details-content">
                      @if($product->description)

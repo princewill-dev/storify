@@ -2,33 +2,8 @@
 @section('subtitle', 'Customers')
 
 @section('content')
-<div x-data="{ filterModal: false }">
 
-<x-management.page-header :breadcrumbs="$breadcrumbs" title="Customers" subtitle="People who have ordered from your stores">
-    <x-slot:actions>
-        <form method="GET" action="{{ route('management.customers.index') }}" class="flex items-center gap-2">
-            <div class="flex items-center">
-                <input name="search" value="{{ request('search') }}" placeholder="Search customers..." class="block w-56 rounded-l-lg border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 border-r-0">
-                <button type="submit" class="inline-flex items-center rounded-r-lg bg-blue-600 px-3 py-2 text-white shadow-sm hover:bg-blue-700">
-                    <i class="fi fi-rr-search text-xs"></i>
-                </button>
-            </div>
-            @foreach(request()->except(['search', 'page']) as $k => $v)
-                @if($v !== null && $v !== '')<input type="hidden" name="{{ $k }}" value="{{ $v }}">@endif
-            @endforeach
-            <button @click="filterModal = true" type="button" class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 transition-colors">
-                <i class="fi fi-rr-settings-sliders text-xs"></i> Filters
-                @php $filterCount = count(array_filter($activeFilters ?? [], fn($v) => $v !== null && $v !== '')); @endphp
-                @if($filterCount > 0)
-                <span class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-blue-600 text-[10px] font-bold text-white">{{ $filterCount }}</span>
-                @endif
-            </button>
-            @if(request()->hasAny(['search', 'status', 'country', 'store_id']))
-            <a href="{{ route('management.customers.index') }}" class="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-500 hover:text-slate-700">Clear</a>
-            @endif
-        </form>
-    </x-slot:actions>
-</x-management.page-header>
+<x-management.page-header :breadcrumbs="$breadcrumbs" title="Customers" subtitle="People who have ordered from your stores" />
 
 {{-- Stats --}}
 <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
@@ -39,6 +14,34 @@
 </div>
 
 <x-management.data-table>
+    <x-slot:search>
+        <form method="GET" action="{{ route('management.customers.index') }}" class="flex flex-wrap items-center gap-2 flex-1">
+            <input name="search" id="customersSearch" value="{{ request('search') }}" placeholder="Search customers..." autocomplete="off" autofocus onfocus="this.setSelectionRange(this.value.length, this.value.length)"
+                class="flex-1 min-w-[180px] rounded-lg border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500">
+            <select name="status" onchange="this.form.submit()" class="rounded-lg border-slate-300 px-2.5 py-2 text-xs shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500">
+                <option value="">All Statuses</option>
+                <option value="active" {{ request('status') === 'active' ? 'selected' : '' }}>Active</option>
+                <option value="suspended" {{ request('status') === 'suspended' ? 'selected' : '' }}>Suspended</option>
+            </select>
+            <select name="store_id" onchange="this.form.submit()" class="rounded-lg border-slate-300 px-2.5 py-2 text-xs shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500">
+                <option value="">All Stores</option>
+                @foreach($stores as $store)
+                <option value="{{ $store->id }}" {{ request('store_id') == $store->id ? 'selected' : '' }}>{{ $store->name }}</option>
+                @endforeach
+            </select>
+            @if($countries->isNotEmpty())
+            <select name="country" onchange="this.form.submit()" class="rounded-lg border-slate-300 px-2.5 py-2 text-xs shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500">
+                <option value="">All Countries</option>
+                @foreach($countries as $country)
+                <option value="{{ $country }}" {{ request('country') === $country ? 'selected' : '' }}>{{ $country }}</option>
+                @endforeach
+            </select>
+            @endif
+            @if(request()->hasAny(['search', 'status', 'store_id', 'country']))
+            <a href="{{ route('management.customers.index') }}" class="px-3 py-2 border border-slate-200 text-xs rounded-lg hover:bg-slate-50 whitespace-nowrap">Clear</a>
+            @endif
+        </form>
+    </x-slot:search>
     <x-slot:header>
         <th class="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Customer</th>
         <th class="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider hidden sm:table-cell">Email</th>
@@ -82,64 +85,14 @@
 </div>
 @endif
 
-{{-- Filter Modal --}}
-<div x-show="filterModal" x-cloak class="fixed inset-0 z-50 overflow-y-auto" aria-modal="true">
-    <div class="flex min-h-screen items-center justify-center px-4 py-8 text-center">
-        <div x-show="filterModal" x-transition:enter="ease-out duration-300" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100" x-transition:leave="ease-in duration-200" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0" class="fixed inset-0 bg-slate-900/50 transition-opacity" @click="filterModal = false" aria-hidden="true"></div>
-        <div x-show="filterModal" x-transition:enter="ease-out duration-300" x-transition:enter-start="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95" x-transition:enter-end="opacity-100 translate-y-0 sm:scale-100" x-transition:leave="ease-in duration-200" x-transition:leave-start="opacity-100 translate-y-0 sm:scale-100" x-transition:leave-end="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95" class="relative z-10 inline-block transform overflow-hidden rounded-xl bg-white text-left align-bottom shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-md sm:align-middle">
-            <div class="bg-white px-6 py-5 border-b border-slate-200">
-                <div class="flex items-center gap-3">
-                    <div class="flex-shrink-0 w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center"><i class="fi fi-rr-settings-sliders text-blue-600 text-lg"></i></div>
-                    <div><h3 class="text-lg font-semibold text-slate-900">Filter Customers</h3><p class="text-sm text-slate-500">Narrow down by status, store, or country.</p></div>
-                </div>
-            </div>
-            <form method="GET" action="{{ route('management.customers.index') }}">
-                <div class="bg-white px-6 py-4 space-y-4">
-                    {{-- Status --}}
-                    <div>
-                        <label for="f-status" class="block text-xs font-medium text-slate-600 mb-1">Status</label>
-                        <select id="f-status" name="status" class="block w-full rounded-lg border-slate-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-sm">
-                            <option value="">All Statuses</option>
-                            <option value="active" {{ request('status') === 'active' ? 'selected' : '' }}>Active</option>
-                            <option value="suspended" {{ request('status') === 'suspended' ? 'selected' : '' }}>Suspended</option>
-                        </select>
-                    </div>
-
-                    {{-- Store --}}
-                    <div>
-                        <label for="f-store" class="block text-xs font-medium text-slate-600 mb-1">Store</label>
-                        <select id="f-store" name="store_id" class="block w-full rounded-lg border-slate-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-sm">
-                            <option value="">All Stores</option>
-                            @foreach($stores as $store)
-                            <option value="{{ $store->id }}" {{ request('store_id') == $store->id ? 'selected' : '' }}>{{ $store->name }}</option>
-                            @endforeach
-                        </select>
-                    </div>
-
-                    {{-- Country --}}
-                    @if($countries->isNotEmpty())
-                    <div>
-                        <label for="f-country" class="block text-xs font-medium text-slate-600 mb-1">Country</label>
-                        <select id="f-country" name="country" class="block w-full rounded-lg border-slate-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-sm">
-                            <option value="">All Countries</option>
-                            @foreach($countries as $country)
-                            <option value="{{ $country }}" {{ request('country') === $country ? 'selected' : '' }}>{{ $country }}</option>
-                            @endforeach
-                        </select>
-                    </div>
-                    @endif
-                </div>
-                <div class="bg-slate-50 px-6 py-4 flex items-center justify-between border-t border-slate-200">
-                    <a href="{{ route('management.customers.index') }}" class="text-sm font-medium text-slate-500 hover:text-slate-700">Clear all</a>
-                    <div class="flex items-center gap-3">
-                        <button type="button" @click="filterModal = false" class="inline-flex items-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50">Cancel</button>
-                        <button type="submit" class="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700"><i class="fi fi-rr-search text-xs"></i> Apply Filters</button>
-                    </div>
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
-
-</div>
 @endsection
+
+@push('scripts')
+<script>
+let customersTimer;
+document.getElementById('customersSearch')?.addEventListener('input', function() {
+    clearTimeout(customersTimer);
+    customersTimer = setTimeout(() => this.form.submit(), 300);
+});
+</script>
+@endpush

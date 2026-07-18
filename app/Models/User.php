@@ -2,7 +2,6 @@
 
 namespace App\Models;
 
-use App\Enums\LiveFirstStatus;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -44,7 +43,6 @@ class User extends Authenticatable
             'invited_at' => 'datetime',
             'accepted_at' => 'datetime',
             'force_password_change' => 'boolean',
-            'live_first_status' => LiveFirstStatus::class,
             'trial_ends_at' => 'datetime',
         ];
     }
@@ -72,11 +70,6 @@ class User extends Authenticatable
     public function business(): BelongsTo
     {
         return $this->belongsTo(Business::class);
-    }
-
-    public function liveFirstApplication(): HasOne
-    {
-        return $this->hasOne(LiveFirstApplication::class);
     }
 
     /**

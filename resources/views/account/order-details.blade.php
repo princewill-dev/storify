@@ -52,7 +52,7 @@
         <div class="card mb-3">
             <div class="px-4 py-3 border-bottom"><h6 class="mb-0 fw-semibold">Details</h6></div>
             <div class="p-4">
-                <div class="mb-2 d-flex justify-content-between"><small class="text-muted">Store</small><span>{{ $order->store->name }}</span></div>
+                <div class="mb-2 d-flex justify-content-between"><small class="text-muted">Store</small><span>{{ $order->store?->name ?? '—' }}</span></div>
                 <div class="mb-2 d-flex justify-content-between"><small class="text-muted">Date</small><span class="small">{{ $order->created_at->format('M d, Y H:i') }}</span></div>
                 <div class="mb-2 d-flex justify-content-between"><small class="text-muted">Subtotal</small><span>₦{{ number_format($order->subtotal, 2) }}</span></div>
                 @if($order->shipping_fee > 0)<div class="mb-2 d-flex justify-content-between"><small class="text-muted">Shipping</small><span>₦{{ number_format($order->shipping_fee, 2) }}</span></div>@endif

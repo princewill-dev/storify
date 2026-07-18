@@ -3,445 +3,328 @@
 
 @section('content')
 
-<!-- Start - Account Header -->
-<div class="card">
-    <div class="card-footer py-0 d-flex align-items-center mx-sm-4 px-0 border-0">
-        <ul class="nav nav-underline w-100 justify-content-start border-bottom" id="settingsTabs" role="tablist" style="overflow: visible;">
-            <li class="nav-item" role="presentation">
-                <a class="nav-link active" id="tab-general" data-bs-toggle="tab" href="#pane-general" role="tab" aria-controls="pane-general" aria-selected="true">General info</a>
-            </li>
-            <!-- <li class="nav-item" role="presentation">
-                <a class="nav-link" id="tab-api" data-bs-toggle="tab" href="#pane-api" role="tab" aria-controls="pane-api" aria-selected="false">API Keys</a>
-            </li> -->
-            <li class="nav-item" role="presentation">
-                <a class="nav-link" id="tab-seo" data-bs-toggle="tab" href="#pane-seo" role="tab" aria-controls="pane-seo" aria-selected="false">SEO Settings</a>
-            </li>
-        </ul>
+<div x-data="{ activeTab: 'general' }" x-init="
+    const saved = localStorage.getItem('settingsActiveTab');
+    const hash = window.location.hash.replace('#', '');
+    const tabs = ['general', 'seo'];
+    if (tabs.includes(hash)) activeTab = hash;
+    else if (saved && tabs.includes(saved)) activeTab = saved;
+">
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden mb-6">
+        <div class="px-4 sm:px-6 border-b border-slate-100">
+            <nav class="flex gap-0 -mb-px">
+                <button @click="activeTab = 'general'; localStorage.setItem('settingsActiveTab', 'general'); history.replaceState(null, '', '#general')"
+                    :class="activeTab === 'general' ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'"
+                    class="px-4 py-3 text-sm font-medium border-b-2 transition-colors">General info</button>
+                <button @click="activeTab = 'seo'; localStorage.setItem('settingsActiveTab', 'seo'); history.replaceState(null, '', '#seo')"
+                    :class="activeTab === 'seo' ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'"
+                    class="px-4 py-3 text-sm font-medium border-b-2 transition-colors">SEO Settings</button>
+            </nav>
+        </div>
     </div>
+
+    <form action="{{ route('admin.settings.update') }}" method="POST" enctype="multipart/form-data">
+        @csrf
+
+        <div x-show="activeTab === 'general'">
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div class="flex items-center px-6 py-4 border-b border-slate-100">
+                    <h3 class="text-sm font-semibold text-slate-700">Basic Info</h3>
+                </div>
+                <div class="p-6 space-y-6">
+
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-1.5">Company Logo</label>
+                        </div>
+                        <div class="md:col-span-3">
+                            <div class="flex items-center gap-4">
+                                <div class="shrink-0 rounded-xl border border-slate-200 overflow-hidden bg-white" style="width: 200px; height: 100px;">
+                                    <img src="{{ isset($settings) && $settings->company_logo_path ? asset('storage/' . $settings->company_logo_path) : asset('assets/images/avatar/middle/avatar2.webp') }}" alt="Company logo" id="logoPreview" class="w-full h-full object-contain">
+                                </div>
+                                <div class="flex-1">
+                                    <input type="file" name="company_logo" class="w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200" accept=".png, .jpg, .jpeg, .webp" onchange="previewLogo(event)">
+                                    <small class="text-slate-400">PNG, JPG, or WEBP. Max 2MB.</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-1.5">Favicon</label>
+                        </div>
+                        <div class="md:col-span-3">
+                            <div class="flex items-center gap-4">
+                                <div class="shrink-0 rounded-xl border border-slate-200 overflow-hidden bg-white" style="width: 64px; height: 64px;">
+                                    <img src="{{ isset($settings) && $settings->company_favicon_path ? asset('storage/' . $settings->company_favicon_path) : asset('vendor_files/assets/images/favicon.png') }}" alt="Favicon" id="faviconPreview" class="w-full h-full object-contain">
+                                </div>
+                                <div class="flex-1">
+                                    <input type="file" name="company_favicon" class="w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200" accept=".ico, .png" onchange="previewFavicon(event)">
+                                    <small class="text-slate-400">ICO or PNG (recommended 32x32 or 48x48). Max 512KB.</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-1.5">Company Certificate</label>
+                        </div>
+                        <div class="md:col-span-3">
+                            <div class="flex items-center gap-4">
+                                <div class="shrink-0 rounded-xl border border-slate-200 overflow-hidden bg-white flex items-center justify-center" style="width: 200px; height: 120px;">
+                                    @if($certificateUrl && $certificateIsPdf)
+                                        <a href="{{ $certificateUrl }}" target="_blank" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50">View PDF</a>
+                                    @elseif($certificateUrl)
+                                        <img src="{{ $certificateUrl }}" alt="Company certificate" id="certificatePreview" class="w-full h-full object-contain">
+                                    @else
+                                        <span class="text-slate-400 text-sm">No certificate uploaded</span>
+                                    @endif
+                                </div>
+                                <div class="flex-1">
+                                    <input type="file" name="company_certificate" class="w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200" accept=".pdf, .jpg, .jpeg, .png, .webp">
+                                    <small class="text-slate-400">PDF or Image (JPG, PNG, WEBP). Max 5MB.</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700">Company Name</label>
+                        </div>
+                        <div class="md:col-span-3">
+                            <input type="text" name="company_name" class="w-full rounded-lg border-slate-300 px-3.5 py-2.5 text-sm shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500" value="{{ old('company_name', $settings->company_name ?? '') }}" placeholder="Your Company Ltd">
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700">Store Creation Limit</label>
+                        </div>
+                        <div class="md:col-span-3">
+                            <input type="number" name="store_creation_limit" class="w-full rounded-lg border-slate-300 px-3.5 py-2.5 text-sm shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500" value="{{ old('store_creation_limit', $settings->store_creation_limit ?? 5) }}" min="1">
+                            <small class="text-slate-400">Maximum number of stores a user can create.</small>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700">Free Trial</label>
+                        </div>
+                        <div class="md:col-span-3">
+                            <label class="relative inline-flex items-center cursor-pointer mb-3">
+                                <input type="checkbox" name="trial_enabled" id="trialEnabled" value="1" @checked(old('trial_enabled', $settings->trial_enabled ?? true)) class="sr-only peer" onchange="document.getElementById('trialDaysRow').style.display = this.checked ? 'flex' : 'none'">
+                                <div class="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-slate-600"></div>
+                                <span class="ms-3 text-sm text-slate-700">Enable free trial for new users</span>
+                            </label>
+                            <div class="flex items-center gap-2" id="trialDaysRow" style="{{ old('trial_enabled', $settings->trial_enabled ?? true) ? '' : 'display:none' }}">
+                                <label class="text-sm text-slate-700 text-nowrap">Duration:</label>
+                                <input type="number" name="trial_days" class="w-24 rounded-lg border-slate-300 px-3.5 py-2 text-sm shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500" value="{{ old('trial_days', $settings->trial_days ?? 7) }}" min="1" max="90">
+                                <span class="text-sm text-slate-400">days</span>
+                            </div>
+                            <small class="text-slate-400">New businesses get a free trial period before being billed.</small>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700">Homepage Store</label>
+                        </div>
+                        <div class="md:col-span-3">
+                            <select name="main_store_id" class="w-full rounded-lg border-slate-300 px-3.5 py-2.5 text-sm shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500">
+                                <option value="">Select store for homepage</option>
+                                @foreach(($stores ?? []) as $store)
+                                    <option value="{{ $store->id }}" @selected(old('main_store_id', $settings->main_store_id ?? null) == $store->id)>{{ $store->name }}</option>
+                                @endforeach
+                            </select>
+                            <small class="text-slate-400">Products on the homepage will be populated from this store.</small>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700">Company Description</label>
+                        </div>
+                        <div class="md:col-span-3">
+                            <textarea name="company_description" class="w-full rounded-lg border-slate-300 px-3.5 py-2.5 text-sm shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500" rows="3" placeholder="Brief description about your company">{{ old('company_description', $settings->company_description ?? '') }}</textarea>
+                            <small class="text-slate-400">This will be shown in the greeting modal.</small>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700">Default Currency</label>
+                        </div>
+                        <div class="md:col-span-3">
+                            <select name="default_currency_id" class="w-full rounded-lg border-slate-300 px-3.5 py-2.5 text-sm shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500">
+                                <option value="">Select default currency</option>
+                                @foreach(($currencies ?? []) as $cur)
+                                    <option value="{{ $cur->id }}" @selected(old('default_currency_id', $defaultCurrencyId ?? null) == $cur->id)>
+                                        {{ $cur->name }} ({{ $cur->code }}) {{ $cur->symbol ? ' - '.$cur->symbol : '' }}
+                                    </option>
+                                @endforeach
+                            </select>
+                            <small class="text-slate-400">This sets the default currency used across the site.</small>
+                        </div>
+                    </div>
+
+                    <div class="pt-4 border-t border-slate-100">
+                        <h4 class="text-base font-semibold text-slate-800 mb-4">Greeting Modal Settings</h4>
+
+                        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-slate-700">Enable Greeting Modal</label>
+                            </div>
+                            <div class="md:col-span-3">
+                                <label class="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" name="greeting_modal_enabled" id="greetingModalEnabled" value="1" @checked(old('greeting_modal_enabled', $settings->greeting_modal_enabled ?? false)) class="sr-only peer">
+                                    <div class="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-slate-600"></div>
+                                    <span class="ms-3 text-sm text-slate-700">Show greeting modal to visitors</span>
+                                </label>
+                                <small class="text-slate-400 block mt-1">Display a welcome modal with company information and services.</small>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 items-center mt-4">
+                            <div>
+                                <label class="block text-sm font-medium text-slate-700">Modal Frequency</label>
+                            </div>
+                            <div class="md:col-span-3">
+                                <select name="greeting_modal_frequency" class="w-full rounded-lg border-slate-300 px-3.5 py-2.5 text-sm shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500">
+                                    <option value="never" @selected(old('greeting_modal_frequency', $settings->greeting_modal_frequency ?? 'never') == 'never')>Never</option>
+                                    <option value="always" @selected(old('greeting_modal_frequency', $settings->greeting_modal_frequency ?? 'never') == 'always')>Always (Every Page Load)</option>
+                                    <option value="once_per_session" @selected(old('greeting_modal_frequency', $settings->greeting_modal_frequency ?? 'never') == 'once_per_session')>Once Per Session</option>
+                                    <option value="once_per_day" @selected(old('greeting_modal_frequency', $settings->greeting_modal_frequency ?? 'never') == 'once_per_day')>Once Per Day</option>
+                                    <option value="once_per_week" @selected(old('greeting_modal_frequency', $settings->greeting_modal_frequency ?? 'never') == 'once_per_week')>Once Per Week</option>
+                                    <option value="once_per_month" @selected(old('greeting_modal_frequency', $settings->greeting_modal_frequency ?? 'never') == 'once_per_month')>Once Per Month</option>
+                                </select>
+                                <small class="text-slate-400">Control how often the greeting modal appears to visitors.</small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700">Support Email</label>
+                        </div>
+                        <div class="md:col-span-3">
+                            <input type="email" name="support_email" class="w-full rounded-lg border-slate-300 px-3.5 py-2.5 text-sm shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500" value="{{ old('support_email', $settings->support_email ?? '') }}" placeholder="support@company.com">
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700">Support Phone</label>
+                        </div>
+                        <div class="md:col-span-3">
+                            <input type="text" name="support_phone" class="w-full rounded-lg border-slate-300 px-3.5 py-2.5 text-sm shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500" value="{{ old('support_phone', $settings->support_phone ?? '') }}" placeholder="+234 801 234 5678">
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700">Company Address</label>
+                        </div>
+                        <div class="md:col-span-3">
+                            <textarea name="company_address" class="w-full rounded-lg border-slate-300 px-3.5 py-2.5 text-sm shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500" rows="3" placeholder="Main office address...">{{ old('company_address', $settings->company_address ?? '') }}</textarea>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700">Branch Address</label>
+                        </div>
+                        <div class="md:col-span-3">
+                            <textarea name="branch_address" class="w-full rounded-lg border-slate-300 px-3.5 py-2.5 text-sm shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500" rows="3" placeholder="Branch office address...">{{ old('branch_address', $settings->branch_address ?? '') }}</textarea>
+                        </div>
+                    </div>
+
+                    <div class="flex justify-end pt-2">
+                        <button type="submit" class="inline-flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold rounded-lg bg-slate-900 text-white hover:bg-slate-800">Save Changes</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div x-show="activeTab === 'seo'">
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div class="flex items-center px-6 py-4 border-b border-slate-100">
+                    <h3 class="text-sm font-semibold text-slate-700">SEO &amp; Open Graph</h3>
+                </div>
+                <div class="p-6 space-y-6">
+
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700">OG Title</label>
+                        </div>
+                        <div class="md:col-span-3">
+                            <input type="text" name="og_title" class="w-full rounded-lg border-slate-300 px-3.5 py-2.5 text-sm shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500" value="{{ old('og_title', $settings->og_title ?? '') }}" placeholder="Your site title for sharing">
+                            <small class="text-slate-400">Shown as the title when links are shared on social media.</small>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700">OG Description</label>
+                        </div>
+                        <div class="md:col-span-3">
+                            <textarea name="og_description" class="w-full rounded-lg border-slate-300 px-3.5 py-2.5 text-sm shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500" rows="3" placeholder="Concise description for sharing">{{ old('og_description', $settings->og_description ?? '') }}</textarea>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700">OG Image</label>
+                        </div>
+                        <div class="md:col-span-3">
+                            <div class="flex items-center gap-4">
+                                <div class="shrink-0 rounded-xl border border-slate-200 overflow-hidden bg-white" style="width: 260px; height: 136px;">
+                                    <img src="{{ isset($settings) && $settings->og_image_path ? asset('storage/' . $settings->og_image_path) : asset('home/images/og-default.png') }}" alt="OG Image" id="ogImagePreview" class="w-full h-full object-contain">
+                                </div>
+                                <div class="flex-1">
+                                    <input type="file" name="og_image" class="w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200" accept=".png, .jpg, .jpeg, .webp" onchange="previewOgImage(event)">
+                                    <small class="text-slate-400">Recommended 1200x630px. Max 2MB.</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700">OG URL</label>
+                        </div>
+                        <div class="md:col-span-3">
+                            <input type="url" name="og_url" class="w-full rounded-lg border-slate-300 px-3.5 py-2.5 text-sm shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500" value="{{ old('og_url', $settings->og_url ?? url('/') ) }}" placeholder="https://example.com">
+                            <small class="text-slate-400">Canonical URL used in social previews.</small>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700">OG Type</label>
+                        </div>
+                        <div class="md:col-span-3">
+                            <select name="og_type" class="w-full rounded-lg border-slate-300 px-3.5 py-2.5 text-sm shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500">
+                                @php($ogType = old('og_type', $settings->og_type ?? 'website'))
+                                <option value="website" @selected($ogType==='website')>website</option>
+                                <option value="article" @selected($ogType==='article')>article</option>
+                                <option value="product" @selected($ogType==='product')>product</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="flex justify-end pt-2">
+                        <button type="submit" class="inline-flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold rounded-lg bg-slate-900 text-white hover:bg-slate-800">Save Changes</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </form>
 </div>
-<!-- End - Account Header -->
-
-<form action="{{ route('admin.settings.update') }}" method="POST" enctype="multipart/form-data" class="mt-2">
-    @csrf
-    <div class="tab-content" id="settingsTabContent">
-        <div class="tab-pane fade show active" id="pane-general" role="tabpanel" aria-labelledby="tab-general">
-            <div class="row">
-                <div class="col-xxl-12">
-                    <div class="card">
-                        <div class="card-header">
-                            <h6 class="card-title">Basic Info</h6>
-                        </div>
-                        <div class="card-body">
-
-                            <div class="row mb-4">
-                                <div class="col-md-3">
-                                    <label class="form-label mb-md-0">Company Logo</label>
-                                </div>
-                                <div class="col-md-9">
-                                    <div class="d-flex align-items-center">
-                                        <div class="me-4 mb-3 mb-lg-0 rounded-4 border" style="width: 200px; height: 100px; display: flex; align-items: center; justify-content: center; overflow: hidden; background: #fff;">
-                                            <img src="{{ isset($settings) && $settings->company_logo_path ? asset('storage/' . $settings->company_logo_path) : asset('assets/images/avatar/middle/avatar2.webp') }}" alt="Company logo" id="logoPreview" style="max-width: 100%; max-height: 100%; object-fit: contain;">
-                                        </div>
-                                        <div>
-                                            <input type="file" name="company_logo" class="form-control" accept=".png, .jpg, .jpeg, .webp" onchange="previewLogo(event)">
-                                            <small class="text-muted">PNG, JPG, or WEBP. Max 2MB.</small>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="row mb-4">
-                                <div class="col-md-3">
-                                    <label class="form-label mb-md-0">Favicon</label>
-                                </div>
-                                <div class="col-md-9">
-                                    <div class="d-flex align-items-center">
-                                        <div class="me-4 mb-3 mb-lg-0 rounded-4 border" style="width: 64px; height: 64px; display: flex; align-items: center; justify-content: center; overflow: hidden; background: #fff;">
-                                            <img src="{{ isset($settings) && $settings->company_favicon_path ? asset('storage/' . $settings->company_favicon_path) : asset('vendor_files/assets/images/favicon.png') }}" alt="Favicon" id="faviconPreview" style="max-width: 100%; max-height: 100%; object-fit: contain;">
-                                        </div>
-                                        <div>
-                                            <input type="file" name="company_favicon" class="form-control" accept=".ico, .png" onchange="previewFavicon(event)">
-                                            <small class="text-muted">ICO or PNG (recommended 32x32 or 48x48). Max 512KB.</small>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="row mb-4">
-                                <div class="col-md-3">
-                                    <label class="form-label mb-md-0">Company Certificate</label>
-                                </div>
-                                <div class="col-md-9">
-                                    <div class="d-flex align-items-center">
-                                        <div class="me-4 mb-3 mb-lg-0 rounded-4 border d-flex align-items-center justify-content-center" style="width: 200px; height: 120px; overflow: hidden; background: #fff;">
-                                            @if($certificateUrl && $certificateIsPdf)
-                                                <a href="{{ $certificateUrl }}" target="_blank" class="btn btn-outline-primary btn-sm">View PDF</a>
-                                            @elseif($certificateUrl)
-                                                <img src="{{ $certificateUrl }}" alt="Company certificate" id="certificatePreview" style="max-width: 100%; max-height: 100%; object-fit: contain;">
-                                            @else
-                                                <span class="text-muted">No certificate uploaded</span>
-                                            @endif
-                                        </div>
-                                        <div>
-                                            <input type="file" name="company_certificate" class="form-control" accept=".pdf, .jpg, .jpeg, .png, .webp">
-                                            <small class="text-muted">PDF or Image (JPG, PNG, WEBP). Max 5MB.</small>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="row align-items-center mb-4">
-                                <div class="col-md-3">
-                                    <label class="form-label mb-md-0">Company Name</label>
-                                </div>
-                                <div class="col-md-9">
-                                    <input type="text" name="company_name" class="form-control" value="{{ old('company_name', $settings->company_name ?? '') }}" placeholder="Your Company Ltd">
-                                </div>
-                            </div>
-
-                            <div class="row align-items-center mb-4">
-                                <div class="col-md-3">
-                                    <label class="form-label mb-md-0">Store Creation Limit</label>
-                                </div>
-                                <div class="col-md-9">
-                                    <input type="number" name="store_creation_limit" class="form-control" value="{{ old('store_creation_limit', $settings->store_creation_limit ?? 5) }}" min="1">
-                                    <small class="text-muted">Maximum number of stores a vendor can create.</small>
-                                </div>
-                            </div>
-
-                            <div class="row align-items-center mb-4">
-                                <div class="col-md-3">
-                                    <label class="form-label mb-md-0">Free Trial</label>
-                                </div>
-                                <div class="col-md-9">
-                                    <div class="form-check form-switch mb-2">
-                                        <input class="form-check-input" type="checkbox" name="trial_enabled" id="trialEnabled" value="1" @checked(old('trial_enabled', $settings->trial_enabled ?? true))>
-                                        <label class="form-check-label" for="trialEnabled">Enable free trial for new users</label>
-                                    </div>
-                                    <div class="d-flex align-items-center gap-2" id="trialDaysRow">
-                                        <label class="text-nowrap">Duration:</label>
-                                        <input type="number" name="trial_days" class="form-control" style="width:100px" value="{{ old('trial_days', $settings->trial_days ?? 7) }}" min="1" max="90">
-                                        <span class="text-muted">days</span>
-                                    </div>
-                                    <small class="text-muted">New businesses get a free trial period before being billed.</small>
-                                </div>
-                            </div>
-
-                            <div class="row align-items-center mb-4">
-                                <div class="col-md-3">
-                                    <label class="form-label mb-md-0">Homepage Store</label>
-                                </div>
-                                <div class="col-md-9">
-                                    <select name="main_store_id" class="form-select">
-                                        <option value="">Select store for homepage</option>
-                                        @foreach(($stores ?? []) as $store)
-                                            <option value="{{ $store->id }}" @selected(old('main_store_id', $settings->main_store_id ?? null) == $store->id)>{{ $store->name }}</option>
-                                        @endforeach
-                                    </select>
-                                    <small class="text-muted">Products on the homepage will be populated from this store.</small>
-                                </div>
-                            </div>
-
-                            <!-- Greeting pop up -->
-
-                            <div class="row align-items-center mb-4">
-                                <div class="col-md-3">
-                                    <label class="form-label mb-md-0">Company Description</label>
-                                </div>
-                                <div class="col-md-9">
-                                    <textarea name="company_description" class="form-control" rows="3" placeholder="Brief description about your company">{{ old('company_description', $settings->company_description ?? '') }}</textarea>
-                                    <small class="text-muted">This will be shown in the greeting modal.</small>
-                                </div>
-                            </div>
-
-                            <div class="row align-items-center mb-4">
-                                <div class="col-md-3">
-                                    <label class="form-label mb-md-0">Default Currency</label>
-                                </div>
-                                <div class="col-md-9">
-                                    <select name="default_currency_id" class="form-select">
-                                        <option value="">Select default currency</option>
-                                        @foreach(($currencies ?? []) as $cur)
-                                            <option value="{{ $cur->id }}" @selected(old('default_currency_id', $defaultCurrencyId ?? null) == $cur->id)>
-                                                {{ $cur->name }} ({{ $cur->code }}) {{ $cur->symbol ? ' - '.$cur->symbol : '' }}
-                                            </option>
-                                        @endforeach
-                                    </select>
-                                    <small class="text-muted">This sets the default currency used across the site.</small>
-                                </div>
-                            </div>
-
-                            <!-- Greeting Modal Settings -->
-                            <div class="row mb-4">
-                                <div class="col-12">
-                                    <h5 class="mb-3 mt-4">Greeting Modal Settings</h5>
-                                </div>
-                            </div>
-
-                            <div class="row align-items-center mb-4">
-                                <div class="col-md-3">
-                                    <label class="form-label mb-md-0">Enable Greeting Modal</label>
-                                </div>
-                                <div class="col-md-9">
-                                    <div class="form-check form-switch">
-                                        <input type="checkbox" name="greeting_modal_enabled" class="form-check-input" id="greetingModalEnabled" value="1" @checked(old('greeting_modal_enabled', $settings->greeting_modal_enabled ?? false))>
-                                        <label class="form-check-label" for="greetingModalEnabled">Show greeting modal to visitors</label>
-                                    </div>
-                                    <small class="text-muted">Display a welcome modal with company information and services.</small>
-                                </div>
-                            </div>
-
-                            <div class="row align-items-center mb-4">
-                                <div class="col-md-3">
-                                    <label class="form-label mb-md-0">Modal Frequency</label>
-                                </div>
-                                <div class="col-md-9">
-                                    <select name="greeting_modal_frequency" class="form-select">
-                                        <option value="never" @selected(old('greeting_modal_frequency', $settings->greeting_modal_frequency ?? 'never') == 'never')>Never</option>
-                                        <option value="always" @selected(old('greeting_modal_frequency', $settings->greeting_modal_frequency ?? 'never') == 'always')>Always (Every Page Load)</option>
-                                        <option value="once_per_session" @selected(old('greeting_modal_frequency', $settings->greeting_modal_frequency ?? 'never') == 'once_per_session')>Once Per Session</option>
-                                        <option value="once_per_day" @selected(old('greeting_modal_frequency', $settings->greeting_modal_frequency ?? 'never') == 'once_per_day')>Once Per Day</option>
-                                        <option value="once_per_week" @selected(old('greeting_modal_frequency', $settings->greeting_modal_frequency ?? 'never') == 'once_per_week')>Once Per Week</option>
-                                        <option value="once_per_month" @selected(old('greeting_modal_frequency', $settings->greeting_modal_frequency ?? 'never') == 'once_per_month')>Once Per Month</option>
-                                    </select>
-                                    <small class="text-muted">Control how often the greeting modal appears to visitors.</small>
-                                </div>
-                            </div>
-
-                            <div class="row align-items-center mb-4">
-                                <div class="col-md-3">
-                                    <label class="form-label mb-md-0">Support Email</label>
-                                </div>
-                                <div class="col-md-9">
-                                    <input type="email" name="support_email" class="form-control" value="{{ old('support_email', $settings->support_email ?? '') }}" placeholder="support@company.com">
-                                </div>
-                            </div>
-
-                            <div class="row align-items-center mb-4">
-                                <div class="col-md-3">
-                                    <label class="form-label mb-md-0">Support Phone</label>
-                                </div>
-                                <div class="col-md-9">
-                                    <input type="text" name="support_phone" class="form-control" value="{{ old('support_phone', $settings->support_phone ?? '') }}" placeholder="+234 801 234 5678">
-                                </div>
-                            </div>
-
-                            <div class="row align-items-center mb-4">
-                                <div class="col-md-3">
-                                    <label class="form-label mb-md-0">Company Address</label>
-                                </div>
-                                <div class="col-md-9">
-                                    <textarea name="company_address" class="form-control" rows="3" placeholder="Main office address...">{{ old('company_address', $settings->company_address ?? '') }}</textarea>
-                                </div>
-                            </div>
-
-                            <div class="row align-items-center mb-4">
-                                <div class="col-md-3">
-                                    <label class="form-label mb-md-0">Branch Address</label>
-                                </div>
-                                <div class="col-md-9">
-                                    <textarea name="branch_address" class="form-control" rows="3" placeholder="Branch office address...">{{ old('branch_address', $settings->branch_address ?? '') }}</textarea>
-                                </div>
-                            </div>
-
-                            <div class="text-end mt-2">
-                                <button type="submit" class="btn btn-primary">Save Changes</button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- <div class="tab-pane fade" id="pane-api" role="tabpanel" aria-labelledby="tab-api">
-            <div class="row">
-                <div class="col-xxl-12">
-                    <div class="card">
-                        <div class="card-header">
-                            <h6 class="card-title">API Keys</h6>
-                        </div>
-                        <div class="card-body">
-                            <div class="row mb-2">
-                                <div class="col-md-3">
-                                    <label class="form-label mb-md-0">Keys</label>
-                                </div>
-                                <div class="col-md-9">
-                                    <div class="table-responsive">
-                                        <table class="table table-sm align-middle" id="apiKeysTable">
-                                            <thead>
-                                                <tr>
-                                                    <th style="width: 30%">Name</th>
-                                                    <th>Value</th>
-                                                    <th style="width: 50px"></th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                @if(is_array($apiKeys ?? null) && count($apiKeys))
-                                                    @foreach($apiKeys as $k => $v)
-                                                        <tr>
-                                                            <td><input type="text" name="api_key_names[]" class="form-control" value="{{ $k }}" placeholder="Paystack"></td>
-                                                            <td><input type="text" name="api_key_values[]" class="form-control" value="{{ $v }}" placeholder="sk_live_xxx"></td>
-                                                            <td class="text-end"><button type="button" class="btn btn-sm btn-outline-danger" onclick="this.closest('tr').remove()">Remove</button></td>
-                                                        </tr>
-                                                    @endforeach
-                                                @endif
-                                                    <tr>
-                                                        <td><input type="text" name="api_key_names[]" class="form-control" placeholder="Paystack"></td>
-                                                        <td><input type="text" name="api_key_values[]" class="form-control" placeholder="sk_live_xxx"></td>
-                                                        <td class="text-end"><button type="button" class="btn btn-sm btn-outline-danger" onclick="removeApiKeyRow(this)">&times;</button></td>
-                                                    </tr>
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                    <button type="button" class="btn btn-sm btn-light" onclick="addApiKeyRow()"><i class="fa fa-plus me-1"></i>Add API Key</button>
-                                </div>
-                            </div>
-                            <div class="text-end mt-2">
-                                <button type="submit" class="btn btn-primary">Save Changes</button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div> -->
-
-        <div class="tab-pane fade" id="pane-seo" role="tabpanel" aria-labelledby="tab-seo">
-            <div class="row">
-                <div class="col-xxl-12">
-                    <div class="card">
-                        <div class="card-header">
-                            <h6 class="card-title">SEO & Open Graph</h6>
-                        </div>
-                        <div class="card-body">
-                            <div class="row align-items-center mb-4">
-                                <div class="col-md-3">
-                                    <label class="form-label mb-md-0">OG Title</label>
-                                </div>
-                                <div class="col-md-9">
-                                    <input type="text" name="og_title" class="form-control" value="{{ old('og_title', $settings->og_title ?? '') }}" placeholder="Your site title for sharing">
-                                    <small class="text-muted">Shown as the title when links are shared on social media.</small>
-                                </div>
-                            </div>
-
-                            <div class="row align-items-center mb-4">
-                                <div class="col-md-3">
-                                    <label class="form-label mb-md-0">OG Description</label>
-                                </div>
-                                <div class="col-md-9">
-                                    <textarea name="og_description" class="form-control" rows="3" placeholder="Concise description for sharing">{{ old('og_description', $settings->og_description ?? '') }}</textarea>
-                                </div>
-                            </div>
-
-                            <div class="row align-items-center mb-4">
-                                <div class="col-md-3">
-                                    <label class="form-label mb-md-0">OG Image</label>
-                                </div>
-                                <div class="col-md-9">
-                                    <div class="d-flex align-items-center">
-                                        <div class="me-4 mb-3 mb-lg-0 rounded-4 border" style="width: 260px; height: 136px; display:flex; align-items:center; justify-content:center; overflow:hidden; background:#fff;">
-                                            <img src="{{ isset($settings) && $settings->og_image_path ? asset('storage/' . $settings->og_image_path) : asset('home/images/og-default.png') }}" alt="OG Image" id="ogImagePreview" style="max-width:100%; max-height:100%; object-fit:contain;">
-                                        </div>
-                                        <div>
-                                            <input type="file" name="og_image" class="form-control" accept=".png, .jpg, .jpeg, .webp" onchange="previewOgImage(event)">
-                                            <small class="text-muted">Recommended 1200x630px. Max 2MB.</small>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="row align-items-center mb-4">
-                                <div class="col-md-3">
-                                    <label class="form-label mb-md-0">OG URL</label>
-                                </div>
-                                <div class="col-md-9">
-                                    <input type="url" name="og_url" class="form-control" value="{{ old('og_url', $settings->og_url ?? url('/') ) }}" placeholder="https://example.com">
-                                    <small class="text-muted">Canonical URL used in social previews.</small>
-                                </div>
-                            </div>
-
-                            <div class="row align-items-center mb-4">
-                                <div class="col-md-3">
-                                    <label class="form-label mb-md-0">OG Type</label>
-                                </div>
-                                <div class="col-md-9">
-                                    <select name="og_type" class="form-select">
-                                        @php($ogType = old('og_type', $settings->og_type ?? 'website'))
-                                        <option value="website" @selected($ogType==='website')>website</option>
-                                        <option value="article" @selected($ogType==='article')>article</option>
-                                        <option value="product" @selected($ogType==='product')>product</option>
-                                    </select>
-                                </div>
-                            </div>
-
-                            <div class="text-end mt-2">
-                                <button type="submit" class="btn btn-primary">Save Changes</button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-</form>
 
 <script>
-    // Persist active tab across reloads using URL hash and localStorage
-    (function() {
-        const mapHashToPane = {
-            '#general': '#pane-general',
-            '#api_keys': '#pane-api',
-        };
-        const mapPaneToHash = {
-            '#pane-general': '#general',
-            '#pane-api': '#api_keys',
-        };
-        function showTabForHash(hash) {
-            const targetPaneId = mapHashToPane[hash] || hash;
-            const link = document.querySelector(`#settingsTabs a[href="${targetPaneId}"]`);
-            if (link && window.bootstrap) {
-                const tab = new bootstrap.Tab(link);
-                tab.show();
-                return true;
-            }
-            return false;
-        }
-        document.addEventListener('DOMContentLoaded', function() {
-            const saved = localStorage.getItem('settingsActiveTab');
-            const initialHash = window.location.hash;
-            if (!showTabForHash(initialHash)) {
-                if (saved) showTabForHash(saved);
-            }
-            document.querySelectorAll('#settingsTabs a[data-bs-toggle="tab"]').forEach(function(el) {
-                el.addEventListener('shown.bs.tab', function(e) {
-                    const href = e.target.getAttribute('href');
-                    const hash = mapPaneToHash[href] || href;
-                    localStorage.setItem('settingsActiveTab', hash);
-                    if (history && history.replaceState) {
-                        history.replaceState(null, '', hash);
-                    } else {
-                        window.location.hash = hash;
-                    }
-                });
-            });
-        });
-    })();
-
-    function addApiKeyRow() {
-        const tbody = document.querySelector('#apiKeysTable tbody');
-        if (!tbody) return;
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-            <td><input type="text" name="api_key_names[]" class="form-control" placeholder="Provider"></td>
-            <td><input type="text" name="api_key_values[]" class="form-control" placeholder="api-key"></td>
-            <td class="text-end"><button type="button" class="btn btn-sm btn-outline-danger" onclick="removeApiKeyRow(this)">&times;</button></td>
-        `;
-        tbody.appendChild(tr);
-    }
-    function removeApiKeyRow(btn) {
-        const tr = btn && btn.closest ? btn.closest('tr') : null;
-        if (!tr) return;
-        tr.remove();
-    }
     function previewLogo(e) {
         const file = e.target && e.target.files ? e.target.files[0] : null;
         if (!file) return;
@@ -459,6 +342,17 @@
         const reader = new FileReader();
         reader.onload = function(ev) {
             const img = document.getElementById('faviconPreview');
+            if (img) img.src = ev.target.result;
+        };
+        reader.readAsDataURL(file);
+    }
+
+    function previewOgImage(e) {
+        const file = e.target && e.target.files ? e.target.files[0] : null;
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function(ev) {
+            const img = document.getElementById('ogImagePreview');
             if (img) img.src = ev.target.result;
         };
         reader.readAsDataURL(file);

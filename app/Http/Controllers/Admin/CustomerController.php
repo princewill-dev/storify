@@ -104,7 +104,7 @@ class CustomerController extends Controller
         $stats = [
             'total_orders' => $customer->orders()->count(),
             'completed_orders' => $customer->orders()->where('status', 'completed')->count(),
-            'total_spent' => $customer->orders()->where('payment_status', 'paid')->sum('total'),
+            'total_spent' => $customer->orders()->whereHas('transactions', fn($q) => $q->where('status', 'confirmed'))->sum('total'),
             'pending_orders' => $customer->orders()->where('status', 'pending')->count(),
         ];
 

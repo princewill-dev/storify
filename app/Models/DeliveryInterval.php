@@ -22,14 +22,6 @@ class DeliveryInterval extends Model
     ];
 
     /**
-     * Get all family pack orders using this interval
-     */
-    public function familyPackOrders(): HasMany
-    {
-        return $this->hasMany(FamilyPackOrder::class);
-    }
-
-    /**
      * Scope to get only active intervals
      */
     public function scopeActive($query)

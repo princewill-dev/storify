@@ -37,24 +37,6 @@ class AccountController extends Controller
         }
         
         $flow = $request->query('flow');
-        // Preserve family-pack redirect if coming from family pack checkout
-        if ($flow === 'family_pack') {
-            if (!session('family_pack_redirect')) {
-                session([
-                    'family_pack_redirect' => true,
-                    'family_pack_store_slug' => $request->get('store_slug', session('family_pack_store_slug')),
-                ]);
-            }
-        }
-        // Preserve live-first redirect if coming from live first enrollment
-        if ($flow === 'live-first') {
-            if (!session('live_first_redirect')) {
-                session([
-                    'live_first_redirect' => true,
-                    'live_first_store_slug' => $request->get('store_slug', session('live_first_store_slug')),
-                ]);
-            }
-        }
         return view('account.login', ['flow' => $flow]);
     }
 
@@ -77,32 +59,6 @@ class AccountController extends Controller
             // Merge guest cart with customer cart
             $this->mergeGuestCart($request, $customer);
             
-            // Check if coming from live first enrollment
-            if (session('live_first_redirect')) {
-                $storeSlug = session('live_first_store_slug', 'zimozi_swift');
-                session()->forget(['live_first_redirect', 'live_first_store_slug']);
-                
-                Log::info('customer.login.live_first_redirect', [
-                    'customer_id' => $customer->id,
-                    'store_slug' => $storeSlug,
-                ]);
-                
-                return redirect()->route('home.live-first.kyc', ['store_slug' => $storeSlug]);
-            }
-            
-            // Check if coming from family pack checkout
-            if (session('family_pack_redirect')) {
-                $storeSlug = session('family_pack_store_slug');
-                session()->forget(['family_pack_redirect', 'family_pack_store_slug']);
-                
-                Log::info('customer.login.family_pack_redirect', [
-                    'customer_id' => $customer->id,
-                    'store_slug' => $storeSlug,
-                ]);
-                
-                return redirect()->route('family-pack.checkout', ['store_slug' => $storeSlug]);
-            }
-
             // Check if coming from checkout (URL-based, no session)
             if ($request->filled('checkout_code') && $request->filled('store')) {
                 // Guest cart may have been merged — get the customer's active cart token

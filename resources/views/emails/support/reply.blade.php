@@ -75,7 +75,7 @@
                                 <tr>
                                     <td>
                                         <p style="margin: 0 0 10px; color: #666666; font-size: 14px;">
-                                            <strong>Store:</strong> {{ $supportMessage->store->name }}
+                                            <strong>Store:</strong> {{ $supportMessage->store?->name ?? '—' }}
                                         </p>
                                         @if($supportMessage->store->support_email)
                                         <p style="margin: 0 0 10px; color: #666666; font-size: 14px;">

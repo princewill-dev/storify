@@ -109,6 +109,6 @@
     </div>
 </div>
 
-<script>setTimeout(()=>window.print(),400);</script>
+<script>// Print triggered by button click only</script>
 </body>
 </html>

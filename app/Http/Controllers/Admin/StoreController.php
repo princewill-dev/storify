@@ -40,7 +40,7 @@ class StoreController extends Controller
         $from = $request->query('from');
         $to = $request->query('to');
 
-        $storesQuery = Store::query()->with(['vendor', 'business', 'ownershipType', 'businessType'])
+        $storesQuery = Store::query()->with(['user', 'business', 'ownershipType', 'businessType'])
             ->where('status', '!=', 'deleted');
         if (in_array(strtolower((string)$status), ['active','inactive','suspended','deleted'], true)) {
             $storesQuery->where('status', strtolower($status));
@@ -49,7 +49,7 @@ class StoreController extends Controller
             $storesQuery->where(function($x) use ($q) {
                 $x->where('name', 'like', "%$q%")
                   ->orWhere('store_id', 'like', "%$q%")
-                  ->orWhereHas('vendor', function($v) use ($q) { $v->where('name', 'like', "%$q%"); });
+                  ->orWhereHas('user', function($v) use ($q) { $v->where('name', 'like', "%$q%"); });
             });
         }
         if ($from || $to) {
@@ -77,7 +77,7 @@ class StoreController extends Controller
     public function show(Store $store)
     {
         Log::info('store_show_viewed', ['user_id' => auth()->id(), 'store_id' => $store->id]);
-        $store->load(['vendor', 'business', 'ownershipType', 'businessType']);
+        $store->load(['user', 'business', 'ownershipType', 'businessType']);
         $productCount = Product::where('store_id', $store->id)->count();
         $recentProducts = Product::where('store_id', $store->id)->latest()->take(10)->get();
         $categories = Category::where('store_id', $store->id)->orderBy('name')->get();

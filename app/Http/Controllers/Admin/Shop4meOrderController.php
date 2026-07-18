@@ -20,7 +20,16 @@ class Shop4meOrderController extends Controller
         }
 
         if ($request->filled('payment_status')) {
-            $query->where('payment_status', $request->payment_status);
+            $status = $request->payment_status;
+            if ($status === 'unpaid') {
+                $query->whereDoesntHave('transactions');
+            } elseif ($status === 'paid') {
+                $query->whereHas('transactions', fn($q) => $q->where('status', \App\Enums\TransactionStatus::CONFIRMED->value));
+            } elseif ($status === 'refunded') {
+                $query->whereHas('transactions', fn($q) => $q->where('status', \App\Enums\TransactionStatus::REFUNDED->value));
+            } elseif ($status === 'failed') {
+                $query->whereHas('transactions', fn($q) => $q->where('status', \App\Enums\TransactionStatus::CANCELED->value));
+            }
         }
 
         if ($request->filled('store_id')) {
@@ -65,10 +74,10 @@ class Shop4meOrderController extends Controller
             'delivered' => (clone $statsBase)->where('status', 'delivered')->count(),
             'completed' => (clone $statsBase)->where('status', 'completed')->count(),
             'cancelled' => (clone $statsBase)->where('status', 'cancelled')->count(),
-            'paid' => (clone $statsBase)->where('payment_status', 'paid')->count(),
-            'total_revenue' => (clone $statsBase)->where('payment_status', 'paid')->sum('total'),
+            'paid' => (clone $statsBase)->whereHas('transactions', fn($q) => $q->where('status', \App\Enums\TransactionStatus::CONFIRMED->value))->count(),
+            'total_revenue' => (clone $statsBase)->whereHas('transactions', fn($q) => $q->where('status', \App\Enums\TransactionStatus::CONFIRMED->value))->sum('total'),
         ];
 
-        return view('admin.orders.shop4me_orders', compact('orders', 'stores', 'stats'));
+        return view('admin.order_management.shop4me_orders', compact('orders', 'stores', 'stats'));
     }
 }

@@ -2,461 +2,356 @@
 @section('subtitle', 'Customer Details')
 
 @section('content')
-<div class="container-fluid">
-    <!-- Page Header -->
-    <div class="row mb-4">
-        <div class="col-12">
-            <div class="d-flex justify-content-between align-items-center">
-                <div>
-                    <a href="{{ route('admin.customers.index') }}" class="btn btn-sm btn-secondary mb-2">
-                        <i class="fi fi-rr-arrow-left"></i> Back
-                    </a>
-                    <!-- <h2 class="mb-0">Customer Details</h2> -->
-                </div>
-                <div class="d-flex align-items-center gap-2">
-                    <a href="{{ route('admin.customers.edit', $customer) }}" class="btn btn-outline-secondary">
-                        <i class="fi fi-rr-pencil"></i> Edit
-                    </a>
-                    @if($customer->status === \App\Models\Customer::STATUS_ACTIVE)
-                        <button class="btn btn-outline-danger" onclick="showSuspendModal({{ Js::from($customer->account_id) }}, {{ Js::from($customer->full_name) }})">
-                            <i class="fi fi-rr-ban"></i> Suspend
-                        </button>
-                    @elseif($customer->status === \App\Models\Customer::STATUS_SUSPENDED)
-                        <button class="btn btn-outline-success" onclick="showActivateModal({{ Js::from($customer->account_id) }}, {{ Js::from($customer->full_name) }})">
-                            <i class="fi fi-rr-check-circle"></i> Activate
-                        </button>
-                    @endif
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Statistics Cards -->
-    <div class="stats-grid">
-        <div class="card">
-            <div class="card-body">
-                <div class="d-flex align-items-center">
-                    <div class="icon-box bg-primary-light me-3">
-                        <i class="fi fi-rr-shopping-cart text-primary" style="font-size: 24px;"></i>
-                    </div>
-                    <div>
-                        <h6 class="mb-1">Total Orders</h6>
-                        <h3 class="mb-0">{{ number_format($stats['total_orders']) }}</h3>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <div class="card">
-            <div class="card-body">
-                <div class="d-flex align-items-center">
-                    <div class="icon-box bg-success-light me-3">
-                        <i class="fi fi-rr-check-circle text-success" style="font-size: 24px;"></i>
-                    </div>
-                    <div>
-                        <h6 class="mb-1">Completed</h6>
-                        <h3 class="mb-0">{{ number_format($stats['completed_orders']) }}</h3>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <div class="card">
-            <div class="card-body">
-                <div class="d-flex align-items-center">
-                    <div class="icon-box bg-info-light me-3">
-                        <i class="fi fi-rr-money text-info" style="font-size: 24px;"></i>
-                    </div>
-                    <div>
-                        <h6 class="mb-1">Total Spent</h6>
-                        <h3 class="mb-0">₦{{ number_format($stats['total_spent'], 2) }}</h3>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <div class="card">
-            <div class="card-body">
-                <div class="d-flex align-items-center">
-                    <div class="icon-box bg-warning-light me-3">
-                        <i class="fi fi-rr-time-fast text-warning" style="font-size: 24px;"></i>
-                    </div>
-                    <div>
-                        <h6 class="mb-1">Pending</h6>
-                        <h3 class="mb-0">{{ number_format($stats['pending_orders']) }}</h3>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div class="detail-grid">
-        <div class="detail-column">
-            <div class="card">
-                <div class="card-header">
-                    <h4 class="card-title mb-0">Customer Information</h4>
-                </div>
-                <div class="card-body">
-                    <div class="text-center mb-4">
-                        <div class="avatar-circle-lg mx-auto mb-3">
-                            {{ strtoupper(substr($customer->first_name, 0, 1)) }}{{ strtoupper(substr($customer->last_name, 0, 1)) }}
-                        </div>
-                        <h4>{{ $customer->full_name }}</h4>
-                        <span class="badge bg-light text-dark border">Status: {{ ucfirst(strtolower($customer->status)) }}</span>
-                    </div>
-
-                    <div class="info-list">
-                        <div class="info-item">
-                            <i class="fi fi-rr-envelope"></i>
-                            <div>
-                                <small class="text-muted">Email</small>
-                                <p class="mb-0">{{ $customer->email }}</p>
-                            </div>
-                        </div>
-                        @if($customer->phone)
-                        <div class="info-item">
-                            <i class="fi fi-rr-phone-call"></i>
-                            <div>
-                                <small class="text-muted">Phone</small>
-                                <p class="mb-0">{{ $customer->phone }}</p>
-                            </div>
-                        </div>
-                        @endif
-                        @if($customer->company_name)
-                        <div class="info-item">
-                            <i class="fi fi-rr-building"></i>
-                            <div>
-                                <small class="text-muted">Company</small>
-                                <p class="mb-0">{{ $customer->company_name }}</p>
-                            </div>
-                        </div>
-                        @endif
-                        <div class="info-item">
-                            <i class="fi fi-rr-calendar"></i>
-                            <div>
-                                <small class="text-muted">Member Since</small>
-                                <p class="mb-0">{{ $customer->created_at->format('M d, Y') }}</p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="card">
-                <div class="card-header">
-                    <h4 class="card-title mb-0">Address Information</h4>
-                </div>
-                <div class="card-body">
-                    @if($customer->street_address)
-                    <p class="mb-2"><strong>Street Address:</strong><br>{{ $customer->street_address }}</p>
-                    @if($customer->apartment)
-                    <p class="mb-2"><strong>Apartment/Unit:</strong><br>{{ $customer->apartment }}</p>
-                    @endif
-                    <p class="mb-2"><strong>City:</strong> {{ $customer->city ?? '-' }}</p>
-                    <p class="mb-2"><strong>State:</strong> {{ $customer->state ?? '-' }}</p>
-                    <p class="mb-2"><strong>ZIP Code:</strong> {{ $customer->zip_code ?? '-' }}</p>
-                    <p class="mb-0"><strong>Country:</strong> {{ $customer->country ?? '-' }}</p>
-                    @else
-                    <p class="text-muted text-center">No address information available</p>
-                    @endif
-                </div>
-            </div>
-        </div>
-
-        <div class="detail-column">
-            <div class="card">
-                <div class="card-header">
-                    <h4 class="card-title mb-0">Recent Orders</h4>
-                </div>
-                <div class="card-body p-0">
-                    <div class="table-responsive">
-                        <table class="table table-hover mb-0">
-                            <thead>
-                                <tr>
-                                    <th>Order #</th>
-                                    <th>Store</th>
-                                    <th>Items</th>
-                                    <th>Total</th>
-                                    <th>Status</th>
-                                    <th>Date</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @forelse($customer->orders as $order)
-                                <tr>
-                                    <td>
-                                        <a href="{{ route('admin.orders.show', $order) }}">
-                                            {{ $order->order_number }}
-                                        </a>
-                                    </td>
-                                    <td>{{ $order->store->name }}</td>
-                                    <td>{{ $order->items->count() }} items</td>
-                                    <td>₦{{ number_format($order->total, 2) }}</td>
-                                    <td>
-                                       <span class="badge {{ $order->status->badgeClass() }}">{{ $order->status->label() }}</span>
-                                    </td>
-                                    <td>{{ $order->created_at->format('M d, Y') }}</td>
-                                </tr>
-                                @empty
-                                <tr>
-                                    <td colspan="6" class="text-center py-4 text-muted">
-                                        No orders yet
-                                    </td>
-                                </tr>
-                                @endforelse
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-
-            <div class="card">
-                <div class="card-header">
-                    <h4 class="card-title mb-0">Recent Transactions</h4>
-                </div>
-                <div class="card-body p-0">
-                    <div class="table-responsive">
-                        <table class="table table-hover mb-0">
-                            <thead>
-                                <tr>
-                                    <th>Order #</th>
-                                    <th>Payment Method</th>
-                                    <th>Amount</th>
-                                    <th>Status</th>
-                                    <th>Date</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @forelse($transactions as $transaction)
-                                <tr>
-                                    <td>
-                                        {{ $transaction->reference }}
-                                    </td>
-                                    <td>{{ $transaction->paymentMethod->name ?? 'N/A' }}</td>
-                                    <td>₦{{ number_format($transaction->amount, 2) }}</td>
-                                    <td>
-                                        <span class="badge {{ $transaction->status->badgeClass() }}">{{ $transaction->status->label() }}</span>
-                                    </td>
-                                    <td>{{ \Carbon\Carbon::parse($transaction->created_at)->format('M d, Y') }}</td>
-                                </tr>
-                                @empty
-                                <tr>
-                                    <td colspan="5" class="text-center py-4 text-muted">
-                                        No transactions yet
-                                    </td>
-                                </tr>
-                                @endforelse
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-
-            <div class="card">
-                <div class="card-header">
-                    <h4 class="card-title mb-0">Activity Log</h4>
-                </div>
-                <div class="card-body">
-                    @forelse($activityLogs as $log)
-                    <div class="activity-item">
-                        <div class="activity-icon">
-                            <i class="fi fi-rr-time-past"></i>
-                        </div>
-                        <div class="activity-content">
-                            <p class="mb-1">
-                                <strong>{{ $log->user ? $log->user->name : 'System' }}</strong>
-                                {{ $log->description }}
-                            </p>
-                            <small class="text-muted">
-                                {{ $log->created_at->diffForHumans() }}
-                                ({{ $log->created_at->format('M d, Y H:i') }})
-                            </small>
-                        </div>
-                    </div>
-                    @empty
-                    <p class="text-muted text-center">No activity recorded</p>
-                    @endforelse
-                </div>
-            </div>
-        </div>
-    </div>
+<div class="flex items-center justify-between mb-6">
+  <div>
+    <a href="{{ route('admin.customers.index') }}" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 mb-3">
+      <i class="fi fi-rr-arrow-left text-sm"></i> Back
+    </a>
+  </div>
+  <div class="flex items-center gap-2">
+    <a href="{{ route('admin.customers.edit', $customer) }}" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">
+      <i class="fi fi-rr-pencil text-sm"></i> Edit
+    </a>
+    @if($customer->status === \App\Models\Customer::STATUS_ACTIVE)
+      <button class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-red-200 text-red-600 hover:bg-red-50" onclick="showSuspendModal({{ Js::from($customer->account_id) }}, {{ Js::from($customer->full_name) }})">
+        <i class="fi fi-rr-ban text-sm"></i> Suspend
+      </button>
+    @elseif($customer->status === \App\Models\Customer::STATUS_SUSPENDED)
+      <button class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-emerald-200 text-emerald-600 hover:bg-emerald-50" onclick="showActivateModal({{ Js::from($customer->account_id) }}, {{ Js::from($customer->full_name) }})">
+        <i class="fi fi-rr-check-circle text-sm"></i> Activate
+      </button>
+    @endif
+  </div>
 </div>
 
-<!-- Suspend Modal -->
-<div class="modal fade" id="suspendModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <form id="suspendForm" method="POST">
-                @csrf
-                <div class="modal-header bg-danger text-white">
-                    <h5 class="modal-title">
-                        <i class="fi fi-rr-ban"></i> Suspend Customer Account
-                    </h5>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <div class="alert alert-warning">
-                        <strong>⚠️ Warning:</strong> This will prevent the customer from accessing their account and placing new orders.
-                    </div>
-                    <p>You are about to suspend the account for:</p>
-                    <p class="text-center"><strong id="suspendCustomerName"></strong></p>
-                    <div class="mb-3">
-                        <label class="form-label">Reason for Suspension *</label>
-                        <textarea name="reason" class="form-control" rows="4" required 
-                                  placeholder="Please provide a detailed reason for suspending this account..."></textarea>
-                        <small class="text-muted">The customer will receive an email with this reason.</small>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-danger">
-                        <i class="fi fi-rr-ban"></i> Suspend Account
-                    </button>
-                </div>
-            </form>
-        </div>
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+  <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0">
+        <i class="fi fi-rr-shopping-cart text-blue-600 text-lg"></i>
+      </div>
+      <div>
+        <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Total Orders</div>
+        <div class="text-xl font-bold text-slate-900">{{ number_format($stats['total_orders']) }}</div>
+      </div>
     </div>
+  </div>
+  <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 rounded-lg bg-emerald-50 flex items-center justify-center flex-shrink-0">
+        <i class="fi fi-rr-check-circle text-emerald-600 text-lg"></i>
+      </div>
+      <div>
+        <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Completed</div>
+        <div class="text-xl font-bold text-slate-900">{{ number_format($stats['completed_orders']) }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 rounded-lg bg-sky-50 flex items-center justify-center flex-shrink-0">
+        <i class="fi fi-rr-money text-sky-600 text-lg"></i>
+      </div>
+      <div>
+        <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Total Spent</div>
+        <div class="text-xl font-bold text-slate-900">₦{{ number_format($stats['total_spent'], 2) }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 rounded-lg bg-amber-50 flex items-center justify-center flex-shrink-0">
+        <i class="fi fi-rr-time-fast text-amber-600 text-lg"></i>
+      </div>
+      <div>
+        <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Pending</div>
+        <div class="text-xl font-bold text-slate-900">{{ number_format($stats['pending_orders']) }}</div>
+      </div>
+    </div>
+  </div>
 </div>
 
-<!-- Activate Modal -->
-<div class="modal fade" id="activateModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <form id="activateForm" method="POST">
-                @csrf
-                <div class="modal-header bg-success text-white">
-                    <h5 class="modal-title">
-                        <i class="fi fi-rr-check-circle"></i> Activate Customer Account
-                    </h5>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <div class="alert alert-success">
-                        <strong>✓ Confirmation:</strong> This will restore full access to the customer's account.
-                    </div>
-                    <p>You are about to activate the account for:</p>
-                    <p class="text-center"><strong id="activateCustomerName"></strong></p>
-                    <p class="text-muted">The customer will receive an email notification confirming their account has been activated.</p>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-success">
-                        <i class="fi fi-rr-check-circle"></i> Activate Account
-                    </button>
-                </div>
-            </form>
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+  <div class="lg:col-span-1 space-y-6">
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+      <div class="px-6 py-4 border-b border-slate-100">
+        <h3 class="text-sm font-semibold text-slate-900">Customer Information</h3>
+      </div>
+      <div class="p-6">
+        <div class="text-center mb-6">
+          <div class="w-16 h-16 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-2xl mx-auto mb-3">
+            {{ strtoupper(substr($customer->first_name, 0, 1)) }}{{ strtoupper(substr($customer->last_name, 0, 1)) }}
+          </div>
+          <h4 class="text-base font-semibold text-slate-900">{{ $customer->full_name }}</h4>
+          <span class="inline-flex items-center rounded-full bg-slate-100 text-slate-700 px-2.5 py-0.5 text-xs font-medium border border-slate-200 mt-1">Status: {{ ucfirst(strtolower($customer->status)) }}</span>
         </div>
+
+        <div class="space-y-4">
+          <div class="flex items-start gap-3">
+            <i class="fi fi-rr-envelope text-blue-600 mt-0.5"></i>
+            <div>
+              <div class="text-xs text-slate-500">Email</div>
+              <div class="text-sm font-medium text-slate-900">{{ $customer->email }}</div>
+            </div>
+          </div>
+          @if($customer->phone)
+          <div class="flex items-start gap-3">
+            <i class="fi fi-rr-phone-call text-blue-600 mt-0.5"></i>
+            <div>
+              <div class="text-xs text-slate-500">Phone</div>
+              <div class="text-sm font-medium text-slate-900">{{ $customer->phone }}</div>
+            </div>
+          </div>
+          @endif
+          @if($customer->company_name)
+          <div class="flex items-start gap-3">
+            <i class="fi fi-rr-building text-blue-600 mt-0.5"></i>
+            <div>
+              <div class="text-xs text-slate-500">Company</div>
+              <div class="text-sm font-medium text-slate-900">{{ $customer->company_name }}</div>
+            </div>
+          </div>
+          @endif
+          <div class="flex items-start gap-3">
+            <i class="fi fi-rr-calendar text-blue-600 mt-0.5"></i>
+            <div>
+              <div class="text-xs text-slate-500">Member Since</div>
+              <div class="text-sm font-medium text-slate-900">{{ $customer->created_at->format('M d, Y') }}</div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
+
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+      <div class="px-6 py-4 border-b border-slate-100">
+        <h3 class="text-sm font-semibold text-slate-900">Address Information</h3>
+      </div>
+      <div class="p-6">
+        @if($customer->street_address)
+        <p class="text-sm mb-2"><strong class="text-slate-700">Street Address:</strong><br><span class="text-slate-600">{{ $customer->street_address }}</span></p>
+        @if($customer->apartment)
+        <p class="text-sm mb-2"><strong class="text-slate-700">Apartment/Unit:</strong><br><span class="text-slate-600">{{ $customer->apartment }}</span></p>
+        @endif
+        <p class="text-sm mb-2"><strong class="text-slate-700">City:</strong> <span class="text-slate-600">{{ $customer->city ?? '-' }}</span></p>
+        <p class="text-sm mb-2"><strong class="text-slate-700">State:</strong> <span class="text-slate-600">{{ $customer->state ?? '-' }}</span></p>
+        <p class="text-sm mb-2"><strong class="text-slate-700">ZIP Code:</strong> <span class="text-slate-600">{{ $customer->zip_code ?? '-' }}</span></p>
+        <p class="text-sm"><strong class="text-slate-700">Country:</strong> <span class="text-slate-600">{{ $customer->country ?? '-' }}</span></p>
+        @else
+        <p class="text-sm text-slate-500 text-center">No address information available</p>
+        @endif
+      </div>
+    </div>
+  </div>
+
+  <div class="lg:col-span-2 space-y-6">
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+      <div class="px-6 py-4 border-b border-slate-100">
+        <h3 class="text-sm font-semibold text-slate-900">Recent Orders</h3>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead class="border-b border-slate-100">
+            <tr>
+              <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Order #</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Store</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Items</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Total</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Date</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-50">
+            @forelse($customer->orders as $order)
+            <tr class="hover:bg-slate-50/50">
+              <td class="px-4 py-3">
+                <a href="{{ route('admin.orders.show', $order) }}" class="text-slate-900 font-medium hover:text-blue-600">
+                  {{ $order->order_number }}
+                </a>
+              </td>
+              <td class="px-4 py-3 text-slate-700">{{ $order->store?->name ?? '—' }}</td>
+              <td class="px-4 py-3 text-slate-700">{{ $order->items->count() }} items</td>
+              <td class="px-4 py-3 text-slate-900">₦{{ number_format($order->total, 2) }}</td>
+              <td class="px-4 py-3">
+                @php
+                  $ordStatusVal = $order->status->value ?? ($order->status ?? '');
+                  $ordColor = match($ordStatusVal) {
+                    'pending' => 'bg-amber-50 text-amber-700',
+                    'processing' => 'bg-blue-50 text-blue-700',
+                    'dispatched' => 'bg-indigo-50 text-indigo-700',
+                    'delivered', 'completed' => 'bg-emerald-50 text-emerald-700',
+                    'cancelled' => 'bg-red-50 text-red-700',
+                    default => 'bg-slate-100 text-slate-700',
+                  };
+                @endphp
+                <span class="inline-flex items-center rounded-full {{ $ordColor }} px-2.5 py-0.5 text-xs font-medium">{{ $order->status->label() }}</span>
+              </td>
+              <td class="px-4 py-3 text-slate-500">{{ $order->created_at->format('M d, Y') }}</td>
+            </tr>
+            @empty
+            <tr>
+              <td colspan="6" class="px-4 py-8 text-center text-slate-500">
+                No orders yet
+              </td>
+            </tr>
+            @endforelse
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+      <div class="px-6 py-4 border-b border-slate-100">
+        <h3 class="text-sm font-semibold text-slate-900">Recent Transactions</h3>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead class="border-b border-slate-100">
+            <tr>
+              <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Reference</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Payment Method</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Amount</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Date</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-50">
+            @forelse($transactions as $transaction)
+            <tr class="hover:bg-slate-50/50">
+              <td class="px-4 py-3 text-slate-900">{{ $transaction->reference }}</td>
+              <td class="px-4 py-3 text-slate-700">{{ $transaction->paymentMethod->name ?? 'N/A' }}</td>
+              <td class="px-4 py-3 text-slate-900">₦{{ number_format($transaction->amount, 2) }}</td>
+              <td class="px-4 py-3">
+                @php
+                  $txnStatVal = $transaction->status->value ?? ($transaction->status ?? '');
+                  $txnStatColor = match($txnStatVal) {
+                    'completed', 'successful', 'paid' => 'bg-emerald-50 text-emerald-700',
+                    'pending' => 'bg-amber-50 text-amber-700',
+                    'failed' => 'bg-red-50 text-red-700',
+                    default => 'bg-slate-100 text-slate-700',
+                  };
+                @endphp
+                <span class="inline-flex items-center rounded-full {{ $txnStatColor }} px-2.5 py-0.5 text-xs font-medium">{{ $transaction->status->label() }}</span>
+              </td>
+              <td class="px-4 py-3 text-slate-500">{{ \Carbon\Carbon::parse($transaction->created_at)->format('M d, Y') }}</td>
+            </tr>
+            @empty
+            <tr>
+              <td colspan="5" class="px-4 py-8 text-center text-slate-500">
+                No transactions yet
+              </td>
+            </tr>
+            @endforelse
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+      <div class="px-6 py-4 border-b border-slate-100">
+        <h3 class="text-sm font-semibold text-slate-900">Activity Log</h3>
+      </div>
+      <div class="p-6">
+        @forelse($activityLogs as $log)
+        <div class="flex items-start gap-3 py-3 {{ !$loop->last ? 'border-b border-slate-50' : '' }}">
+          <div class="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center flex-shrink-0">
+            <i class="fi fi-rr-time-past text-slate-500 text-sm"></i>
+          </div>
+          <div class="flex-1">
+            <p class="text-sm">
+              <strong class="text-slate-900">{{ $log->user ? $log->user->name : 'System' }}</strong>
+              <span class="text-slate-600">{{ $log->description }}</span>
+            </p>
+            <span class="text-xs text-slate-400">
+              {{ $log->created_at->diffForHumans() }}
+              ({{ $log->created_at->format('M d, Y H:i') }})
+            </span>
+          </div>
+        </div>
+        @empty
+        <p class="text-sm text-slate-500 text-center">No activity recorded</p>
+        @endforelse
+      </div>
+    </div>
+  </div>
 </div>
 
-<style>
-.customer-details-page {
-    max-width: 960px;
-    margin: 0 auto;
-}
-.stats-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-    gap: 16px;
-    margin-bottom: 24px;
-}
-.detail-grid {
-    display: grid;
-    grid-template-columns: minmax(250px, 300px) minmax(0, 1fr);
-    gap: 24px;
-    align-items: start;
-}
-.detail-column {
-    display: flex;
-    flex-direction: column;
-    gap: 18px;
-}
-.customer-details-page .card {
-    border-radius: 14px;
-    border-color: rgba(15, 23, 42, 0.08);
-    box-shadow: 0 2px 10px rgba(15, 23, 42, 0.05);
-}
-.stats-grid .card { min-height: 96px; }
-.stats-grid .card-body { padding: 14px 16px; }
-.stats-grid .icon-box {
-    width: 40px;
-    height: 40px;
-}
-.stats-grid h3 { font-size: 18px; }
-.stats-grid h6 {
-    font-size: 12px;
-    letter-spacing: 0.02em;
-    text-transform: uppercase;
-}
-.avatar-circle-lg {
-    width: 72px;
-    height: 72px;
-    border-radius: 50%;
-    background: #007bff;
-    color: white;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: bold;
-    font-size: 28px;
-}
-.icon-box {
-    width: 50px;
-    height: 50px;
-    border-radius: 12px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-.card-body.p-0 table { margin-bottom: 0; }
-.card-header {
-    border-bottom: none;
-    padding-bottom: 0;
-}
-.card-header .card-title {
-    font-size: 15px;
-    font-weight: 600;
-}
-.info-list { display: flex; flex-direction: column; gap: 12px; }
-.info-item { display: flex; gap: 12px; align-items: flex-start; }
-.info-item i { font-size: 18px; color: #007bff; margin-top: 4px; }
-.activity-item { display: flex; gap: 12px; padding: 14px 0; border-bottom: 1px solid #f1f5f9; }
-.activity-item:last-child { border-bottom: none; }
-.activity-icon { width: 36px; height: 36px; border-radius: 50%; background: #f8fafc; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-.activity-icon i { font-size: 16px; color: #64748b; }
-.activity-content { flex: 1; }
-.bg-primary-light { background: rgba(0, 123, 255, 0.08); }
-.bg-success-light { background: rgba(40, 167, 69, 0.1); }
-.bg-info-light { background: rgba(23, 162, 184, 0.1); }
-.bg-warning-light { background: rgba(255, 193, 7, 0.12); }
+{{-- Suspend Modal --}}
+<div id="suspendModal" class="hidden fixed inset-0 z-50 overflow-y-auto" aria-labelledby="suspendModalLabel" role="dialog" aria-modal="true">
+  <div class="fixed inset-0 bg-black/50 backdrop-blur-sm" onclick="closeModal('suspendModal')"></div>
+  <div class="relative min-h-screen flex items-center justify-center p-4">
+    <div class="relative bg-white rounded-xl shadow-xl max-w-lg w-full p-6">
+      <form id="suspendForm" method="POST">
+        @csrf
+        <div class="flex items-center justify-between mb-4">
+          <h5 class="text-lg font-semibold text-red-700" id="suspendModalLabel">
+            <i class="fi fi-rr-ban mr-2"></i> Suspend Customer Account
+          </h5>
+          <button type="button" onclick="closeModal('suspendModal')" class="text-slate-400 hover:text-slate-600">&times;</button>
+        </div>
+        <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
+          <strong class="text-amber-700 text-sm">Warning:</strong> <span class="text-amber-600 text-sm">This will prevent the customer from accessing their account and placing new orders.</span>
+        </div>
+        <p class="text-sm text-slate-700 mb-2">You are about to suspend the account for:</p>
+        <p class="text-sm text-center font-semibold text-slate-900 mb-4" id="suspendCustomerName"></p>
+        <div class="mb-4">
+          <label class="block text-sm font-medium text-slate-700 mb-1">Reason for Suspension *</label>
+          <textarea name="reason" class="w-full rounded-lg border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500" rows="4" required
+                    placeholder="Please provide a detailed reason for suspending this account..."></textarea>
+          <p class="text-xs text-slate-400 mt-1">The customer will receive an email with this reason.</p>
+        </div>
+        <div class="flex items-center justify-end gap-3">
+          <button type="button" onclick="closeModal('suspendModal')" class="px-4 py-2 text-sm font-medium rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">Cancel</button>
+          <button type="submit" class="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg bg-red-600 text-white hover:bg-red-700">
+            <i class="fi fi-rr-ban"></i> Suspend Account
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
 
-@media (max-width: 1400px) {
-    .customer-details-page { max-width: 100%; }
-}
-
-@media (max-width: 992px) {
-    .stats-grid {
-        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-        gap: 14px;
-    }
-    .stats-grid .card-body { padding: 14px; }
-}
-
-@media (max-width: 992px) {
-    .detail-grid {
-        grid-template-columns: 1fr;
-    }
-}
-</style>
+{{-- Activate Modal --}}
+<div id="activateModal" class="hidden fixed inset-0 z-50 overflow-y-auto" aria-labelledby="activateModalLabel" role="dialog" aria-modal="true">
+  <div class="fixed inset-0 bg-black/50 backdrop-blur-sm" onclick="closeModal('activateModal')"></div>
+  <div class="relative min-h-screen flex items-center justify-center p-4">
+    <div class="relative bg-white rounded-xl shadow-xl max-w-lg w-full p-6">
+      <form id="activateForm" method="POST">
+        @csrf
+        <div class="flex items-center justify-between mb-4">
+          <h5 class="text-lg font-semibold text-emerald-700" id="activateModalLabel">
+            <i class="fi fi-rr-check-circle mr-2"></i> Activate Customer Account
+          </h5>
+          <button type="button" onclick="closeModal('activateModal')" class="text-slate-400 hover:text-slate-600">&times;</button>
+        </div>
+        <div class="bg-emerald-50 border border-emerald-200 rounded-lg p-3 mb-4">
+          <strong class="text-emerald-700 text-sm">Confirmation:</strong> <span class="text-emerald-600 text-sm">This will restore full access to the customer's account.</span>
+        </div>
+        <p class="text-sm text-slate-700 mb-2">You are about to activate the account for:</p>
+        <p class="text-sm text-center font-semibold text-slate-900 mb-4" id="activateCustomerName"></p>
+        <p class="text-xs text-slate-400 mb-4">The customer will receive an email notification confirming their account has been activated.</p>
+        <div class="flex items-center justify-end gap-3">
+          <button type="button" onclick="closeModal('activateModal')" class="px-4 py-2 text-sm font-medium rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">Cancel</button>
+          <button type="submit" class="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg bg-emerald-600 text-white hover:bg-emerald-700">
+            <i class="fi fi-rr-check-circle"></i> Activate Account
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
 
 <script>
 function showSuspendModal(accountId, customerName) {
     document.getElementById('suspendCustomerName').textContent = customerName;
     document.getElementById('suspendForm').action = `/superadmin/customers/${accountId}/suspend`;
-    new bootstrap.Modal(document.getElementById('suspendModal')).show();
+    openModal('suspendModal');
 }
 
 function showActivateModal(accountId, customerName) {
     document.getElementById('activateCustomerName').textContent = customerName;
     document.getElementById('activateForm').action = `/superadmin/customers/${accountId}/activate`;
-    new bootstrap.Modal(document.getElementById('activateModal')).show();
+    openModal('activateModal');
 }
 </script>
 @endsection

@@ -1,106 +1,67 @@
 @extends('admin.auth.layout')
 @section('title', 'Platform Setup')
-@section('subtitle', 'Create Superadmin')
 
 @section('content')
-
-<div class="auth-wrapper">
-    <div class="row">
-        <div style="margin-top: 60px;" class="col-xl-5 col-lg-6 mx-auto align-self-center">
-            <div class="auth-form">
-                <div class="text-center mb-4">
-                    @if($company->logo)
-                    <img src="{{ $company->logo }}" alt="Logo" style="height:45px" class="mb-3">
-                    @endif
-                    <h3 class="mb-1">Platform Setup</h3>
-                    <p class="text-muted">Create the first platform administrator account</p>
-                </div>
-
-                @if(session('success'))
-                    <div class="alert alert-success alert-dismissible fade show">
-                        <i class="fa fa-check-circle me-2"></i>{{ session('success') }}
-                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-                    </div>
-                @endif
-
-                @if(session('error'))
-                    <div class="alert alert-danger alert-dismissible fade show">
-                        <i class="fa fa-exclamation-circle me-2"></i>{{ session('error') }}
-                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-                    </div>
-                @endif
-
-                @if($errors->any())
-                    <div class="alert alert-danger alert-dismissible fade show">
-                        <i class="fa fa-exclamation-triangle me-2"></i>Please fix the errors below.
-                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-                    </div>
-                @endif
-
-                <form action="{{ route('admin.setup.process') }}" method="POST">
-                    @csrf
-
-                    <div class="mb-3">
-                        <label class="form-label">Full Name <span class="text-danger">*</span></label>
-                        <input type="text" name="name" class="form-control form-control-lg @error('name') is-invalid @enderror"
-                               placeholder="e.g. John Doe" value="{{ old('name') }}" required autofocus>
-                        @error('name')<div class="invalid-feedback">{{ $message }}</div>@enderror
-                    </div>
-
-                    <div class="mb-3">
-                        <label class="form-label">Email Address <span class="text-danger">*</span></label>
-                        <input type="email" name="email" class="form-control form-control-lg @error('email') is-invalid @enderror"
-                               placeholder="admin@example.com" value="{{ old('email') }}" required>
-                        @error('email')<div class="invalid-feedback">{{ $message }}</div>@enderror
-                    </div>
-
-                    <div class="mb-3">
-                        <label class="form-label">Phone Number <span class="text-danger">*</span></label>
-                        <input type="tel" name="phone" class="form-control form-control-lg @error('phone') is-invalid @enderror"
-                               placeholder="+1234567890" value="{{ old('phone') }}" required>
-                        @error('phone')<div class="invalid-feedback">{{ $message }}</div>@enderror
-                    </div>
-
-                    <div class="mb-3">
-                        <label class="form-label">Password <span class="text-danger">*</span></label>
-                        <div class="position-relative">
-                            <input type="password" name="password" autocomplete="new-password"
-                                   class="form-control form-control-lg @error('password') is-invalid @enderror"
-                                   placeholder="Minimum 8 characters" required>
-                            <span class="show-pass position-absolute top-50 end-0 me-2 translate-middle">
-                                <span class="show"><i class="fa fa-eye-slash"></i></span>
-                                <span class="hide"><i class="fa fa-eye"></i></span>
-                            </span>
-                            @error('password')<div class="invalid-feedback">{{ $message }}</div>@enderror
-                        </div>
-                    </div>
-
-                    <div class="mb-4">
-                        <label class="form-label">Confirm Password <span class="text-danger">*</span></label>
-                        <div class="position-relative">
-                            <input type="password" name="password_confirmation" autocomplete="new-password"
-                                   class="form-control form-control-lg"
-                                   placeholder="Confirm your password" required>
-                            <span class="show-pass position-absolute top-50 end-0 me-2 translate-middle">
-                                <span class="show"><i class="fa fa-eye-slash"></i></span>
-                                <span class="hide"><i class="fa fa-eye"></i></span>
-                            </span>
-                        </div>
-                    </div>
-
-                    <div class="text-center">
-                        <button type="submit" class="btn btn-primary btn-lg w-100">
-                            <i class="fa fa-shield me-2"></i>Create Superadmin Account
-                        </button>
-                    </div>
-                </form>
-
-                <div class="text-center mt-3">
-                    <small class="text-muted">This account will have full access to manage the entire platform.</small>
-                </div>
-            </div>
-        </div>
-    </div>
+<div class="text-center mb-6">
+    @if($company->logo)
+    <img src="{{ $company->logo }}" alt="Logo" class="h-10 mx-auto mb-3">
+    @endif
+    <h1 class="text-xl font-bold text-slate-900">Platform Setup</h1>
+    <p class="text-sm text-slate-500 mt-1">Create the first platform administrator account</p>
 </div>
 
+@if(session('success'))
+<div class="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-sm text-emerald-800">{{ session('success') }}</div>
+@endif
+@if(session('error'))
+<div class="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-800">{{ session('error') }}</div>
+@endif
+@if($errors->any())
+<div class="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-800">Please fix the errors below.</div>
+@endif
+
+<div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+    <form action="{{ route('admin.setup.process') }}" method="POST" class="space-y-4">
+        @csrf
+
+        <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1.5">Full Name</label>
+            <input type="text" name="name" value="{{ old('name') }}" required autofocus placeholder="e.g. John Doe"
+                class="w-full rounded-lg border-slate-300 px-3.5 py-2.5 text-sm shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500 @error('name') border-red-300 @enderror">
+            @error('name')<p class="text-xs text-red-500 mt-1">{{ $message }}</p>@enderror
+        </div>
+
+        <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1.5">Email Address</label>
+            <input type="email" name="email" value="{{ old('email') }}" required placeholder="admin@example.com"
+                class="w-full rounded-lg border-slate-300 px-3.5 py-2.5 text-sm shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500 @error('email') border-red-300 @enderror">
+            @error('email')<p class="text-xs text-red-500 mt-1">{{ $message }}</p>@enderror
+        </div>
+
+        <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1.5">Phone Number</label>
+            <input type="tel" name="phone" value="{{ old('phone') }}" required placeholder="+1234567890"
+                class="w-full rounded-lg border-slate-300 px-3.5 py-2.5 text-sm shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500 @error('phone') border-red-300 @enderror">
+            @error('phone')<p class="text-xs text-red-500 mt-1">{{ $message }}</p>@enderror
+        </div>
+
+        <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1.5">Password</label>
+            <input type="password" name="password" autocomplete="new-password" required placeholder="Minimum 8 characters"
+                class="w-full rounded-lg border-slate-300 px-3.5 py-2.5 text-sm shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500 @error('password') border-red-300 @enderror">
+            @error('password')<p class="text-xs text-red-500 mt-1">{{ $message }}</p>@enderror
+        </div>
+
+        <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1.5">Confirm Password</label>
+            <input type="password" name="password_confirmation" autocomplete="new-password" required placeholder="Confirm your password"
+                class="w-full rounded-lg border-slate-300 px-3.5 py-2.5 text-sm shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500">
+        </div>
+
+        <button type="submit" class="w-full py-2.5 bg-slate-900 text-white text-sm font-semibold rounded-lg hover:bg-slate-800">Create Superadmin Account</button>
+    </form>
+
+    <p class="text-center text-xs text-slate-400 mt-4">This account will have full access to manage the entire platform.</p>
+</div>
+</div>
 @endsection

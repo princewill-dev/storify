@@ -144,9 +144,9 @@
                         <h5 class="mb-0">Customer</h5>
                     </div>
                     <div class="card-body">
-                        <p><strong>Name:</strong><br>{{ $order->customer->full_name }}</p>
-                        <p><strong>Email:</strong><br>{{ $order->customer->email }}</p>
-                        <p><strong>Phone:</strong><br>{{ $order->customer->phone }}</p>
+                        <p><strong>Name:</strong><br>{{ $order->customer?->full_name ?? 'Walk-in' }}</p>
+                        <p><strong>Email:</strong><br>{{ $order->customer?->email ?? '—' }}</p>
+                        <p><strong>Phone:</strong><br>{{ $order->customer?->phone ?? '—' }}</p>
                     </div>
                 </div>
 

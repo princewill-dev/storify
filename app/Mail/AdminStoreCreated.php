@@ -24,7 +24,7 @@ class AdminStoreCreated extends Mailable implements ShouldQueue
             ->view('emails.admin.store-created')
             ->with([
                 'store' => $this->store,
-                'vendor' => $this->store->vendor,
+                'vendor' => $this->store->user,
             ]);
     }
 }

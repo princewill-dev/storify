@@ -9,7 +9,7 @@
             
             <div class="card shadow-sm mb-5">
                 <div class="card-body p-4">
-                    <form action="{{ route('home.store.order.find', ['store_subdomain' => $store->slug]) }}" method="POST">
+                    <form action="/track" method="POST">
                         @csrf
                         <div class="mb-3">
                             <label for="order_number" class="form-label">Order Number</label>

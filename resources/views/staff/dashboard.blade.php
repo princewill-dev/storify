@@ -75,7 +75,7 @@
                     @php $tx = $order->transactions->first(); @endphp
                     <div class="px-5 py-3 flex items-center justify-between text-sm hover:bg-slate-50/50">
                         <div class="min-w-0 flex-1">
-                            <p class="text-xs font-medium text-slate-800">{{ $order->store->name }}</p>
+                            <p class="text-xs font-medium text-slate-800">{{ $order->store?->name ?? '—' }}</p>
                             <p class="text-[10px] text-slate-400">#{{ $order->order_number ?? $order->id }} · {{ $order->created_at->diffForHumans() }}</p>
                         </div>
                         <div class="text-right shrink-0 ml-3">

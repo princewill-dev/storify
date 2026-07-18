@@ -17,7 +17,7 @@
                     <p class="text-xs text-slate-400 mt-2">{{ $warning }}</p>
                     @endif
                 </div>
-                <form method="POST" action="{{ $action }}">
+                <form method="POST" action="{{ $action ?? '#' }}">
                     @csrf
                     @if(strtoupper($method ?? 'POST') !== 'POST')
                         @method($method)

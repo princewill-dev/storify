@@ -38,7 +38,7 @@
                 @foreach($orders as $order)
                 <tr>
                     <td class="ps-4 fw-semibold">{{ $order->order_number }}</td>
-                    <td class="text-muted">{{ $order->store->name }}</td>
+                    <td class="text-muted">{{ $order->store?->name ?? '—' }}</td>
                     <td>{{ $order->items->count() }}</td>
                     <td class="fw-semibold">₦{{ number_format($order->total, 2) }}</td>
                     <td><span class="badge-status bg-secondary bg-opacity-10 text-secondary">{{ $order->status->label() }}</span></td>

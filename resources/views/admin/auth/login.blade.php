@@ -1,81 +1,50 @@
 @extends('admin.auth.layout')
-@section('title', 'Superadmin')
-@section('subtitle', 'Login')
+@section('title', 'Superadmin Login')
 
 @section('content')
-
-<div class="auth-wrapper">
-    <div class="row">
-        <div style="margin-top: 100px;" class="col-xl-6 col-lg-6 mx-auto align-self-center">
-            <div class="auth-form" style="border: 2px solid #000; border-radius: 5px; padding: 20px;">
-                <div class="text-center mb-4">
-                    @if($company->logo)
-                        <img src="{{ $company->logo }}" alt="Logo" style="height:40px" class="mb-2">
-                    @endif
-                    <br>
-                    <br>
-                    <h3 class="mb-0">Management Portal</h3>
-                </div>
-
-                @if(session('success'))
-                    <div class="alert alert-success alert-dismissible fade show">
-                        <i class="fa fa-check-circle me-2"></i>{{ session('success') }}
-                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-                    </div>
-                @endif
-
-                @if(session('error'))
-                    <div class="alert alert-danger alert-dismissible fade show">
-                        <i class="fa fa-exclamation-circle me-2"></i>{{ session('error') }}
-                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-                    </div>
-                @endif
-
-                <form action="{{ route('admin.login.process') }}" method="POST">
-                    @csrf
-
-                    <div class="mb-3">
-                        <label class="form-label">Email <span class="text-danger">*</span></label>
-                        <input type="email" name="email" class="form-control form-control-lg @error('email') is-invalid @enderror" 
-                               placeholder="hello@example.com" value="{{ old('email') }}" required>
-                        @error('email')
-                            <div class="invalid-feedback">{{ $message }}</div>
-                        @enderror
-                    </div>
-
-                    <div class="mb-3">
-                        <label class="form-label">Password <span class="text-danger">*</span></label>
-                        <div class="position-relative">
-                            <input type="password" name="password" autocomplete="current-password" 
-                                   class="form-control form-control-lg ic-password @error('password') is-invalid @enderror" 
-                                   placeholder="Enter your password" required>
-                            <span class="show-pass position-absolute top-50 end-0 me-2 translate-middle">
-                                <span class="show"><i class="fa fa-eye-slash"></i></span>
-                                <span class="hide"><i class="fa fa-eye"></i></span>
-                            </span>
-                            @error('password')
-                                <div class="invalid-feedback">{{ $message }}</div>
-                            @enderror
-                        </div>
-                    </div>
-
-                    <div class="d-flex gap-2 flex-wrap justify-content-between mb-4 mb-lg-5">
-                        <a href="{{ route('admin.password.forgot') }}" class="btn-link text-primary">Forgot Password?</a>
-                    </div>
-
-                    <div class="text-center mb-4">
-                        <button type="submit" class="btn btn-primary btn-lg w-100 mb-3">
-                            <i class="fa fa-sign-in-alt me-2"></i>Sign In
-                        </button>
-                    </div>
-                </form>
-
-                <center>
-                    <a href="{{ route('home.index') }}">Home</a>
-                </center>
-            </div>
-        </div>
-    </div>
+<div class="text-center mb-6">
+    @if($company->logo)
+    <img src="{{ $company->logo }}" alt="Logo" class="h-10 mx-auto mb-3">
+    @endif
+    <h1 class="text-xl font-bold text-slate-900">Admin Portal</h1>
+    <p class="text-sm text-slate-500 mt-1">Sign in to manage the platform</p>
 </div>
 
+@if(session('success'))
+<div class="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-sm text-emerald-800">{{ session('success') }}</div>
+@endif
+
+@if(session('error'))
+<div class="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-800">{{ session('error') }}</div>
+@endif
+
+@if($errors->any())
+<div class="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-800">{{ $errors->first() }}</div>
+@endif
+
+<div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+    <form action="{{ route('admin.login.process') }}" method="POST" class="space-y-4">
+        @csrf
+
+        <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1.5">Email</label>
+            <input type="email" name="email" value="{{ old('email') }}" required autofocus placeholder="hello@example.com"
+                class="w-full rounded-lg border-slate-300 px-3.5 py-2.5 text-sm shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500 @error('email') border-red-300 @enderror">
+        </div>
+
+        <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1.5">Password</label>
+            <input type="password" name="password" autocomplete="current-password" required placeholder="Enter your password"
+                class="w-full rounded-lg border-slate-300 px-3.5 py-2.5 text-sm shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500 @error('password') border-red-300 @enderror">
+        </div>
+
+        <div class="flex items-center justify-between">
+            <a href="{{ route('admin.password.forgot') }}" class="text-xs text-blue-600 hover:underline">Forgot Password?</a>
+        </div>
+
+        <button type="submit" class="w-full py-2.5 bg-slate-900 text-white text-sm font-semibold rounded-lg hover:bg-slate-800 transition-colors">
+            Sign In
+        </button>
+    </form>
+</div>
 @endsection

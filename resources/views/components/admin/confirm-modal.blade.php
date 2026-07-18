@@ -1,21 +1,17 @@
-<div id="{{ $id }}" class="modal fade" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered modal-sm">
-        <div class="modal-content">
-            <div class="modal-header border-0 pb-0">
-                <h5 class="modal-title">{{ $title }}</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body text-center py-4">
+<div id="{{ $id }}" class="hidden fixed inset-0 z-50 overflow-y-auto" aria-labelledby="{{ $id }}Label" role="dialog" aria-modal="true">
+    <div class="fixed inset-0 bg-black/50 backdrop-blur-sm" onclick="closeModal('{{ $id }}')"></div>
+    <div class="relative min-h-screen flex items-center justify-center p-4">
+        <div class="relative bg-white rounded-xl shadow-xl max-w-sm w-full p-6">
+            <div class="text-center mb-4">
                 @if($danger ?? true)
-                <div class="mb-3">
-                    <span class="d-inline-flex align-items-center justify-content-center rounded-circle bg-danger bg-opacity-10" style="width:48px;height:48px">
-                        <i class="fi fi-rr-trash text-danger fs-5"></i>
-                    </span>
+                <div class="inline-flex items-center justify-center w-12 h-12 rounded-full bg-red-50 mb-3">
+                    <i class="fi fi-rr-trash text-red-600 text-xl"></i>
                 </div>
                 @endif
-                <p class="mb-1">{{ $message }}</p>
+                <h5 class="text-lg font-semibold text-slate-900" id="{{ $id }}Label">{{ $title }}</h5>
+                <p class="text-sm text-slate-600 mt-1">{{ $message }}</p>
                 @if(isset($warning))
-                <small class="text-muted">{{ $warning }}</small>
+                <p class="text-xs text-slate-400 mt-1">{{ $warning }}</p>
                 @endif
             </div>
             <form method="POST" action="{{ $action }}">
@@ -24,9 +20,9 @@
                     @method($method)
                 @endif
                 {{ $slot }}
-                <div class="modal-footer border-0 pt-0 justify-content-center gap-2">
-                    <button type="submit" class="btn {{ ($danger ?? true) ? 'btn-danger' : 'btn-dark' }}">{{ $confirmText ?? 'Confirm' }}</button>
-                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <div class="flex items-center justify-center gap-3">
+                    <button type="submit" class="px-4 py-2 text-sm font-medium rounded-lg {{ ($danger ?? true) ? 'bg-red-600 hover:bg-red-700' : 'bg-slate-900 hover:bg-slate-800' }} text-white">{{ $confirmText ?? 'Confirm' }}</button>
+                    <button type="button" onclick="closeModal('{{ $id }}')" class="px-4 py-2 text-sm font-medium rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">Cancel</button>
                 </div>
             </form>
         </div>

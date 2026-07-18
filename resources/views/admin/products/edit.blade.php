@@ -2,363 +2,367 @@
 @section('subtitle', 'Edit product')
 
 @section('content')
-<div class="container-fluid">
-  <div class="d-flex justify-content-between align-items-center mb-3">
-    <h4 class="mb-0">Edit product</h4>
-    <a href="{{ $backUrl ?? route('admin.products.index') }}" class="btn btn-light">Back</a>
-  </div>
+<div class="flex items-center justify-between mb-6">
+  <h2 class="text-lg font-bold text-slate-900">Edit product</h2>
+  <a href="{{ $backUrl ?? route('admin.products.index') }}" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">Back</a>
+</div>
 
-  <div class="card">
-    <div class="card-body">
-      <form method="post" action="{{ route('admin.products.update', $product) }}" enctype="multipart/form-data">
-        @csrf
-        @method('PUT')
-        <div class="row g-3">
-          <div class="col-md-4">
-            <label class="form-label">Store</label>
-            <select name="store_id" class="form-select" required>
-              @foreach($stores as $s)
-                <option value="{{ $s->id }}" @selected(old('store_id', $product->store_id)==$s->id)>{{ $s->name }}</option>
+<div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+  <div class="p-6">
+    <form method="post" action="{{ route('admin.products.update', $product) }}" enctype="multipart/form-data">
+      @csrf
+      @method('PUT')
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Store</label>
+          <select name="store_id" class="w-full rounded-lg border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500" required>
+            @foreach($stores as $s)
+              <option value="{{ $s->id }}" @selected(old('store_id', $product->store_id)==$s->id)>{{ $s->name }}</option>
+            @endforeach
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Category</label>
+          <select name="category_id" class="w-full rounded-lg border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500">
+            <option value="">—</option>
+            @foreach($categories as $c)
+              <option value="{{ $c->id }}" @selected(old('category_id', $product->category_id)==$c->id)>{{ $c->name }}</option>
+            @endforeach
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Status</label>
+          <select name="status" class="w-full rounded-lg border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500" required>
+            <option value="active" @selected(old('status', $product->status)=='active')>active</option>
+            <option value="inactive" @selected(old('status', $product->status)=='inactive')>inactive</option>
+          </select>
+        </div>
+
+        <div class="md:col-span-2">
+          <label class="block text-sm font-medium text-slate-700 mb-1">Name</label>
+          <input type="text" name="name" class="w-full rounded-lg border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500" value="{{ old('name', $product->name) }}" required>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Brand</label>
+          <input type="text" name="brand" class="w-full rounded-lg border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500" value="{{ old('brand', $product->brand) }}" placeholder="Apple, Samsung, ...">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Quantity</label>
+          <input type="number" name="quantity" min="1" class="w-full rounded-lg border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500" value="{{ old('quantity', $product->quantity) }}" required>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Amount</label>
+          <div class="flex rounded-lg border border-slate-300 focus-within:border-slate-500 focus-within:ring-1 focus-within:ring-slate-500">
+            <input type="number" name="amount" step="0.01" min="0.01" class="flex-1 border-0 rounded-l-lg px-3 py-2 text-sm focus:outline-none" value="{{ old('amount', number_format($product->amount,2,'.','')) }}" required>
+            <select name="currency_id" class="border-0 border-l border-slate-300 rounded-r-lg px-3 py-2 text-sm focus:outline-none bg-white max-w-[140px]">
+              @foreach(($currencies ?? []) as $cur)
+                <option value="{{ $cur->id }}" @selected(old('currency_id', $product->currency_id ?? ($defaultCurrencyId ?? null)) == $cur->id)>{{ $cur->code }}</option>
               @endforeach
             </select>
           </div>
-          <div class="col-md-4">
-            <label class="form-label">Category</label>
-            <select name="category_id" class="form-select">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Discount (%)</label>
+          <input type="number" name="discount_percentage" step="0.01" min="0" max="100" class="w-full rounded-lg border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500" value="{{ old('discount_percentage', $product->discount_percentage) }}" placeholder="e.g. 10">
+          <p class="text-xs text-slate-400 mt-1">Optional. Final price = Amount × (1 − discount/100).</p>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Size</label>
+          <div class="flex rounded-lg border border-slate-300 focus-within:border-slate-500 focus-within:ring-1 focus-within:ring-slate-500">
+            <input type="number" step="0.01" min="0" name="size" class="flex-1 border-0 rounded-l-lg px-3 py-2 text-sm focus:outline-none" value="{{ old('size', $product->size) }}" placeholder="e.g. 15">
+            <select name="size_unit_id" class="border-0 border-l border-slate-300 rounded-r-lg px-3 py-2 text-sm focus:outline-none bg-white max-w-[160px]">
               <option value="">—</option>
-              @foreach($categories as $c)
-                <option value="{{ $c->id }}" @selected(old('category_id', $product->category_id)==$c->id)>{{ $c->name }}</option>
+              @foreach($sizeUnits as $u)
+                <option value="{{ $u->id }}" @selected(old('size_unit_id', $product->size_unit_id)==$u->id)>{{ $u->code }}</option>
               @endforeach
             </select>
           </div>
-          <div class="col-md-4">
-            <label class="form-label">Status</label>
-            <select name="status" class="form-select" required>
-              <option value="active" @selected(old('status', $product->status)=='active')>active</option>
-              <option value="inactive" @selected(old('status', $product->status)=='inactive')>inactive</option>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Weight</label>
+          <div class="flex rounded-lg border border-slate-300 focus-within:border-slate-500 focus-within:ring-1 focus-within:ring-slate-500">
+            <input type="number" step="0.01" min="0" name="weight" class="flex-1 border-0 rounded-l-lg px-3 py-2 text-sm focus:outline-none" value="{{ old('weight', $product->weight) }}" placeholder="e.g. 1.2">
+            <select name="weight_unit_id" class="border-0 border-l border-slate-300 rounded-r-lg px-3 py-2 text-sm focus:outline-none bg-white max-w-[160px]">
+              <option value="">—</option>
+              @foreach($weightUnits as $u)
+                <option value="{{ $u->id }}" @selected(old('weight_unit_id', $product->weight_unit_id)==$u->id)>{{ $u->code }}</option>
+              @endforeach
             </select>
           </div>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Color</label>
+          <input type="text" name="color" class="w-full rounded-lg border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500" value="{{ old('color', $product->color) }}" placeholder="e.g. Space Gray">
+        </div>
+        <div class="md:col-span-2">
+          <label class="block text-sm font-medium text-slate-700 mb-1">Tags</label>
+          <input type="text" name="tags" class="w-full rounded-lg border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500" value="{{ old('tags', $product->tags) }}" placeholder="comma separated e.g. laptop, pro, 2024">
+        </div>
 
-          <div class="col-md-6">
-            <label class="form-label">Name</label>
-            <input type="text" name="name" class="form-control" value="{{ old('name', $product->name) }}" required>
+        <div class="md:col-span-3 mt-2">
+          <div class="flex items-center gap-3">
+            <input class="rounded border-slate-300 text-slate-900 focus:ring-slate-500" type="checkbox" id="hasBulkToggle">
+            <label class="text-sm text-slate-700" for="hasBulkToggle">Has Bulk Pricing?</label>
           </div>
-          <div class="col-md-3">
-            <label class="form-label">Brand</label>
-            <input type="text" name="brand" class="form-control" value="{{ old('brand', $product->brand) }}" placeholder="Apple, Samsung, ...">
-          </div>
-          <div class="col-md-3">
-            <label class="form-label">Quantity</label>
-            <input type="number" name="quantity" min="1" class="form-control" value="{{ old('quantity', $product->quantity) }}" required>
-          </div>
-          <div class="col-md-4">
-            <label class="form-label">Amount</label>
-            <div class="input-group">
-              <input type="number" name="amount" step="0.01" min="0.01" class="form-control" value="{{ old('amount', number_format($product->amount,2,'.','')) }}" required>
-              <select name="currency_id" class="form-select" style="max-width: 140px;">
-                @foreach(($currencies ?? []) as $cur)
-                  <option value="{{ $cur->id }}" @selected(old('currency_id', $product->currency_id ?? ($defaultCurrencyId ?? null)) == $cur->id)>{{ $cur->code }}</option>
-                @endforeach
-              </select>
-            </div>
-          </div>
-          <div class="col-md-4">
-            <label class="form-label">Discount (%)</label>
-            <input type="number" name="discount_percentage" step="0.01" min="0" max="100" class="form-control" value="{{ old('discount_percentage', $product->discount_percentage) }}" placeholder="e.g. 10">
-            <small class="text-muted">Optional. Final price = Amount × (1 − discount/100).</small>
-          </div>
-          <div class="col-md-4">
-            <label class="form-label">Size</label>
-            <div class="input-group">
-              <input type="number" step="0.01" min="0" name="size" class="form-control" value="{{ old('size', $product->size) }}" placeholder="e.g. 15">
-              <select name="size_unit_id" class="form-select" style="max-width: 160px;">
-                <option value="">—</option>
-                @foreach($sizeUnits as $u)
-                  <option value="{{ $u->id }}" @selected(old('size_unit_id', $product->size_unit_id)==$u->id)>{{ $u->code }}</option>
-                @endforeach
-              </select>
-            </div>
-          </div>
-          <div class="col-md-4">
-            <label class="form-label">Weight</label>
-            <div class="input-group">
-              <input type="number" step="0.01" min="0" name="weight" class="form-control" value="{{ old('weight', $product->weight) }}" placeholder="e.g. 1.2">
-              <select name="weight_unit_id" class="form-select" style="max-width: 160px;">
-                <option value="">—</option>
-                @foreach($weightUnits as $u)
-                  <option value="{{ $u->id }}" @selected(old('weight_unit_id', $product->weight_unit_id)==$u->id)>{{ $u->code }}</option>
-                @endforeach
-              </select>
-            </div>
-          </div>
-          <div class="col-md-3">
-            <label class="form-label">Color</label>
-            <input type="text" name="color" class="form-control" value="{{ old('color', $product->color) }}" placeholder="e.g. Space Gray">
-          </div>
-          <div class="col-md-6">
-            <label class="form-label">Tags</label>
-            <input type="text" name="tags" class="form-control" value="{{ old('tags', $product->tags) }}" placeholder="comma separated e.g. laptop, pro, 2024">
-          </div>
-          <div class="col-12 mt-3">
-            <div class="form-check form-switch">
-              <input class="form-check-input" type="checkbox" id="hasBulkToggle">
-              <label class="form-check-label" for="hasBulkToggle">Has Bulk Pricing?</label>
-            </div>
-            <small class="text-muted">Enable to set a bulk quantity threshold and a discounted price.</small>
-          </div>
+          <p class="text-xs text-slate-400 mt-1">Enable to set a bulk quantity threshold and a discounted price.</p>
+        </div>
 
-          <div class="col-12" id="bulkSection" style="display: none;">
-            <div class="card bg-light">
-              <div class="card-body">
-                <div class="row g-3">
-                  <div class="col-md-6">
-                    <label class="form-label">Bulk Quantity (Threshold)</label>
-                    <input type="number" name="bulk_quantity" class="form-control" value="{{ old('bulk_quantity', $product->bulk_quantity) }}" placeholder="e.g. 50">
-                    <small class="text-muted">Minimum quantity to qualify for bulk price.</small>
-                  </div>
-                  <div class="col-md-6">
-                    <label class="form-label">Bulk Price (Total for Threshold)</label>
-                    <input type="number" step="0.01" name="bulk_price" class="form-control" value="{{ old('bulk_price', $product->bulk_price) }}" placeholder="e.g. 2000.00">
-                    <small class="text-muted">Total price for the bulk quantity (e.g. Price for 50 units).</small>
-                  </div>
-                </div>
+        <div class="md:col-span-3" id="bulkSection" style="display: none;">
+          <div class="bg-slate-50 border border-slate-200 rounded-lg p-4">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Bulk Quantity (Threshold)</label>
+                <input type="number" name="bulk_quantity" class="w-full rounded-lg border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500" value="{{ old('bulk_quantity', $product->bulk_quantity) }}" placeholder="e.g. 50">
+                <p class="text-xs text-slate-400 mt-1">Minimum quantity to qualify for bulk price.</p>
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Bulk Price (Total for Threshold)</label>
+                <input type="number" step="0.01" name="bulk_price" class="w-full rounded-lg border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500" value="{{ old('bulk_price', $product->bulk_price) }}" placeholder="e.g. 2000.00">
+                <p class="text-xs text-slate-400 mt-1">Total price for the bulk quantity (e.g. Price for 50 units).</p>
               </div>
             </div>
           </div>
+        </div>
 
-          <div class="col-12 mt-2">
-            <div class="form-check form-switch">
-              <input class="form-check-input" type="checkbox" id="hasVariantsToggle" name="has_variants" value="1" {{ old('has_variants', $product->has_variants) ? 'checked' : '' }}>
-              <label class="form-check-label" for="hasVariantsToggle">Has variants?</label>
-            </div>
-            <small class="text-muted">Enable to define multiple sizes, weights, colors with their own price and stock.</small>
+        <div class="md:col-span-3 mt-2">
+          <div class="flex items-center gap-3">
+            <input class="rounded border-slate-300 text-slate-900 focus:ring-slate-500" type="checkbox" id="hasVariantsToggle" name="has_variants" value="1" {{ old('has_variants', $product->has_variants) ? 'checked' : '' }}>
+            <label class="text-sm text-slate-700" for="hasVariantsToggle">Has variants?</label>
           </div>
+          <p class="text-xs text-slate-400 mt-1">Enable to define multiple sizes, weights, colors with their own price and stock.</p>
+        </div>
 
-          <div class="col-12" id="variantsSection" style="display: none;">
-            <hr>
-            <div class="d-flex justify-content-between align-items-center mb-2">
-              <h6 class="mb-0">Variants</h6>
-              <button type="button" class="btn btn-sm btn-outline-primary" onclick="addVariantRow()">Add Variant</button>
-            </div>
-            <div id="variantsContainer" class="row g-2">
-              @php($oldVariants = collect(old('variants', $product->variants?->map(function($v){return [
-                'id'=>$v->id,
-                'size'=>$v->size,
-                'size_unit_id'=>$v->size_unit_id,
-                'weight'=>$v->weight,
-                'weight_unit_id'=>$v->weight_unit_id,
-                'color'=>$v->color,
-                'sku'=>$v->sku,
-                'quantity'=>$v->quantity,
-                'amount'=>$v->amount,
-                'currency_id'=>$v->currency_id,
-                'status'=>$v->status,
-                'featured'=>$v->featured,
-              ];})) ))
-              @foreach(($oldVariants ?? []) as $i => $v)
-                <div class="col-12 border rounded p-2 mb-2 variant-row">
-                  <div class="row g-2">
-                    <input type="hidden" name="variants[{{ $i }}][id]" value="{{ $v['id'] ?? '' }}">
-                    <div class="col-md-2">
-                      <label class="form-label mb-1">Size</label>
-                      <input type="number" step="0.01" class="form-control" name="variants[{{ $i }}][size]" value="{{ $v['size'] ?? '' }}" placeholder="e.g. 15">
-                    </div>
-                    <div class="col-md-2">
-                      <label class="form-label mb-1">Size Unit</label>
-                      <select class="form-select" name="variants[{{ $i }}][size_unit_id]">
-                        <option value="">—</option>
-                        @foreach(($sizeUnits ?? []) as $u)
-                          <option value="{{ $u->id }}" @selected(($v['size_unit_id'] ?? '')==$u->id)>{{ $u->code }}</option>
-                        @endforeach
-                      </select>
-                    </div>
-                    <div class="col-md-2">
-                      <label class="form-label mb-1">Weight</label>
-                      <input type="number" step="0.01" class="form-control" name="variants[{{ $i }}][weight]" value="{{ $v['weight'] ?? '' }}" placeholder="e.g. 1.2">
-                    </div>
-                    <div class="col-md-2">
-                      <label class="form-label mb-1">Weight Unit</label>
-                      <select class="form-select" name="variants[{{ $i }}][weight_unit_id]">
-                        <option value="">—</option>
-                        @foreach(($weightUnits ?? []) as $u)
-                          <option value="{{ $u->id }}" @selected(($v['weight_unit_id'] ?? '')==$u->id)>{{ $u->code }}</option>
-                        @endforeach
-                      </select>
-                    </div>
-                    <div class="col-md-2">
-                      <label class="form-label mb-1">Color</label>
-                      <input type="text" class="form-control" name="variants[{{ $i }}][color]" value="{{ $v['color'] ?? '' }}" placeholder="e.g. Red">
-                    </div>
-                    <div class="col-md-2">
-                      <label class="form-label mb-1">SKU</label>
-                      <input type="text" class="form-control" name="variants[{{ $i }}][sku]" value="{{ $v['sku'] ?? '' }}" placeholder="optional">
-                    </div>
-                    <div class="col-md-3">
-                      <label class="form-label mb-1">Quantity</label>
-                      <input type="number" min="1" class="form-control" name="variants[{{ $i }}][quantity]" value="{{ $v['quantity'] ?? '' }}" required>
-                    </div>
-                    <div class="col-md-4">
-                      <label class="form-label mb-1">Amount</label>
-                      <div class="input-group">
-                        <input type="number" step="0.01" min="0.01" class="form-control" name="variants[{{ $i }}][amount]" value="{{ isset($v['amount']) ? number_format($v['amount'],2,'.','') : '' }}" required>
-                        <select class="form-select" name="variants[{{ $i }}][currency_id]" style="max-width: 140px;">
-                          @foreach(($currencies ?? []) as $cur)
-                            <option value="{{ $cur->id }}" @selected(($v['currency_id'] ?? ($defaultCurrencyId ?? null)) == $cur->id)>{{ $cur->code }}</option>
-                          @endforeach
-                        </select>
-                      </div>
-                    </div>
-                    <div class="col-md-3">
-                      <label class="form-label mb-1">Status</label>
-                      <select class="form-select" name="variants[{{ $i }}][status]">
-                        <option value="active" @selected(($v['status'] ?? 'active')==='active')>active</option>
-                        <option value="inactive" @selected(($v['status'] ?? '')==='inactive')>inactive</option>
-                      </select>
-                    </div>
-                    <div class="col-md-2 d-flex align-items-end">
-                      @php($fid = 'variant-featured-'.$i)
-                      <div class="form-check">
-                        <input class="form-check-input" type="checkbox" name="variants[{{ $i }}][featured]" value="1" id="{{ $fid }}" @checked(!empty($v['featured']))>
-                        <label class="form-check-label" for="{{ $fid }}">Featured</label>
-                      </div>
-                    </div>
-                    <div class="col-md-2 d-flex align-items-end justify-content-end">
-                      <button type="button" class="btn btn-outline-danger btn-sm" onclick="removeVariantRow(this)">Remove</button>
-                    </div>
+        <div class="md:col-span-3" id="variantsSection" style="display: none;">
+          <hr class="border-slate-200 my-3">
+          <div class="flex items-center justify-between mb-3">
+            <h6 class="text-sm font-semibold text-slate-900">Variants</h6>
+            <button type="button" onclick="addVariantRow()" class="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">Add Variant</button>
+          </div>
+          <div id="variantsContainer" class="grid grid-cols-1 gap-2">
+            @php($oldVariants = collect(old('variants', $product->variants?->map(function($v){return [
+              'id'=>$v->id,
+              'size'=>$v->size,
+              'size_unit_id'=>$v->size_unit_id,
+              'weight'=>$v->weight,
+              'weight_unit_id'=>$v->weight_unit_id,
+              'color'=>$v->color,
+              'sku'=>$v->sku,
+              'quantity'=>$v->quantity,
+              'amount'=>$v->amount,
+              'currency_id'=>$v->currency_id,
+              'status'=>$v->status,
+              'featured'=>$v->featured,
+            ];})) ))
+            @foreach(($oldVariants ?? []) as $i => $v)
+              <div class="border border-slate-200 rounded-lg p-3 variant-row">
+                <div class="grid grid-cols-1 md:grid-cols-12 gap-2">
+                  <input type="hidden" name="variants[{{ $i }}][id]" value="{{ $v['id'] ?? '' }}">
+                  <div class="md:col-span-2">
+                    <label class="block text-xs text-slate-600 mb-1">Size</label>
+                    <input type="number" step="0.01" class="w-full rounded-lg border-slate-300 px-3 py-1.5 text-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500" name="variants[{{ $i }}][size]" value="{{ $v['size'] ?? '' }}" placeholder="e.g. 15">
                   </div>
-                </div>
-              @endforeach
-            </div>
-            <template id="variantRowTemplate">
-              <div class="col-12 border rounded p-2 mb-2 variant-row">
-                <div class="row g-2">
-                  <div class="col-md-2">
-                    <label class="form-label mb-1">Size</label>
-                    <input type="number" step="0.01" class="form-control" name="__NAME__[size]" placeholder="e.g. 15">
-                  </div>
-                  <div class="col-md-2">
-                    <label class="form-label mb-1">Size Unit</label>
-                    <select class="form-select" name="__NAME__[size_unit_id]">
+                  <div class="md:col-span-2">
+                    <label class="block text-xs text-slate-600 mb-1">Size Unit</label>
+                    <select class="w-full rounded-lg border-slate-300 px-3 py-1.5 text-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500" name="variants[{{ $i }}][size_unit_id]">
                       <option value="">—</option>
                       @foreach(($sizeUnits ?? []) as $u)
-                        <option value="{{ $u->id }}">{{ $u->code }}</option>
+                        <option value="{{ $u->id }}" @selected(($v['size_unit_id'] ?? '')==$u->id)>{{ $u->code }}</option>
                       @endforeach
                     </select>
                   </div>
-                  <div class="col-md-2">
-                    <label class="form-label mb-1">Weight</label>
-                    <input type="number" step="0.01" class="form-control" name="__NAME__[weight]" placeholder="e.g. 1.2">
+                  <div class="md:col-span-2">
+                    <label class="block text-xs text-slate-600 mb-1">Weight</label>
+                    <input type="number" step="0.01" class="w-full rounded-lg border-slate-300 px-3 py-1.5 text-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500" name="variants[{{ $i }}][weight]" value="{{ $v['weight'] ?? '' }}" placeholder="e.g. 1.2">
                   </div>
-                  <div class="col-md-2">
-                    <label class="form-label mb-1">Weight Unit</label>
-                    <select class="form-select" name="__NAME__[weight_unit_id]">
+                  <div class="md:col-span-2">
+                    <label class="block text-xs text-slate-600 mb-1">Weight Unit</label>
+                    <select class="w-full rounded-lg border-slate-300 px-3 py-1.5 text-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500" name="variants[{{ $i }}][weight_unit_id]">
                       <option value="">—</option>
                       @foreach(($weightUnits ?? []) as $u)
-                        <option value="{{ $u->id }}">{{ $u->code }}</option>
+                        <option value="{{ $u->id }}" @selected(($v['weight_unit_id'] ?? '')==$u->id)>{{ $u->code }}</option>
                       @endforeach
                     </select>
                   </div>
-                  <div class="col-md-2">
-                    <label class="form-label mb-1">Color</label>
-                    <input type="text" class="form-control" name="__NAME__[color]" placeholder="e.g. Red">
+                  <div class="md:col-span-2">
+                    <label class="block text-xs text-slate-600 mb-1">Color</label>
+                    <input type="text" class="w-full rounded-lg border-slate-300 px-3 py-1.5 text-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500" name="variants[{{ $i }}][color]" value="{{ $v['color'] ?? '' }}" placeholder="e.g. Red">
                   </div>
-                  <div class="col-md-2">
-                    <label class="form-label mb-1">SKU</label>
-                    <input type="text" class="form-control" name="__NAME__[sku]" placeholder="optional">
+                  <div class="md:col-span-2">
+                    <label class="block text-xs text-slate-600 mb-1">SKU</label>
+                    <input type="text" class="w-full rounded-lg border-slate-300 px-3 py-1.5 text-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500" name="variants[{{ $i }}][sku]" value="{{ $v['sku'] ?? '' }}" placeholder="optional">
                   </div>
-                  <div class="col-md-3">
-                    <label class="form-label mb-1">Quantity</label>
-                    <input type="number" min="1" class="form-control" name="__NAME__[quantity]" required>
+                  <div class="md:col-span-3">
+                    <label class="block text-xs text-slate-600 mb-1">Quantity</label>
+                    <input type="number" min="1" class="w-full rounded-lg border-slate-300 px-3 py-1.5 text-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500" name="variants[{{ $i }}][quantity]" value="{{ $v['quantity'] ?? '' }}" required>
                   </div>
-                  <div class="col-md-4">
-                    <label class="form-label mb-1">Amount</label>
-                    <div class="input-group">
-                      <input type="number" step="0.01" min="0.01" class="form-control" name="__NAME__[amount]" required>
-                      <select class="form-select" name="__NAME__[currency_id]" style="max-width: 140px;">
+                  <div class="md:col-span-4">
+                    <label class="block text-xs text-slate-600 mb-1">Amount</label>
+                    <div class="flex rounded-lg border border-slate-300 focus-within:border-slate-500 focus-within:ring-1 focus-within:ring-slate-500">
+                      <input type="number" step="0.01" min="0.01" class="flex-1 border-0 rounded-l-lg px-3 py-1.5 text-sm focus:outline-none" name="variants[{{ $i }}][amount]" value="{{ isset($v['amount']) ? number_format($v['amount'],2,'.','') : '' }}" required>
+                      <select class="border-0 border-l border-slate-300 rounded-r-lg px-3 py-1.5 text-sm focus:outline-none bg-white max-w-[140px]" name="variants[{{ $i }}][currency_id]">
                         @foreach(($currencies ?? []) as $cur)
-                          <option value="{{ $cur->id }}" @selected(($defaultCurrencyId ?? null) == $cur->id)>{{ $cur->code }}</option>
+                          <option value="{{ $cur->id }}" @selected(($v['currency_id'] ?? ($defaultCurrencyId ?? null)) == $cur->id)>{{ $cur->code }}</option>
                         @endforeach
                       </select>
                     </div>
                   </div>
-                  <div class="col-md-3">
-                    <label class="form-label mb-1">Status</label>
-                    <select class="form-select" name="__NAME__[status]">
-                      <option value="active">active</option>
-                      <option value="inactive">inactive</option>
+                  <div class="md:col-span-3">
+                    <label class="block text-xs text-slate-600 mb-1">Status</label>
+                    <select class="w-full rounded-lg border-slate-300 px-3 py-1.5 text-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500" name="variants[{{ $i }}][status]">
+                      <option value="active" @selected(($v['status'] ?? 'active')==='active')>active</option>
+                      <option value="inactive" @selected(($v['status'] ?? '')==='inactive')>inactive</option>
                     </select>
                   </div>
-                  <div class="col-md-2 d-flex align-items-end">
-                    <div class="form-check">
-                      <input class="form-check-input" type="checkbox" name="__NAME__[featured]" value="1" id="__ID__">
-                      <label class="form-check-label" for="__ID__">Featured</label>
+                  <div class="md:col-span-2 flex items-end">
+                    @php($fid = 'variant-featured-'.$i)
+                    <div class="flex items-center gap-2">
+                      <input class="rounded border-slate-300 text-slate-900 focus:ring-slate-500" type="checkbox" name="variants[{{ $i }}][featured]" value="1" id="{{ $fid }}" @checked(!empty($v['featured']))>
+                      <label class="text-xs text-slate-600" for="{{ $fid }}">Featured</label>
                     </div>
                   </div>
-                  <div class="col-md-2 d-flex align-items-end justify-content-end">
-                    <button type="button" class="btn btn-outline-danger btn-sm" onclick="removeVariantRow(this)">Remove</button>
+                  <div class="md:col-span-2 flex items-end justify-end">
+                    <button type="button" class="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg border border-red-200 text-red-600 hover:bg-red-50" onclick="removeVariantRow(this)">Remove</button>
                   </div>
                 </div>
               </div>
-            </template>
+            @endforeach
           </div>
-          <div class="col-12">
-            <div class="form-check">
-              <input class="form-check-input" type="checkbox" name="cod_available" id="cod_available" value="1" {{ old('cod_available', $product->cod_available) ? 'checked' : '' }}>
-              <label class="form-check-label" for="cod_available">Can be paid on delivery</label>
-            </div>
-          </div>
-          <div class="col-12">
-            <div class="form-check">
-              <input class="form-check-input" type="checkbox" name="featured" id="featured" value="1" {{ old('featured', $product->featured) ? 'checked' : '' }}>
-              <label class="form-check-label" for="featured">Mark as featured</label>
-            </div>
-          </div>
-          <div class="col-12">
-            <label class="form-label">Description</label>
-            <input id="product-description" type="hidden" name="description" value="{{ old('description', $product->description) }}">
-            <trix-editor input="product-description" class="form-control"></trix-editor>
-          </div>
-
-          <div class="col-12">
-            <label class="form-label">Existing images</label>
-            <div class="d-flex flex-wrap gap-3">
-              @forelse($product->images as $img)
-                <div class="border rounded p-2" style="width:160px;">
-                  <img src="{{ asset('storage/'.$img->path) }}" alt="" class="img-fluid mb-2" style="max-height:120px;object-fit:contain;">
-                  <div class="form-check">
-                    <input class="form-check-input" type="radio" name="primary_image_id" value="{{ $img->id }}" id="prim{{ $img->id }}" @checked(old('primary_image_id', $product->primaryImage()?->id) == $img->id)>
-                    <label class="form-check-label" for="prim{{ $img->id }}">Primary</label>
-                  </div>
-                  <div class="form-check">
-                    <input class="form-check-input" type="checkbox" name="delete_image_ids[]" value="{{ $img->id }}" id="del{{ $img->id }}">
-                    <label class="form-check-label" for="del{{ $img->id }}">Delete</label>
+          <template id="variantRowTemplate">
+            <div class="border border-slate-200 rounded-lg p-3 variant-row">
+              <div class="grid grid-cols-1 md:grid-cols-12 gap-2">
+                <div class="md:col-span-2">
+                  <label class="block text-xs text-slate-600 mb-1">Size</label>
+                  <input type="number" step="0.01" class="w-full rounded-lg border-slate-300 px-3 py-1.5 text-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500" name="__NAME__[size]" placeholder="e.g. 15">
+                </div>
+                <div class="md:col-span-2">
+                  <label class="block text-xs text-slate-600 mb-1">Size Unit</label>
+                  <select class="w-full rounded-lg border-slate-300 px-3 py-1.5 text-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500" name="__NAME__[size_unit_id]">
+                    <option value="">—</option>
+                    @foreach(($sizeUnits ?? []) as $u)
+                      <option value="{{ $u->id }}">{{ $u->code }}</option>
+                    @endforeach
+                  </select>
+                </div>
+                <div class="md:col-span-2">
+                  <label class="block text-xs text-slate-600 mb-1">Weight</label>
+                  <input type="number" step="0.01" class="w-full rounded-lg border-slate-300 px-3 py-1.5 text-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500" name="__NAME__[weight]" placeholder="e.g. 1.2">
+                </div>
+                <div class="md:col-span-2">
+                  <label class="block text-xs text-slate-600 mb-1">Weight Unit</label>
+                  <select class="w-full rounded-lg border-slate-300 px-3 py-1.5 text-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500" name="__NAME__[weight_unit_id]">
+                    <option value="">—</option>
+                    @foreach(($weightUnits ?? []) as $u)
+                      <option value="{{ $u->id }}">{{ $u->code }}</option>
+                    @endforeach
+                  </select>
+                </div>
+                <div class="md:col-span-2">
+                  <label class="block text-xs text-slate-600 mb-1">Color</label>
+                  <input type="text" class="w-full rounded-lg border-slate-300 px-3 py-1.5 text-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500" name="__NAME__[color]" placeholder="e.g. Red">
+                </div>
+                <div class="md:col-span-2">
+                  <label class="block text-xs text-slate-600 mb-1">SKU</label>
+                  <input type="text" class="w-full rounded-lg border-slate-300 px-3 py-1.5 text-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500" name="__NAME__[sku]" placeholder="optional">
+                </div>
+                <div class="md:col-span-3">
+                  <label class="block text-xs text-slate-600 mb-1">Quantity</label>
+                  <input type="number" min="1" class="w-full rounded-lg border-slate-300 px-3 py-1.5 text-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500" name="__NAME__[quantity]" required>
+                </div>
+                <div class="md:col-span-4">
+                  <label class="block text-xs text-slate-600 mb-1">Amount</label>
+                  <div class="flex rounded-lg border border-slate-300 focus-within:border-slate-500 focus-within:ring-1 focus-within:ring-slate-500">
+                    <input type="number" step="0.01" min="0.01" class="flex-1 border-0 rounded-l-lg px-3 py-1.5 text-sm focus:outline-none" name="__NAME__[amount]" required>
+                    <select class="border-0 border-l border-slate-300 rounded-r-lg px-3 py-1.5 text-sm focus:outline-none bg-white max-w-[140px]" name="__NAME__[currency_id]">
+                      @foreach(($currencies ?? []) as $cur)
+                        <option value="{{ $cur->id }}" @selected(($defaultCurrencyId ?? null) == $cur->id)>{{ $cur->code }}</option>
+                      @endforeach
+                    </select>
                   </div>
                 </div>
-              @empty
-                <div class="text-muted">No images uploaded yet.</div>
-              @endforelse
+                <div class="md:col-span-3">
+                  <label class="block text-xs text-slate-600 mb-1">Status</label>
+                  <select class="w-full rounded-lg border-slate-300 px-3 py-1.5 text-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500" name="__NAME__[status]">
+                    <option value="active">active</option>
+                    <option value="inactive">inactive</option>
+                  </select>
+                </div>
+                <div class="md:col-span-2 flex items-end">
+                  <div class="flex items-center gap-2">
+                    <input class="rounded border-slate-300 text-slate-900 focus:ring-slate-500" type="checkbox" name="__NAME__[featured]" value="1" id="__ID__">
+                    <label class="text-xs text-slate-600" for="__ID__">Featured</label>
+                  </div>
+                </div>
+                <div class="md:col-span-2 flex items-end justify-end">
+                  <button type="button" class="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg border border-red-200 text-red-600 hover:bg-red-50" onclick="removeVariantRow(this)">Remove</button>
+                </div>
+              </div>
             </div>
-          </div>
+          </template>
+        </div>
 
-          <div class="col-12">
-            <label class="form-label">Add images</label>
-            <input type="file" name="images[]" class="form-control" accept="image/*" multiple>
+        <div class="md:col-span-3">
+          <div class="flex items-center gap-3">
+            <input class="rounded border-slate-300 text-slate-900 focus:ring-slate-500" type="checkbox" name="cod_available" id="cod_available" value="1" {{ old('cod_available', $product->cod_available) ? 'checked' : '' }}>
+            <label class="text-sm text-slate-700" for="cod_available">Can be paid on delivery</label>
           </div>
         </div>
 
-        <div class="mt-4 d-flex gap-2">
-          <button class="btn btn-primary" type="submit">Save changes</button>
-          <a href="{{ $backUrl ?? route('admin.products.index') }}" class="btn btn-light">Back</a>
+        <div class="md:col-span-3">
+          <div class="flex items-center gap-3">
+            <input class="rounded border-slate-300 text-slate-900 focus:ring-slate-500" type="checkbox" name="featured" id="featured" value="1" {{ old('featured', $product->featured) ? 'checked' : '' }}>
+            <label class="text-sm text-slate-700" for="featured">Mark as featured</label>
+          </div>
         </div>
-      </form>
-    </div>
+
+        <div class="md:col-span-3">
+          <label class="block text-sm font-medium text-slate-700 mb-1">Description</label>
+          <input id="product-description" type="hidden" name="description" value="{{ old('description', $product->description) }}">
+          <trix-editor input="product-description" class="trix-content rounded-lg border border-slate-300"></trix-editor>
+        </div>
+
+        <div class="md:col-span-3">
+          <label class="block text-sm font-medium text-slate-700 mb-1">Existing images</label>
+          <div class="flex flex-wrap gap-3">
+            @forelse($product->images as $img)
+              <div class="border border-slate-200 rounded-lg p-2 w-[160px]">
+                <img src="{{ asset('storage/'.$img->path) }}" alt="" class="w-full max-h-[120px] object-contain mb-2">
+                <div class="flex items-center gap-3 mb-2">
+                  <label class="flex items-center gap-1 text-xs text-slate-600 cursor-pointer">
+                    <input class="rounded-full border-slate-300 text-slate-900 focus:ring-slate-500" type="radio" name="primary_image_id" value="{{ $img->id }}" @checked(old('primary_image_id', $product->primaryImage()?->id) == $img->id)>
+                    Primary
+                  </label>
+                </div>
+                <div>
+                  <label class="flex items-center gap-1 text-xs text-red-600 cursor-pointer">
+                    <input class="rounded border-slate-300 text-red-600 focus:ring-red-500" type="checkbox" name="delete_image_ids[]" value="{{ $img->id }}" id="del{{ $img->id }}">
+                    Delete
+                  </label>
+                </div>
+              </div>
+            @empty
+              <div class="text-sm text-slate-500">No images uploaded yet.</div>
+            @endforelse
+          </div>
+        </div>
+
+        <div class="md:col-span-3">
+          <label class="block text-sm font-medium text-slate-700 mb-1">Add images</label>
+          <input type="file" name="images[]" class="w-full rounded-lg border-slate-300 px-3 py-2 text-sm file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200" accept="image/*" multiple>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-3 mt-6 pt-4 border-t border-slate-100">
+        <button class="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg bg-slate-900 text-white hover:bg-slate-800" type="submit">Save changes</button>
+        <a href="{{ $backUrl ?? route('admin.products.index') }}" class="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">Back</a>
+      </div>
+    </form>
   </div>
 </div>
+
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/trix@2.0.8/dist/trix.min.css">
 <script src="https://cdn.jsdelivr.net/npm/trix@2.0.8/dist/trix.umd.min.js"></script>
 
 <script>
-  // Bulk UI logic
   (function(){
     const toggle = document.getElementById('hasBulkToggle');
     const section = document.getElementById('bulkSection');
@@ -367,19 +371,12 @@
 
     function showBulk(on){
       section.style.display = on ? 'block' : 'none';
-      if (!on) {
-        // Optional: clear inputs if hidden? Or keep them?
-        // For edit, maybe keep them so user doesn't lose data accidentally.
-        // But if they uncheck and save, we might want to nullify them in backend.
-        // For now, let's just hide.
-      }
     }
 
     if (toggle) {
       toggle.addEventListener('change', function(){
         showBulk(this.checked);
       });
-      // Init based on values
       if (qtyInput.value || priceInput.value) {
         toggle.checked = true;
         showBulk(true);
@@ -387,7 +384,6 @@
     }
   })();
 
-  // Variants UI logic
 (function(){
   const toggle = document.getElementById('hasVariantsToggle');
   const section = document.getElementById('variantsSection');

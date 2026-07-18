@@ -58,6 +58,11 @@ class Warehouse extends Model
         return $this->belongsTo(Business::class);
     }
 
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
+    }
+
     public function sections(): HasMany
     {
         return $this->hasMany(Section::class);

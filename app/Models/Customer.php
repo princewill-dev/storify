@@ -8,7 +8,6 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Str;
 use App\Enums\CustomerStatus;
-use App\Enums\LiveFirstStatus;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use App\Models\BelongsToBusiness;
 
@@ -33,7 +32,6 @@ class Customer extends Authenticatable
         'status',
         'last_login',
         'location',
-        'live_first_status',
     ];
 
     protected $hidden = [
@@ -44,7 +42,6 @@ class Customer extends Authenticatable
     protected $casts = [
         'email_verified_at' => 'datetime',
         'last_login' => 'datetime',
-        'live_first_status' => LiveFirstStatus::class,
     ];
 
     /**
@@ -142,14 +139,6 @@ class Customer extends Authenticatable
     public function getRouteKeyName(): string
     {
         return 'account_id';
-    }
-
-    /**
-     * Get the customer's Live First application
-     */
-    public function liveFirstApplication(): HasOne
-    {
-        return $this->hasOne(LiveFirstApplication::class, 'user_id');
     }
 
     public static function statusBadgeData(): array

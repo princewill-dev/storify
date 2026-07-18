@@ -11,11 +11,22 @@ use Illuminate\View\View;
 
 class StoreOrderController extends Controller
 {
-    public function track(Request $request, string $store_subdomain, ?string $orderNumber = null): View|RedirectResponse
+    private function resolveStore(Request $request, ?string $store_subdomain = null): Store
     {
-        $store = Store::where('slug', $store_subdomain)->firstOrFail();
+        if ($store_subdomain) {
+            return Store::where('slug', $store_subdomain)->firstOrFail();
+        }
+        $host = $request->getHost();
+        $mainDomain = config('app.main_domain', parse_url(config('app.url'), PHP_URL_HOST));
+        $subdomain = str_replace('.' . $mainDomain, '', $host);
+        return Store::where('slug', $subdomain)->firstOrFail();
+    }
+
+    public function track(Request $request, ?string $store_subdomain = null): View|RedirectResponse
+    {
+        $store = $this->resolveStore($request, $store_subdomain);
+        $orderNumber = $request->query('orderNumber');
         
-        // If order number is provided in URL, fetch and display it
         if ($orderNumber) {
             $order = Order::where('store_id', $store->id)
                 ->where('order_number', strtoupper(trim($orderNumber)))
@@ -23,8 +34,7 @@ class StoreOrderController extends Controller
                 ->first();
             
             if (!$order) {
-                return redirect()->route('home.store.order.track', ['store_subdomain' => $store_subdomain])
-                    ->with('error', 'Order not found. Please check the order number and try again.');
+                return back()->with('error', 'Order not found. Please check the order number and try again.');
             }
             
             return view('storefront.pages.track-order', compact('store', 'order'));
@@ -33,14 +43,11 @@ class StoreOrderController extends Controller
         return view('storefront.pages.track-order', compact('store'));
     }
 
-    public function findOrder(Request $request, string $store_subdomain): View|RedirectResponse
+    public function findOrder(Request $request, ?string $store_subdomain = null): View|RedirectResponse
     {
-        $store = Store::where('slug', $store_subdomain)->firstOrFail();
+        $store = $this->resolveStore($request, $store_subdomain);
         
-        $request->validate([
-            'order_number' => 'required|string',
-        ]);
-
+        $request->validate(['order_number' => 'required|string']);
         $orderNumber = trim($request->input('order_number'));
 
         $order = Order::where('store_id', $store->id)

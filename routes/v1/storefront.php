@@ -35,7 +35,7 @@ Route::domain(config('app.main_domain', parse_url(config('app.url'), PHP_URL_HOS
 // Local dev bypass
 if (config('app.env') === 'local') {
     Route::prefix('{store_subdomain}')
-        ->where(['store_subdomain' => '(?!api|admin|vendor|storage|livewire|cart|checkout|products|services|search|support|bulk_buy|international-supply|live-first)[A-Za-z0-9_\-]+'])
+        ->where(['store_subdomain' => '(?!api|admin|vendor|storage|livewire|cart|checkout|products|services|search|support|international-supply)[A-Za-z0-9_\-]+'])
         ->group(function () {
             
             // Store homepage (products listing)
@@ -79,8 +79,8 @@ if (config('app.env') === 'local') {
             Route::post('/checkout/{order}/bank-transfer/confirm', [\App\Http\Controllers\Payment\BankTransferController::class, 'confirmPayment'])->name('local.payment.bank-transfer.confirm');
             Route::get('/checkout/{order}/payment-pending', [\App\Http\Controllers\Payment\BankTransferController::class, 'pending'])->name('local.payment.pending');
 
-            // Tracking (local dev path-based routes)
-            Route::get('/track/{orderNumber?}', [StoreOrderController::class, 'track'])->name('local.store.order.track');
+            // Tracking
+            Route::get('/track', [StoreOrderController::class, 'track'])->name('local.store.order.track');
             Route::post('/track', [StoreOrderController::class, 'findOrder'])->name('local.store.order.find');
         });
 }
@@ -90,14 +90,10 @@ Route::domain('{store_subdomain}.' . config('app.main_domain', parse_url(config(
     ->where(['store_subdomain' => '(?!www)[A-Za-z0-9_\-]+'])
     ->group(function () {
 
-        // Store homepage (products listing)
-        Route::get('/', [ProductController::class, 'indexByStore'])->name('home.store.products.index');
+    // Store homepage (products listing)
+    Route::get('/', [ProductController::class, 'indexByStore'])->name('home.store.products.index');
 
-        // Order Tracking
-        Route::get('/track/{orderNumber?}', [StoreOrderController::class, 'track'])->name('home.store.order.track');
-        Route::post('/track', [StoreOrderController::class, 'findOrder'])->name('home.store.order.find');
-
-        // Live search
+    // Live search
         Route::get('/search', [SearchController::class, 'liveSearch'])->name('home.store.search');
 
         // Support page routes

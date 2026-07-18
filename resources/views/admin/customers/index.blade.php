@@ -2,355 +2,289 @@
 @section('subtitle', 'Customers')
 
 @section('content')
-<div class="container-fluid">
-    <!-- Page Header -->
-    <div class="row mb-4">
-        <div class="col-12">
-            <div class="d-flex justify-content-between align-items-center">
-                <h2 class="mb-0">Customer Management</h2>
-            </div>
-        </div>
-    </div>
+<div class="flex items-center justify-between mb-6">
+  <h2 class="text-lg font-bold text-slate-900">Customer Management</h2>
+</div>
 
-    <!-- Statistics Cards -->
-    <div class="row mb-4">
-        <div class="col-xl-3 col-sm-6">
-            <div class="card">
-                <div class="card-body">
-                    <div class="d-flex align-items-center">
-                        <div class="icon-box bg-primary-light me-3">
-                            <i class="fi fi-rr-users-alt text-primary" style="font-size: 24px;"></i>
-                        </div>
-                        <div>
-                            <h6 class="mb-1">Total Customers</h6>
-                            <h3 class="mb-0">{{ number_format($stats['total']) }}</h3>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <div class="col-xl-3 col-sm-6">
-            <div class="card">
-                <div class="card-body">
-                    <div class="d-flex align-items-center">
-                        <div class="icon-box bg-success-light me-3">
-                            <i class="fi fi-rr-check-circle text-success" style="font-size: 24px;"></i>
-                        </div>
-                        <div>
-                            <h6 class="mb-1">Active</h6>
-                            <h3 class="mb-0">{{ number_format($stats['active']) }}</h3>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <div class="col-xl-3 col-sm-6">
-            <div class="card">
-                <div class="card-body">
-                    <div class="d-flex align-items-center">
-                        <div class="icon-box bg-danger-light me-3">
-                            <i class="fi fi-rr-ban text-danger" style="font-size: 24px;"></i>
-                        </div>
-                        <div>
-                            <h6 class="mb-1">Suspended</h6>
-                            <h3 class="mb-0">{{ number_format($stats['suspended']) }}</h3>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <div class="col-xl-3 col-sm-6">
-            <div class="card">
-                <div class="card-body">
-                    <div class="d-flex align-items-center">
-                        <div class="icon-box bg-info-light me-3">
-                            <i class="fi fi-rr-shopping-cart text-info" style="font-size: 24px;"></i>
-                        </div>
-                        <div>
-                            <h6 class="mb-1">Total Orders</h6>
-                            <h3 class="mb-0">{{ number_format($stats['total_orders']) }}</h3>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+  <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0">
+        <i class="fi fi-rr-users-alt text-blue-600 text-lg"></i>
+      </div>
+      <div>
+        <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Total Customers</div>
+        <div class="text-xl font-bold text-slate-900">{{ number_format($stats['total']) }}</div>
+      </div>
     </div>
+  </div>
+  <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 rounded-lg bg-emerald-50 flex items-center justify-center flex-shrink-0">
+        <i class="fi fi-rr-check-circle text-emerald-600 text-lg"></i>
+      </div>
+      <div>
+        <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Active</div>
+        <div class="text-xl font-bold text-slate-900">{{ number_format($stats['active']) }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 rounded-lg bg-red-50 flex items-center justify-center flex-shrink-0">
+        <i class="fi fi-rr-ban text-red-600 text-lg"></i>
+      </div>
+      <div>
+        <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Suspended</div>
+        <div class="text-xl font-bold text-slate-900">{{ number_format($stats['suspended']) }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 rounded-lg bg-sky-50 flex items-center justify-center flex-shrink-0">
+        <i class="fi fi-rr-shopping-cart text-sky-600 text-lg"></i>
+      </div>
+      <div>
+        <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Total Orders</div>
+        <div class="text-xl font-bold text-slate-900">{{ number_format($stats['total_orders']) }}</div>
+      </div>
+    </div>
+  </div>
+</div>
 
-    <!-- Filter Button -->
-    <div class="mb-4 d-flex justify-content-between align-items-center">
-        <div>
-            @if(request()->hasAny(['search', 'status', 'country']))
-                <span class="badge bg-primary me-2">
-                    <i class="fi fi-rr-filter"></i> Filters Active
-                </span>
-                <a href="{{ route('admin.customers.index') }}" class="btn btn-sm btn-outline-secondary">
-                    <i class="fi fi-rr-cross-small"></i> Clear Filters
+<div class="flex items-center justify-between mb-4">
+  <div>
+    @if(request()->hasAny(['search', 'status', 'country']))
+      <span class="inline-flex items-center rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-medium text-blue-700 mr-2">
+        <i class="fi fi-rr-settings-sliders mr-1"></i> Filters Active
+      </span>
+      <a href="{{ route('admin.customers.index') }}" class="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50">
+        <i class="fi fi-rr-cross-small"></i> Clear Filters
+      </a>
+    @endif
+  </div>
+  <button type="button" onclick="openModal('filterModal')" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg bg-slate-900 text-white hover:bg-slate-800">
+    <i class="fi fi-rr-settings-sliders"></i> Filter Customers
+  </button>
+</div>
+
+<div class="bg-white rounded-xl shadow-sm border border-slate-200">
+  <div class="px-4 py-3 border-b border-slate-100">
+    <h3 class="text-sm font-semibold text-slate-900">All Customers</h3>
+  </div>
+  
+    <table class="w-full text-sm">
+      <thead class="border-b border-slate-100">
+        <tr>
+          <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Customer</th>
+          <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Email</th>
+          <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Phone</th>
+          <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Location</th>
+          <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Orders</th>
+          <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
+          <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Joined</th>
+          <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Actions</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-50">
+        @forelse($customers as $customer)
+        <tr class="hover:bg-slate-50/50">
+          <td class="px-4 py-3">
+            <div class="flex items-center gap-3">
+              <div class="w-9 h-9 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-xs flex-shrink-0">
+                {{ strtoupper(substr($customer->first_name, 0, 1)) }}{{ strtoupper(substr($customer->last_name, 0, 1)) }}
+              </div>
+              <div>
+                <div class="font-medium text-slate-900">{{ $customer->full_name }}</div>
+                @if($customer->company_name)
+                <div class="text-xs text-slate-400">{{ $customer->company_name }}</div>
+                @endif
+                <div class="text-xs text-slate-400">{{ $customer->account_id }}</div>
+              </div>
+            </div>
+          </td>
+          <td class="px-4 py-3 text-slate-700">{{ $customer->email }}</td>
+          <td class="px-4 py-3 text-slate-700">{{ $customer->phone ?? '-' }}</td>
+          <td class="px-4 py-3 text-slate-700">{{ $customer->location ?? '-' }}</td>
+          <td class="px-4 py-3">
+            <span class="inline-flex items-center rounded-full bg-white px-2.5 py-0.5 text-xs font-medium text-slate-600 border border-slate-200">{{ $customer->orders_count }} orders</span>
+          </td>
+          <td class="px-4 py-3">
+            @php($customerBadge = $statusBadgeData[$customer->status] ?? null)
+            <span class="inline-flex items-center rounded-full {{ $customerBadge['class'] ?? 'bg-slate-100 text-slate-700' }} px-2.5 py-0.5 text-xs font-medium border">
+              {{ $customerBadge['label'] ?? ucfirst(strtolower($customer->status)) }}
+            </span>
+          </td>
+          <td class="px-4 py-3 text-slate-500">{{ $customer->created_at->format('M d, Y') }}</td>
+          <td class="px-4 py-3">
+            <div class="relative inline-block text-left" x-data="{ open: false }">
+              <button @click="open = !open" class="inline-flex items-center justify-center w-8 h-8 rounded-lg text-slate-500 hover:bg-slate-100" aria-label="Customer actions">
+                <i class="fi fi-rr-menu-dots-vertical text-sm"></i>
+              </button>
+              <div x-show="open" @click.outside="open = false" x-transition class="absolute right-0 z-10 mt-1 w-44 bg-white rounded-lg shadow-lg border border-slate-200 py-1">
+                <a class="flex items-center gap-2 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50" href="{{ route('admin.customers.show', $customer) }}">
+                  <i class="fi fi-rr-eye text-slate-400 text-sm"></i> View
                 </a>
-            @endif
-        </div>
-        <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#filterModal">
-            <i class="fi fi-rr-filter"></i> Filter Customers
-        </button>
-    </div>
-
-    <!-- Customers Table -->
-    <div class="card">
-        <div class="card-header">
-            <h4 class="card-title mb-0">All Customers</h4>
-        </div>
-        <div class="card-body p-0">
-            <div class="table-responsive">
-                <table class="table table-hover mb-0">
-                    <thead>
-                        <tr>
-                            <th>Customer</th>
-                            <th>Email</th>
-                            <th>Phone</th>
-                            <th>Location</th>
-                            <th>Orders</th>
-                            <th>Status</th>
-                            <th>Joined</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @forelse($customers as $customer)
-                        <tr>
-                            <td>
-                                <div class="d-flex align-items-center">
-                                    <div class="avatar-circle me-2">
-                                        {{ strtoupper(substr($customer->first_name, 0, 1)) }}{{ strtoupper(substr($customer->last_name, 0, 1)) }}
-                                    </div>
-                                    <div>
-                                        <strong>{{ $customer->full_name }}</strong>
-                                        @if($customer->company_name)
-                                        <br><small class="text-muted">{{ $customer->company_name }}</small>
-                                        @endif
-                                        <div class="small text-muted">{{ $customer->account_id }}</div>
-                                    </div>
-                                </div>
-                            </td>
-                            <td>{{ $customer->email }}</td>
-                            <td>{{ $customer->phone ?? '-' }}</td>
-                            <td>{{ $customer->location ?? '-' }}</td>
-                            <td>
-                                <span class="badge bg-light text-dark border">{{ $customer->orders_count }} orders</span>
-                            </td>
-                            <td>
-                                @php($customerBadge = $statusBadgeData[$customer->status] ?? null)
-                                <span class="badge {{ $customerBadge['class'] ?? 'bg-secondary' }} border">
-                                    {{ $customerBadge['label'] ?? ucfirst(strtolower($customer->status)) }}
-                                </span>
-                            </td>
-                            <td>{{ $customer->created_at->format('M d, Y') }}</td>
-                            <td>
-                                <div class="dropdown d-inline-block">
-                                    <button class="btn btn-sm border-0 bg-transparent text-dark" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Customer actions">
-                                        <i class="fa-solid fa-ellipsis-vertical"></i>
-                                    </button>
-                                    <ul class="dropdown-menu dropdown-menu-end">
-                                        <li>
-                                            <a class="dropdown-item" href="{{ route('admin.customers.show', $customer) }}">
-                                                <i class="fa fa-eye me-2 text-muted"></i>View
-                                            </a>
-                                        </li>
-                                        <li>
-                                            <a class="dropdown-item" href="{{ route('admin.customers.edit', $customer) }}">
-                                                <i class="fa fa-edit me-2 text-muted"></i>Edit
-                                            </a>
-                                        </li>
-                                        <li>
-                                            @if($customer->status === \App\Models\Customer::STATUS_ACTIVE)
-                                                <button class="dropdown-item d-flex align-items-center" type="button"
-                                                        onclick="showSuspendModal({{ Js::from($customer->account_id) }}, {{ Js::from($customer->full_name) }})">
-                                                    <i class="fa fa-ban me-2 text-muted"></i>Suspend
-                                                </button>
-                                            @elseif($customer->status === \App\Models\Customer::STATUS_SUSPENDED)
-                                                <button class="dropdown-item d-flex align-items-center" type="button"
-                                                        onclick="showActivateModal({{ Js::from($customer->account_id) }}, {{ Js::from($customer->full_name) }})">
-                                                    <i class="fa fa-check me-2 text-muted"></i>Activate
-                                                </button>
-                                            @endif
-                                        </li>
-                                    </ul>
-                                </div>
-                            </td>
-                        </tr>
-                        @empty
-                        <tr>
-                            <td colspan="8" class="text-center py-4">
-                                <i class="fi fi-rr-users-alt" style="font-size: 48px; color: #ccc;"></i>
-                                <p class="text-muted mt-2">No customers found</p>
-                            </td>
-                        </tr>
-                        @endforelse
-                    </tbody>
-                </table>
+                <a class="flex items-center gap-2 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50" href="{{ route('admin.customers.edit', $customer) }}">
+                  <i class="fi fi-rr-pencil text-slate-400 text-sm"></i> Edit
+                </a>
+                @if($customer->status === \App\Models\Customer::STATUS_ACTIVE)
+                  <button class="w-full flex items-center gap-2 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50" type="button"
+                          onclick="showSuspendModal({{ Js::from($customer->account_id) }}, {{ Js::from($customer->full_name) }})">
+                    <i class="fi fi-rr-ban text-slate-400 text-sm"></i> Suspend
+                  </button>
+                @elseif($customer->status === \App\Models\Customer::STATUS_SUSPENDED)
+                  <button class="w-full flex items-center gap-2 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50" type="button"
+                          onclick="showActivateModal({{ Js::from($customer->account_id) }}, {{ Js::from($customer->full_name) }})">
+                    <i class="fi fi-rr-check text-slate-400 text-sm"></i> Activate
+                  </button>
+                @endif
+              </div>
             </div>
-        </div>
-        @if($customers->hasPages())
-        <div class="card-footer">
-            {{ $customers->links() }}
-        </div>
-        @endif
-    </div>
+          </td>
+        </tr>
+        @empty
+        <tr>
+          <td colspan="8" class="px-4 py-12 text-center">
+            <i class="fi fi-rr-users-alt text-5xl text-slate-200 block mb-3"></i>
+            <p class="text-slate-500">No customers found</p>
+          </td>
+        </tr>
+        @endforelse
+      </tbody>
+    </table>
+
+  @if($customers->hasPages())
+  <div class="px-4 py-3 border-t border-slate-100">
+    {{ $customers->links() }}
+  </div>
+  @endif
 </div>
 
-
-<!-- Filter Modal -->
-<div class="modal fade" id="filterModal" tabindex="-1" aria-labelledby="filterModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="filterModalLabel">Filter Customers</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <form method="GET" action="{{ route('admin.customers.index') }}">
-                <div class="modal-body">
-                    <div class="row g-3">
-                        <div class="col-md-12">
-                            <label class="form-label">Search</label>
-                            <input type="text" name="search" class="form-control" placeholder="Name, email, phone, or account ID..." value="{{ request('search') }}">
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Status</label>
-                            <select name="status" class="form-control">
-                                <option value="">All Statuses</option>
-                                <option value="ACTIVE" {{ request('status') === 'ACTIVE' ? 'selected' : '' }}>Active</option>
-                                <option value="SUSPENDED" {{ request('status') === 'SUSPENDED' ? 'selected' : '' }}>Suspended</option>
-                                <option value="DELETED" {{ request('status') === 'DELETED' ? 'selected' : '' }}>Deleted</option>
-                            </select>
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Country</label>
-                            <select name="country" class="form-control">
-                                <option value="">All Countries</option>
-                                @foreach($countries as $country)
-                                <option value="{{ $country }}" {{ request('country') === $country ? 'selected' : '' }}>{{ $country }}</option>
-                                @endforeach
-                            </select>
-                        </div>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <a href="{{ route('admin.customers.index') }}" class="btn btn-secondary">
-                        <i class="fi fi-rr-refresh"></i> Clear All
-                    </a>
-                    <button type="submit" class="btn btn-primary">
-                        <i class="fi fi-rr-search"></i> Apply Filters
-                    </button>
-                </div>
-            </form>
+{{-- Filter Modal --}}
+<div id="filterModal" class="hidden fixed inset-0 z-50 overflow-y-auto" aria-labelledby="filterModalLabel" role="dialog" aria-modal="true">
+  <div class="fixed inset-0 bg-black/50 backdrop-blur-sm" onclick="closeModal('filterModal')"></div>
+  <div class="relative min-h-screen flex items-center justify-center p-4">
+    <div class="relative bg-white rounded-xl shadow-xl max-w-xl w-full p-6">
+      <div class="flex items-center justify-between mb-6">
+        <h5 class="text-lg font-semibold text-slate-900" id="filterModalLabel">Filter Customers</h5>
+        <button type="button" onclick="closeModal('filterModal')" class="text-slate-400 hover:text-slate-600">&times;</button>
+      </div>
+      <form method="GET" action="{{ route('admin.customers.index') }}">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="md:col-span-2">
+            <label class="block text-sm font-medium text-slate-700 mb-1">Search</label>
+            <input type="text" name="search" class="w-full rounded-lg border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500" placeholder="Name, email, phone, or account ID..." value="{{ request('search') }}">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">Status</label>
+            <select name="status" class="w-full rounded-lg border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500">
+              <option value="">All Statuses</option>
+              <option value="ACTIVE" {{ request('status') === 'ACTIVE' ? 'selected' : '' }}>Active</option>
+              <option value="SUSPENDED" {{ request('status') === 'SUSPENDED' ? 'selected' : '' }}>Suspended</option>
+              <option value="DELETED" {{ request('status') === 'DELETED' ? 'selected' : '' }}>Deleted</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">Country</label>
+            <select name="country" class="w-full rounded-lg border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500">
+              <option value="">All Countries</option>
+              @foreach($countries as $country)
+              <option value="{{ $country }}" {{ request('country') === $country ? 'selected' : '' }}>{{ $country }}</option>
+              @endforeach
+            </select>
+          </div>
         </div>
+        <div class="flex items-center justify-end gap-3 mt-6 pt-4 border-t border-slate-100">
+          <a href="{{ route('admin.customers.index') }}" class="inline-flex items-center gap-1 px-4 py-2 text-sm font-medium rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">
+            <i class="fi fi-rr-refresh"></i> Clear All
+          </a>
+          <button type="submit" class="inline-flex items-center gap-1 px-4 py-2 text-sm font-medium rounded-lg bg-slate-900 text-white hover:bg-slate-800">
+            <i class="fi fi-rr-search"></i> Apply Filters
+          </button>
+        </div>
+      </form>
     </div>
+  </div>
 </div>
 
-<!-- Suspend Modal -->
-<div class="modal fade" id="suspendModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <form id="suspendForm" method="POST">
-                @csrf
-                <div class="modal-header bg-danger text-white">
-                    <h5 class="modal-title">
-                        <i class="fi fi-rr-ban"></i> Suspend Customer Account
-                    </h5>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <div class="alert alert-warning">
-                        <strong>⚠️ Warning:</strong> This will prevent the customer from accessing their account and placing new orders.
-                    </div>
-                    <p>You are about to suspend the account for:</p>
-                    <p class="text-center"><strong id="suspendCustomerName"></strong></p>
-                    <div class="mb-3">
-                        <label class="form-label">Reason for Suspension *</label>
-                        <textarea name="reason" class="form-control" rows="4" required 
-                                  placeholder="Please provide a detailed reason for suspending this account..."></textarea>
-                        <small class="text-muted">The customer will receive an email with this reason.</small>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-danger">
-                        <i class="fi fi-rr-ban"></i> Suspend Account
-                    </button>
-                </div>
-            </form>
+{{-- Suspend Modal --}}
+<div id="suspendModal" class="hidden fixed inset-0 z-50 overflow-y-auto" aria-labelledby="suspendModalLabel" role="dialog" aria-modal="true">
+  <div class="fixed inset-0 bg-black/50 backdrop-blur-sm" onclick="closeModal('suspendModal')"></div>
+  <div class="relative min-h-screen flex items-center justify-center p-4">
+    <div class="relative bg-white rounded-xl shadow-xl max-w-lg w-full p-6">
+      <form id="suspendForm" method="POST">
+        @csrf
+        <div class="flex items-center justify-between mb-4">
+          <h5 class="text-lg font-semibold text-red-700" id="suspendModalLabel">
+            <i class="fi fi-rr-ban mr-2"></i> Suspend Customer Account
+          </h5>
+          <button type="button" onclick="closeModal('suspendModal')" class="text-slate-400 hover:text-slate-600">&times;</button>
         </div>
+        <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
+          <strong class="text-amber-700 text-sm">Warning:</strong> <span class="text-amber-600 text-sm">This will prevent the customer from accessing their account and placing new orders.</span>
+        </div>
+        <p class="text-sm text-slate-700 mb-2">You are about to suspend the account for:</p>
+        <p class="text-sm text-center font-semibold text-slate-900 mb-4" id="suspendCustomerName"></p>
+        <div class="mb-4">
+          <label class="block text-sm font-medium text-slate-700 mb-1">Reason for Suspension *</label>
+          <textarea name="reason" class="w-full rounded-lg border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500" rows="4" required
+                    placeholder="Please provide a detailed reason for suspending this account..."></textarea>
+          <p class="text-xs text-slate-400 mt-1">The customer will receive an email with this reason.</p>
+        </div>
+        <div class="flex items-center justify-end gap-3">
+          <button type="button" onclick="closeModal('suspendModal')" class="px-4 py-2 text-sm font-medium rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">Cancel</button>
+          <button type="submit" class="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg bg-red-600 text-white hover:bg-red-700">
+            <i class="fi fi-rr-ban"></i> Suspend Account
+          </button>
+        </div>
+      </form>
     </div>
+  </div>
 </div>
 
-<!-- Activate Modal -->
-<div class="modal fade" id="activateModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <form id="activateForm" method="POST">
-                @csrf
-                <div class="modal-header bg-success text-white">
-                    <h5 class="modal-title">
-                        <i class="fi fi-rr-check-circle"></i> Activate Customer Account
-                    </h5>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <div class="alert alert-success">
-                        <strong>✓ Confirmation:</strong> This will restore full access to the customer's account.
-                    </div>
-                    <p>You are about to activate the account for:</p>
-                    <p class="text-center"><strong id="activateCustomerName"></strong></p>
-                    <p class="text-muted">The customer will receive an email notification confirming their account has been activated.</p>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-success">
-                        <i class="fi fi-rr-check-circle"></i> Activate Account
-                    </button>
-                </div>
-            </form>
+{{-- Activate Modal --}}
+<div id="activateModal" class="hidden fixed inset-0 z-50 overflow-y-auto" aria-labelledby="activateModalLabel" role="dialog" aria-modal="true">
+  <div class="fixed inset-0 bg-black/50 backdrop-blur-sm" onclick="closeModal('activateModal')"></div>
+  <div class="relative min-h-screen flex items-center justify-center p-4">
+    <div class="relative bg-white rounded-xl shadow-xl max-w-lg w-full p-6">
+      <form id="activateForm" method="POST">
+        @csrf
+        <div class="flex items-center justify-between mb-4">
+          <h5 class="text-lg font-semibold text-emerald-700" id="activateModalLabel">
+            <i class="fi fi-rr-check-circle mr-2"></i> Activate Customer Account
+          </h5>
+          <button type="button" onclick="closeModal('activateModal')" class="text-slate-400 hover:text-slate-600">&times;</button>
         </div>
+        <div class="bg-emerald-50 border border-emerald-200 rounded-lg p-3 mb-4">
+          <strong class="text-emerald-700 text-sm">Confirmation:</strong> <span class="text-emerald-600 text-sm">This will restore full access to the customer's account.</span>
+        </div>
+        <p class="text-sm text-slate-700 mb-2">You are about to activate the account for:</p>
+        <p class="text-sm text-center font-semibold text-slate-900 mb-4" id="activateCustomerName"></p>
+        <p class="text-xs text-slate-400 mb-4">The customer will receive an email notification confirming their account has been activated.</p>
+        <div class="flex items-center justify-end gap-3">
+          <button type="button" onclick="closeModal('activateModal')" class="px-4 py-2 text-sm font-medium rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">Cancel</button>
+          <button type="submit" class="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg bg-emerald-600 text-white hover:bg-emerald-700">
+            <i class="fi fi-rr-check-circle"></i> Activate Account
+          </button>
+        </div>
+      </form>
     </div>
+  </div>
 </div>
-
-<style>
-.avatar-circle {
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    background: #007bff;
-    color: white;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: bold;
-    font-size: 14px;
-}
-.icon-box {
-    width: 50px;
-    height: 50px;
-    border-radius: 8px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-.bg-primary-light { background: rgba(0, 123, 255, 0.1); }
-.bg-success-light { background: rgba(40, 167, 69, 0.1); }
-.bg-danger-light { background: rgba(220, 53, 69, 0.1); }
-.bg-info-light { background: rgba(23, 162, 184, 0.1); }
-.badge.bg-info { background-color: rgba(0,0,0,0.05); color: #212529; }
-</style>
 
 <script>
 function showSuspendModal(accountId, customerName) {
     document.getElementById('suspendCustomerName').textContent = customerName;
     document.getElementById('suspendForm').action = `/superadmin/customers/${accountId}/suspend`;
-    new bootstrap.Modal(document.getElementById('suspendModal')).show();
+    openModal('suspendModal');
 }
 
 function showActivateModal(accountId, customerName) {
     document.getElementById('activateCustomerName').textContent = customerName;
     document.getElementById('activateForm').action = `/superadmin/customers/${accountId}/activate`;
-    new bootstrap.Modal(document.getElementById('activateModal')).show();
+    openModal('activateModal');
 }
 </script>
 @endsection

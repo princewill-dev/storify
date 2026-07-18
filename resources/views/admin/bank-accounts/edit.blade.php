@@ -2,95 +2,88 @@
 @section('subtitle', 'Edit Bank Account')
 
 @section('content')
-<div class="container-fluid">
-  <div class="mb-3">
-    <a href="{{ route('admin.bank-accounts.index') }}" class="btn btn-outline-secondary btn-sm">← Back to Bank Accounts</a>
-  </div>
+<div class="mb-6">
+    <a href="{{ route('admin.bank-accounts.index') }}" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">← Back to Bank Accounts</a>
+</div>
 
-  <div class="card">
-    <div class="card-header">
-      <h4 class="mb-0">Edit Bank Account</h4>
+<div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+    <div class="px-6 py-4 border-b border-slate-100">
+        <h2 class="text-lg font-bold text-slate-900">Edit Bank Account</h2>
     </div>
-    <div class="card-body">
-      <form method="POST" action="{{ route('admin.bank-accounts.update', $bankAccount) }}" enctype="multipart/form-data">
-        @csrf
-        @method('PUT')
+    <div class="p-6">
+        <form method="POST" action="{{ route('admin.bank-accounts.update', $bankAccount) }}" enctype="multipart/form-data">
+            @csrf
+            @method('PUT')
 
-        <div class="row">
-          <div class="col-md-6 mb-3">
-            <label for="bank_name" class="form-label">Bank Name <span class="text-danger">*</span></label>
-            <input type="text" class="form-control @error('bank_name') is-invalid @enderror" 
-                   id="bank_name" name="bank_name" value="{{ old('bank_name', $bankAccount->bank_name) }}" required>
-            @error('bank_name')
-              <div class="invalid-feedback">{{ $message }}</div>
-            @enderror
-          </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label for="bank_name" class="block text-sm font-medium text-slate-700 mb-1">Bank Name <span class="text-red-500">*</span></label>
+                    <input type="text" class="w-full rounded-lg border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500 @error('bank_name') border-red-500 @enderror" id="bank_name" name="bank_name" value="{{ old('bank_name', $bankAccount->bank_name) }}" required>
+                    @error('bank_name')
+                        <div class="text-sm text-red-500 mt-1">{{ $message }}</div>
+                    @enderror
+                </div>
 
-          <div class="col-md-6 mb-3">
-            <label for="account_number" class="form-label">Account Number <span class="text-danger">*</span></label>
-            <input type="text" class="form-control @error('account_number') is-invalid @enderror" 
-                   id="account_number" name="account_number" value="{{ old('account_number', $bankAccount->account_number) }}" required>
-            @error('account_number')
-              <div class="invalid-feedback">{{ $message }}</div>
-            @enderror
-          </div>
-        </div>
+                <div>
+                    <label for="account_number" class="block text-sm font-medium text-slate-700 mb-1">Account Number <span class="text-red-500">*</span></label>
+                    <input type="text" class="w-full rounded-lg border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500 @error('account_number') border-red-500 @enderror" id="account_number" name="account_number" value="{{ old('account_number', $bankAccount->account_number) }}" required>
+                    @error('account_number')
+                        <div class="text-sm text-red-500 mt-1">{{ $message }}</div>
+                    @enderror
+                </div>
 
-        <div class="row">
-          <div class="col-md-6 mb-3">
-            <label for="account_name" class="form-label">Account Name</label>
-            <input type="text" class="form-control @error('account_name') is-invalid @enderror" 
-                   id="account_name" name="account_name" value="{{ old('account_name', $bankAccount->account_name) }}">
-            @error('account_name')
-              <div class="invalid-feedback">{{ $message }}</div>
-            @enderror
-            <small class="text-muted">e.g., Zimoziswift Limited</small>
-          </div>
+                <div>
+                    <label for="account_name" class="block text-sm font-medium text-slate-700 mb-1">Account Name</label>
+                    <input type="text" class="w-full rounded-lg border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500 @error('account_name') border-red-500 @enderror" id="account_name" name="account_name" value="{{ old('account_name', $bankAccount->account_name) }}">
+                    <p class="text-xs text-slate-400 mt-1">e.g., Zimoziswift Limited</p>
+                    @error('account_name')
+                        <div class="text-sm text-red-500 mt-1">{{ $message }}</div>
+                    @enderror
+                </div>
 
-          <div class="col-md-3 mb-3">
-            <label for="sort_order" class="form-label">Sort Order</label>
-            <input type="number" class="form-control @error('sort_order') is-invalid @enderror" 
-                   id="sort_order" name="sort_order" value="{{ old('sort_order', $bankAccount->sort_order) }}">
-            @error('sort_order')
-              <div class="invalid-feedback">{{ $message }}</div>
-            @enderror
-            <small class="text-muted">Lower numbers appear first</small>
-          </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label for="sort_order" class="block text-sm font-medium text-slate-700 mb-1">Sort Order</label>
+                        <input type="number" class="w-full rounded-lg border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500 @error('sort_order') border-red-500 @enderror" id="sort_order" name="sort_order" value="{{ old('sort_order', $bankAccount->sort_order) }}">
+                        <p class="text-xs text-slate-400 mt-1">Lower numbers appear first</p>
+                        @error('sort_order')
+                            <div class="text-sm text-red-500 mt-1">{{ $message }}</div>
+                        @enderror
+                    </div>
 
-          <div class="col-md-3 mb-3">
-            <label for="is_active" class="form-label">Status</label>
-            <select class="form-control @error('is_active') is-invalid @enderror" id="is_active" name="is_active">
-              <option value="1" {{ old('is_active', $bankAccount->is_active) == 1 ? 'selected' : '' }}>Active</option>
-              <option value="0" {{ old('is_active', $bankAccount->is_active) == 0 ? 'selected' : '' }}>Inactive</option>
-            </select>
-            @error('is_active')
-              <div class="invalid-feedback">{{ $message }}</div>
-            @enderror
-          </div>
-        </div>
+                    <div>
+                        <label for="is_active" class="block text-sm font-medium text-slate-700 mb-1">Status</label>
+                        <select class="w-full rounded-lg border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500 @error('is_active') border-red-500 @enderror" id="is_active" name="is_active">
+                            <option value="1" {{ old('is_active', $bankAccount->is_active) == 1 ? 'selected' : '' }}>Active</option>
+                            <option value="0" {{ old('is_active', $bankAccount->is_active) == 0 ? 'selected' : '' }}>Inactive</option>
+                        </select>
+                        @error('is_active')
+                            <div class="text-sm text-red-500 mt-1">{{ $message }}</div>
+                        @enderror
+                    </div>
+                </div>
 
-        <div class="mb-3">
-          <label for="logo" class="form-label">Bank Logo</label>
-          @if($bankAccount->logo)
-            <div class="mb-2">
-              <img src="{{ Storage::url($bankAccount->logo) }}" alt="{{ $bankAccount->bank_name }}" style="height: 60px; width: auto;" class="border p-2">
-              <p class="text-muted small mb-0">Current logo</p>
+                <div class="md:col-span-2">
+                    <label for="logo" class="block text-sm font-medium text-slate-700 mb-1">Bank Logo</label>
+                    @if($bankAccount->logo)
+                        <div class="mb-2">
+                            <img src="{{ Storage::url($bankAccount->logo) }}" alt="{{ $bankAccount->bank_name }}" class="h-16 w-auto rounded border border-slate-200 p-2">
+                            <p class="text-xs text-slate-400 mt-1">Current logo</p>
+                        </div>
+                    @endif
+                    <input type="file" class="w-full rounded-lg border-slate-300 px-3 py-2 text-sm file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200 @error('logo') border-red-500 @enderror" id="logo" name="logo" accept="image/*">
+                    <p class="text-xs text-slate-400 mt-1">Upload new bank logo to replace current one (JPEG, PNG, GIF - Max 2MB)</p>
+                    @error('logo')
+                        <div class="text-sm text-red-500 mt-1">{{ $message }}</div>
+                    @enderror
+                </div>
             </div>
-          @endif
-          <input type="file" class="form-control @error('logo') is-invalid @enderror" 
-                 id="logo" name="logo" accept="image/*">
-          @error('logo')
-            <div class="invalid-feedback">{{ $message }}</div>
-          @enderror
-          <small class="text-muted">Upload new bank logo to replace current one (JPEG, PNG, GIF - Max 2MB)</small>
-        </div>
 
-        <div class="d-flex justify-content-end gap-2">
-          <a href="{{ route('admin.bank-accounts.index') }}" class="btn btn-outline-secondary">Cancel</a>
-          <button type="submit" class="btn btn-primary">Update Bank Account</button>
-        </div>
-      </form>
+            <div class="flex items-center justify-end gap-3 mt-6 pt-4 border-t border-slate-100">
+                <a href="{{ route('admin.bank-accounts.index') }}" class="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">Cancel</a>
+                <button type="submit" class="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg bg-slate-900 text-white hover:bg-slate-800">Update Bank Account</button>
+            </div>
+        </form>
     </div>
-  </div>
 </div>
 @endsection

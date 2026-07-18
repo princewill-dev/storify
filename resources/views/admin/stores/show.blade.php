@@ -2,491 +2,395 @@
 @section('subtitle', $store->name)
 
 @section('content')
-<div class="container-fluid">
-  <div class="d-flex justify-content-between align-items-center mb-3">
-    <h4 class="mb-0">Store: {{ $store->name }}</h4>
-    <div class="d-flex gap-2">
-      <button type="button" class="btn btn-primary btn-sm"
-              data-bs-toggle="modal" data-bs-target="#editStoreModal"
-              data-action="{{ route('admin.stores.update', $store) }}"
-              data-business-id="{{ $store->business_id }}"
-              data-name="{{ $store->name }}"
-              data-slug="{{ $store->slug }}"
-              data-description="{{ $store->description }}"
-              data-support-email="{{ $store->support_email }}"
-              data-support-phone="{{ $store->support_phone }}"
-              data-address="{{ $store->address }}"
-              data-instagram-url="{{ $store->instagram_url }}"
-              data-facebook-url="{{ $store->facebook_url }}"
-              data-twitter-url="{{ $store->twitter_url }}"
-              data-tiktok-url="{{ $store->tiktok_url }}"
-              data-ownership-type-id="{{ $store->ownership_type_id }}"
-              data-business-type-id="{{ $store->business_type_id }}"
-              data-status="{{ $store->status }}"
-              data-logo-url="{{ $store->logo_path ? asset('storage/'.$store->logo_path) : '' }}">
-        Edit Store
-      </button>
-      @if(strtolower($store->status) === 'suspended')
-        <button type="button" class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#activateStoreModal" data-action="{{ route('admin.stores.activate', $store) }}" data-store-name="{{ $store->name }}">Activate</button>
-      @else
-        <button type="button" class="btn btn-warning btn-sm" data-bs-toggle="modal" data-bs-target="#suspendStoreModal" data-action="{{ route('admin.stores.suspend', $store) }}" data-store-name="{{ $store->name }}">Suspend</button>
-      @endif
-      <a href="{{ route('admin.stores.product.create', $store) }}" class="btn btn-outline-secondary btn-sm">Add Product</a>
-      <a href="{{ route('admin.stores.categories.create', $store) }}" class="btn btn-outline-secondary btn-sm">Add Category</a>
-      <a href="{{ route('admin.stores.products.index', $store) }}" class="btn btn-outline-secondary btn-sm">Manage Products</a>
-      <a href="{{ route('admin.stores.categories.index', $store) }}" class="btn btn-outline-secondary btn-sm">Manage Categories</a>
-      <a href="{{ route('admin.storefront-slides.index', $store) }}" class="btn btn-outline-primary btn-sm">Edit slides</a>
+<div class="flex items-center justify-between mb-6">
+    <h2 class="text-lg font-bold text-slate-900">Store: {{ $store->name }}</h2>
+    <div class="flex flex-wrap items-center gap-2">
+        <button onclick="openModal('editStoreModal')" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg bg-slate-900 text-white hover:bg-slate-800">
+            <i class="fi fi-rr-pencil text-sm"></i> Edit Store
+        </button>
+        @if(strtolower($store->status) === 'suspended')
+            <button onclick="storeActionShow('activateStoreForm', '{{ route('admin.stores.activate', $store) }}', '{{ addslashes($store->name) }}', 'activateStoreName', 'activateStoreModal')" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg bg-emerald-600 text-white hover:bg-emerald-700">
+                Activate
+            </button>
+        @else
+            <button onclick="storeActionShow('suspendStoreForm', '{{ route('admin.stores.suspend', $store) }}', '{{ addslashes($store->name) }}', 'suspendStoreName', 'suspendStoreModal')" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg bg-amber-500 text-white hover:bg-amber-600">
+                Suspend
+            </button>
+        @endif
+        <a href="{{ route('admin.stores.product.create', $store) }}" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50">Add Product</a>
+        <a href="{{ route('admin.stores.categories.create', $store) }}" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50">Add Category</a>
+        <a href="{{ route('admin.stores.products.index', $store) }}" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50">Products</a>
+        <a href="{{ route('admin.stores.categories.index', $store) }}" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50">Categories</a>
+        <a href="{{ route('admin.storefront-slides.index', $store) }}" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100">Edit Slides</a>
     </div>
-  </div>
+</div>
 
-  <div class="row g-3 mb-3">
-    <div class="col-sm-6 col-xl-3">
-      <div class="card h-100">
-        <div class="card-body">
-          <div class="text-muted small">Total amount earned</div>
-          <div class="fs-4 fw-bold">₦0.00</div>
-        </div>
-      </div>
+{{-- Metric cards --}}
+<div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+        <div class="text-xs text-slate-500">Total amount earned</div>
+        <div class="text-xl font-bold text-slate-900 mt-1">₦0.00</div>
     </div>
-    <div class="col-sm-6 col-xl-3">
-      <div class="card h-100">
-        <div class="card-body">
-          <div class="text-muted small">Customers</div>
-          <div class="fs-4 fw-bold">0</div>
-        </div>
-      </div>
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+        <div class="text-xs text-slate-500">Customers</div>
+        <div class="text-xl font-bold text-slate-900 mt-1">0</div>
     </div>
-    <div class="col-sm-6 col-xl-3">
-      <div class="card h-100">
-        <div class="card-body">
-          <div class="text-muted small">Products</div>
-          <div class="fs-4 fw-bold">{{ $productCount }}</div>
-        </div>
-      </div>
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+        <div class="text-xs text-slate-500">Products</div>
+        <div class="text-xl font-bold text-slate-900 mt-1">{{ $productCount }}</div>
     </div>
-    <div class="col-sm-6 col-xl-3">
-      <div class="card h-100">
-        <div class="card-body">
-          <div class="text-muted small">Sales</div>
-          <div class="fs-4 fw-bold">0</div>
-        </div>
-      </div>
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+        <div class="text-xs text-slate-500">Sales</div>
+        <div class="text-xl font-bold text-slate-900 mt-1">0</div>
     </div>
-  </div>
+</div>
 
-  <div class="row g-3">
-    <div class="col-lg-6">
-      <div class="card h-100">
-        <div class="card-header"><strong>Store Info</strong></div>
-        <div class="card-body">
-          <div class="d-flex align-items-center mb-3 gap-3">
-            @if($store->logo_path)
-              <img src="{{ asset('storage/'.$store->logo_path) }}" alt="" style="width:56px;height:56px;object-fit:contain;border-radius:6px;border:1px solid #eee;">
-            @endif
-            <div>
-              <div class="fw-semibold">{{ $store->name }}</div>
-              <div class="text-muted small">ID: <code>{{ $store->store_id }}</code> • Status: <span class="badge bg-light text-dark">{{ $store->status }}</span></div>
-            </div>
-          </div>
-          <div class="row">
-            <div class="col-md-12">
-              <div class="text-muted small">Description</div>
-              <div>{{ $store->description ?? '—' }}</div>
-            </div>
-            <div class="col-md-6">
-              <div class="text-muted small">Support Email</div>
-              <div>{{ $store->support_email ?? '—' }}</div>
-            </div>
-            <div class="col-md-6">
-              <div class="text-muted small">Support Phone</div>
-              <div>{{ $store->support_phone ?? '—' }}</div>
-            </div>
-          </div>
-          <div class="row mt-2">
-            <div class="col-md-4">
-              <div class="text-muted small">Ownership</div>
-              <div>{{ $store->ownershipType?->name ?? '—' }}</div>
-            </div>
-            <div class="col-md-4">
-              <div class="text-muted small">Type</div>
-              <div>{{ $store->businessType?->name ?? '—' }}</div>
-            </div>
-            <div class="col-md-4">
-              <div class="text-muted small">Business</div>
-              <div>
-                @if($store->business)
-                  <a href="{{ route('admin.vendors.show', $store->vendor) }}">{{ $store->business->name }}</a>
-                @else
-                  —
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+    {{-- Store Info --}}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+        <div class="px-5 py-4 border-b border-slate-100">
+            <h3 class="text-sm font-semibold text-slate-900">Store Info</h3>
+        </div>
+        <div class="px-5 py-4 space-y-4">
+            <div class="flex items-center gap-3">
+                @if($store->logo_path)
+                    <img src="{{ asset('storage/'.$store->logo_path) }}" alt="" class="w-14 h-14 rounded-lg object-contain border border-slate-200">
                 @endif
-              </div>
+                <div>
+                    <div class="font-semibold text-slate-900">{{ $store->name }}</div>
+                    <div class="text-xs text-slate-400">ID: <code class="text-slate-500">{{ $store->store_id }}</code> <span class="mx-1">·</span> Status: <span class="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">{{ $store->status }}</span></div>
+                </div>
             </div>
-          </div>
-          <div class="mt-3">
-            <div class="text-muted small">Address</div>
-            <div>{{ $store->address ?? '—' }}</div>
-          </div>
-          <div class="mt-3">
-            <div class="text-muted small mb-1">Social Links</div>
-            <div class="d-flex flex-wrap gap-2">
-              @if($store->instagram_url)
-                <a href="{{ $store->instagram_url }}" target="_blank" class="btn btn-sm btn-outline-secondary">Instagram</a>
-              @endif
-              @if($store->facebook_url)
-                <a href="{{ $store->facebook_url }}" target="_blank" class="btn btn-sm btn-outline-secondary">Facebook</a>
-              @endif
-              @if($store->twitter_url)
-                <a href="{{ $store->twitter_url }}" target="_blank" class="btn btn-sm btn-outline-secondary">Twitter</a>
-              @endif
-              @if($store->tiktok_url)
-                <a href="{{ $store->tiktok_url }}" target="_blank" class="btn btn-sm btn-outline-secondary">TikTok</a>
-              @endif
-              @if(!$store->instagram_url && !$store->facebook_url && !$store->twitter_url && !$store->tiktok_url)
-                <div class="text-muted small">—</div>
-              @endif
+            <div>
+                <div class="text-xs text-slate-500 mb-1">Description</div>
+                <p class="text-sm text-slate-700">{{ $store->description ?? '—' }}</p>
             </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="col-lg-6">
-      <div class="card h-100">
-        <div class="card-header"><strong>Business & Owner</strong></div>
-        <div class="card-body">
-          @if($store->business)
-            <div class="fw-semibold">{{ $store->business->name }}</div>
-            <div class="text-muted small font-monospace">{{ $store->business->business_code }}</div>
-            <hr>
-            <div class="text-muted small">Owner</div>
-            <div>{{ $store->vendor?->name ?? '—' }}</div>
-            <div class="text-muted small">Email: {{ $store->vendor?->email ?? '—' }}</div>
-            <div class="text-muted small">Phone: {{ $store->vendor?->phone ?? '—' }}</div>
-          @elseif($store->vendor)
-            <div class="fw-semibold">{{ $store->vendor->name }}</div>
-            <div class="text-muted small">Email: {{ $store->vendor->email ?? '—' }}</div>
-            <div class="text-muted small">Phone: {{ $store->vendor->phone ?? '—' }}</div>
-            <div class="alert alert-warning mt-2 mb-0 small">No Business record found.</div>
-          @else
-            <div class="text-muted">No business or vendor assigned.</div>
-          @endif
-        </div>
-      </div>
-    </div>
-
-    <div class="col-lg-4">
-      <div class="card h-100">
-        <div class="card-header"><strong>Products</strong> <span class="badge bg-light text-dark ms-2">{{ $productCount }}</span></div>
-        <div class="card-body">
-          @if($recentProducts->isEmpty())
-            <div class="text-muted">No products yet.</div>
-          @else
-            <ul class="list-unstyled mb-0">
-              @foreach($recentProducts as $p)
-                <li class="d-flex justify-content-between align-items-center py-1 border-bottom small">
-                  <span>{{ $p->name }}</span>
-                  <a href="{{ route('admin.products.edit', $p) }}" class="btn btn-xs btn-outline-primary">Edit</a>
-                </li>
-              @endforeach
-            </ul>
-          @endif
-          <div class="mt-2"><a href="{{ route('admin.stores.products.index', $store) }}" class="small">View all products</a></div>
-        </div>
-      </div>
-    </div>
-
-    <div class="col-lg-4">
-      <div class="card h-100">
-        <div class="card-header"><strong>Categories</strong> <span class="badge bg-light text-dark ms-2">{{ $categories->count() }}</span></div>
-        <div class="card-body">
-          @if($categories->isEmpty())
-            <div class="text-muted">No categories yet.</div>
-          @else
-            <ul class="list-unstyled mb-0">
-              @foreach($categories as $c)
-                <li class="py-1 border-bottom small">{{ $c->name }}</li>
-              @endforeach
-            </ul>
-          @endif
-          <div class="mt-2"><a href="{{ route('admin.stores.categories.index', $store) }}" class="small">Manage categories</a></div>
-        </div>
-      </div>
-    </div>
-
-    <div class="col-lg-4">
-      <div class="card h-100">
-        <div class="card-header"><strong>Packs</strong> <span class="badge bg-light text-dark ms-2">{{ $packs->count() }}</span></div>
-        <div class="card-body">
-          @if($packs->isEmpty())
-            <div class="text-muted">No packs yet.</div>
-          @else
-            <ul class="list-unstyled mb-0">
-              @foreach($packs as $pkg)
-                <li class="py-1 border-bottom small">{{ $pkg->name }} <span class="text-muted">({{ number_format($pkg->amount,2) }})</span></li>
-              @endforeach
-            </ul>
-          @endif
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Inline Modals: ensure presence in DOM for Bootstrap triggers -->
-<!-- Edit Store Modal (copied from index and scoped for show page) -->
-<div class="modal fade" id="editStoreModal" tabindex="-1" aria-labelledby="editStoreLabel" aria-hidden="true">
-  <div class="modal-dialog modal-lg">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title" id="editStoreLabel">Edit Store</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-      </div>
-      <form id="editStoreForm" action="{{ route('admin.stores.update', $store) }}" method="POST" enctype="multipart/form-data">
-        @csrf
-        @method('PUT')
-        <input type="hidden" name="redirect_to" value="{{ route('admin.stores.show', $store) }}">
-        <div class="modal-body">
-          <div class="row mb-3 align-items-center">
-            <div class="col-md-3"><label class="form-label mb-md-0">Business</label></div>
-            <div class="col-md-9">
-              <select name="business_id" id="editStoreBusiness" class="form-select" required>
-                @foreach(($businesses ?? []) as $b)
-                  <option value="{{ $b->id }}" {{ (int)($store->business_id) === (int)($b->id) ? 'selected' : '' }}>{{ $b->name }} ({{ $b->owner?->name ?? 'No owner' }})</option>
-                @endforeach
-              </select>
-            </div>
-          </div>
-          <div class="row mb-3 align-items-center">
-            <div class="col-md-3"><label class="form-label mb-md-0">Name</label></div>
-            <div class="col-md-9"><input type="text" name="name" id="editStoreName" class="form-control" value="{{ $store->name }}" required></div>
-          </div>
-          <div class="row mb-3 align-items-center">
-            <div class="col-md-3"><label class="form-label mb-md-0">Slug</label></div>
-            <div class="col-md-9"><input type="text" name="slug" id="editStoreSlug" class="form-control" value="{{ $store->slug }}" placeholder="auto-generated from name if left blank"></div>
-          </div>
-          <div class="row mb-3 align-items-center">
-            <div class="col-md-3"><label class="form-label mb-md-0">Description</label></div>
-            <div class="col-md-9"><textarea name="description" id="editStoreDescription" class="form-control" rows="3" placeholder="Short description shown in listings">{{ $store->description }}</textarea></div>
-          </div>
-          <div class="row mb-3 align-items-center">
-            <div class="col-md-3"><label class="form-label mb-md-0">Logo</label></div>
-            <div class="col-md-9">
-              <div class="d-flex align-items-center">
-                <div class="me-4 rounded-4 border" style="width: 160px; height: 80px; display:flex;align-items:center;justify-content:center;overflow:hidden;">
-                  <img id="editStoreLogoPreview" style="max-width:100%;max-height:100%;object-fit:contain;" src="{{ $store->logo_path ? asset('storage/'.$store->logo_path) : '' }}" alt="">
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <div class="text-xs text-slate-500 mb-0.5">Support Email</div>
+                    <div class="text-sm text-slate-700">{{ $store->support_email ?? '—' }}</div>
                 </div>
                 <div>
-                  <input type="file" name="logo" class="form-control" accept=".png,.jpg,.jpeg,.webp" onchange="(e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{const img=document.getElementById('editStoreLogoPreview');if(img)img.src=ev.target.result;};r.readAsDataURL(f);})(event)">
-                  <small class="text-muted">PNG, JPG, WEBP. Max 2MB.</small>
+                    <div class="text-xs text-slate-500 mb-0.5">Support Phone</div>
+                    <div class="text-sm text-slate-700">{{ $store->support_phone ?? '—' }}</div>
                 </div>
-              </div>
+                <div>
+                    <div class="text-xs text-slate-500 mb-0.5">Ownership</div>
+                    <div class="text-sm text-slate-700">{{ $store->ownershipType?->name ?? '—' }}</div>
+                </div>
+                <div>
+                    <div class="text-xs text-slate-500 mb-0.5">Type</div>
+                    <div class="text-sm text-slate-700">{{ $store->businessType?->name ?? '—' }}</div>
+                </div>
+                <div>
+                    <div class="text-xs text-slate-500 mb-0.5">Business</div>
+                    <div class="text-sm">
+                        @if($store->business)
+                            <a href="{{ route('admin.vendors.show', $store->user) }}" class="text-indigo-600 hover:underline">{{ $store->business->name }}</a>
+                        @else
+                            <span class="text-slate-400">—</span>
+                        @endif
+                    </div>
+                </div>
             </div>
-          </div>
-          <div class="row mb-3 align-items-center">
-            <div class="col-md-3"><label class="form-label mb-md-0">Support Email</label></div>
-            <div class="col-md-9"><input type="email" name="support_email" id="editStoreSupportEmail" class="form-control" value="{{ $store->support_email }}"></div>
-          </div>
-          <div class="row mb-3 align-items-center">
-            <div class="col-md-3"><label class="form-label mb-md-0">Support Phone</label></div>
-            <div class="col-md-9"><input type="text" name="support_phone" id="editStoreSupportPhone" class="form-control" value="{{ $store->support_phone }}"></div>
-          </div>
-          <div class="row mb-3 align-items-center">
-            <div class="col-md-3"><label class="form-label mb-md-0">Address</label></div>
-            <div class="col-md-9"><textarea name="address" id="editStoreAddress" class="form-control" rows="3">{{ $store->address }}</textarea></div>
-          </div>
-          <div class="row mb-3 align-items-center">
-            <div class="col-md-3"><label class="form-label mb-md-0">Instagram URL</label></div>
-            <div class="col-md-9"><input type="url" name="instagram_url" id="editStoreInstagramUrl" class="form-control" value="{{ $store->instagram_url }}" placeholder="https://instagram.com/yourhandle"></div>
-          </div>
-          <div class="row mb-3 align-items-center">
-            <div class="col-md-3"><label class="form-label mb-md-0">Facebook URL</label></div>
-            <div class="col-md-9"><input type="url" name="facebook_url" id="editStoreFacebookUrl" class="form-control" value="{{ $store->facebook_url }}" placeholder="https://facebook.com/yourpage"></div>
-          </div>
-          <div class="row mb-3 align-items-center">
-            <div class="col-md-3"><label class="form-label mb-md-0">Twitter URL</label></div>
-            <div class="col-md-9"><input type="url" name="twitter_url" id="editStoreTwitterUrl" class="form-control" value="{{ $store->twitter_url }}" placeholder="https://twitter.com/yourhandle"></div>
-          </div>
-          <div class="row mb-3 align-items-center">
-            <div class="col-md-3"><label class="form-label mb-md-0">TikTok URL</label></div>
-            <div class="col-md-9"><input type="url" name="tiktok_url" id="editStoreTiktokUrl" class="form-control" value="{{ $store->tiktok_url }}" placeholder="https://www.tiktok.com/@yourhandle"></div>
-          </div>
-          <div class="row mb-3 align-items-center">
-            <div class="col-md-3"><label class="form-label mb-md-0">Ownership Type</label></div>
-            <div class="col-md-9">
-              <select name="ownership_type_id" id="editStoreOwnershipType" class="form-select">
-                <option value="">Select...</option>
-                @foreach(($ownershipTypes ?? []) as $o)
-                  <option value="{{ $o->id }}" {{ (int)($store->ownership_type_id) === (int)($o->id) ? 'selected' : '' }}>{{ $o->name }}</option>
-                @endforeach
-              </select>
+            <div>
+                <div class="text-xs text-slate-500 mb-0.5">Address</div>
+                <div class="text-sm text-slate-700">{{ $store->address ?? '—' }}</div>
             </div>
-          </div>
-          <div class="row mb-3 align-items-center">
-            <div class="col-md-3"><label class="form-label mb-md-0">Business Type</label></div>
-            <div class="col-md-9">
-              <select name="business_type_id" id="editStoreBusinessType" class="form-select">
-                <option value="">Select...</option>
-                @foreach(($businessTypes ?? []) as $b)
-                  <option value="{{ $b->id }}" {{ (int)($store->business_type_id) === (int)($b->id) ? 'selected' : '' }}>{{ $b->name }}</option>
-                @endforeach
-              </select>
+            <div>
+                <div class="text-xs text-slate-500 mb-1.5">Social Links</div>
+                <div class="flex flex-wrap gap-2">
+                    @if($store->instagram_url)
+                        <a href="{{ $store->instagram_url }}" target="_blank" class="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50">Instagram</a>
+                    @endif
+                    @if($store->facebook_url)
+                        <a href="{{ $store->facebook_url }}" target="_blank" class="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50">Facebook</a>
+                    @endif
+                    @if($store->twitter_url)
+                        <a href="{{ $store->twitter_url }}" target="_blank" class="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50">Twitter</a>
+                    @endif
+                    @if($store->tiktok_url)
+                        <a href="{{ $store->tiktok_url }}" target="_blank" class="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50">TikTok</a>
+                    @endif
+                    @if(!$store->instagram_url && !$store->facebook_url && !$store->twitter_url && !$store->tiktok_url)
+                        <span class="text-xs text-slate-400">—</span>
+                    @endif
+                </div>
             </div>
-          </div>
-          <div class="row mb-3 align-items-center">
-            <div class="col-md-3"><label class="form-label mb-md-0">Status</label></div>
-            <div class="col-md-9">
-              <select name="status" id="editStoreStatus" class="form-select">
-                <option value="active" {{ $store->status==='active' ? 'selected' : '' }}>active</option>
-                <option value="inactive" {{ $store->status==='inactive' ? 'selected' : '' }}>inactive</option>
-                <option value="suspended" {{ $store->status==='suspended' ? 'selected' : '' }}>suspended</option>
-                <option value="deleted" {{ $store->status==='deleted' ? 'selected' : '' }}>deleted</option>
-              </select>
-            </div>
-          </div>
         </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
-          <button type="submit" class="btn btn-primary">Update</button>
-        </div>
-      </form>
     </div>
-  </div>
-  </div>
 
-<!-- Suspend Store Modal -->
-<div class="modal fade" id="suspendStoreModal" tabindex="-1" aria-labelledby="suspendStoreLabel" aria-hidden="true">
-  <div class="modal-dialog">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title" id="suspendStoreLabel">Suspend Store</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-      </div>
-      <form id="suspendStoreForm" method="POST">
-        @csrf
-        <div class="modal-body">
-          <div class="mb-3">
-            <label class="form-label">Store</label>
-            <input type="text" class="form-control" id="suspendStoreName" disabled>
-          </div>
-          <div class="mb-3">
-            <label for="suspendStoreReason" class="form-label">Reason</label>
-            <textarea class="form-control" id="suspendStoreReason" name="reason" rows="4" placeholder="Provide reason for suspension" required></textarea>
-          </div>
+    {{-- Business & Owner --}}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+        <div class="px-5 py-4 border-b border-slate-100">
+            <h3 class="text-sm font-semibold text-slate-900">Business & Owner</h3>
         </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
-          <button type="submit" class="btn btn-danger">Suspend</button>
+        <div class="px-5 py-4">
+            @if($store->business)
+                <div class="font-semibold text-slate-900">{{ $store->business->name }}</div>
+                <div class="text-xs text-slate-400 font-mono">{{ $store->business->business_code }}</div>
+                <div class="border-t border-slate-100 my-3"></div>
+                <div class="space-y-2">
+                    <div>
+                        <div class="text-xs text-slate-500">Owner</div>
+                        <div class="text-sm text-slate-900">{{ $store->user?->name ?? '—' }}</div>
+                    </div>
+                    <div class="text-xs text-slate-500">Email: {{ $store->user?->email ?? '—' }}</div>
+                    <div class="text-xs text-slate-500">Phone: {{ $store->user?->phone ?? '—' }}</div>
+                </div>
+            @elseif($store->user)
+                <div class="font-semibold text-slate-900">{{ $store->user->name }}</div>
+                <div class="text-xs text-slate-500">Email: {{ $store->user->email ?? '—' }}</div>
+                <div class="text-xs text-slate-500">Phone: {{ $store->user->phone ?? '—' }}</div>
+                <div class="mt-3 px-4 py-3 rounded-lg bg-amber-50 border border-amber-200 text-sm text-amber-700">No Business record found.</div>
+            @else
+                <p class="text-sm text-slate-400">No business or vendor assigned.</p>
+            @endif
         </div>
-      </form>
     </div>
-  </div>
 </div>
 
-<!-- Activate Store Modal -->
-<div class="modal fade" id="activateStoreModal" tabindex="-1" aria-labelledby="activateStoreLabel" aria-hidden="true">
-  <div class="modal-dialog">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title" id="activateStoreLabel">Activate Store</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-      </div>
-      <form id="activateStoreForm" method="POST">
-        @csrf
-        <div class="modal-body">
-          <div class="mb-3">
-            <label class="form-label">Store</label>
-            <input type="text" class="form-control" id="activateStoreName" disabled>
-          </div>
-          <div class="mb-3">
-            <label for="activateStoreReason" class="form-label">Reason / Notes</label>
-            <textarea class="form-control" id="activateStoreReason" name="reason" rows="4" placeholder="Provide reason for activation" required></textarea>
-          </div>
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    {{-- Products --}}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+        <div class="px-5 py-4 border-b border-slate-100">
+            <h3 class="text-sm font-semibold text-slate-900">Products <span class="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 ml-2">{{ $productCount }}</span></h3>
         </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
-          <button type="submit" class="btn btn-success">Activate</button>
+        <div class="px-5 py-4">
+            @if($recentProducts->isEmpty())
+                <p class="text-sm text-slate-400">No products yet.</p>
+            @else
+                <div class="space-y-1">
+                    @foreach($recentProducts as $p)
+                        <div class="flex justify-between items-center py-1.5 border-b border-slate-50 last:border-0">
+                            <span class="text-sm text-slate-700">{{ $p->name }}</span>
+                            <a href="{{ route('admin.products.edit', $p) }}" class="text-xs text-indigo-600 hover:underline">Edit</a>
+                        </div>
+                    @endforeach
+                </div>
+            @endif
+            <div class="mt-3">
+                <a href="{{ route('admin.stores.products.index', $store) }}" class="text-xs text-indigo-600 hover:underline">View all products</a>
+            </div>
         </div>
-      </form>
     </div>
-  </div>
-  </div>
 
+    {{-- Categories --}}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+        <div class="px-5 py-4 border-b border-slate-100">
+            <h3 class="text-sm font-semibold text-slate-900">Categories <span class="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 ml-2">{{ $categories->count() }}</span></h3>
+        </div>
+        <div class="px-5 py-4">
+            @if($categories->isEmpty())
+                <p class="text-sm text-slate-400">No categories yet.</p>
+            @else
+                <div class="space-y-1">
+                    @foreach($categories as $c)
+                        <div class="py-1.5 border-b border-slate-50 last:border-0 text-sm text-slate-700">{{ $c->name }}</div>
+                    @endforeach
+                </div>
+            @endif
+            <div class="mt-3">
+                <a href="{{ route('admin.stores.categories.index', $store) }}" class="text-xs text-indigo-600 hover:underline">Manage categories</a>
+            </div>
+        </div>
+    </div>
+
+    {{-- Packs --}}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+        <div class="px-5 py-4 border-b border-slate-100">
+            <h3 class="text-sm font-semibold text-slate-900">Packs <span class="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 ml-2">{{ $packs->count() }}</span></h3>
+        </div>
+        <div class="px-5 py-4">
+            @if($packs->isEmpty())
+                <p class="text-sm text-slate-400">No packs yet.</p>
+            @else
+                <div class="space-y-1">
+                    @foreach($packs as $pkg)
+                        <div class="py-1.5 border-b border-slate-50 last:border-0 text-sm text-slate-700 flex justify-between">
+                            <span>{{ $pkg->name }}</span>
+                            <span class="text-xs text-slate-400">{{ number_format($pkg->amount,2) }}</span>
+                        </div>
+                    @endforeach
+                </div>
+            @endif
+        </div>
+    </div>
 </div>
+
+{{-- Edit Store Modal --}}
+<div id="editStoreModal" class="hidden fixed inset-0 z-50 overflow-y-auto" role="dialog" aria-modal="true">
+    <div class="flex items-center justify-center min-h-screen p-4">
+        <div class="fixed inset-0 bg-slate-900/50" onclick="closeModal('editStoreModal')"></div>
+        <div class="relative bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-2xl p-6 max-h-[85vh] overflow-y-auto">
+            <h5 class="text-base font-semibold text-slate-900 mb-4">Edit Store</h5>
+            <form id="editStoreForm" action="{{ route('admin.stores.update', $store) }}" method="POST" enctype="multipart/form-data" class="space-y-4">
+                @csrf
+                @method('PUT')
+                <input type="hidden" name="redirect_to" value="{{ route('admin.stores.show', $store) }}">
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-y-3 items-start">
+                    <label class="text-sm font-medium text-slate-700 pt-1.5">Business</label>
+                    <div class="sm:col-span-2">
+                        <select name="business_id" id="editStoreBusiness" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" required>
+                            @foreach(($businesses ?? []) as $b)
+                                <option value="{{ $b->id }}" {{ (int)($store->business_id) === (int)($b->id) ? 'selected' : '' }}>{{ $b->name }} ({{ $b->owner?->name ?? 'No owner' }})</option>
+                            @endforeach
+                        </select>
+                    </div>
+
+                    <label class="text-sm font-medium text-slate-700 pt-1.5">Name</label>
+                    <div class="sm:col-span-2"><input type="text" name="name" id="editStoreName" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" value="{{ $store->name }}" required></div>
+
+                    <label class="text-sm font-medium text-slate-700 pt-1.5">Slug</label>
+                    <div class="sm:col-span-2"><input type="text" name="slug" id="editStoreSlug" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" value="{{ $store->slug }}" placeholder="auto-generated from name if left blank"></div>
+
+                    <label class="text-sm font-medium text-slate-700 pt-1.5">Description</label>
+                    <div class="sm:col-span-2"><textarea name="description" id="editStoreDescription" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" rows="3" placeholder="Short description shown in listings">{{ $store->description }}</textarea></div>
+
+                    <label class="text-sm font-medium text-slate-700 pt-1.5">Logo</label>
+                    <div class="sm:col-span-2">
+                        <div class="flex items-center gap-4">
+                            <div class="w-40 h-20 rounded-lg border border-slate-200 flex items-center justify-center overflow-hidden bg-slate-50">
+                                <img id="editStoreLogoPreview" class="max-w-full max-h-full object-contain" src="{{ $store->logo_path ? asset('storage/'.$store->logo_path) : '' }}" alt="">
+                            </div>
+                            <div>
+                                <input type="file" name="logo" class="w-full text-sm text-slate-600 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200" accept=".png,.jpg,.jpeg,.webp" onchange="previewImageShow(event)">
+                                <p class="text-xs text-slate-400 mt-1">PNG, JPG, WEBP. Max 2MB.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <label class="text-sm font-medium text-slate-700 pt-1.5">Support Email</label>
+                    <div class="sm:col-span-2"><input type="email" name="support_email" id="editStoreSupportEmail" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" value="{{ $store->support_email }}"></div>
+
+                    <label class="text-sm font-medium text-slate-700 pt-1.5">Support Phone</label>
+                    <div class="sm:col-span-2"><input type="text" name="support_phone" id="editStoreSupportPhone" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" value="{{ $store->support_phone }}"></div>
+
+                    <label class="text-sm font-medium text-slate-700 pt-1.5">Address</label>
+                    <div class="sm:col-span-2"><textarea name="address" id="editStoreAddress" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" rows="3">{{ $store->address }}</textarea></div>
+
+                    <label class="text-sm font-medium text-slate-700 pt-1.5">Instagram URL</label>
+                    <div class="sm:col-span-2"><input type="url" name="instagram_url" id="editStoreInstagramUrl" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" value="{{ $store->instagram_url }}" placeholder="https://instagram.com/yourhandle"></div>
+
+                    <label class="text-sm font-medium text-slate-700 pt-1.5">Facebook URL</label>
+                    <div class="sm:col-span-2"><input type="url" name="facebook_url" id="editStoreFacebookUrl" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" value="{{ $store->facebook_url }}" placeholder="https://facebook.com/yourpage"></div>
+
+                    <label class="text-sm font-medium text-slate-700 pt-1.5">Twitter URL</label>
+                    <div class="sm:col-span-2"><input type="url" name="twitter_url" id="editStoreTwitterUrl" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" value="{{ $store->twitter_url }}" placeholder="https://twitter.com/yourhandle"></div>
+
+                    <label class="text-sm font-medium text-slate-700 pt-1.5">TikTok URL</label>
+                    <div class="sm:col-span-2"><input type="url" name="tiktok_url" id="editStoreTiktokUrl" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" value="{{ $store->tiktok_url }}" placeholder="https://www.tiktok.com/@yourhandle"></div>
+
+                    <label class="text-sm font-medium text-slate-700 pt-1.5">Ownership Type</label>
+                    <div class="sm:col-span-2">
+                        <select name="ownership_type_id" id="editStoreOwnershipType" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                            <option value="">Select...</option>
+                            @foreach(($ownershipTypes ?? []) as $o)
+                                <option value="{{ $o->id }}" {{ (int)($store->ownership_type_id) === (int)($o->id) ? 'selected' : '' }}>{{ $o->name }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+
+                    <label class="text-sm font-medium text-slate-700 pt-1.5">Business Type</label>
+                    <div class="sm:col-span-2">
+                        <select name="business_type_id" id="editStoreBusinessType" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                            <option value="">Select...</option>
+                            @foreach(($businessTypes ?? []) as $b)
+                                <option value="{{ $b->id }}" {{ (int)($store->business_type_id) === (int)($b->id) ? 'selected' : '' }}>{{ $b->name }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+
+                    <label class="text-sm font-medium text-slate-700 pt-1.5">Status</label>
+                    <div class="sm:col-span-2">
+                        <select name="status" id="editStoreStatus" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                            <option value="active" {{ $store->status==='active' ? 'selected' : '' }}>active</option>
+                            <option value="inactive" {{ $store->status==='inactive' ? 'selected' : '' }}>inactive</option>
+                            <option value="suspended" {{ $store->status==='suspended' ? 'selected' : '' }}>suspended</option>
+                            <option value="deleted" {{ $store->status==='deleted' ? 'selected' : '' }}>deleted</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                    <button type="button" onclick="closeModal('editStoreModal')" class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50">Cancel</button>
+                    <button type="submit" class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg bg-slate-900 text-white hover:bg-slate-800">Update</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+{{-- Suspend Store Modal --}}
+<div id="suspendStoreModal" class="hidden fixed inset-0 z-50 overflow-y-auto" role="dialog" aria-modal="true">
+    <div class="flex items-center justify-center min-h-screen p-4">
+        <div class="fixed inset-0 bg-slate-900/50" onclick="closeModal('suspendStoreModal')"></div>
+        <div class="relative bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-md p-6">
+            <h5 class="text-base font-semibold text-slate-900 mb-4">Suspend Store</h5>
+            <form id="suspendStoreForm" method="POST" class="space-y-4">
+                @csrf
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Store</label>
+                    <input type="text" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-slate-50 text-slate-500" id="suspendStoreName" disabled>
+                </div>
+                <div>
+                    <label for="suspendStoreReason" class="block text-sm font-medium text-slate-700 mb-1">Reason</label>
+                    <textarea class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" id="suspendStoreReason" name="reason" rows="4" placeholder="Provide reason for suspension" required></textarea>
+                </div>
+                <div class="flex justify-end gap-2 pt-2">
+                    <button type="button" onclick="closeModal('suspendStoreModal')" class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50">Cancel</button>
+                    <button type="submit" class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg bg-red-600 text-white hover:bg-red-700">Suspend</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+{{-- Activate Store Modal --}}
+<div id="activateStoreModal" class="hidden fixed inset-0 z-50 overflow-y-auto" role="dialog" aria-modal="true">
+    <div class="flex items-center justify-center min-h-screen p-4">
+        <div class="fixed inset-0 bg-slate-900/50" onclick="closeModal('activateStoreModal')"></div>
+        <div class="relative bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-md p-6">
+            <h5 class="text-base font-semibold text-slate-900 mb-4">Activate Store</h5>
+            <form id="activateStoreForm" method="POST" class="space-y-4">
+                @csrf
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Store</label>
+                    <input type="text" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-slate-50 text-slate-500" id="activateStoreName" disabled>
+                </div>
+                <div>
+                    <label for="activateStoreReason" class="block text-sm font-medium text-slate-700 mb-1">Reason / Notes</label>
+                    <textarea class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" id="activateStoreReason" name="reason" rows="4" placeholder="Provide reason for activation" required></textarea>
+                </div>
+                <div class="flex justify-end gap-2 pt-2">
+                    <button type="button" onclick="closeModal('activateStoreModal')" class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50">Cancel</button>
+                    <button type="submit" class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg bg-emerald-600 text-white hover:bg-emerald-700">Activate</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 @endsection
+
+@push('scripts')
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-  var modal = document.getElementById('suspendStoreModal');
-  if (modal) {
-    modal.addEventListener('show.bs.modal', function (event) {
-      var button = event.relatedTarget;
-      var action = button.getAttribute('data-action');
-      var storeName = button.getAttribute('data-store-name');
-      var nameInput = document.getElementById('suspendStoreName');
-      var form = document.getElementById('suspendStoreForm');
-      if (nameInput) nameInput.value = storeName || '';
-      if (form && action) { form.action = action; }
-    });
-  }
-});
+function storeActionShow(formId, action, name, inputId, modalId) {
+    const form = document.getElementById(formId);
+    const input = document.getElementById(inputId);
+    if (form) form.action = action;
+    if (input) input.value = name || '';
+    openModal(modalId);
+}
 
-document.addEventListener('DOMContentLoaded', function() {
-  var modal = document.getElementById('activateStoreModal');
-  if (modal) {
-    modal.addEventListener('show.bs.modal', function (event) {
-      var button = event.relatedTarget;
-      var action = button.getAttribute('data-action');
-      var storeName = button.getAttribute('data-store-name');
-      var nameInput = document.getElementById('activateStoreName');
-      var form = document.getElementById('activateStoreForm');
-      if (nameInput) nameInput.value = storeName || '';
-      if (form && action) { form.action = action; }
-    });
-  }
-});
-
-// Edit Store modal population (same as index)
-document.addEventListener('DOMContentLoaded', function() {
-  var modal = document.getElementById('editStoreModal');
-  if (!modal) return;
-  modal.addEventListener('show.bs.modal', function (event) {
-    var button = event.relatedTarget;
-    if (!button) return;
-    var form = document.getElementById('editStoreForm');
-    var action = button.getAttribute('data-action');
-    if (form && action) form.action = action;
-
-    var businessId = button.getAttribute('data-business-id') || '';
-    var name = button.getAttribute('data-name') || '';
-    var slug = button.getAttribute('data-slug') || '';
-    var description = button.getAttribute('data-description') || '';
-    var supportEmail = button.getAttribute('data-support-email') || '';
-    var supportPhone = button.getAttribute('data-support-phone') || '';
-    var address = button.getAttribute('data-address') || '';
-    var instagramUrl = button.getAttribute('data-instagram-url') || '';
-    var facebookUrl = button.getAttribute('data-facebook-url') || '';
-    var twitterUrl = button.getAttribute('data-twitter-url') || '';
-    var tiktokUrl = button.getAttribute('data-tiktok-url') || '';
-    var ownershipTypeId = button.getAttribute('data-ownership-type-id') || '';
-    var businessTypeId = button.getAttribute('data-business-type-id') || '';
-    var status = (button.getAttribute('data-status') || '').toLowerCase();
-    var logoUrl = button.getAttribute('data-logo-url') || '';
-
-    document.getElementById('editStoreBusiness').value = businessId;
-    document.getElementById('editStoreName').value = name;
-    document.getElementById('editStoreSlug').value = slug;
-    document.getElementById('editStoreDescription').value = description;
-    document.getElementById('editStoreSupportEmail').value = supportEmail;
-    document.getElementById('editStoreSupportPhone').value = supportPhone;
-    document.getElementById('editStoreAddress').value = address;
-    document.getElementById('editStoreInstagramUrl').value = instagramUrl;
-    document.getElementById('editStoreFacebookUrl').value = facebookUrl;
-    document.getElementById('editStoreTwitterUrl').value = twitterUrl;
-    document.getElementById('editStoreTiktokUrl').value = tiktokUrl;
-    document.getElementById('editStoreOwnershipType').value = ownershipTypeId;
-    document.getElementById('editStoreBusinessType').value = businessTypeId;
-    var statusSelect = document.getElementById('editStoreStatus');
-    if (statusSelect) Array.from(statusSelect.options).forEach(function(opt){ opt.selected = (opt.value.toLowerCase() === status); });
-    var logoPreview = document.getElementById('editStoreLogoPreview');
-    if (logoPreview) logoPreview.src = logoUrl;
-  });
-});
+function previewImageShow(event) {
+    const f = event.target.files[0];
+    if (!f) return;
+    const r = new FileReader();
+    r.onload = function(ev) {
+        const img = document.getElementById('editStoreLogoPreview');
+        if (img) img.src = ev.target.result;
+    };
+    r.readAsDataURL(f);
+}
 </script>
+@endpush

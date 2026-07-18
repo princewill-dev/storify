@@ -27,7 +27,7 @@
                                 <tr>
                                     <td style="background-color: #f0f0f0; border-left: 4px solid #333333; padding: 15px; border-radius: 4px;">
                                         <p style="margin: 0; color: #333333; font-size: 14px; font-weight: 600;">
-                                            ⚡ New support message received from {{ $supportMessage->store->name }}
+                                            ⚡ New support message received from {{ $supportMessage->store?->name }}
                                         </p>
                                     </td>
                                 </tr>
@@ -52,7 +52,7 @@
                                 @endif
                                 <tr>
                                     <td style="padding: 8px 0; color: #666666; font-size: 14px;"><strong>Store:</strong></td>
-                                    <td style="padding: 8px 0; color: #333333; font-size: 14px;">{{ $supportMessage->store->name }}</td>
+                                    <td style="padding: 8px 0; color: #333333; font-size: 14px;">{{ $supportMessage->store?->name }}</td>
                                 </tr>
                                 <tr>
                                     <td style="padding: 8px 0; color: #666666; font-size: 14px;"><strong>Date:</strong></td>

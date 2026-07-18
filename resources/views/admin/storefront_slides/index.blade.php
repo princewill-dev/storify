@@ -1,154 +1,139 @@
 @extends('admin.layout')
-@section('title', 'Superadmin')
 @section('subtitle', $store->name . ' Slides')
 
 @section('content')
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <h5 class="mb-0">Storefront Slides — {{ $store->name }}</h5>
-  <a href="{{ route('admin.stores.show', $store) }}" class="btn btn-light btn-sm">Back to Store</a>
+<div class="flex items-center justify-between mb-6">
+  <h2 class="text-lg font-bold text-slate-900">Storefront Slides — {{ $store->name }}</h2>
+  <a href="{{ route('admin.stores.show', $store) }}" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50">Back to Store</a>
 </div>
-<div class="row">
-  <div class="col-lg-12">
-    <div class="card">
-      <div class="card-header d-flex justify-content-between align-items-center">
-        <h6 class="card-title mb-0">Slides</h6>
-        <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addSlidesModal">Add Slides</button>
-      </div>
-      <div class="card-body">
-        <div class="table-responsive">
-          <table class="table table-sm align-middle" id="slidesTable">
-            <thead>
-              <tr>
-                <th style="width:40px">#</th>
-                <th>Image</th>
-                <th>Product</th>
-                <th>Status</th>
-                <th class="text-end">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              @forelse($slides as $slide)
-                <tr draggable="true" data-slide-id="{{ $slide->id }}">
-                  <td class="cursor-move text-muted">&#9776;</td>
-                  <td>
-                    @php($pimg = $slide->product?->primaryImage()?->path)
-                    @if($pimg)
-                      <img src="{{ asset('storage/' . $pimg) }}" alt="" style="width:72px; height:40px; object-fit:cover;"/>
-                    @else
-                      <div class="text-muted small">No image</div>
-                    @endif
-                  </td>
-                  <td>
-                    {{ $slide->product?->name ?? '—' }}
+
+<div class="bg-white rounded-xl shadow-sm border border-slate-200">
+  <div class="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+    <h3 class="text-sm font-semibold text-slate-800">Slides</h3>
+    <button type="button" onclick="openModal('addSlidesModal')" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg bg-slate-900 text-white hover:bg-slate-800">Add Slides</button>
+  </div>
+
+  <table class="w-full text-sm" id="slidesTable">
+    <thead class="border-b border-slate-100">
+      <tr>
+        <th class="py-3 px-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider w-10">#</th>
+        <th class="py-3 px-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Image</th>
+        <th class="py-3 px-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Product</th>
+        <th class="py-3 px-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
+        <th class="py-3 px-4 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider">Actions</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-slate-50">
+      @forelse($slides as $slide)
+        <tr draggable="true" data-slide-id="{{ $slide->id }}" class="hover:bg-slate-50/50">
+          <td class="py-3 px-4 cursor-move text-slate-300">&#9776;</td>
+          <td class="py-3 px-4">
+            @php($pimg = $slide->product?->primaryImage()?->path)
+            @if($pimg)
+              <img src="{{ asset('storage/' . $pimg) }}" alt="" class="w-[72px] h-10 object-cover rounded border border-slate-200"/>
+            @else
+              <div class="text-xs text-slate-400">No image</div>
+            @endif
+          </td>
+          <td class="py-3 px-4">
+            <div class="text-slate-700">{{ $slide->product?->name ?? '—' }}</div>
+            @if($slide->product)
+              <div class="text-xs text-slate-400">Code: {{ $slide->product->product_code }} &bull; ${{ number_format((float)($slide->product->amount ?? 0),2) }}</div>
+            @endif
+          </td>
+          <td class="py-3 px-4"><span class="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600">{{ $slide->status }}</span></td>
+          <td class="py-3 px-4 text-right">
+            <div class="flex items-center justify-end gap-1">
+              <button type="button" onclick="openEditSlideModal('{{ $slide->id }}', '{{ addslashes($slide->product?->name ?? '') }}', '{{ $slide->product?->product_code ?? '' }}', '{{ number_format((float)($slide->product?->amount ?? 0),2) }}', '{{ $slide->product_id }}', '{{ $slide->status }}')" class="inline-flex items-center justify-center p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:text-slate-800 hover:bg-slate-50 text-xs">Edit</button>
+              <button type="button" onclick="openModal('deleteSlide{{ $slide->id }}')" class="inline-flex items-center justify-center p-1.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 text-xs">Delete</button>
+              <x-admin.confirm-modal id="deleteSlide{{ $slide->id }}" title="Delete Slide" message="Delete slide?" action="{{ route('admin.storefront-slides.destroy', [$store, $slide]) }}" method="DELETE" />
+            </div>
+          </td>
+        </tr>
+
+        {{-- Edit Slide Modal --}}
+        <div id="editSlideModal{{ $slide->id }}" class="hidden fixed inset-0 z-50 overflow-y-auto" role="dialog" aria-modal="true">
+          <div class="flex items-center justify-center min-h-screen p-4">
+            <div class="fixed inset-0 bg-slate-900/50" onclick="closeModal('editSlideModal{{ $slide->id }}')"></div>
+            <div class="relative bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-2xl p-6">
+              <div class="flex items-center justify-between mb-4">
+                <h5 class="text-base font-semibold text-slate-900">Edit Slide</h5>
+                <button onclick="closeModal('editSlideModal{{ $slide->id }}')" class="text-slate-400 hover:text-slate-600 text-lg leading-none">&times;</button>
+              </div>
+              <form action="{{ route('admin.storefront-slides.update', [$store, $slide]) }}" method="POST" enctype="multipart/form-data" class="edit-slide-form space-y-4" data-search-url="{{ route('api.admin.store-products.index', $store) }}">
+                @csrf @method('PUT')
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div class="md:col-span-2">
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Product</label>
+                    <input type="hidden" name="product_id" value="{{ $slide->product_id }}">
+                    <input type="text" class="w-full rounded-lg border-slate-300 px-3.5 py-2.5 text-sm shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500 product-search" placeholder="Search product by name, code, slug..." autocomplete="off">
+                    <div class="relative w-full"><div class="list-group absolute w-full bg-white rounded-lg shadow-lg border border-slate-200 d-none search-results z-10 max-h-64 overflow-auto"></div></div>
                     @if($slide->product)
-                      <div class="small text-muted">Code: {{ $slide->product->product_code }} • ${{ number_format((float)($slide->product->amount ?? 0),2) }}</div>
+                      <div class="mt-2 text-xs text-slate-500">Selected: <strong class="text-slate-700 selected-product-name">{{ $slide->product->name }}</strong> &bull; Code: <span class="text-slate-700 selected-product-code">{{ $slide->product->product_code }}</span> &bull; $<span class="text-slate-700 selected-product-price">{{ number_format((float)($slide->product->amount ?? 0),2) }}</span> — <a class="text-indigo-600 hover:underline selected-product-edit" target="_blank" href="{{ url('/superadmin/products/'.$slide->product_id.'/edit') }}">Edit product</a></div>
+                    @else
+                      <div class="mt-2 text-xs text-slate-400">No product selected.</div>
                     @endif
-                  </td>
-                  <td><span class="badge bg-light text-dark">{{ $slide->status }}</span></td>
-                  <td class="text-end">
-                    <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#editSlideModal{{ $slide->id }}">Edit</button>
-                    <button type="button" class="btn btn-sm btn-outline-danger" data-bs-toggle="modal" data-bs-target="#deleteSlide{{ $slide->id }}">Delete</button>
-                    <x-admin.confirm-modal id="deleteSlide{{ $slide->id }}" title="Delete Slide" message="Delete slide?" action="{{ route('admin.storefront-slides.destroy', [$store, $slide]) }}" method="DELETE" />
-                  </td>
-                </tr>
-
-
-                <div class="modal fade" id="editSlideModal{{ $slide->id }}" tabindex="-1" aria-hidden="true">
-                  <div class="modal-dialog modal-lg">
-                    <div class="modal-content">
-                      <div class="modal-header">
-                        <h5 class="modal-title">Edit Slide</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                      </div>
-                      <form action="{{ route('admin.storefront-slides.update', [$store, $slide]) }}" method="POST" enctype="multipart/form-data" class="edit-slide-form" data-search-url="{{ route('api.admin.store-products.index', $store) }}">
-                        @csrf @method('PUT')
-                        <div class="modal-body">
-                          <div class="row g-3">
-                            <div class="col-md-8">
-                              <label class="form-label">Product</label>
-                              <input type="hidden" name="product_id" value="{{ $slide->product_id }}">
-                              <input type="text" class="form-control product-search" placeholder="Search product by name, code, slug..." autocomplete="off">
-                              <div class="list-group position-absolute w-100 shadow-sm d-none search-results" style="z-index: 1056; max-height: 260px; overflow:auto;"></div>
-                              @if($slide->product)
-                                <div class="small mt-2">Selected: <strong class="selected-product-name">{{ $slide->product->name }}</strong> • Code: <span class="selected-product-code">{{ $slide->product->product_code }}</span> • $<span class="selected-product-price">{{ number_format((float)($slide->product->amount ?? 0),2) }}</span> — <a class="selected-product-edit" target="_blank" href="{{ url('/superadmin/products/'.$slide->product_id.'/edit') }}">Edit product</a></div>
-                              @else
-                                <div class="small mt-2 text-muted">No product selected.</div>
-                              @endif
-                            </div>
-                            <div class="col-md-4">
-                              <label class="form-label">Status</label>
-                              <select name="status" class="form-select">
-                                <option value="active" @selected($slide->status==='active')>active</option>
-                                <option value="inactive" @selected($slide->status==='inactive')>inactive</option>
-                              </select>
-                            </div>
-                            
-                          </div>
-                        </div>
-                        <div class="modal-footer">
-                          <button type="button" class="btn btn-light" data-bs-dismiss="modal">Close</button>
-                          <button type="submit" class="btn btn-primary">Save</button>
-                        </div>
-                      </form>
-                    </div>
+                  </div>
+                  <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Status</label>
+                    <select name="status" class="w-full rounded-lg border-slate-300 px-3.5 py-2.5 text-sm shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500">
+                      <option value="active" @selected($slide->status==='active')>active</option>
+                      <option value="inactive" @selected($slide->status==='inactive')>inactive</option>
+                    </select>
                   </div>
                 </div>
-
-                
-              @empty
-                <tr><td colspan="6" class="text-center text-muted">No slides yet.</td></tr>
-              @endforelse
-            </tbody>
-          </table>
+                <div class="flex justify-end gap-2 pt-4 border-t border-slate-100">
+                  <button type="button" onclick="closeModal('editSlideModal{{ $slide->id }}')" class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50">Close</button>
+                  <button type="submit" class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg bg-slate-900 text-white hover:bg-slate-800">Save</button>
+                </div>
+              </form>
+            </div>
+          </div>
         </div>
-      </div>
-    </div>
-  </div>
+      @empty
+        <tr><td colspan="5" class="py-12 text-center text-slate-400">No slides yet.</td></tr>
+      @endforelse
+    </tbody>
+  </table>
 </div>
-
-
 
 <!-- Add Slides Modal -->
-<div class="modal fade" id="addSlidesModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-lg">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title">Add Slides</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+<div id="addSlidesModal" class="hidden fixed inset-0 z-50 overflow-y-auto" role="dialog" aria-modal="true">
+  <div class="flex items-center justify-center min-h-screen p-4">
+    <div class="fixed inset-0 bg-slate-900/50" onclick="closeModal('addSlidesModal')"></div>
+    <div class="relative bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-2xl p-6 max-h-[85vh] overflow-y-auto">
+      <div class="flex items-center justify-between mb-4">
+        <h5 class="text-base font-semibold text-slate-900">Add Slides</h5>
+        <button onclick="closeModal('addSlidesModal')" class="text-slate-400 hover:text-slate-600 text-lg leading-none">&times;</button>
       </div>
-      <div class="modal-body">
-        <div class="mb-3 d-flex gap-3 align-items-end">
-          <div class="flex-grow-1">
-            <label class="form-label">Search Products</label>
-            <input type="text" class="form-control modal-product-search" placeholder="Type to search..." autocomplete="off">
-          </div>
-          <div style="width:220px">
-            <label class="form-label">Status</label>
-            <select class="form-select bulk-status">
-              <option value="active" selected>active</option>
-              <option value="inactive">inactive</option>
-            </select>
-          </div>
+      <div class="flex flex-wrap items-end gap-3 mb-4">
+        <div class="flex-1 min-w-[200px]">
+          <label class="block text-sm font-medium text-slate-700 mb-1">Search Products</label>
+          <input type="text" class="w-full rounded-lg border-slate-300 px-3.5 py-2.5 text-sm shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500 modal-product-search" placeholder="Type to search..." autocomplete="off">
         </div>
-        <div class="alert alert-danger d-none error-box"><ul class="mb-0 error-list"></ul></div>
-        <div class="loading-spinner text-center my-3 d-none">
-          <div class="spinner-border" role="status"><span class="visually-hidden">Loading...</span></div>
-        </div>
-        <div class="list-group products-list" style="max-height:420px; overflow:auto;"></div>
-        <div class="text-center mt-3">
-          <button type="button" class="btn btn-light btn-load-more d-none">Load more</button>
+        <div class="w-[160px]">
+          <label class="block text-sm font-medium text-slate-700 mb-1">Status</label>
+          <select class="w-full rounded-lg border-slate-300 px-3.5 py-2.5 text-sm shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500 bulk-status">
+            <option value="active" selected>active</option>
+            <option value="inactive">inactive</option>
+          </select>
         </div>
       </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-light" data-bs-dismiss="modal">Close</button>
-        <button type="button" class="btn btn-primary btn-add-selected" disabled>Add Selected</button>
+      <div class="hidden mb-3 px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700 error-box"><ul class="mb-0 error-list list-disc pl-4"></ul></div>
+      <div class="flex justify-center py-6 hidden loading-spinner">
+        <svg class="animate-spin h-6 w-6 text-slate-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+      </div>
+      <div class="products-list space-y-0.5 max-h-[420px] overflow-auto"></div>
+      <div class="text-center mt-3">
+        <button type="button" class="hidden btn-load-more inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50">Load more</button>
+      </div>
+      <div class="flex justify-end gap-2 pt-4 border-t border-slate-100 mt-4">
+        <button type="button" onclick="closeModal('addSlidesModal')" class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50">Close</button>
+        <button type="button" class="btn-add-selected inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed" disabled>Add Selected</button>
       </div>
     </div>
   </div>
 </div>
-
-
-
 
 <script>
 (function(){
@@ -162,11 +147,14 @@
   const existingIds = new Set(@json($slides->pluck('product_id')->filter()->values()));
   function debounce(fn, delay){ let t; return (...args)=>{ clearTimeout(t); t=setTimeout(()=>fn(...args), delay); } }
 
+  function openEditSlideModal(id, productName, productCode, productPrice, productId, status) {
+    openModal('editSlideModal' + id);
+  }
+
   function setupSearch(container){
     const input = container.querySelector('.product-search');
     const results = container.querySelector('.search-results');
     const hiddenId = container.querySelector('input[name="product_id"]');
-    const preview = container.querySelector('.selected-preview') || container.closest('form')?.querySelector('.selected-preview');
     const nameEl = container.querySelector('.selected-product-name') || container.closest('form')?.querySelector('.selected-product-name');
     const codeEl = container.querySelector('.selected-product-code') || container.closest('form')?.querySelector('.selected-product-code');
     const priceEl = container.querySelector('.selected-product-price') || container.closest('form')?.querySelector('.selected-product-price');
@@ -181,14 +169,13 @@
       if (codeEl) codeEl.textContent = p.product_code;
       if (priceEl) priceEl.textContent = (Number(p.amount||0)).toFixed(2);
       if (editEl) editEl.href = buildEditUrl(p.id);
-      if (preview) preview.classList.remove('d-none');
-      results.classList.add('d-none');
+      results.classList.add('hidden');
       input.value = p.name;
     }
 
     const doSearch = debounce(async ()=>{
       const q = input.value.trim();
-      if (!q) { results.classList.add('d-none'); results.innerHTML=''; return; }
+      if (!q) { results.classList.add('hidden'); results.innerHTML=''; return; }
       const url = new URL(searchUrl, window.location.origin);
       url.searchParams.set('q', q);
       try {
@@ -199,25 +186,25 @@
           const disabled = existingIds.has(p.id) && p.id !== allowId;
           const a = document.createElement('a');
           a.href = 'javascript:void(0)';
-          a.className = 'list-group-item list-group-item-action';
-          a.innerHTML = `${esc(p.name)} — ${esc(p.product_code)} — $${Number(p.amount||0).toFixed(2)} ${disabled ? '<span class="badge bg-secondary ms-2">Already in slides</span>' : ''}`;
+          a.className = 'block px-3 py-2 text-sm hover:bg-slate-50 border-b border-slate-50';
+          a.innerHTML = `${esc(p.name)} — ${esc(p.product_code)} — $${Number(p.amount||0).toFixed(2)} ${disabled ? '<span class="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 ml-2">Already in slides</span>' : ''}`;
           if (disabled){
-            a.classList.add('disabled','text-muted');
+            a.classList.add('text-slate-400','cursor-not-allowed');
             a.style.pointerEvents = 'none';
           } else {
             a.addEventListener('click', ()=> selectProduct(p));
           }
           results.appendChild(a);
         });
-        results.classList.toggle('d-none', items.length===0);
+        results.classList.toggle('hidden', items.length===0);
       } catch(e) {
         console.error(e);
       }
     }, 300);
 
     input?.addEventListener('input', doSearch);
-    input?.addEventListener('focus', ()=>{ if(results.children.length) results.classList.remove('d-none'); });
-    document.addEventListener('click', (e)=>{ if (!results.contains(e.target) && e.target!==input) results.classList.add('d-none'); });
+    input?.addEventListener('focus', ()=>{ if(results.children.length) results.classList.remove('hidden'); });
+    document.addEventListener('click', (e)=>{ if (!results.contains(e.target) && e.target!==input) results.classList.add('hidden'); });
   }
 
   document.querySelectorAll('.edit-slide-form').forEach(form=>{
@@ -255,7 +242,7 @@
   // Add Slides Modal logic
   const modalEl = document.getElementById('addSlidesModal');
   if (modalEl){
-    const modal = modalEl; // bootstrap reference not strictly needed
+    const modal = modalEl;
     const list = modal.querySelector('.products-list');
     const spinner = modal.querySelector('.loading-spinner');
     const searchInput = modal.querySelector('.modal-product-search');
@@ -274,7 +261,7 @@
 
     async function fetchProducts(reset=false){
       if (reset){ page = 1; list.innerHTML=''; }
-      spinner.classList.remove('d-none');
+      spinner.classList.remove('hidden');
       try{
         const url = new URL(apiListUrl, window.location.origin);
         url.searchParams.set('page', String(page));
@@ -291,36 +278,44 @@
         lastPage = json.last_page || 1;
         items.forEach(p=>{
           const row = document.createElement('label');
-          row.className = 'list-group-item d-flex align-items-center gap-3';
+          row.className = 'flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-slate-50 border-b border-slate-50';
           const disabled = existingIds.has(p.id);
           row.innerHTML = `
-            <input type="checkbox" class="form-check-input" value="${p.id}" ${disabled ? 'disabled' : ''}>
-            <img src="${p.primary_image_path ? `${window.location.origin}/storage/${p.primary_image_path}` : ''}" alt="" style="width:48px;height:32px;object-fit:cover;background:#f5f5f5">
-            <div class="flex-grow-1">
-              <div>${esc(p.name)} ${disabled ? '<span class=\"badge bg-secondary ms-2\">Already in slides</span>' : ''}</div>
-              <div class="small text-muted">${esc(p.product_code)} • $${Number(p.amount||0).toFixed(2)}</div>
+            <input type="checkbox" class="form-check-input rounded border-slate-300 text-slate-900 focus:ring-slate-500" value="${p.id}" ${disabled ? 'disabled' : ''}>
+            <img src="${p.primary_image_path ? `${window.location.origin}/storage/${p.primary_image_path}` : ''}" alt="" class="w-12 h-8 object-cover rounded border border-slate-200 bg-slate-50">
+            <div class="flex-1 min-w-0">
+              <div class="text-sm text-slate-700 truncate">${esc(p.name)} ${disabled ? '<span class="inline-flex items-center rounded-full bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-500 ml-1">Already in slides</span>' : ''}</div>
+              <div class="text-xs text-slate-400">${esc(p.product_code)} &bull; $${Number(p.amount||0).toFixed(2)}</div>
             </div>
           `;
           row.querySelector('input[type="checkbox"]').addEventListener('change', updateButtonState);
           if (disabled){ row.classList.add('opacity-50'); }
           list.appendChild(row);
         });
-        loadMoreBtn.classList.toggle('d-none', page>=lastPage);
+        loadMoreBtn.classList.toggle('hidden', page>=lastPage);
       } finally{
-        spinner.classList.add('d-none');
+        spinner.classList.add('hidden');
       }
     }
 
     const doSearch = debounce(()=>{ q = searchInput.value.trim(); fetchProducts(true); }, 300);
 
-    modal.addEventListener('shown.bs.modal', ()=>{ if (!list.children.length) fetchProducts(true); });
+    const observer = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        if (mutation.target.classList.contains('hidden') === false) {
+          if (!list.children.length) fetchProducts(true);
+        }
+      });
+    });
+    observer.observe(modal, { attributes: true, attributeFilter: ['class'] });
+
     searchInput.addEventListener('input', doSearch);
     loadMoreBtn.addEventListener('click', ()=>{ if (page<lastPage){ page++; fetchProducts(false); } });
     addBtn.addEventListener('click', async ()=>{
       const ids = Array.from(list.querySelectorAll('input[type="checkbox"]:checked')).map(i=> Number(i.value));
       if (!ids.length) return;
       addBtn.disabled = true;
-      errorBox.classList.add('d-none');
+      errorBox.classList.add('hidden');
       errorList.innerHTML = '';
       try{
         const resp = await fetch(apiBulkUrl, {
@@ -336,8 +331,8 @@
             Object.values(payload.errors).forEach(arr=>{ (arr||[]).forEach(msg=> messages.push(String(msg))); });
           }
           if (!messages.length){ messages.push('Failed to add slides. Please try again.'); }
-          errorList.innerHTML = messages.map(m=> `<li>${m}</li>`).join('');
-          errorBox.classList.remove('d-none');
+          errorList.innerHTML = messages.map(m=> `<li>${esc(m)}</li>`).join('');
+          errorBox.classList.remove('hidden');
           console.error('Bulk add failed', resp.status, payload||txt);
           return;
         }
@@ -345,7 +340,7 @@
         if (!data.ok){
           console.error('Bulk add error payload', data);
           errorList.innerHTML = '<li>Failed to add slides.</li>';
-          errorBox.classList.remove('d-none');
+          errorBox.classList.remove('hidden');
           return;
         }
         showToast('Slides added successfully');
@@ -353,7 +348,6 @@
       } finally { addBtn.disabled = false; }
     });
 
-    // Toast helper
     function showToast(message){
       let holder = document.getElementById('toast-holder');
       if (!holder){
@@ -366,17 +360,14 @@
         document.body.appendChild(holder);
       }
       const toast = document.createElement('div');
-      toast.className = 'toast align-items-center text-white bg-success border-0 show';
+      toast.className = 'flex items-center gap-3 bg-emerald-600 text-white rounded-lg shadow-lg px-4 py-3 text-sm';
       toast.setAttribute('role','alert');
       toast.style.minWidth = '220px';
-      toast.innerHTML = `<div class="d-flex"><div class="toast-body">${message}</div><button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button></div>`;
+      toast.innerHTML = `<span>${esc(message)}</span><button type="button" class="text-white/70 hover:text-white ml-auto text-lg leading-none" onclick="this.parentElement.remove()">&times;</button>`;
       holder.appendChild(toast);
       setTimeout(()=>{ toast.remove(); }, 2500);
     }
   }
 })();
 </script>
-
 @endsection
-
-

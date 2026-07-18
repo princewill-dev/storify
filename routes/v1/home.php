@@ -16,7 +16,6 @@ use App\Http\Controllers\Cart\CartApiController;
 // use App\Http\Controllers\BulkCartController;
 // use App\Http\Controllers\Home\InternationalSupplyController;
 use App\Http\Controllers\Home\SearchController;
-// use App\Http\Controllers\Home\LiveFirstController;
 use App\Http\Controllers\Home\SupportController;
 
 
@@ -51,7 +50,7 @@ Route::domain(config('app.main_domain', parse_url(config('app.url'), PHP_URL_HOS
 // Local dev bypass: access stores via path instead of subdomain
 if (config('app.env') === 'local') {
     Route::prefix('{store_subdomain}')
-        ->where(['store_subdomain' => '(?!api|admin|vendor|storage|livewire|cart|checkout|products|services|search|support|bulk_buy|international-supply|live-first)[A-Za-z0-9_\-]+'])
+        ->where(['store_subdomain' => '(?!api|admin|vendor|storage|livewire|cart|checkout|products|services|search|support|international-supply)[A-Za-z0-9_\-]+'])
         ->group(function () {
             // Store homepage (products listing)
             Route::get('/', [ProductController::class, 'indexByStore'])->name('local.store.products.index');
@@ -61,9 +60,6 @@ if (config('app.env') === 'local') {
             
             // SHOP4ME landing page
             Route::get('/shop4me', [Shop4meController::class, 'page'])->name('local.store.shop4me');
-
-            Route::get('/track/{orderNumber?}', [StoreOrderController::class, 'track'])->name('home.store.order.track');
-            Route::post('/track', [StoreOrderController::class, 'findOrder'])->name('home.store.order.find');
         });
 }
 
@@ -75,10 +71,6 @@ Route::domain('{store_subdomain}.' . config('app.main_domain', parse_url(config(
     // Store homepage (products listing)
     Route::get('/', [ProductController::class, 'indexByStore'])->name('home.store.products.index');
 
-    // Order Tracking (Moved to top for priority)
-    Route::get('/track/{orderNumber?}', [StoreOrderController::class, 'track'])->name('home.store.order.track');
-    Route::post('/track', [StoreOrderController::class, 'findOrder'])->name('home.store.order.find');
-    
     // Live search
     Route::get('/search', [SearchController::class, 'liveSearch'])->name('home.store.search');
     

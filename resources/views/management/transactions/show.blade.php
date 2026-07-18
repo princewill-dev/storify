@@ -236,23 +236,23 @@
         {{-- Customer --}}
         @if($transaction->order?->customer || $transaction->order?->meta)
         <x-management.card header="Customer">
-            @if($transaction->order->customer && $transaction->order->customer->email !== 'walkin@pos.local')
+            @if($transaction->order?->customer && $transaction->order?->customer?->email !== 'walkin@pos.local')
                 <div class="flex items-center gap-3">
                     <div class="flex-shrink-0 w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center">
-                        <span class="text-sm font-semibold text-slate-500">{{ strtoupper(substr($transaction->order->customer->first_name, 0, 1)) }}{{ strtoupper(substr($transaction->order->customer->last_name, 0, 1)) }}</span>
+                        <span class="text-sm font-semibold text-slate-500">{{ strtoupper(substr($transaction->order?->customer?->first_name ?? 'W', 0, 1)) }}{{ strtoupper(substr($transaction->order?->customer?->last_name ?? 'I', 0, 1)) }}</span>
                     </div>
                     <div>
-                        <p class="text-sm font-semibold text-slate-800">{{ $transaction->order->customer->first_name }} {{ $transaction->order->customer->last_name }}</p>
-                        <p class="text-xs text-slate-400">{{ $transaction->order->customer->email }}</p>
-                        @if($transaction->order->customer->phone)
-                            <p class="text-xs text-slate-400">{{ $transaction->order->customer->phone }}</p>
+                        <p class="text-sm font-semibold text-slate-800">{{ $transaction->order?->customer?->first_name }} {{ $transaction->order?->customer?->last_name }}</p>
+                        <p class="text-xs text-slate-400">{{ $transaction->order?->customer?->email ?? '—' }}</p>
+                        @if($transaction->order?->customer?->phone)
+                            <p class="text-xs text-slate-400">{{ $transaction->order?->customer?->phone }}</p>
                         @endif
                     </div>
                 </div>
-            @elseif($transaction->order->meta['customer_name'] ?? false)
-                <p class="text-sm font-semibold text-slate-800">{{ $transaction->order->meta['customer_name'] }}</p>
-                @if($transaction->order->meta['customer_phone'] ?? false)
-                <p class="text-xs text-slate-400">{{ $transaction->order->meta['customer_phone'] }}</p>
+            @elseif($transaction->order?->meta['customer_name'] ?? false)
+                <p class="text-sm font-semibold text-slate-800">{{ $transaction->order?->meta['customer_name'] }}</p>
+                @if($transaction->order?->meta['customer_phone'] ?? false)
+                <p class="text-xs text-slate-400">{{ $transaction->order?->meta['customer_phone'] }}</p>
                 @endif
             @else
                 <p class="text-sm text-slate-400">Walk-in customer</p>
@@ -269,9 +269,9 @@
                 </div>
                 <div>
                     <a href="{{ route('management.stores.show', $transaction->order->store) }}" class="text-sm font-semibold text-blue-600 hover:text-blue-700">
-                        {{ $transaction->order->store->name }}
+                        {{ $transaction->order?->store?->name ?? '—' }}
                     </a>
-                    <p class="text-xs text-slate-400">{{ $transaction->order->store->store_id }}</p>
+                    <p class="text-xs text-slate-400">{{ $transaction->order?->store?->store_id ?? '' }}</p>
                 </div>
             </div>
         </x-management.card>

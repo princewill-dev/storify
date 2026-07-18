@@ -50,7 +50,7 @@
                                 <tr>
                                     <td style="padding: 20px;">
                                         <p style="margin: 0 0 8px; color: #666666; font-size: 13px;"><strong>Reference ID:</strong> #{{ $supportMessage->id }}</p>
-                                        <p style="margin: 0 0 8px; color: #666666; font-size: 13px;"><strong>Store:</strong> {{ $supportMessage->store->name }}</p>
+                                        <p style="margin: 0 0 8px; color: #666666; font-size: 13px;"><strong>Store:</strong> {{ $supportMessage->store?->name ?? '—' }}</p>
                                         <p style="margin: 0; color: #666666; font-size: 13px;"><strong>Submitted:</strong> {{ $supportMessage->created_at->format('M d, Y \a\t h:i A') }}</p>
                                     </td>
                                 </tr>

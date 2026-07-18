@@ -3,137 +3,143 @@
 
 @php
     $statusColor = match($transfer->status->value) {
-        'draft' => 'secondary',
-        'pending' => 'warning',
-        'approved' => 'info',
-        'awaiting_acknowledgment' => 'warning',
-        'dispatched' => 'primary',
-        'received' => 'success',
-        'rejected', 'cancelled' => 'danger',
-        default => 'secondary',
+        'draft' => 'bg-slate-100 text-slate-600',
+        'pending' => 'bg-amber-50 text-amber-700',
+        'approved' => 'bg-sky-50 text-sky-700',
+        'awaiting_acknowledgment' => 'bg-amber-50 text-amber-700',
+        'dispatched' => 'bg-blue-50 text-blue-700',
+        'received' => 'bg-emerald-50 text-emerald-700',
+        'rejected', 'cancelled' => 'bg-red-50 text-red-700',
+        default => 'bg-slate-100 text-slate-600',
     };
     $totalUnits = $transfer->items->sum('quantity');
 @endphp
 
 @section('content')
-<div class="container-fluid">
-  <div class="d-flex justify-content-between align-items-center mb-3">
+<div>
+  <div class="flex items-center justify-between mb-6">
     <div>
-      <h4 class="mb-0">
-        <code>{{ $transfer->transfer_code }}</code>
-        <span class="badge bg-{{ $statusColor }} ms-2">{{ $transfer->status->label() }}</span>
-      </h4>
-      <div class="text-muted small mt-1">
+      <h2 class="text-lg font-bold text-slate-900">
+        <code class="text-base bg-slate-100 px-2 py-0.5 rounded text-slate-700">{{ $transfer->transfer_code }}</code>
+        <span class="inline-flex items-center rounded-full {{ $statusColor }} px-2.5 py-0.5 text-xs font-medium ml-2">{{ $transfer->status->label() }}</span>
+      </h2>
+      <div class="text-sm text-slate-500 mt-1">
         {{ $transfer->fromLocation?->name ?? '—' }} → {{ $transfer->toLocation?->name ?? '—' }}
       </div>
     </div>
-    <a href="{{ route('admin.transfers.index') }}" class="btn btn-light btn-sm">← Back</a>
+    <a href="{{ route('admin.transfers.index') }}" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50">← Back</a>
   </div>
 
-  <div class="row g-3">
+  <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
     {{-- Summary strip --}}
-    <div class="col-12">
-      <div class="card">
-        <div class="card-body py-2">
-          <div class="d-flex flex-wrap gap-3">
-            <div><small class="text-muted">From</small> <strong>{{ $transfer->fromLocation?->name ?? '—' }}</strong></div>
-            <div class="text-muted">→</div>
-            <div><small class="text-muted">To</small> <strong>{{ $transfer->toLocation?->name ?? '—' }}</strong></div>
-            <div class="border-start ps-3"><small class="text-muted">Items</small> <strong>{{ $transfer->items->count() }}</strong></div>
-            <div class="border-start ps-3"><small class="text-muted">Units</small> <strong>{{ $totalUnits }}</strong></div>
-            <div class="border-start ps-3"><small class="text-muted">Requested by</small> <strong>{{ $transfer->requester?->name ?? '—' }}</strong></div>
-            <div class="border-start ps-3"><small class="text-muted">Date</small> <strong>{{ $transfer->created_at->format('d M Y, H:i') }}</strong></div>
-          </div>
+    <div class="lg:col-span-12">
+      <div class="bg-white rounded-xl shadow-sm border border-slate-200 px-6 py-3">
+        <div class="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
+          <div><span class="text-slate-400">From</span> <strong class="text-slate-800">{{ $transfer->fromLocation?->name ?? '—' }}</strong></div>
+          <span class="text-slate-300">→</span>
+          <div><span class="text-slate-400">To</span> <strong class="text-slate-800">{{ $transfer->toLocation?->name ?? '—' }}</strong></div>
+          <div class="border-l border-slate-200 pl-4"><span class="text-slate-400">Items</span> <strong class="text-slate-800">{{ $transfer->items->count() }}</strong></div>
+          <div class="border-l border-slate-200 pl-4"><span class="text-slate-400">Units</span> <strong class="text-slate-800">{{ $totalUnits }}</strong></div>
+          <div class="border-l border-slate-200 pl-4"><span class="text-slate-400">Requested by</span> <strong class="text-slate-800">{{ $transfer->requester?->name ?? '—' }}</strong></div>
+          <div class="border-l border-slate-200 pl-4"><span class="text-slate-400">Date</span> <strong class="text-slate-800">{{ $transfer->created_at->format('d M Y, H:i') }}</strong></div>
         </div>
       </div>
     </div>
 
     {{-- Items --}}
-    <div class="col-lg-7">
-      <div class="card">
-        <div class="card-header"><strong>Items ({{ $transfer->items->count() }})</strong></div>
-        <div class="card-body p-0">
-          <table class="table table-sm mb-0">
-            <thead class="table-light">
-              <tr><th>Product</th><th class="text-center">Requested</th><th class="text-center">Approved</th></tr>
-            </thead>
-            <tbody>
-              @foreach($transfer->items as $item)
-                @php $adjusted = $item->approved_quantity && $item->approved_quantity < $item->quantity; @endphp
-                <tr>
-                  <td>
-                    <div class="fw-semibold">{{ $item->product?->name ?? 'Unknown' }}</div>
-                    <small class="text-muted font-monospace">{{ $item->product?->product_code ?? '—' }}</small>
-                  </td>
-                  <td class="text-center fw-bold">{{ $item->quantity }}</td>
-                  <td class="text-center">
-                    @if($item->approved_quantity)
-                      @if($adjusted)
-                        <span class="text-warning fw-bold">{{ $item->approved_quantity }}</span>
-                        <small class="text-muted text-decoration-line-through ms-1">{{ $item->quantity }}</small>
-                      @else
-                        <span class="text-success fw-bold">{{ $item->approved_quantity }}</span>
-                      @endif
-                    @else
-                      <span class="text-muted">—</span>
-                    @endif
-                  </td>
-                </tr>
-              @endforeach
-            </tbody>
-          </table>
+    <div class="lg:col-span-7 space-y-6">
+      <div class="bg-white rounded-xl shadow-sm border border-slate-200">
+        <div class="px-6 py-4 border-b border-slate-100">
+          <strong class="text-sm text-slate-800">Items ({{ $transfer->items->count() }})</strong>
         </div>
+        <table class="w-full text-sm">
+          <thead class="border-b border-slate-100">
+            <tr>
+              <th class="py-3 px-6 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Product</th>
+              <th class="py-3 px-6 text-center text-xs font-semibold text-slate-500 uppercase tracking-wider">Requested</th>
+              <th class="py-3 px-6 text-center text-xs font-semibold text-slate-500 uppercase tracking-wider">Approved</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-50">
+            @foreach($transfer->items as $item)
+              @php $adjusted = $item->approved_quantity && $item->approved_quantity < $item->quantity; @endphp
+              <tr>
+                <td class="py-3 px-6">
+                  <div class="font-semibold text-slate-800">{{ $item->product?->name ?? 'Unknown' }}</div>
+                  <small class="text-slate-400 font-mono">{{ $item->product?->product_code ?? '—' }}</small>
+                </td>
+                <td class="py-3 px-6 text-center font-bold text-slate-700">{{ $item->quantity }}</td>
+                <td class="py-3 px-6 text-center">
+                  @if($item->approved_quantity)
+                    @if($adjusted)
+                      <span class="text-amber-600 font-bold">{{ $item->approved_quantity }}</span>
+                      <small class="text-slate-400 line-through ml-1">{{ $item->quantity }}</small>
+                    @else
+                      <span class="text-emerald-600 font-bold">{{ $item->approved_quantity }}</span>
+                    @endif
+                  @else
+                    <span class="text-slate-400">—</span>
+                  @endif
+                </td>
+              </tr>
+            @endforeach
+          </tbody>
+        </table>
       </div>
 
       {{-- Approval form --}}
       @if($transfer->canBeApproved())
-      <div class="card mt-3">
-        <div class="card-header"><strong>Approve Transfer</strong></div>
-        <div class="card-body">
-          <form method="POST" action="{{ route('admin.transfers.approve', $transfer) }}">
-            @csrf @method('PATCH')
-            @foreach($transfer->items as $item)
-            <div class="row align-items-center mb-2">
-              <div class="col-6"><small>{{ $item->product?->name }}</small></div>
-              <div class="col-2"><small class="text-muted">Req: {{ $item->quantity }}</small></div>
-              <div class="col-4">
-                <input type="number" name="approved_quantities[{{ $item->id }}]" value="{{ $item->quantity }}" min="1" max="{{ $item->quantity }}" class="form-control form-control-sm" style="width:80px">
-              </div>
+      <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+        <h3 class="text-sm font-semibold text-slate-800 mb-4">Approve Transfer</h3>
+        <form method="POST" action="{{ route('admin.transfers.approve', $transfer) }}">
+          @csrf @method('PATCH')
+          @foreach($transfer->items as $item)
+          <div class="flex items-center gap-4 mb-2">
+            <div class="w-1/2"><small class="text-slate-600">{{ $item->product?->name }}</small></div>
+            <div class="w-1/4"><small class="text-slate-400">Req: {{ $item->quantity }}</small></div>
+            <div class="w-1/4">
+              <input type="number" name="approved_quantities[{{ $item->id }}]" value="{{ $item->quantity }}" min="1" max="{{ $item->quantity }}" class="w-20 rounded-lg border-slate-300 px-3 py-1.5 text-sm shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500">
             </div>
-            @endforeach
-            <div class="d-flex gap-2 mt-3">
-              <button type="submit" class="btn btn-primary btn-sm">Approve</button>
-              <button type="button" class="btn btn-outline-danger btn-sm" data-bs-toggle="modal" data-bs-target="#rejectModal">Reject</button>
-            </div>
-          </form>
-        </div>
+          </div>
+          @endforeach
+          <div class="flex items-center gap-2 mt-4">
+            <button type="submit" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg bg-slate-900 text-white hover:bg-slate-800">Approve</button>
+            <button type="button" onclick="openModal('rejectModal')" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-red-200 text-red-600 hover:bg-red-50">Reject</button>
+          </div>
+        </form>
       </div>
 
       {{-- Reject modal --}}
-      <div class="modal fade" id="rejectModal" tabindex="-1">
-        <div class="modal-dialog"><div class="modal-content">
-          <div class="modal-header"><h5 class="modal-title">Reject Transfer</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
-          <form method="POST" action="{{ route('admin.transfers.reject', $transfer) }}">
-            @csrf @method('PATCH')
-            <div class="modal-body">
-              <textarea name="rejection_reason" class="form-control" rows="3" placeholder="Reason for rejection..." required></textarea>
+      <div id="rejectModal" class="hidden fixed inset-0 z-50 overflow-y-auto" role="dialog" aria-modal="true">
+        <div class="flex items-center justify-center min-h-screen p-4">
+          <div class="fixed inset-0 bg-slate-900/50" onclick="closeModal('rejectModal')"></div>
+          <div class="relative bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-md p-6">
+            <div class="flex items-center justify-between mb-4">
+              <h5 class="text-base font-semibold text-slate-900">Reject Transfer</h5>
+              <button onclick="closeModal('rejectModal')" class="text-slate-400 hover:text-slate-600 text-lg leading-none">&times;</button>
             </div>
-            <div class="modal-footer">
-              <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
-              <button type="submit" class="btn btn-danger">Reject</button>
-            </div>
-          </form>
-        </div></div>
+            <form method="POST" action="{{ route('admin.transfers.reject', $transfer) }}">
+              @csrf @method('PATCH')
+              <textarea name="rejection_reason" class="w-full rounded-lg border-slate-300 px-3.5 py-2.5 text-sm shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500" rows="3" placeholder="Reason for rejection..." required></textarea>
+              <div class="flex justify-end gap-2 mt-4 pt-4 border-t border-slate-100">
+                <button type="button" onclick="closeModal('rejectModal')" class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50">Cancel</button>
+                <button type="submit" class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg bg-red-600 text-white hover:bg-red-700">Reject</button>
+              </div>
+            </form>
+          </div>
+        </div>
       </div>
       @endif
     </div>
 
     {{-- Sidebar --}}
-    <div class="col-lg-5">
+    <div class="lg:col-span-5 space-y-6">
       {{-- Timeline --}}
-      <div class="card mb-3">
-        <div class="card-header"><strong>Timeline</strong></div>
-        <div class="card-body">
+      <div class="bg-white rounded-xl shadow-sm border border-slate-200">
+        <div class="px-6 py-4 border-b border-slate-100">
+          <strong class="text-sm text-slate-800">Timeline</strong>
+        </div>
+        <div class="p-6">
           @php
             $steps = [];
             $steps[] = ['label' => 'Created', 'done' => true, 'who' => $transfer->requester?->name, 'when' => $transfer->created_at];
@@ -149,11 +155,11 @@
             if ($transfer->isCancelled()) $steps[] = ['label' => 'Cancelled', 'done' => true, 'who' => null, 'when' => null];
           @endphp
           @foreach($steps as $i => $step)
-            <div class="d-flex gap-2 {{ !$loop->last ? 'mb-2 pb-2 border-start border-2 ps-3' : 'ps-3' }}" style="{{ $step['done'] ? 'border-color: #198754!important' : 'border-color: #dee2e6!important' }}">
+            <div class="flex gap-2 {{ !$loop->last ? 'mb-2 pb-2 border-l-2 pl-3' : 'pl-3' }}" style="{{ $step['done'] ? 'border-color: #16a34a' : 'border-color: #e2e8f0' }}">
               <div>
-                <div class="fw-semibold small">{{ $step['label'] }}</div>
+                <div class="text-xs font-semibold text-slate-700">{{ $step['label'] }}</div>
                 @if($step['who'] || $step['when'])
-                  <div class="text-muted small">{{ $step['who'] }}{{ $step['who'] && $step['when'] ? ' · ' : '' }}{{ $step['when']?->format('d M H:i') }}</div>
+                  <div class="text-xs text-slate-400">{{ $step['who'] }}{{ $step['who'] && $step['when'] ? ' · ' : '' }}{{ $step['when']?->format('d M H:i') }}</div>
                 @endif
               </div>
             </div>
@@ -162,37 +168,41 @@
       </div>
 
       {{-- Details --}}
-      <div class="card mb-3">
-        <div class="card-header"><strong>Details</strong></div>
-        <div class="card-body">
-          <table class="table table-sm mb-0">
-            <tr><td class="text-muted">From</td><td>{{ $transfer->fromLocation?->name ?? '—' }}</td></tr>
-            <tr><td class="text-muted">To</td><td>{{ $transfer->toLocation?->name ?? '—' }}</td></tr>
-            <tr><td class="text-muted">Requested by</td><td>{{ $transfer->requester?->name ?? '—' }}</td></tr>
-            @if($transfer->approver)<tr><td class="text-muted">Approved by</td><td>{{ $transfer->approver->name }}</td></tr>@endif
-            @if($transfer->dispatcher)<tr><td class="text-muted">Dispatched by</td><td>{{ $transfer->dispatcher->name }}</td></tr>@endif
-            @if($transfer->receiver)<tr><td class="text-muted">Received by</td><td>{{ $transfer->receiver->name }}</td></tr>@endif
-            @if($transfer->notes)<tr><td class="text-muted">Notes</td><td>{{ $transfer->notes }}</td></tr>@endif
-            @if($transfer->rejection_reason)<tr><td class="text-muted">Rejection</td><td class="text-danger">{{ $transfer->rejection_reason }}</td></tr>@endif
-          </table>
+      <div class="bg-white rounded-xl shadow-sm border border-slate-200">
+        <div class="px-6 py-4 border-b border-slate-100">
+          <strong class="text-sm text-slate-800">Details</strong>
         </div>
+        <table class="w-full text-sm">
+          <tbody class="divide-y divide-slate-50">
+            <tr><td class="py-2.5 px-6 text-slate-400 w-32">From</td><td class="py-2.5 px-6 text-slate-700">{{ $transfer->fromLocation?->name ?? '—' }}</td></tr>
+            <tr><td class="py-2.5 px-6 text-slate-400">To</td><td class="py-2.5 px-6 text-slate-700">{{ $transfer->toLocation?->name ?? '—' }}</td></tr>
+            <tr><td class="py-2.5 px-6 text-slate-400">Requested by</td><td class="py-2.5 px-6 text-slate-700">{{ $transfer->requester?->name ?? '—' }}</td></tr>
+            @if($transfer->approver)<tr><td class="py-2.5 px-6 text-slate-400">Approved by</td><td class="py-2.5 px-6 text-slate-700">{{ $transfer->approver->name }}</td></tr>@endif
+            @if($transfer->dispatcher)<tr><td class="py-2.5 px-6 text-slate-400">Dispatched by</td><td class="py-2.5 px-6 text-slate-700">{{ $transfer->dispatcher->name }}</td></tr>@endif
+            @if($transfer->receiver)<tr><td class="py-2.5 px-6 text-slate-400">Received by</td><td class="py-2.5 px-6 text-slate-700">{{ $transfer->receiver->name }}</td></tr>@endif
+            @if($transfer->notes)<tr><td class="py-2.5 px-6 text-slate-400">Notes</td><td class="py-2.5 px-6 text-slate-700">{{ $transfer->notes }}</td></tr>@endif
+            @if($transfer->rejection_reason)<tr><td class="py-2.5 px-6 text-slate-400">Rejection</td><td class="py-2.5 px-6 text-red-600">{{ $transfer->rejection_reason }}</td></tr>@endif
+          </tbody>
+        </table>
       </div>
 
       {{-- Actions --}}
       @if($transfer->canBeDispatched() || $transfer->canBeReceived() || $transfer->canBeCancelled())
-      <div class="card">
-        <div class="card-header"><strong>Actions</strong></div>
-        <div class="card-body">
+      <div class="bg-white rounded-xl shadow-sm border border-slate-200">
+        <div class="px-6 py-4 border-b border-slate-100">
+          <strong class="text-sm text-slate-800">Actions</strong>
+        </div>
+        <div class="p-6 space-y-2">
           @if($transfer->canBeDispatched())
-          <button type="button" class="btn btn-primary btn-sm w-100" data-bs-toggle="modal" data-bs-target="#dispatchTransfer{{ $transfer->id }}">Dispatch</button>
+          <button type="button" onclick="openModal('dispatchTransfer{{ $transfer->id }}')" class="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg bg-slate-900 text-white hover:bg-slate-800 w-full">Dispatch</button>
           <x-admin.confirm-modal id="dispatchTransfer{{ $transfer->id }}" title="Dispatch Transfer" message="Confirm dispatch?" action="{{ route('admin.transfers.dispatch', $transfer) }}" method="PATCH" confirmText="Dispatch" :danger="false" />
           @endif
           @if($transfer->canBeReceived())
-          <button type="button" class="btn btn-success btn-sm w-100" data-bs-toggle="modal" data-bs-target="#receiveTransfer{{ $transfer->id }}">Confirm Receipt</button>
+          <button type="button" onclick="openModal('receiveTransfer{{ $transfer->id }}')" class="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 w-full">Confirm Receipt</button>
           <x-admin.confirm-modal id="receiveTransfer{{ $transfer->id }}" title="Confirm Receipt" message="Confirm receipt?" action="{{ route('admin.transfers.receive', $transfer) }}" method="PATCH" confirmText="Confirm Receipt" :danger="false" />
           @endif
           @if($transfer->canBeCancelled())
-          <button type="button" class="btn btn-outline-danger btn-sm w-100" data-bs-toggle="modal" data-bs-target="#cancelTransfer{{ $transfer->id }}">Cancel Transfer</button>
+          <button type="button" onclick="openModal('cancelTransfer{{ $transfer->id }}')" class="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-red-200 text-red-600 hover:bg-red-50 w-full">Cancel Transfer</button>
           <x-admin.confirm-modal id="cancelTransfer{{ $transfer->id }}" title="Cancel Transfer" message="Cancel this transfer?" action="{{ route('management.transfers.cancel', $transfer) }}" method="PATCH" confirmText="Cancel Transfer" />
           @endif
         </div>

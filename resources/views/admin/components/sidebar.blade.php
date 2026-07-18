@@ -1,317 +1,231 @@
-<div class="icnav">
-    <div class="icnav-scroll">
-        <ul class="metismenu" id="menu">
-            <li class="menu-title" data-i18n="Navigation">Navigation</li>
+{{-- Mobile overlay --}}
+<div x-show="mobileMenuOpen" x-cloak @click="mobileMenuOpen = false" class="fixed inset-0 z-40 bg-slate-900/50 lg:hidden"></div>
 
-            <li>
-                <a href="{{ route('admin.dashboard') }}" aria-expanded="false">
-                    <div class="menu-icon">
-                        <i class="fi fi-rr-home"></i>
-                    </div>	
-                    <span class="nav-text" data-i18n="Dashboard">Dashboard</span>
-                </a>
-            </li>
+{{-- Sidebar --}}
+<aside class="fixed inset-y-0 left-0 z-50 w-64 bg-slate-900 flex flex-col transform transition-transform duration-200 lg:translate-x-0"
+    :class="{ '-translate-x-full': !sidebarOpen, 'translate-x-0': sidebarOpen }">
 
-            <li>
-                <a href="{{ route('admin.executive') }}" aria-expanded="false">
-                    <div class="menu-icon">
-                        <i class="fi fi-rr-chart-histogram"></i>
-                    </div>	
-                    <span class="nav-text">Executive</span>
-                </a>
-            </li>
-
-            <!-- @if(!empty($adminMainStore))
-            <li>
-                <a class="has-arrow" href="javascript:void(0);" aria-expanded="false">
-                    <div class="menu-icon">
-                        <i class="fi fi-rr-store-alt"></i>
-                    </div>	
-                    <span class="nav-text" data-i18n="Main Store">Main Store</span>
-                </a>
-                <ul aria-expanded="false">
-                    <li><a href="{{ route('admin.stores.show', $adminMainStore) }}" data-i18n="Details">Details</a></li>
-                    <li><a href="{{ route('admin.storefront-slides.index', $adminMainStore) }}" data-i18n="Edit slides">Edit slides</a></li>
-                    <li><a href="{{ route('admin.stores.products.index', $adminMainStore) }}" data-i18n="Manage Products">Manage Products</a></li>
-                    <li><a href="{{ route('admin.stores.categories.index', $adminMainStore) }}" data-i18n="Manage Categories">Manage Categories</a></li>
-                </ul>
-            </li>
-            @endif -->
-
-            <li>
-                <a class="has-arrow" href="javascript:void(0);" aria-expanded="false">
-                    <div class="menu-icon">
-                        <i class="fi fi-rr-building"></i>
-                    </div>
-                    <span class="nav-text" data-i18n="Businesses">Businesses</span>
-                </a>
-                <ul aria-expanded="false">
-                    <li><a href="{{ route('admin.vendors.index') }}" data-i18n="All">All Businesses</a></li>
-                    <li><a href="{{ route('admin.vendor-kyc.index') }}" data-i18n="KYC submissions">KYC submissions</a></li>
-                    <li><a href="{{ route('admin.early-access.index') }}" data-i18n="Access code">Access code</a></li>
-                </ul>
-            </li>
-
-            <li>
-                <a href="{{ route('admin.stores.index') }}" aria-expanded="false">
-                    <div class="menu-icon">
-                        <i class="fi fi-rr-store-alt"></i>
-                    </div>
-                    <span class="nav-text">Stores</span>
-                </a>
-            </li>
-
-            <li>
-                <a href="{{ route('admin.warehouses.index') }}" aria-expanded="false">
-                    <div class="menu-icon">
-                        <i class="fi fi-rr-warehouse-alt"></i>
-                    </div>
-                    <span class="nav-text">Warehouses</span>
-                </a>
-            </li>
-
-            <li>
-                <a href="{{ route('admin.transfers.index') }}" aria-expanded="false">
-                    <div class="menu-icon">
-                        <i class="fi fi-rr-arrows-exchange"></i>
-                    </div>
-                    <span class="nav-text">Stock Transfers</span>
-                </a>
-            </li>
-
-            <li>
-                <a href="{{ route('admin.subscriptions.index') }}" aria-expanded="false">
-                    <div class="menu-icon">
-                        <i class="fi fi-rr-credit-card"></i>
-                    </div>
-                    <span class="nav-text">Subscriptions</span>
-                </a>
-            </li>
-
-            <li>
-                <a class="has-arrow" href="javascript:void(0);" aria-expanded="false">
-                    <div class="menu-icon">
-                        <i class="fas fa-users"></i>
-                    </div>	
-                    <span class="nav-text" data-i18n="Customers">Customers</span>
-                </a>
-                <ul aria-expanded="false">
-                    <li><a href="{{ route('admin.customers.index') }}" data-i18n="Customers">Customers</a></li>
-                </ul>
-            </li>
-
-            <!-- <li>
-                <a href="{{ route('admin.live-first.index') }}" aria-expanded="false">
-                    <div class="menu-icon">
-                        <i class="fi fi-rr-badge-check"></i>
-                    </div>
-                    <span class="nav-text">Live First Enrolments</span>
-                </a>
-            </li>
-
-            <li>
-                <a href="{{ route('admin.bulk-orders.index') }}" aria-expanded="false">
-                    <div class="menu-icon">
-                        <i class="fi fi-rr-box"></i>
-                    </div>
-                    <span class="nav-text">Bulk-Buy Requests</span>
-                </a>
-            </li>
-
-            <li>
-                <a href="{{ route('admin.family-packs.index') }}" aria-expanded="false">
-                    <div class="menu-icon">
-                        <i class="fi fi-rr-box"></i>
-                    </div>
-                    <span class="nav-text">Family Packs Requests</span>
-                </a>
-            </li> -->
-
-            <!-- <li>
-                <a class="has-arrow" href="javascript:void(0);" aria-expanded="false">
-                    <div class="menu-icon">
-                        <i class="fi fi-rr-box"></i>
-                    </div>	
-                    <span class="nav-text" data-i18n="Orders">Orders</span>
-                </a>
-                <ul aria-expanded="false">
-                    <li><a href="{{ route('admin.orders.index') }}" data-i18n="All">All</a></li>
-                    <li><a href="{{ route('admin.shop4me.orders.index') }}" data-i18n="Shop4me">Shop4me</a></li>
-                    <li><a href="{{ route('admin.bulkbuy.orders.index') }}" data-i18n="Bulk buy">Bulk buy</a></li>
-                    <li><a href="{{ route('admin.familypack.orders.index') }}" data-i18n="Family Packs">Family Packs</a></li>
-                    <li><a href="{{ route('admin.livefirst.orders.index') }}" data-i18n="Live First">Live First</a></li>
-                </ul>
-            </li> -->
-
-            <li>
-                <a href="{{ route('admin.transactions.index') }}" aria-expanded="false">
-                    <div class="menu-icon">
-                        <i class="fa-solid fa-file-invoice-dollar"></i>
-                    </div>
-                    <span class="nav-text">Transactions</span>
-                </a>
-            </li>
-
-            <li>
-                <a href="{{ route('admin.testimonials.index') }}" aria-expanded="false">
-                    <div class="menu-icon">
-                        <i class="fa-solid fa-comment-dots"></i>
-                    </div>
-                    <span class="nav-text">Testimonials</span>
-                </a>
-            </li>
-
-            <li>
-                <a href="{{ route('admin.support-messages.index') }}" aria-expanded="false">
-                    <div class="menu-icon">
-                        <i class="fa-solid fa-headset"></i>
-                    </div>
-                    <span class="nav-text">Support Messages</span>
-                </a>
-            </li>
-            
-            <li class="menu-title" data-i18n="Settings">Settings</li>
-
-            <li>
-                <a class="has-arrow" href="javascript:void(0);" aria-expanded="false">
-                    <div class="menu-icon">
-                        <i class="fi fi-rr-box"></i>
-                    </div>	
-                    <span class="nav-text" data-i18n="Homepage settings">Homepage settings</span>
-                </a>
-                <ul aria-expanded="false">
-                    <li><a href="{{ route('admin.features.index') }}" data-i18n="Features">Features</a></li>
-                </ul>
-            </li>
-
-            <li>
-                <a href="{{ route('admin.payment-methods.index') }}" aria-expanded="false">
-                    <div class="menu-icon">
-                        <i class="fa-solid fa-credit-card"></i>
-                    </div>
-                    <span class="nav-text">Payment Methods</span>
-                </a>
-            </li>
-
-            <li>
-                <a class="has-arrow" href="javascript:void(0);" aria-expanded="false">
-                    <div class="menu-icon">
-                        <i class="fi fi-rr-box"></i>
-                    </div>	
-                    <span class="nav-text" data-i18n="Business settings">Business settings</span>
-                </a>
-                <ul aria-expanded="false">
-                    <li><a href="{{ route('admin.business-types.index') }}" data-i18n="Business types">Business types</a></li>
-                    <li><a href="{{ route('admin.ownership-types.index') }}" data-i18n="Ownership types">Ownership types</a></li>
-                    <li><a href="{{ route('admin.vats.index') }}" data-i18n="VAT Settings">VAT Settings</a></li>
-                    <li><a href="{{ route('admin.bank-accounts.index') }}" data-i18n="Bank Accounts">Bank Accounts</a></li>
-                    <li><a href="{{ route('admin.subscription-plans.index') }}" data-i18n="Subscriptions Fee">Subscriptions Fee</a></li>
-                </ul>
-            </li>
-
-            <li>
-                <a href="{{ route('admin.company-services.index') }}" aria-expanded="false">
-                    <div class="menu-icon">
-                        <i class="fi fi-rr-bulb"></i>
-                    </div>
-                    <span class="nav-text">Company Services</span>
-                </a>
-            </li>
-
-            <!-- <li>
-                <a href="{{ route('admin.vats.index') }}" aria-expanded="false">
-                    <div class="menu-icon">
-                        <i class="fi fi-rr-percentage"></i>
-                    </div>
-                    <span class="nav-text">VAT Settings</span>
-                </a>
-            </li> -->
-
-            <li>
-                <a href="{{ route('admin.delivery-routes.index') }}" aria-expanded="false">
-                    <div class="menu-icon">
-                        <i class="fi fi-rr-route"></i>
-                    </div>
-                    <span class="nav-text">Delivery Routes</span>
-                </a>
-            </li>
-
-            <li>
-                <a href="{{ route('admin.delivery-intervals.index') }}" aria-expanded="false">
-                    <div class="menu-icon">
-                        <i class="fi fi-rr-time-fast"></i>
-                    </div>
-                    <span class="nav-text">Delivery Intervals</span>
-                </a>
-            </li>
-
-            <!-- <li>
-                <a href="{{ route('admin.business-types.index') }}" aria-expanded="false">
-                    <div class="menu-icon">
-                        <i class="fi fi-rr-briefcase"></i>
-                    </div>
-                    <span class="nav-text">Business Types</span>
-                </a>
-            </li> -->
-
-            <!-- <li>
-                <a href="{{ route('admin.ownership-types.index') }}" aria-expanded="false">
-                    <div class="menu-icon">
-                        <i class="fi fi-rr-id-badge"></i>
-                    </div>
-                    <span class="nav-text">Ownership Types</span>
-                </a>
-            </li> -->
-
-            <!-- Styling -->
-            <li>
-                <a href="{{ route('admin.styling.index') }}" aria-expanded="false">
-                    <div class="menu-icon">
-                        <i class="fi fi-rr-palette"></i>
-                    </div>
-                    <span class="nav-text">Page Styling</span>
-                </a>
-            </li>
-
-            <li>
-                <a href="{{ route('admin.settings.edit') }}" aria-expanded="false">
-                    <div class="menu-icon">
-                        <i class="fi fi-rs-settings"></i>
-                    </div>
-                    <span class="nav-text" data-i18n="Advanced">Advanced</span>
-                </a>
-            </li>
-
-            <!-- activity logs -->
-            <li>
-                <a href="{{ route('admin.activity-logs.index') }}" aria-expanded="false">
-                    <div class="menu-icon">
-                        <i class="fi fi-rr-bulb"></i>
-                    </div>
-                    <span class="nav-text">Activity Logs</span>
-                </a>
-            </li>
-
-            <!-- logout -->
-            <li>
-                <a href="#" aria-expanded="false" onclick="event.preventDefault(); document.getElementById('admin-logout-form').submit();">
-                    <div class="menu-icon">
-                        <i class="fi fi-rr-exit"></i>
-                    </div>
-                    <span class="nav-text">Logout</span>
-                </a>
-                <form id="admin-logout-form" action="{{ route('admin.logout') }}" method="POST" class="d-none">
-                    @csrf
-                </form>
-            </li>
-
-                       
-        </ul>
-    </div>
-    <!-- <div class="icnav-footer">
-        <a href="https://coreui.w3itexperts.com/?theme=HexaBox" target="_blank" class="btn btn-docs btn-success w-100">
-            <span>Docs & Components</span>
-            <i class="fa-solid fa-arrow-up rotate-x"></i>
+    {{-- Brand --}}
+    <div class="flex items-center justify-between h-16 px-5 border-b border-slate-800 shrink-0">
+        <a href="{{ route('admin.dashboard') }}" class="flex items-center gap-2.5">
+            <img src="{{ $company->favicon }}" alt="" class="h-7 w-7 rounded-lg">
+            <div>
+                <span class="text-sm font-semibold text-white tracking-tight">{{ $company->name ?? 'Storify' }}</span>
+                <p class="text-[10px] text-slate-500 font-medium -mt-0.5">Admin Panel</p>
+            </div>
         </a>
-    </div> -->
-</div>
+        <button @click="sidebarOpen = !sidebarOpen" class="hidden lg:flex items-center justify-center w-7 h-7 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800">
+            <i class="fi fi-rr-angle-left text-xs" :class="{ 'rotate-180': !sidebarOpen }"></i>
+        </button>
+    </div>
+
+    {{-- Navigation --}}
+    <nav class="flex-1 overflow-y-auto sidebar-scroll px-3 py-4 space-y-5">
+
+        {{-- Main Section --}}
+        <div>
+            <p class="px-3 mb-2 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Navigation</p>
+            <div class="space-y-0.5">
+                <a href="{{ route('admin.dashboard') }}"
+                   class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('admin.dashboard') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
+                    <i class="fi fi-rr-home text-base w-5 text-center"></i>
+                    <span>Dashboard</span>
+                </a>
+
+                {{-- Businesses --}}
+                <div x-data="{ open: {{ request()->routeIs('admin.vendors.*', 'admin.vendor-kyc.*', 'admin.early-access.*') ? 'true' : 'false' }} }">
+                    <button @click="open = !open" class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors w-full text-left text-slate-300 hover:text-white hover:bg-slate-800">
+                        <i class="fi fi-rr-building text-base w-5 text-center"></i>
+                        <span class="flex-1">Businesses</span>
+                        <i class="fi fi-rr-angle-small-down text-xs transition-transform duration-150" :class="{ 'rotate-180': open }"></i>
+                    </button>
+                    <div x-show="open" x-transition class="ml-4 space-y-0.5 mt-0.5">
+                        <a href="{{ route('admin.vendors.index') }}" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors {{ request()->routeIs('admin.vendors.*') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white hover:bg-slate-800' }}">
+                            <span>All Businesses</span>
+                        </a>
+                        <a href="{{ route('admin.vendor-kyc.index') }}" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors {{ request()->routeIs('admin.vendor-kyc.*') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white hover:bg-slate-800' }}">
+                            <span>KYC Submissions</span>
+                            @php $pendingKyc = \App\Models\KycApplication::where('status', 'submitted')->count(); @endphp
+                            @if($pendingKyc)
+                            <span class="ml-auto text-[10px] font-semibold text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded-full">{{ $pendingKyc }}</span>
+                            @endif
+                        </a>
+                        <a href="{{ route('admin.early-access.index') }}" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors {{ request()->routeIs('admin.early-access.*') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white hover:bg-slate-800' }}">
+                            <span>Access Codes</span>
+                        </a>
+                    </div>
+                </div>
+
+                <a href="{{ route('admin.stores.index') }}"
+                   class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('admin.stores.*') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
+                    <i class="fi fi-rr-store-alt text-base w-5 text-center"></i>
+                    <span>Stores</span>
+                </a>
+
+                <a href="{{ route('admin.warehouses.index') }}"
+                   class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('admin.warehouses.*') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
+                    <i class="fi fi-rr-warehouse-alt text-base w-5 text-center"></i>
+                    <span>Warehouses</span>
+                </a>
+
+                <a href="{{ route('admin.transfers.index') }}"
+                   class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('admin.transfers.*') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
+                    <i class="fi fi-rr-arrows-exchange text-base w-5 text-center"></i>
+                    <span>Stock Transfers</span>
+                </a>
+
+                <a href="{{ route('admin.subscriptions.index') }}"
+                   class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('admin.subscriptions.*') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
+                    <i class="fi fi-rr-credit-card text-base w-5 text-center"></i>
+                    <span>Subscriptions</span>
+                </a>
+            </div>
+        </div>
+
+        {{-- Commerce Section --}}
+        <div>
+            <p class="px-3 mb-2 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Commerce</p>
+            <div class="space-y-0.5">
+                <a href="{{ route('admin.products.index') }}"
+                   class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('admin.products.*') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
+                    <i class="fi fi-rr-box text-base w-5 text-center"></i>
+                    <span>Products</span>
+                </a>
+                <a href="{{ route('admin.categories.index') }}"
+                   class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('admin.categories.*') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
+                    <i class="fi fi-rr-apps text-base w-5 text-center"></i>
+                    <span>Categories</span>
+                </a>
+                <a href="{{ route('admin.customers.index') }}"
+                   class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('admin.customers.*') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
+                    <i class="fa-solid fa-users text-base w-5 text-center"></i>
+                    <span>Customers</span>
+                    @php $custCount = \App\Models\Customer::count(); @endphp
+                    @if($custCount)
+                    <span class="ml-auto text-[10px] font-semibold text-slate-500 bg-slate-700 px-1.5 py-0.5 rounded-full">{{ number_format($custCount) }}</span>
+                    @endif
+                </a>
+                <a href="{{ route('admin.orders.index') }}"
+                   class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('admin.orders.*') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
+                    <i class="fi fi-rr-shopping-bag text-base w-5 text-center"></i>
+                    <span>Orders</span>
+                    @php $pendingOrders = \App\Models\Order::where('status', 'pending')->count(); @endphp
+                    @if($pendingOrders)
+                    <span class="ml-auto text-[10px] font-semibold text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded-full">{{ $pendingOrders }}</span>
+                    @endif
+                </a>
+                <a href="{{ route('admin.transactions.index') }}"
+                   class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('admin.transactions.*') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
+                    <i class="fi fi-rr-file-invoice-dollar text-base w-5 text-center"></i>
+                    <span>Transactions</span>
+                </a>
+            </div>
+        </div>
+
+        {{-- Content Section --}}
+        <div>
+            <p class="px-3 mb-2 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Content</p>
+            <div class="space-y-0.5">
+                <a href="{{ route('admin.support-messages.index') }}"
+                   class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('admin.support-messages.*') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
+                    <i class="fi fi-rr-headset text-base w-5 text-center"></i>
+                    <span>Support Messages</span>
+                </a>
+                <a href="{{ route('admin.testimonials.index') }}"
+                   class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('admin.testimonials.*') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
+                    <i class="fi fi-rr-comment-dots text-base w-5 text-center"></i>
+                    <span>Testimonials</span>
+                </a>
+                <a href="{{ route('admin.features.index') }}"
+                   class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('admin.features.*') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
+                    <i class="fi fi-rr-star text-base w-5 text-center"></i>
+                    <span>Features</span>
+                </a>
+            </div>
+        </div>
+
+        {{-- Settings Section --}}
+        <div>
+            <p class="px-3 mb-2 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Settings</p>
+            <div class="space-y-0.5">
+                <a href="{{ route('admin.settings.edit') }}"
+                   class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('admin.settings.*') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
+                    <i class="fi fi-rr-settings text-base w-5 text-center"></i>
+                    <span>Platform Settings</span>
+                </a>
+                <a href="{{ route('admin.subscription-plans.index') }}"
+                   class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('admin.subscription-plans.*') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
+                    <i class="fi fi-rr-tags text-base w-5 text-center"></i>
+                    <span>Plans & Pricing</span>
+                </a>
+                <a href="{{ route('admin.payment-methods.index') }}"
+                   class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('admin.payment-methods.*') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
+                    <i class="fi fi-rr-credit-card text-base w-5 text-center"></i>
+                    <span>Payment Methods</span>
+                </a>
+                <a href="{{ route('admin.bank-accounts.index') }}"
+                   class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('admin.bank-accounts.*') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
+                    <i class="fi fi-rr-bank text-base w-5 text-center"></i>
+                    <span>Bank Accounts</span>
+                </a>
+                <a href="{{ route('admin.vats.index') }}"
+                   class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('admin.vats.*') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
+                    <i class="fi fi-rr-percentage text-base w-5 text-center"></i>
+                    <span>VAT Settings</span>
+                </a>
+                <a href="{{ route('admin.delivery-routes.index') }}"
+                   class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('admin.delivery-routes.*') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
+                    <i class="fi fi-rr-route text-base w-5 text-center"></i>
+                    <span>Delivery Routes</span>
+                </a>
+                <a href="{{ route('admin.delivery-intervals.index') }}"
+                   class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('admin.delivery-intervals.*') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
+                    <i class="fi fi-rr-time-fast text-base w-5 text-center"></i>
+                    <span>Delivery Intervals</span>
+                </a>
+                <a href="{{ route('admin.company-services.index') }}"
+                   class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('admin.company-services.*') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
+                    <i class="fi fi-rr-bulb text-base w-5 text-center"></i>
+                    <span>Company Services</span>
+                </a>
+                <a href="{{ route('admin.business-types.index') }}"
+                   class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('admin.business-types.*') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
+                    <i class="fi fi-rr-document text-base w-5 text-center"></i>
+                    <span>Business Types</span>
+                </a>
+                <a href="{{ route('admin.ownership-types.index') }}"
+                   class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('admin.ownership-types.*') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
+                    <i class="fi fi-rr-document text-base w-5 text-center"></i>
+                    <span>Ownership Types</span>
+                </a>
+                <a href="{{ route('admin.styling.index') }}"
+                   class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('admin.styling.*') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
+                    <i class="fi fi-rr-palette text-base w-5 text-center"></i>
+                    <span>Page Styling</span>
+                </a>
+            </div>
+        </div>
+
+    </nav>
+
+    {{-- Footer --}}
+    <div class="px-3 py-3 border-t border-slate-800 shrink-0 space-y-0.5">
+        <a href="{{ route('admin.activity-logs.index') }}"
+           class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('admin.activity-logs.*') ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800' }}">
+            <i class="fi fi-rr-list-check text-base w-5 text-center"></i>
+            <span>Activity Logs</span>
+        </a>
+        <a href="{{ route('home.index') }}"
+           class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors text-slate-400 hover:text-white hover:bg-slate-800">
+            <i class="fi fi-rr-home text-base w-5 text-center"></i>
+            <span>Back to Home</span>
+        </a>
+        <form method="POST" action="{{ route('admin.logout') }}">
+            @csrf
+            <button class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors w-full text-left text-slate-400 hover:text-red-400 hover:bg-slate-800">
+                <i class="fi fi-rr-exit text-base w-5 text-center"></i>
+                <span>Logout</span>
+            </button>
+        </form>
+    </div>
+</aside>

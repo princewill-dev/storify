@@ -24,7 +24,7 @@ class OrderController extends Controller
      */
     public function index(Request $request)
     {
-        $query = Order::with(['customer', 'store', 'vendor', 'items', 'deliveryRoute', 'bulkOrder']);
+        $query = Order::with(['customer', 'store', 'items', 'deliveryRoute']);
 
         // Filter by status
         if ($request->filled('status')) {
@@ -120,7 +120,7 @@ class OrderController extends Controller
         
         $stats['total_revenue'] = Order::whereHas('transactions', fn($q) => $q->where('status', \App\Enums\TransactionStatus::CONFIRMED->value))->sum('total');
 
-        return view('admin.orders.index', compact('orders', 'stores', 'stats'))->with([
+        return view('admin.order_management.index', compact('orders', 'stores', 'stats'))->with([
             'orderStatusBadges' => OrderStatus::badgeData(),
         ]);
     }
@@ -132,8 +132,7 @@ class OrderController extends Controller
     {
         $order->load([
             'customer',
-            'store',
-            'vendor',
+            'store.user',
             'items.product',
             'transactions.paymentMethod',
             'deliveryRoute'
@@ -146,7 +145,7 @@ class OrderController extends Controller
             ->latest()
             ->get();
 
-        return view('admin.orders.show', compact('order', 'activityLogs'));
+        return view('admin.order_management.show', compact('order', 'activityLogs'));
     }
 
     /**
@@ -156,7 +155,7 @@ class OrderController extends Controller
     {
         $order->load(['customer', 'store', 'items.product', 'deliveryRoute']);
         
-        return view('admin.orders.edit', compact('order'));
+        return view('admin.order_management.edit', compact('order'));
     }
 
     /**

@@ -1,116 +1,97 @@
 @extends('admin.layout')
 
 @section('content')
-<div class="row">
-    <!-- Header/Breadcrumb -->
-    <div class="col-12 mb-4">
-        <div class="d-flex align-items-center justify-content-between">
-             <h4 class="mb-0">
-                 <span class="text-muted fw-light">Early Access /</span> {{ $earlyPass->code }}
-             </h4>
-             <a href="{{ route('admin.early-access.index') }}" class="btn btn-outline-secondary">
-                 <i class="fi fi-rr-arrow-left me-2"></i>Back to List
-             </a>
-        </div>
-    </div>
+<div class="flex items-center justify-between mb-6">
+    <h2 class="text-lg font-bold text-slate-900">
+        <span class="text-slate-400 font-normal">Early Access /</span> {{ $earlyPass->code }}
+    </h2>
+    <a href="{{ route('admin.early-access.index') }}" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">
+        <i class="fi fi-rr-arrow-left"></i> Back to List
+    </a>
+</div>
 
-    <!-- Info Card -->
-    <div class="col-12 mb-4">
-        <div class="card">
-            <div class="card-body">
-                <div class="d-flex flex-wrap align-items-center gap-5">
-                    <div>
-                        <label class="small text-muted d-block mb-1">Status</label>
-                        @if($earlyPass->is_active)
-                            <span class="badge bg-success">Active</span>
-                        @else
-                            <span class="badge bg-danger">Inactive</span>
-                        @endif
-                    </div>
-                    <div>
-                         <label class="small text-muted d-block mb-1">Usage Count</label>
-                         <span class="fw-bold fs-5">{{ $earlyPass->usages->count() }}</span>
-                    </div>
-                    <div>
-                         <label class="small text-muted d-block mb-1">Max Uses</label>
-                         <span class="fw-bold fs-5">{{ $earlyPass->max_uses ?? '∞' }}</span>
-                    </div>
-                    <div>
-                         <label class="small text-muted d-block mb-1">Created At</label>
-                         <span class="fw-bold">{{ $earlyPass->created_at?->format('d M Y') ?? 'N/A' }}</span>
-                    </div>
-                    <div>
-                         <label class="small text-muted d-block mb-1">Description</label>
-                         <span>{{ $earlyPass->description ?? 'No description' }}</span>
-                    </div>
-                </div>
+<div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden mb-6">
+    <div class="p-6">
+        <div class="flex flex-wrap items-center gap-x-8 gap-y-4">
+            <div>
+                <span class="block text-xs text-slate-400 mb-1">Status</span>
+                @if($earlyPass->is_active)
+                    <span class="inline-flex items-center rounded-full bg-emerald-50 text-emerald-700 px-2.5 py-0.5 text-xs font-medium">Active</span>
+                @else
+                    <span class="inline-flex items-center rounded-full bg-red-50 text-red-700 px-2.5 py-0.5 text-xs font-medium">Inactive</span>
+                @endif
+            </div>
+            <div>
+                <span class="block text-xs text-slate-400 mb-1">Usage Count</span>
+                <span class="text-lg font-bold text-slate-900">{{ $earlyPass->usages->count() }}</span>
+            </div>
+            <div>
+                <span class="block text-xs text-slate-400 mb-1">Max Uses</span>
+                <span class="text-lg font-bold text-slate-900">{{ $earlyPass->max_uses ?? '∞' }}</span>
+            </div>
+            <div>
+                <span class="block text-xs text-slate-400 mb-1">Created At</span>
+                <span class="font-medium text-slate-700">{{ $earlyPass->created_at?->format('d M Y') ?? 'N/A' }}</span>
+            </div>
+            <div>
+                <span class="block text-xs text-slate-400 mb-1">Description</span>
+                <span class="text-slate-700">{{ $earlyPass->description ?? 'No description' }}</span>
             </div>
         </div>
     </div>
+</div>
 
-    <!-- Usages Table -->
-    <div class="col-12">
-        <div class="card">
-            <div class="card-header bg-transparent py-3">
-                <h5 class="card-title mb-0">Usage History</h5>
-            </div>
-            <div class="table-responsive">
-                <table class="table table-hover align-middle mb-0">
-                     <thead class="table-light">
-                          <tr>
-                              <th>Vendor</th>
-                              <th>Store Used On</th>
-                              <th>Used At</th>
-                          </tr>
-                     </thead>
-                     <tbody>
-                          @forelse($earlyPass->usages as $usage)
-                          <tr>
-                              <td>
-                                  @if($usage->vendor)
-                                  <div class="d-flex align-items-center">
-                                       <div class="avatar avatar-sm me-2 bg-primary-subtle text-primary rounded-circle d-flex align-items-center justify-content-center" style="width:32px;height:32px;">
-                                            {{ substr($usage->vendor->name, 0, 1) }}
-                                       </div>
-                                       <div>
-                                            <h6 class="mb-0 fs-14">
-                                                <a href="{{ route('admin.vendors.show', $usage->vendor) }}" class="text-inherit text-decoration-none">
-                                                    {{ $usage->vendor->name }}
-                                                </a>
-                                            </h6>
-                                            <small class="text-muted">{{ $usage->vendor->email }}</small>
-                                       </div>
-                                  </div>
-                                  @else
-                                    <span class="text-muted">Unknown Vendor</span>
-                                  @endif
-                              </td>
-                              <td>
-                                  @if($usage->store)
-                                      <a href="{{ route('admin.stores.show', $usage->store) }}" class="text-primary fw-medium text-decoration-none">
-                                          {{ $usage->store->name }}
-                                      </a>
-                                      <div class="small text-muted user-select-all">{{ $usage->store->store_id }}</div>
-                                  @else
-                                      <span class="text-muted">-</span>
-                                  @endif
-                              </td>
-                              <td>
-                                  {{ $usage->used_at->format('d M Y, H:i') }}
-                              </td>
-                          </tr>
-                          @empty
-                          <tr>
-                              <td colspan="3" class="text-center py-5 text-muted">
-                                  <i class="fi fi-rr-time-past d-block fs-2 mb-2"></i>
-                                  No usages recorded yet.
-                              </td>
-                          </tr>
-                          @endforelse
-                     </tbody>
-                </table>
-            </div>
-        </div>
+<div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+    <div class="px-6 py-4 border-b border-slate-100">
+        <h3 class="text-base font-semibold text-slate-900">Usage History</h3>
     </div>
+    <table class="w-full text-sm">
+        <thead class="border-b border-slate-100">
+            <tr>
+                <th class="text-left py-3 px-4 font-medium text-slate-600">Vendor</th>
+                <th class="text-left py-3 px-4 font-medium text-slate-600">Store Used On</th>
+                <th class="text-left py-3 px-4 font-medium text-slate-600">Used At</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-50">
+            @forelse($earlyPass->usages as $usage)
+            <tr>
+                <td class="py-3 px-4">
+                    @if($usage->vendor)
+                    <div class="flex items-center gap-3">
+                        <div class="flex items-center justify-center w-8 h-8 rounded-full bg-slate-100 text-slate-600 text-xs font-bold">
+                            {{ substr($usage->vendor->name, 0, 1) }}
+                        </div>
+                        <div>
+                            <a href="{{ route('admin.vendors.show', $usage->vendor) }}" class="text-sm font-medium text-slate-900 hover:text-slate-700">{{ $usage->vendor->name }}</a>
+                            <div class="text-xs text-slate-400">{{ $usage->vendor->email }}</div>
+                        </div>
+                    </div>
+                    @else
+                        <span class="text-slate-400">Unknown Vendor</span>
+                    @endif
+                </td>
+                <td class="py-3 px-4">
+                    @if($usage->store)
+                        <a href="{{ route('admin.stores.show', $usage->store) }}" class="font-medium text-slate-900 hover:text-slate-700">{{ $usage->store->name }}</a>
+                        <div class="text-xs text-slate-400 select-all">{{ $usage->store->store_id }}</div>
+                    @else
+                        <span class="text-slate-400">-</span>
+                    @endif
+                </td>
+                <td class="py-3 px-4 text-slate-700">
+                    {{ $usage->used_at->format('d M Y, H:i') }}
+                </td>
+            </tr>
+            @empty
+            <tr>
+                <td colspan="3" class="py-12 text-center">
+                    <i class="fi fi-rr-time-past block text-2xl text-slate-300 mb-2"></i>
+                    <span class="text-slate-400">No usages recorded yet.</span>
+                </td>
+            </tr>
+            @endforelse
+        </tbody>
+    </table>
 </div>
 @endsection

@@ -10,7 +10,7 @@
                                 @if($store && $store->logo_path)
                                     <img src="{{ asset('storage/' . $store->logo_path) }}" alt="{{ $store->name }}" style="max-height: 50px;">
                                 @else
-                                    <img src="{{ asset('storefront/assets/img/logo/logo-white.png') }}" alt="{{ $store->name ?? 'Store' }}">
+                                    <span style="font-size:20px;font-weight:700;color:#333;">{{ $store->name ?? 'Store' }}</span>
                                 @endif
                             </a>
                         </div>

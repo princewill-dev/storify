@@ -2,29 +2,8 @@
 @section('subtitle', 'Orders')
 
 @section('content')
-<div x-data="{ filterModal: false }">
 
-<x-management.page-header :breadcrumbs="$breadcrumbs" title="Orders" subtitle="Manage customer orders and fulfillment">
-    <x-slot:actions>
-        <form method="GET" action="{{ route('management.orders.index') }}" class="flex items-center gap-2">
-            <div class="flex items-center">
-                <input name="search" value="{{ request('search') }}" placeholder="Search orders..." class="block w-52 rounded-l-lg border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 border-r-0">
-                <button type="submit" class="inline-flex items-center rounded-r-lg bg-blue-600 px-3 py-2 text-white shadow-sm hover:bg-blue-700"><i class="fi fi-rr-search text-xs"></i></button>
-            </div>
-            @foreach(request()->except(['search', 'page']) as $k => $v)
-                @if($v !== null && $v !== '')<input type="hidden" name="{{ $k }}" value="{{ $v }}">@endif
-            @endforeach
-            <button @click="filterModal = true" type="button" class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 transition-colors">
-                <i class="fi fi-rr-settings-sliders text-xs"></i> Filters
-                @php $fc = count(array_filter($activeFilters ?? [], fn($v) => $v !== null && $v !== '')); @endphp
-                @if($fc > 0)<span class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-blue-600 text-[10px] font-bold text-white">{{ $fc }}</span>@endif
-            </button>
-            @if(request()->hasAny(['search', 'status', 'store_id', 'source', 'date_from', 'date_to']))
-            <a href="{{ route('management.orders.index') }}" class="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-500 hover:text-slate-700">Clear</a>
-            @endif
-        </form>
-    </x-slot:actions>
-</x-management.page-header>
+<x-management.page-header :breadcrumbs="$breadcrumbs" title="Orders" subtitle="Manage customer orders and fulfillment" />
 
 {{-- Stats --}}
 <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
@@ -35,6 +14,36 @@
 </div>
 
 <x-management.data-table>
+    <x-slot:search>
+        <form method="GET" action="{{ route('management.orders.index') }}" class="flex flex-wrap items-center gap-2 flex-1">
+            <input name="search" id="ordersSearch" value="{{ request('search') }}" placeholder="Search orders..." autocomplete="off" autofocus onfocus="this.setSelectionRange(this.value.length, this.value.length)"
+                class="flex-1 min-w-[180px] rounded-lg border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500">
+            <select name="status" onchange="this.form.submit()" class="rounded-lg border-slate-300 px-2.5 py-2 text-xs shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500">
+                <option value="">All Statuses</option>
+                @foreach($statusOptions as $opt)
+                <option value="{{ $opt->value }}" {{ request('status') === $opt->value ? 'selected' : '' }}>{{ $opt->label() }}</option>
+                @endforeach
+            </select>
+            <select name="store_id" onchange="this.form.submit()" class="rounded-lg border-slate-300 px-2.5 py-2 text-xs shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500">
+                <option value="">All Stores</option>
+                @foreach($stores as $store)
+                <option value="{{ $store->id }}" {{ request('store_id') == $store->id ? 'selected' : '' }}>{{ $store->name }}</option>
+                @endforeach
+            </select>
+            <select name="source" onchange="this.form.submit()" class="rounded-lg border-slate-300 px-2.5 py-2 text-xs shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500">
+                <option value="">All Sources</option>
+                <option value="checkout" {{ request('source') === 'checkout' ? 'selected' : '' }}>Online Store</option>
+                <option value="pos" {{ request('source') === 'pos' ? 'selected' : '' }}>POS</option>
+            </select>
+            <input type="date" name="date_from" value="{{ request('date_from') }}" placeholder="From" onchange="this.form.submit()"
+                class="rounded-lg border-slate-300 px-2.5 py-2 text-xs shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500 w-[140px]">
+            <input type="date" name="date_to" value="{{ request('date_to') }}" placeholder="To" onchange="this.form.submit()"
+                class="rounded-lg border-slate-300 px-2.5 py-2 text-xs shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500 w-[140px]">
+            @if(request()->hasAny(['search', 'status', 'store_id', 'source', 'date_from', 'date_to']))
+            <a href="{{ route('management.orders.index') }}" class="px-3 py-2 border border-slate-200 text-xs rounded-lg hover:bg-slate-50 whitespace-nowrap">Clear</a>
+            @endif
+        </form>
+    </x-slot:search>
     <x-slot:header>
         <th class="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Order</th>
         <th class="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider hidden lg:table-cell">Customer</th>
@@ -75,68 +84,14 @@
 </div>
 @endif
 
-{{-- Filter Modal --}}
-<div x-show="filterModal" x-cloak class="fixed inset-0 z-50 overflow-y-auto" aria-modal="true">
-    <div class="flex min-h-screen items-center justify-center px-4 py-8 text-center">
-        <div x-show="filterModal" x-transition:enter="ease-out duration-300" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100" x-transition:leave="ease-in duration-200" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0" class="fixed inset-0 bg-slate-900/50 transition-opacity" @click="filterModal = false" aria-hidden="true"></div>
-        <div x-show="filterModal" x-transition:enter="ease-out duration-300" x-transition:enter-start="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95" x-transition:enter-end="opacity-100 translate-y-0 sm:scale-100" x-transition:leave="ease-in duration-200" x-transition:leave-start="opacity-100 translate-y-0 sm:scale-100" x-transition:leave-end="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95" class="relative z-10 inline-block transform overflow-hidden rounded-xl bg-white text-left align-bottom shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-md sm:align-middle">
-            <div class="bg-white px-6 py-5 border-b border-slate-200">
-                <div class="flex items-center gap-3">
-                    <div class="flex-shrink-0 w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center"><i class="fi fi-rr-settings-sliders text-blue-600 text-lg"></i></div>
-                    <div><h3 class="text-lg font-semibold text-slate-900">Filter Orders</h3><p class="text-sm text-slate-500">Narrow down by status, store, or source.</p></div>
-                </div>
-            </div>
-            <form method="GET" action="{{ route('management.orders.index') }}">
-                <div class="bg-white px-6 py-4 space-y-4">
-                    <div>
-                        <label for="f-status" class="block text-xs font-medium text-slate-600 mb-1">Status</label>
-                        <select id="f-status" name="status" class="block w-full rounded-lg border-slate-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-sm">
-                            <option value="">All Statuses</option>
-                            @foreach($statusOptions as $opt)
-                            <option value="{{ $opt->value }}" {{ request('status') === $opt->value ? 'selected' : '' }}>{{ $opt->label() }}</option>
-                            @endforeach
-                        </select>
-                    </div>
-                    <div>
-                        <label for="f-store" class="block text-xs font-medium text-slate-600 mb-1">Store</label>
-                        <select id="f-store" name="store_id" class="block w-full rounded-lg border-slate-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-sm">
-                            <option value="">All Stores</option>
-                            @foreach($stores as $store)
-                            <option value="{{ $store->id }}" {{ request('store_id') == $store->id ? 'selected' : '' }}>{{ $store->name }}</option>
-                            @endforeach
-                        </select>
-                    </div>
-                    <div>
-                        <label for="f-source" class="block text-xs font-medium text-slate-600 mb-1">Source</label>
-                        <select id="f-source" name="source" class="block w-full rounded-lg border-slate-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-sm">
-                            <option value="">All Sources</option>
-                            <option value="checkout" {{ request('source') === 'checkout' ? 'selected' : '' }}>Online Store</option>
-                            <option value="pos" {{ request('source') === 'pos' ? 'selected' : '' }}>POS</option>
-                            <option value="live_first" {{ request('source') === 'live_first' ? 'selected' : '' }}>Live First</option>
-                        </select>
-                    </div>
-                    <div class="grid grid-cols-2 gap-3">
-                        <div>
-                            <label for="f-date-from" class="block text-xs font-medium text-slate-600 mb-1">From</label>
-                            <input type="date" id="f-date-from" name="date_from" value="{{ request('date_from') }}" class="block w-full rounded-lg border-slate-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-sm">
-                        </div>
-                        <div>
-                            <label for="f-date-to" class="block text-xs font-medium text-slate-600 mb-1">To</label>
-                            <input type="date" id="f-date-to" name="date_to" value="{{ request('date_to') }}" class="block w-full rounded-lg border-slate-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-sm">
-                        </div>
-                    </div>
-                </div>
-                <div class="bg-slate-50 px-6 py-4 flex items-center justify-between border-t border-slate-200">
-                    <a href="{{ route('management.orders.index') }}" class="text-sm font-medium text-slate-500 hover:text-slate-700">Clear all</a>
-                    <div class="flex items-center gap-3">
-                        <button type="button" @click="filterModal = false" class="inline-flex items-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50">Cancel</button>
-                        <button type="submit" class="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700"><i class="fi fi-rr-search text-xs"></i> Apply</button>
-                    </div>
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
-
-</div>
 @endsection
+
+@push('scripts')
+<script>
+let ordersTimer;
+document.getElementById('ordersSearch')?.addEventListener('input', function() {
+    clearTimeout(ordersTimer);
+    ordersTimer = setTimeout(() => this.form.submit(), 300);
+});
+</script>
+@endpush

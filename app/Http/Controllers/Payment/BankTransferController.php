@@ -48,9 +48,7 @@ class BankTransferController extends Controller
             return redirect()->back()->with('error', 'Transaction not found.');
         }
 
-        $paymentAmount = $order->source === 'live_first' 
-            ? $order->total * 0.10 
-            : $order->total;
+        $paymentAmount = $order->total;
 
         return view('storefront.pages.payment.bank-transfer', compact('order', 'store', 'bankAccounts', 'transaction', 'paymentAmount'));
     }

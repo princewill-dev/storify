@@ -59,16 +59,6 @@ class Order extends Model
         return $this->source === 'shop4me';
     }
 
-    public function isBulk(): bool
-    {
-        return $this->source === 'bulk';
-    }
-
-    public function isFamilyPack(): bool
-    {
-        return $this->source === 'family_pack';
-    }
-
     protected static function boot()
     {
         parent::boot();
@@ -106,11 +96,6 @@ class Order extends Model
     public function items(): HasMany
     {
         return $this->hasMany(OrderItem::class);
-    }
-
-    public function bulkOrder(): HasOne
-    {
-        return $this->hasOne(BulkOrder::class);
     }
 
     public function transactions(): HasMany

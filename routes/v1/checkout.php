@@ -12,10 +12,6 @@ Route::post('/{store_slug}/checkout/save-address', [CheckoutController::class, '
 
 
 
-Route::post('/{store_slug}/checkout/live-first', [CheckoutController::class, 'processLiveFirst'])
-    ->where(['store_slug' => '[A-Za-z0-9_\-]+'])
-    ->name('checkout.live-first');
-
 // Payment Method Selection
 Route::get('/{store_slug}/checkout/{order}/payment-methods', [CheckoutController::class, 'showPaymentMethods'])
     ->where(['store_slug' => '[A-Za-z0-9_\-]+'])

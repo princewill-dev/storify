@@ -58,11 +58,7 @@ class SearchController extends Controller
                     'slug' => $product->slug,
                     'image' => $imageUrl,
                     'price' => $product->amount ?? 0,
-                    'url' => route('home.products.show', [
-                        'store_slug' => $store->slug,
-                        'slug' => $product->slug,
-                        'code' => $product->product_code
-                    ])
+                    'url' => '/products/' . $product->slug . '-' . $product->product_code
                 ];
             });
 

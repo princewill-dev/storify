@@ -2,12 +2,10 @@
 
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Admin\AdminDashboardController;
-use App\Http\Controllers\Admin\ExecutiveDashboardController;
 use App\Http\Controllers\Admin\AdminSettingsController;
 use App\Http\Controllers\Admin\ActivityLogController;
 use App\Http\Controllers\Admin\VendorController;
 use App\Http\Controllers\Admin\VendorKycApplicationController;
-use App\Http\Controllers\Admin\LiveFirstController;
 use App\Http\Controllers\Admin\StoreController;
 use App\Http\Controllers\Admin\WarehouseController;
 use App\Http\Controllers\Admin\StockTransferController;
@@ -23,9 +21,6 @@ use App\Http\Controllers\Admin\FeatureController;
 use App\Http\Middleware\AdminRouteActivityLogger;
 use App\Http\Controllers\Admin\StorefrontSlideController;
 use App\Http\Controllers\Admin\Shop4meOrderController;
-use App\Http\Controllers\Admin\BulkbuyOrderController;
-use App\Http\Controllers\Admin\FamilyPackOrderController;
-use App\Http\Controllers\Admin\LiveFirstOrderController;
 use App\Http\Controllers\Admin\VatController;
 use App\Http\Controllers\Admin\DeliveryRouteController;
 use App\Http\Controllers\Admin\OrderController;
@@ -36,7 +31,7 @@ use App\Http\Controllers\Admin\SubscriptionPlanController;
 // Admin Dashboard Routes (protected by auth middleware)
 Route::middleware(['auth'])->group(function () {
     Route::get('/superadmin/dashboard', [AdminDashboardController::class, 'index'])->name('admin.dashboard');
-    Route::get('/superadmin/executive', [ExecutiveDashboardController::class, 'index'])->name('admin.executive');
+    Route::get('/superadmin/executive', fn() => redirect()->route('admin.dashboard'))->name('admin.executive');
 
     Route::get('/superadmin/settings', [AdminSettingsController::class, 'edit'])->name('admin.settings.edit');
     Route::post('/superadmin/settings', [AdminSettingsController::class, 'update'])->name('admin.settings.update');
@@ -53,14 +48,6 @@ Route::middleware(['auth'])->group(function () {
         Route::get('vendor-kyc-applications/{application}', [VendorKycApplicationController::class, 'show'])->name('vendor-kyc.show');
         Route::post('vendor-kyc-applications/{application}/approve', [VendorKycApplicationController::class, 'approve'])->name('vendor-kyc.approve');
         Route::post('vendor-kyc-applications/{application}/reject', [VendorKycApplicationController::class, 'reject'])->name('vendor-kyc.reject');
-        
-        // Live First Program Management
-        Route::get('live-first/applications', [LiveFirstController::class, 'index'])->name('live-first.index');
-        Route::get('live-first/applications/{application}', [LiveFirstController::class, 'show'])->name('live-first.show');
-        Route::post('live-first/applications/{application}/approve', [LiveFirstController::class, 'approve'])->name('live-first.approve');
-        Route::post('live-first/applications/{application}/reject', [LiveFirstController::class, 'reject'])->name('live-first.reject');
-        Route::post('live-first/applications/{application}/documents/{document}/toggle', [LiveFirstController::class, 'toggleDocumentVerification'])->name('live-first.document.toggle');
-        
         Route::resource('stores', StoreController::class)->except(['show']);
         Route::get('stores/{store}', [StoreController::class, 'show'])->name('stores.show');
         Route::post('stores/{store}/suspend', [StoreController::class, 'suspend'])->name('stores.suspend');
@@ -114,15 +101,6 @@ Route::middleware(['auth'])->group(function () {
         // SHOP4ME admin
         Route::get('shop4me/orders', [Shop4meOrderController::class, 'index'])->name('shop4me.orders.index');
 
-        // BULK BUY admin
-        Route::get('bulkbuy/orders', [BulkbuyOrderController::class, 'index'])->name('bulkbuy.orders.index');
-
-        // FAMILY PACK admin
-        Route::get('family-pack/orders', [FamilyPackOrderController::class, 'index'])->name('familypack.orders.index');
-
-        // LIVE FIRST admin
-        Route::get('livefirst/orders', [LiveFirstOrderController::class, 'index'])->name('livefirst.orders.index');
-
         // VAT
         Route::resource('vats', VatController::class)->except(['show']);
         Route::post('vats/{vat}/toggle', [VatController::class, 'toggle'])->name('vats.toggle');
@@ -135,29 +113,6 @@ Route::middleware(['auth'])->group(function () {
         Route::resource('orders', OrderController::class)->except(['create', 'store']);
         Route::patch('orders/{order}/status', [OrderController::class, 'updateStatus'])->name('orders.update-status');
         Route::patch('orders/{order}/payment-status', [OrderController::class, 'updatePaymentStatus'])->name('orders.update-payment-status');
-
-        // Bulk Order Management
-        Route::resource('bulk-orders', \App\Http\Controllers\Admin\AdminBulkOrderController::class)->only(['index', 'show', 'update']);
-        Route::post('bulk-orders/{bulkOrder}/notify', [\App\Http\Controllers\Admin\AdminBulkOrderController::class, 'notify'])->name('bulk-orders.notify');
-        Route::post('bulk-orders/{bulkOrder}/finalize', [\App\Http\Controllers\Admin\AdminBulkOrderController::class, 'finalize'])->name('bulk-orders.finalize');
-
-        // Family Pack Management
-        Route::get('family-packs', [\App\Http\Controllers\Admin\AdminFamilyPackController::class, 'index'])->name('family-packs.index');
-        // Show by pack code (e.g., PACK-XXXXXXXX) comes BEFORE numeric-id route
-        Route::get('family-packs/{packCode}', [\App\Http\Controllers\Admin\AdminFamilyPackController::class, 'showByCode'])
-            ->where('packCode', 'PACK-[A-Za-z0-9]+')
-            ->name('family-packs.show-by-code');
-        // Fallback: show by numeric id
-        Route::get('family-packs/{id}', [\App\Http\Controllers\Admin\AdminFamilyPackController::class, 'show'])
-            ->whereNumber('id')
-            ->name('family-packs.show');
-        Route::put('family-packs/{id}', [\App\Http\Controllers\Admin\AdminFamilyPackController::class, 'update'])->name('family-packs.update');
-        Route::post('family-packs/{id}/finalize', [\App\Http\Controllers\Admin\AdminFamilyPackController::class, 'finalize'])->name('family-packs.finalize');
-        Route::post('family-packs/{id}/activate', [\App\Http\Controllers\Admin\AdminFamilyPackController::class, 'activate'])->name('family-packs.activate');
-        Route::post('family-packs/{id}/subscription/pause', [\App\Http\Controllers\Admin\AdminFamilyPackController::class, 'pauseSubscription'])->name('family-packs.subscription.pause');
-        Route::post('family-packs/{id}/subscription/resume', [\App\Http\Controllers\Admin\AdminFamilyPackController::class, 'resumeSubscription'])->name('family-packs.subscription.resume');
-        Route::post('family-packs/{id}/subscription/cancel', [\App\Http\Controllers\Admin\AdminFamilyPackController::class, 'cancelSubscription'])->name('family-packs.subscription.cancel');
-        Route::post('family-packs/{id}/subscription/advance', [\App\Http\Controllers\Admin\AdminFamilyPackController::class, 'advanceNextCycle'])->name('family-packs.subscription.advance');
 
         // Delivery Intervals
         Route::resource('delivery-intervals', \App\Http\Controllers\Admin\DeliveryIntervalController::class)->except(['create', 'edit', 'show']);

@@ -1,175 +1,81 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="h-full bg-slate-50">
 <head>
+    <title>Admin · @yield('subtitle', 'Superadmin')</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <link rel="shortcut icon" type="image/png" href="{{ $company->favicon }}">
 
-	<!-- Title -->
-	<title>Superadmin - @yield('subtitle')</title>
-	
-	<!-- Meta -->
-	<meta charset="utf-8">
-	<meta http-equiv="X-UA-Compatible" content="IE=edge">
-	<meta name="author" content="dexignlabs">
-	<meta name="robots" content="index, no-follow">
-	<meta name="csrf-token" content="{{ csrf_token() }}">
-	
-	<!-- FAVICONS ICON -->
-	<link rel="shortcut icon" type="image/png" href="{{ $company->favicon }}">
-	
-	<!-- MOBILE SPECIFIC -->
-	<meta name="viewport" content="width=device-width, initial-scale=1">
-	
-	<!-- Canonical URL -->
-	<!-- <link rel="canonical" href="https://hexabox.dexignlab.com/xhtml/index.html"> -->
-	
-	<!-- Plugins Stylesheet -->
-	<link href="{{ asset('vendor_files/assets/vendor/@yaireo/tagify/dist/tagify.css') }}" rel="stylesheet">
-	<link href="{{ asset('vendor_files/assets/vendor/metismenu/dist/metisMenu.min.css') }}" rel="stylesheet">
-	<link href="{{ asset('vendor_files/assets/vendor/@flaticon/flaticon-uicons/css/all/all.css') }}" rel="stylesheet">
-	<link href="{{ asset('vendor_files/assets/vendor/bootstrap-select/dist/css/bootstrap-select.min.css') }}" rel="stylesheet">
-	<link class="main-switcher" href="{{ asset('vendor_files/assets/css/switcher.css') }}" rel="stylesheet">
-	
-	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/jsvectormap/dist/css/jsvectormap.min.css" >
-	<link rel="stylesheet" href="{{ asset('vendor_files/assets/vendor/swiper/swiper-bundle.min.css') }}" >
-	
-	<!-- Start - Style CSS -->
-	<link class="main-plugins" href="{{ asset('vendor_files/assets/css/plugins.css') }}" rel="stylesheet">
-	<link class="main-css" href="{{ asset('vendor_files/assets/css/style.css') }}" rel="stylesheet">
-	<!-- End - Style CSS -->
+    @vite('resources/css/app.css')
 
-	@stack('styles')
-	@stack('scripts')
-	
+    <style>
+        [x-cloak] { display: none !important; }
+        ::-webkit-scrollbar { width: 5px; height: 5px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        .sidebar-scroll::-webkit-scrollbar-track { background: transparent; }
+        .sidebar-scroll::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
+        .sidebar-scroll::-webkit-scrollbar-thumb:hover { background: #475569; }
+        * { scrollbar-width: thin; scrollbar-color: #cbd5e1 transparent; }
+        .sidebar-scroll { scrollbar-color: #334155 transparent; }
+    </style>
+
+    <link rel="stylesheet" href="{{ asset('vendor_files/assets/vendor/@flaticon/flaticon-uicons/css/all/all.css') }}">
+    <link rel="stylesheet" href="{{ asset('vendor_files/assets/vendor/apexcharts/dist/apexcharts.css') }}">
+
+    @stack('styles')
+    @stack('head-scripts')
 </head>
-<body>
+<body class="h-full" x-data="{ sidebarOpen: true, mobileMenuOpen: false }">
 
-	<!-- Start - Preloader -->
-	<div class="ic_preloader" id="ic_preloader">
-		<div class="spinner">
-			<div></div>
-			<div></div>
-			<div></div>
-			<div></div>
-			<div></div>
-			<div></div>
-		</div>
-	</div>
-	<!-- End - Preloader -->
-		
-    <!-- Start - Main Wrapper -->
-	<div id="main-wrapper">
-		
-		<!-- Start - Nav Header -->
-		@include('admin.components.header')
-		<!-- End - Nav Header -->
-		
-		<!-- Start - Sidebar Navigation -->
-		@include('admin.components.sidebar')
-		<!-- End - Sidebar Navigation -->
-		
-		<!-- Start - Content Body -->
-        <main class="content-body">
-			
-			<!-- Start - Page Title & Breadcrumb -->
-			<div class="page-title">
-					<nav aria-label="breadcrumb">
-					<ol class="breadcrumb">
-						<li class="breadcrumb-item">
-							<a href="{{ route('admin.dashboard') }}">Dashboard</a>
-						</li>
-						<li class="breadcrumb-item active" aria-current="page">@yield('subtitle')</li>
-					</ol>
-				</nav>
-			</div>
-			<!-- End - Page Title & Breadcrumb -->
-			
-			<div class="container-fluid">
+<div class="flex h-full">
 
-				@yield('content')
-			
-			</div>
-			
-		</main>
-		<!-- End - Content Body -->
-		
-		<!-- Start - Footer -->
-		@include('admin.components.footer')
-		<!-- End - Footer -->
-		
-	</div>
-	<!-- End - Main Wrapper -->
+    {{-- Sidebar --}}
+    @include('admin.components.sidebar')
 
-    {{-- Global Toasts (top-right) --}}
-    @php($flashSuccess = session('success'))
-    @php($flashError = session('error'))
-    @if($flashSuccess || $flashError)
-    <div class="toast-container position-fixed top-0 end-0 p-3" style="z-index: 1200;">
-        @if($flashSuccess)
-        <div class="toast align-items-center text-bg-success border-0" role="alert" aria-live="assertive" aria-atomic="true" data-bs-autohide="true" data-bs-delay="5000">
-            <div class="d-flex">
-                <div class="toast-body">
-                    {{ $flashSuccess }}
-                </div>
-                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+    {{-- Main Content --}}
+    <div class="flex flex-1 flex-col min-w-0 lg:pl-64" :class="{ 'lg:pl-64': sidebarOpen, 'lg:pl-0': !sidebarOpen }">
+
+        {{-- Header --}}
+        @include('admin.components.header')
+
+        {{-- Page Content --}}
+        <main class="flex-1 overflow-auto">
+            <div class="px-4 sm:px-6 py-6">
+                @yield('content')
             </div>
-        </div>
-        @endif
-        @if($flashError)
-        <div class="toast align-items-center text-bg-danger border-0" role="alert" aria-live="assertive" aria-atomic="true" data-bs-autohide="true" data-bs-delay="5000">
-            <div class="d-flex">
-                <div class="toast-body">
-                    {{ $flashError }}
-                </div>
-                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
-            </div>
-        </div>
-        @endif
+        </main>
     </div>
-    @endif
+</div>
 
-	<!-- Start - Page Scripts -->
-	<script src="{{ asset('vendor_files/assets/vendor/jquery/dist/jquery.min.js') }}"></script>
-	<script src="{{ asset('vendor_files/assets/vendor/bootstrap/dist/js/bootstrap.bundle.min.js') }}"></script>
-	<script src="{{ asset('vendor_files/assets/vendor/bootstrap-select/dist/js/bootstrap-select.min.js') }}"></script>
-	<script src="{{ asset('vendor_files/assets/vendor/metismenu/dist/metisMenu.min.js') }}"></script>
-	<script src="{{ asset('vendor_files/assets/vendor/@yaireo/tagify/dist/tagify.js') }}"></script>
-	
-	<!-- Script For Swiper -->
-	<script src="{{ asset('vendor_files/assets/vendor/swiper/swiper-bundle.min.js') }}"></script>
-	
-	<!-- Script For apexchart -->
-	<script src="{{ asset('vendor_files/assets/vendor/apexcharts/dist/apexcharts.min.js') }}"></script>
-	
-	<!-- Script For Jsvectormap -->
-    <script src="https://cdn.jsdelivr.net/npm/jsvectormap"></script>
-	<script src="https://cdn.jsdelivr.net/npm/jsvectormap/dist/maps/world.js"></script>
+{{-- Toast Notifications --}}
+@if(session('success'))
+<div x-data="{ show: true }" x-show="show" x-init="setTimeout(() => show = false, 5000)" x-transition class="fixed bottom-4 right-4 z-50 max-w-sm w-full bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl shadow-lg p-4">
+    <div class="flex items-start gap-3">
+        <i class="fi fi-rr-check-circle text-emerald-500 text-lg mt-0.5"></i>
+        <div class="flex-1 text-sm font-medium">{{ session('success') }}</div>
+        <button @click="show = false" class="text-emerald-400 hover:text-emerald-600">&times;</button>
+    </div>
+</div>
+@endif
+@if(session('error'))
+<div x-data="{ show: true }" x-show="show" x-init="setTimeout(() => show = false, 7000)" x-transition class="fixed bottom-4 right-4 z-50 max-w-sm w-full bg-red-50 border border-red-200 text-red-800 rounded-xl shadow-lg p-4">
+    <div class="flex items-start gap-3">
+        <i class="fi fi-rr-exclamation text-red-500 text-lg mt-0.5"></i>
+        <div class="flex-1 text-sm font-medium">{{ session('error') }}</div>
+        <button @click="show = false" class="text-red-400 hover:text-red-600">&times;</button>
+    </div>
+</div>
+@endif
 
-	<!-- Script For Dashboard -->
-	<script src="{{ asset('vendor_files/assets/js/dashboard/dashboard.js') }}"></script>
-	
-	<!-- Script For Multiple Languages -->
-	<script src="{{ asset('vendor_files/assets/vendor/i18n/i18n.js') }}"></script>
-	<script src="{{ asset('vendor_files/assets/js/translator.js') }}"></script>
-	
-	<!-- Script For Custom JS -->
-	<script src="{{ asset('vendor_files/assets/js/custom.js') }}"></script>
-	<script src="{{ asset('vendor_files/assets/js/icnav-init.js') }}"></script>
-	
-	<!-- Script For demo Styleswitcher -->
-    <!-- <script src="{{ asset('vendor_files/assets/js/switcher/styleSwitcher.js') }}"></script> -->
-	<script src="{{ asset('vendor_files/assets/js/switcher/demo.js') }}"></script>
+<script src="{{ asset('vendor_files/assets/vendor/apexcharts/dist/apexcharts.min.js') }}"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+<script>function openModal(id){document.getElementById(id).classList.remove('hidden')}function closeModal(id){document.getElementById(id).classList.add('hidden')}</script>
 
-    @if(($flashSuccess ?? false) || ($flashError ?? false))
-    <script>
-      (function(){
-        var container = document.querySelector('.toast-container');
-        if (!container) return;
-        var toasts = container.querySelectorAll('.toast');
-        toasts.forEach(function(el){
-          try { new bootstrap.Toast(el, { autohide: true, delay: 5000 }).show(); } catch(e) {}
-        });
-      })();
-    </script>
-    @endif
+@stack('modals')
+@stack('scripts')
 
-	</body>
+</body>
 </html>

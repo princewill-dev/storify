@@ -535,6 +535,67 @@ class ProductController extends Controller
         return back()->with('success', "{$deleted} product(s) deleted.");
     }
 
+    public function bulkUpdate(Request $request): RedirectResponse
+    {
+        $user = $request->user();
+        if (!$user) return redirect()->route('management.auth.login');
+
+        $products = $request->input('products', []);
+        if (empty($products)) return back()->with('error', 'No products selected.');
+
+        $validIds = Product::whereIn('id', array_column($products, 'id'))
+            ->when($user->isRestrictedStaff(), fn($q) => $q->whereIn('store_id', $user->assignedStores()->pluck('id')))
+            ->when(!$user->isRestrictedStaff(), function ($q) use ($user) {
+                $storeIds = $this->userStoreIds($user);
+                if (!empty($storeIds)) $q->whereIn('store_id', $storeIds);
+            })
+            ->pluck('id')->toArray();
+
+        $updated = 0;
+        foreach ($products as $item) {
+            if (!in_array((int) ($item['id'] ?? 0), $validIds, true)) continue;
+
+            $data = [];
+            if (isset($item['amount']) && $item['amount'] !== '') $data['amount'] = $item['amount'];
+            if (isset($item['quantity']) && $item['quantity'] !== '') $data['quantity'] = $item['quantity'];
+            if (isset($item['status']) && in_array($item['status'], ['active', 'inactive'])) $data['status'] = $item['status'];
+
+            if (!empty($data)) {
+                Product::where('id', $item['id'])->update($data);
+                $updated++;
+            }
+        }
+
+        return back()->with('success', "{$updated} product(s) updated successfully.");
+    }
+
+    public function bulkStatus(Request $request): RedirectResponse
+    {
+        $user = $request->user();
+        if (!$user) return redirect()->route('management.auth.login');
+
+        $ids = $request->input('product_ids', []);
+        $status = $request->input('status');
+
+        if (empty($ids) || !in_array($status, ['active', 'inactive'])) {
+            return back()->with('error', 'Invalid request.');
+        }
+
+        $count = Product::whereIn('id', $ids)
+            ->where(function ($q) use ($user) {
+                if ($user->isRestrictedStaff()) {
+                    $q->whereIn('store_id', $user->assignedStores()->pluck('id'));
+                } else {
+                    $storeIds = $this->userStoreIds($user);
+                    if (!empty($storeIds)) $q->whereIn('store_id', $storeIds);
+                }
+            })
+            ->update(['status' => $status]);
+
+        $label = $status === 'active' ? 'activated' : 'deactivated';
+        return back()->with('success', "{$count} product(s) {$label}.");
+    }
+
     private function ownsProduct(Product $product, User $user): bool
     {
         if ($product->store_id && in_array((int) $product->store_id, $this->userStoreIds($user), true)) {

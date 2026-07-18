@@ -6,7 +6,7 @@ use App\Http\Controllers\Cart\CartApiController;
 // Local dev bypass
 if (config('app.env') === 'local') {
     Route::prefix('{store_subdomain}')
-        ->where(['store_subdomain' => '(?!api|admin|vendor|storage|livewire|cart|checkout|products|services|search|support|bulk_buy|international-supply|live-first)[A-Za-z0-9_\-]+'])
+        ->where(['store_subdomain' => '(?!api|admin|vendor|storage|livewire|cart|checkout|products|services|search|support|international-supply)[A-Za-z0-9_\-]+'])
         ->group(function () {
             
             // Cart JSON API
