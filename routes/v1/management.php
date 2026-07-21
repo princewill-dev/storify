@@ -27,6 +27,7 @@ use App\Http\Controllers\Management\StockTransferController;
 use App\Http\Controllers\Management\SetupController;
 use App\Http\Controllers\Management\PosSessionController;
 use App\Http\Controllers\Management\PosController;
+use App\Http\Controllers\Management\InvoiceController;
 use App\Http\Controllers\Staff\InvitationController;
 
 Route::prefix('management')->name('management.')->group(function () {
@@ -157,6 +158,25 @@ Route::prefix('management')->name('management.')->group(function () {
 
                 // Payment Mode
                 Route::post('/payment-settings/stores/{store}/toggle-mode', [PaymentSettingsController::class, 'togglePaymentMode'])->name('payment-settings.toggle-mode');
+            });
+
+            // Invoices
+            Route::middleware('permission:invoices view')->group(function () {
+                Route::get('/invoices', [InvoiceController::class, 'index'])->name('invoices.index');
+                Route::get('/invoices/create', [InvoiceController::class, 'create'])->name('invoices.create');
+                Route::post('/invoices', [InvoiceController::class, 'store'])->name('invoices.store');
+                Route::get('/invoices/{invoice}', [InvoiceController::class, 'show'])->name('invoices.show');
+                Route::get('/invoices/{invoice}/pdf', [InvoiceController::class, 'pdf'])->name('invoices.pdf');
+            });
+            Route::middleware('permission:invoices edit')->group(function () {
+                Route::get('/invoices/{invoice}/edit', [InvoiceController::class, 'edit'])->name('invoices.edit');
+                Route::put('/invoices/{invoice}', [InvoiceController::class, 'update'])->name('invoices.update');
+                Route::post('/invoices/{invoice}/send', [InvoiceController::class, 'send'])->name('invoices.send');
+                Route::post('/invoices/{invoice}/mark-paid', [InvoiceController::class, 'markPaid'])->name('invoices.mark-paid');
+                Route::post('/invoices/{invoice}/void', [InvoiceController::class, 'voidInvoice'])->name('invoices.void');
+            });
+            Route::middleware('permission:invoices delete')->group(function () {
+                Route::delete('/invoices/{invoice}', [InvoiceController::class, 'destroy'])->name('invoices.destroy');
             });
 
             // Products

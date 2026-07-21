@@ -12,6 +12,7 @@ use App\Http\Controllers\Storefront\StoreProductController;
 use App\Http\Controllers\Storefront\StoreServiceController;
 use App\Http\Controllers\Home\SearchController;
 use App\Http\Controllers\Shop4me\Shop4meController;
+use App\Http\Controllers\Storefront\InvoicePaymentController;
 
 // Main domain routes
 Route::domain(config('app.main_domain', parse_url(config('app.url'), PHP_URL_HOST)))->group(function () {
@@ -167,3 +168,12 @@ Route::get('/payment/{reference}/failed', function($reference) {
     $store = $order->store;
     return view('storefront.pages.payment.failed', compact('order', 'transaction', 'store'));
 })->name('order.failed');
+
+// Invoice Payment Routes (public, no auth)
+Route::prefix('pay/invoice/{token}')->name('invoice.pay.')->group(function () {
+    Route::get('/', [InvoicePaymentController::class, 'show'])->name('show');
+    Route::post('/initialize', [InvoicePaymentController::class, 'initialize'])->name('initialize');
+    Route::get('/callback', [InvoicePaymentController::class, 'callback'])->name('callback');
+    Route::get('/success', [InvoicePaymentController::class, 'success'])->name('success');
+    Route::post('/bank-transfer', [InvoicePaymentController::class, 'bankTransfer'])->name('bank-transfer');
+});

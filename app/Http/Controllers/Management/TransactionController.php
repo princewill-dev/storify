@@ -19,25 +19,27 @@ class TransactionController extends Controller
         if (!$user->business_id) {
             return;
         }
-        $query->whereHas('order', function ($q) use ($user) {
-            $q->where('business_id', $user->business_id);
+        $query->where(function ($q) use ($user) {
+            $q->whereHas('order', fn($o) => $o->where('business_id', $user->business_id))
+              ->orWhereHas('invoice', fn($i) => $i->where('business_id', $user->business_id));
         });
     }
 
     protected function userOwnsTransaction(User $user, Transaction $transaction): bool
     {
-        if (!$transaction->order) {
-            return false;
+        if ($transaction->order) {
+            if ($user->isRestrictedStaff()) {
+                $storeIds = $user->assignedStores()->pluck('id')->toArray();
+                return in_array($transaction->order->store_id, $storeIds);
+            }
+            return $transaction->order->business_id === $user->business_id;
         }
 
-        if ($user->isRestrictedStaff()) {
-            $storeIds = $user->assignedStores()->pluck('id')->toArray();
-            return in_array($transaction->order->store_id, $storeIds);
+        if ($transaction->invoice) {
+            return $transaction->invoice->business_id === $user->business_id;
         }
 
-        return $transaction->order->business_id === null
-            || $user->business_id === null
-            || $transaction->order->business_id === $user->business_id;
+        return $user->business_id === null;
     }
 
 
@@ -45,10 +47,14 @@ class TransactionController extends Controller
     {
         $user = $request->user();
 
-        $query = Transaction::with(['order.customer', 'order.store', 'paymentMethod']);
+        $query = Transaction::with(['order.customer', 'order.store', 'invoice.store', 'paymentMethod']);
         $this->forBusiness($query, $user);
         if ($user->isRestrictedStaff()) {
-            $query->whereHas('order', fn($q) => $q->whereIn('store_id', $user->assignedStores()->pluck('id')));
+            $query->where(function ($q) use ($user) {
+                $storeIds = $user->assignedStores()->pluck('id')->toArray();
+                $q->whereHas('order', fn($o) => $o->whereIn('store_id', $storeIds))
+                  ->orWhereHas('invoice', fn($i) => $i->whereIn('store_id', $storeIds));
+            });
         }
 
         if ($request->filled('reference')) {
@@ -60,7 +66,10 @@ class TransactionController extends Controller
         }
 
         if ($request->filled('store_id')) {
-            $query->whereHas('order', fn($q) => $q->where('store_id', $request->store_id));
+            $query->where(function ($q) use ($request) {
+                $q->whereHas('order', fn($o) => $o->where('store_id', $request->store_id))
+                  ->orWhereHas('invoice', fn($i) => $i->where('store_id', $request->store_id));
+            });
         }
 
         if ($request->filled('date_from')) {
@@ -100,7 +109,7 @@ class TransactionController extends Controller
             abort(403, 'You do not have access to this transaction.');
         }
 
-        $transaction->load(['order.customer', 'order.store', 'order.items', 'paymentMethod', 'storeBank']);
+        $transaction->load(['order.customer', 'order.store', 'order.items', 'invoice.store', 'invoice.items', 'paymentMethod', 'storeBank']);
 
         $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Transactions', 'url' => route('management.transactions.index')], ['label' => $transaction->reference]];
         return view('management.transactions.show', [
@@ -246,11 +255,9 @@ class TransactionController extends Controller
             'metadata' => $metadata,
         ]);
 
-        \Log::info('payment_rejected', [
-            'transaction_id' => $transaction->id,
-            'reason' => $reason,
-            'user_id' => $user->id,
-        ]);
+        if ($transaction->invoice) {
+            return back()->with('success', 'Invoice payment rejected.');
+        }
 
         // Send rejection emails (queued)
         try {
@@ -312,6 +319,10 @@ class TransactionController extends Controller
         }
 
         // Check order status - cannot refund delivered/completed orders
+        if ($transaction->invoice) {
+            return back()->with('error', 'Refunds are not supported for invoice payments.');
+        }
+
         $order = $transaction->order;
         if (in_array($order->status, [OrderStatus::DELIVERED, OrderStatus::COMPLETED])) {
             return back()->with('error', 'Cannot refund delivered/completed orders. Please mark the order as "Returned" first.');

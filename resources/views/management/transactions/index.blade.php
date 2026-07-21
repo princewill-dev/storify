@@ -46,10 +46,15 @@
         <td class="px-5 py-3"><a href="{{ route('management.transactions.show', $tx) }}" class="text-sm font-medium text-blue-600 hover:text-blue-700">{{ $tx->reference }}</a></td>
         <td class="px-5 py-3 hidden md:table-cell">
             @if($tx->order)<a href="{{ route('management.orders.show', $tx->order) }}" class="text-sm text-blue-600 hover:text-blue-700">{{ $tx->order->order_number }}</a>
-            @else <span class="text-sm text-slate-400">N/A</span> @endif
+            @elseif($tx->invoice)<a href="{{ route('management.invoices.show', $tx->invoice) }}" class="text-sm text-blue-600 hover:text-blue-700">{{ $tx->invoice->invoice_number }}</a>
+            @else <span class="text-sm text-slate-400">—</span> @endif
         </td>
-        <td class="px-5 py-3 hidden sm:table-cell"><span class="text-xs text-slate-500">{{ $tx->order?->store?->name ?? '—' }}</span></td>
-        <td class="px-5 py-3 hidden sm:table-cell"><span class="text-sm text-slate-600">{{ $tx->order?->customer?->first_name ?? 'N/A' }}</span></td>
+        <td class="px-5 py-3 hidden sm:table-cell">
+            <span class="text-xs text-slate-500">{{ $tx->order?->store?->name ?? $tx->invoice?->store?->name ?? '—' }}</span>
+        </td>
+        <td class="px-5 py-3 hidden sm:table-cell">
+            <span class="text-sm text-slate-600">{{ $tx->order?->customer?->full_name ?? $tx->invoice?->recipient_name ?? '—' }}</span>
+        </td>
         <td class="px-5 py-3 text-right"><span class="text-sm font-semibold text-slate-800">₦{{ number_format($tx->amount, 2) }}</span></td>
         <td class="px-5 py-3 text-center hidden sm:table-cell"><x-management.status-badge :status="$tx->status" /></td>
         <td class="px-5 py-3 text-right hidden lg:table-cell"><span class="text-xs text-slate-400">{{ $tx->created_at->format('d M Y') }}</span></td>

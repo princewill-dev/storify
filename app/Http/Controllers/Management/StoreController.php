@@ -303,8 +303,11 @@ class StoreController extends Controller
         // Consolidated transaction revenue aggregates (1 query instead of 3)
         // Use COALESCE(paid_at, created_at) because POS transactions don't set paid_at
         $txStats = \App\Models\Transaction::query()
-            ->whereHas('order', fn($q) => $q->where('store_id', $store->id))
             ->where('status', 'confirmed')
+            ->where(function ($q) use ($store) {
+                $q->whereHas('order', fn($o) => $o->where('store_id', $store->id))
+                  ->orWhereHas('invoice', fn($i) => $i->where('store_id', $store->id));
+            })
             ->selectRaw("
                 COALESCE(SUM(amount), 0) as total_revenue,
                 COALESCE(SUM(CASE WHEN COALESCE(paid_at, created_at) BETWEEN ? AND ? THEN amount ELSE 0 END), 0) as revenue_this_month,
@@ -366,8 +369,11 @@ class StoreController extends Controller
         // Use COALESCE(paid_at, created_at) because POS transactions don't set paid_at
         $sixMonthsAgo = $now->copy()->subMonths(6)->startOfMonth();
         $monthlyData = \App\Models\Transaction::query()
-            ->whereHas('order', fn($q) => $q->where('store_id', $store->id))
             ->where('status', 'confirmed')
+            ->where(function ($q) use ($store) {
+                $q->whereHas('order', fn($o) => $o->where('store_id', $store->id))
+                  ->orWhereHas('invoice', fn($i) => $i->where('store_id', $store->id));
+            })
             ->whereRaw('COALESCE(paid_at, created_at) >= ?', [$sixMonthsAgo])
             ->selectRaw("DATE_FORMAT(COALESCE(paid_at, created_at), '%Y-%m') as month, COALESCE(SUM(amount), 0) as total")
             ->groupBy('month')
@@ -605,8 +611,11 @@ class StoreController extends Controller
             ->count();
 
         $webRevenue = (int) \App\Models\Transaction::query()
-            ->whereHas('order', fn($q) => $q->where('store_id', $store->id)->where('source', 'checkout'))
             ->where('status', 'confirmed')
+            ->where(function ($q) use ($store) {
+                $q->whereHas('order', fn($o) => $o->where('store_id', $store->id)->where('source', 'checkout'))
+                  ->orWhereHas('invoice', fn($i) => $i->where('store_id', $store->id));
+            })
             ->sum('amount');
 
         $topProducts = \App\Models\Product::where('store_id', $store->id)
@@ -844,8 +853,11 @@ class StoreController extends Controller
     private function tabTransactions(Request $request, Store $store, User $user): View
     {
         $query = \App\Models\Transaction::query()
-            ->whereHas('order', fn($q) => $q->where('store_id', $store->id))
-            ->with(['order.customer', 'paymentMethod']);
+            ->where(function ($q) use ($store) {
+                $q->whereHas('order', fn($o) => $o->where('store_id', $store->id))
+                  ->orWhereHas('invoice', fn($i) => $i->where('store_id', $store->id));
+            })
+            ->with(['order.customer', 'invoice.store', 'paymentMethod']);
 
         if ($request->filled('status')) {
             $query->where('status', $request->status);
@@ -874,8 +886,11 @@ class StoreController extends Controller
         $productViews = Product::where('store_id', $store->id)->sum('views');
         $webOrders = Order::where('store_id', $store->id)->where('source', 'checkout')->count();
         $webRevenue = (int) \App\Models\Transaction::query()
-            ->whereHas('order', fn($q) => $q->where('store_id', $store->id)->where('source', 'checkout'))
             ->where('status', 'confirmed')
+            ->where(function ($q) use ($store) {
+                $q->whereHas('order', fn($o) => $o->where('store_id', $store->id)->where('source', 'checkout'))
+                  ->orWhereHas('invoice', fn($i) => $i->where('store_id', $store->id));
+            })
             ->sum('amount');
 
         $topProducts = Product::where('store_id', $store->id)

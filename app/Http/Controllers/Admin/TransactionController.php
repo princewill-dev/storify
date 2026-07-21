@@ -14,7 +14,7 @@ class TransactionController extends Controller
 {
     public function index(Request $request): View
     {
-        $query = Transaction::with(['order.customer', 'paymentMethod']);
+        $query = Transaction::with(['order.customer', 'invoice.store', 'paymentMethod']);
 
         if ($request->filled('reference')) {
             $query->where('reference', 'like', '%' . $request->reference . '%');
@@ -34,7 +34,7 @@ class TransactionController extends Controller
 
     public function show(Transaction $transaction): View
     {
-        $transaction->load(['order.customer', 'order.store', 'paymentMethod']);
+        $transaction->load(['order.customer', 'order.store', 'invoice.store', 'paymentMethod']);
 
         return view('admin.transactions.show', [
             'transaction' => $transaction,

@@ -73,9 +73,14 @@ class DashboardController extends Controller
         $recentOrders = (clone $ordersQuery)->with(['store', 'items'])->latest()->take(8)->get();
 
         // ── Transactions ──
-        $transactionsQuery = Transaction::query()->whereHas('order', function ($q) use ($user, $activeStoreId) {
-            $q->where('user_id', $user->id);
-            if ($activeStoreId) $q->where('store_id', $activeStoreId);
+        $transactionsQuery = Transaction::query()->where(function ($q) use ($user, $activeStoreId) {
+            $q->whereHas('order', function ($o) use ($user, $activeStoreId) {
+                $o->where('business_id', $user->business_id);
+                if ($activeStoreId) $o->where('store_id', $activeStoreId);
+            })->orWhereHas('invoice', function ($i) use ($user, $activeStoreId) {
+                $i->where('business_id', $user->business_id);
+                if ($activeStoreId) $i->where('store_id', $activeStoreId);
+            });
         });
 
         $completedStatuses = ['confirmed'];

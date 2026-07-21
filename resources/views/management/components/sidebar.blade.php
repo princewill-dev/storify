@@ -207,7 +207,7 @@ if (request()->routeIs('management.stores.*') || request()->routeIs('management.
         @endcan
 
         {{-- Finance --}}
-        @if($authUser?->can('transactions view') || $authUser?->can('settings payment'))
+        @if($authUser?->can('transactions view') || $authUser?->can('invoices view') || $authUser?->can('settings payment'))
         <div class="pt-3 mt-1 border-t border-slate-800">
             <p class="px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Finance</p>
         </div>
@@ -219,6 +219,13 @@ if (request()->routeIs('management.stores.*') || request()->routeIs('management.
             @if(($sidebarPendingTransactionsCount ?? 0) > 0)
             <span class="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-amber-500 text-[10px] font-bold text-white px-1.5">{{ $sidebarPendingTransactionsCount }}</span>
             @endif
+        </a>
+        @endcan
+        @can('invoices view')
+        <a href="{{ route('management.invoices.index') }}" 
+           class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('management.invoices.*') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
+            <i class="fi fi-rr-file-invoice text-base w-5 text-center"></i>
+            <span>Invoices</span>
         </a>
         @endcan
         @can('settings payment')

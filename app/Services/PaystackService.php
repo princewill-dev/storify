@@ -42,6 +42,7 @@ class PaystackService
                 'status' => $response->status(),
                 'success' => $result['status'] ?? false,
                 'reference' => $data['reference'] ?? null,
+                'message' => $result['message'] ?? null,
             ]);
 
             if (!$response->successful() || !($result['status'] ?? false)) {

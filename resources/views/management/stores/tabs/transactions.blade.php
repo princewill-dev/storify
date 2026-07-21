@@ -34,7 +34,7 @@
                         <a href="{{ route('management.transactions.show', $tx) }}" class="text-sm font-mono font-medium text-slate-800 hover:text-blue-600">{{ $tx->reference }}</a>
                     </td>
                     <td class="px-4 py-3 hidden sm:table-cell">
-                        <span class="text-sm text-slate-600">{{ $tx->order?->customer?->first_name ?? 'Walk-in' }}</span>
+                        <span class="text-sm text-slate-600">{{ $tx->order?->customer?->full_name ?? $tx->invoice?->recipient_name ?? '—' }}</span>
                     </td>
                     <td class="px-4 py-3 text-right">
                         <span class="text-sm font-semibold text-slate-800">₦{{ number_format($tx->amount, 2) }}</span>

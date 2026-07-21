@@ -15,6 +15,7 @@ class Transaction extends Model
     protected $fillable = [
         'reference',
         'order_id',
+        'invoice_id',
         'business_id',
         'payment_method_id',
         'amount',
@@ -53,6 +54,11 @@ class Transaction extends Model
     public function order(): BelongsTo
     {
         return $this->belongsTo(Order::class);
+    }
+
+    public function invoice(): BelongsTo
+    {
+        return $this->belongsTo(Invoice::class);
     }
 
     public function paymentMethod(): BelongsTo
