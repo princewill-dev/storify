@@ -33,6 +33,7 @@
     @endcan
     <button @click="switchTab('transactions')" :class="activeTab === 'transactions' ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'" class="px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap -mb-px transition-colors">Transactions</button>
     <button @click="switchTab('customers')" :class="activeTab === 'customers' ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'" class="px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap -mb-px transition-colors">Customers</button>
+    <button @click="switchTab('invoices')" :class="activeTab === 'invoices' ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'" class="px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap -mb-px transition-colors">Invoices</button>
     @can('staff view')
     <button @click="switchTab('staff')" :class="activeTab === 'staff' ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'" class="px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap -mb-px transition-colors">Staff</button>
     @endcan
@@ -255,7 +256,7 @@ document.addEventListener('alpine:init', () => {
         init() {
             // Restore tab from URL hash on page load
             const hash = window.location.hash.replace('#', '');
-            const validTabs = ['dashboard', 'products', 'orders', 'transactions', 'customers', 'staff', 'web-metrics', 'settings'];
+            const validTabs = ['dashboard', 'products', 'orders', 'transactions', 'customers', 'invoices', 'staff', 'web-metrics', 'settings'];
             if (hash && validTabs.includes(hash)) {
                 this.switchTab(hash);
             }

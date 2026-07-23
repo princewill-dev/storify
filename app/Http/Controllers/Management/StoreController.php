@@ -880,6 +880,30 @@ class StoreController extends Controller
         return view('management.stores.tabs.customers', compact('user', 'store', 'customers'));
     }
 
+    private function tabInvoices(Request $request, Store $store, User $user): View
+    {
+        $query = \App\Models\Invoice::where('store_id', $store->id)
+            ->with(['customer', 'items'])
+            ->latest();
+
+        if ($request->filled('status') && in_array($request->status, array_column(\App\Enums\InvoiceStatus::cases(), 'value'))) {
+            $query->where('status', $request->status);
+        }
+
+        if ($request->filled('q')) {
+            $q = trim($request->q);
+            $query->where(function ($x) use ($q) {
+                $x->where('invoice_number', 'like', "%{$q}%")
+                    ->orWhere('recipient_name', 'like', "%{$q}%")
+                    ->orWhere('recipient_email', 'like', "%{$q}%");
+            });
+        }
+
+        $invoices = $query->paginate(15)->withQueryString();
+
+        return view('management.stores.tabs.invoices', compact('user', 'store', 'invoices'));
+    }
+
     private function tabWebMetrics(Request $request, Store $store, User $user): View
     {
         $storeViews = $store->views;
@@ -945,6 +969,7 @@ class StoreController extends Controller
             'staff' => $this->tabStaff($store, $user),
             'transactions' => $this->tabTransactions($request, $store, $user),
             'customers' => $this->tabCustomers($store, $user),
+            'invoices' => $this->tabInvoices($request, $store, $user),
             'web-metrics' => $this->tabWebMetrics($request, $store, $user),
             default => abort(404, 'Unknown tab'),
         };
