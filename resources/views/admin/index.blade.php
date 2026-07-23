@@ -189,7 +189,7 @@
                             <p class="text-[10px] text-slate-400">{{ $transfer->fromLocation?->name }} → {{ $transfer->toLocation?->name }}</p>
                         </td>
                         <td class="px-5 py-3 text-right">
-                            <span class="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium {{ $transfer->status === 'approved' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700' }}">{{ ucfirst($transfer->status) }}</span>
+                            <span class="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium {{ $transfer->status->value === 'approved' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700' }}">{{ $transfer->status->label() }}</span>
                         </td>
                     </tr>
                     @empty
