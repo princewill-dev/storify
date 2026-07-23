@@ -24,14 +24,15 @@
             <button class="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-700 transition-colors shadow-sm">Send Invoice</button>
         </form>
         @endif
-        @if(in_array($invoice->status->value, ['sent', 'overdue']))
+        @if(in_array($invoice->status->value, ['sent', 'overdue', 'partial']))
+        <button onclick="openRecordPaymentModal()" class="inline-flex items-center gap-1.5 px-4 py-2 bg-amber-600 text-white text-sm font-semibold rounded-xl hover:bg-amber-700 transition-colors shadow-sm">Record Payment</button>
         <form method="POST" action="{{ route('management.invoices.mark-paid', $invoice) }}" class="inline">@csrf
-            <button class="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 text-white text-sm font-semibold rounded-xl hover:bg-emerald-700 transition-colors shadow-sm">Mark Paid</button>
+            <button class="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 text-white text-sm font-semibold rounded-xl hover:bg-emerald-700 transition-colors shadow-sm">Mark Fully Paid</button>
         </form>
         <form method="POST" action="{{ route('management.invoices.send', $invoice) }}" class="inline">@csrf
             <button class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-xl border border-slate-200 hover:bg-slate-50 transition-colors">Remind</button>
         </form>
-        <form method="POST" action="{{ route('management.invoices.void', $invoice) }}" class="inline" onsubmit="return confirm('Void this invoice?')">@csrf
+        <form method="POST" action="{{ route('management.invoices.void', $invoice) }}" class="inline" x-data @submit.prevent="Alpine.confirm('Void this invoice?', $event)">@csrf
             <button class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-xl border border-red-200 text-red-600 hover:bg-red-50 transition-colors">Void</button>
         </form>
         @endif
@@ -212,8 +213,91 @@
 </div>
 @endsection
 
+@push('modals')
+{{-- Record Payment Modal --}}
+@if(in_array($invoice->status->value, ['sent', 'overdue', 'partial']))
+<div id="recordPaymentModal" class="hidden fixed inset-0 z-50 overflow-y-auto" x-data="{ submitting: false }">
+    <div class="flex min-h-full items-center justify-center p-4">
+        <div class="fixed inset-0 bg-slate-900/50" onclick="closeRecordPaymentModal()"></div>
+        <div class="relative w-full max-w-md bg-white rounded-2xl shadow-xl p-6">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-semibold text-slate-900">Record Payment</h3>
+                <button onclick="closeRecordPaymentModal()" class="text-slate-400 hover:text-slate-600">
+                    <i class="fi fi-rr-cross-small text-lg"></i>
+                </button>
+            </div>
+
+            <form method="POST" action="{{ route('management.invoices.record-payment', $invoice) }}" @submit="submitting = true" class="space-y-4">
+                @csrf
+
+                <div class="p-3 bg-slate-50 rounded-xl">
+                    <div class="flex justify-between text-sm">
+                        <span class="text-slate-400">Invoice Total</span>
+                        <span class="font-semibold text-slate-800">₦{{ number_format($invoice->total, 2) }}</span>
+                    </div>
+                    <div class="flex justify-between text-sm mt-1">
+                        <span class="text-slate-400">Already Paid</span>
+                        <span class="font-semibold text-emerald-600">₦{{ number_format($invoice->amount_paid, 2) }}</span>
+                    </div>
+                    <div class="flex justify-between text-sm mt-1 pt-1 border-t border-slate-200">
+                        <span class="text-slate-600 font-medium">Remaining</span>
+                        <span class="font-bold text-amber-600">₦{{ number_format($invoice->remainingBalance(), 2) }}</span>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1.5">Amount Received <span class="text-red-500">*</span></label>
+                    <div class="relative">
+                        <span class="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400 text-sm font-semibold">₦</span>
+                        <input type="number" name="amount" id="rpAmount" value="{{ number_format($invoice->remainingBalance(), 2, '.', '') }}" step="0.01" min="0.01" max="{{ $invoice->remainingBalance() }}" required
+                            class="block w-full rounded-xl border-slate-300 pl-7 pr-4 py-3 text-lg font-bold shadow-sm focus:border-slate-500 focus:ring-2 focus:ring-slate-500/10">
+                    </div>
+                    <p class="text-xs text-slate-400 mt-1">Max: ₦{{ number_format($invoice->remainingBalance(), 2) }}</p>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1.5">Payment Method <span class="text-red-500">*</span></label>
+                    <select name="payment_method" required class="block w-full rounded-xl border-slate-300 px-4 py-3 text-sm shadow-sm focus:border-slate-500 focus:ring-2 focus:ring-slate-500/10">
+                        <option value="" disabled>Select method...</option>
+                        <option value="gateway">Payment Gateway</option>
+                        <option value="bank_transfer">Bank Transfer</option>
+                        <option value="check">Cheque</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1.5">Note (optional)</label>
+                    <input type="text" name="note" class="block w-full rounded-xl border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-slate-500 focus:ring-2 focus:ring-slate-500/10" placeholder="e.g. Customer paid via USSD">
+                </div>
+
+                <hr class="border-slate-100">
+
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1.5">Confirm Your Password <span class="text-red-500">*</span></label>
+                    <input type="password" name="password" required autocomplete="current-password"
+                        class="block w-full rounded-xl border-slate-300 px-4 py-3 text-sm shadow-sm focus:border-slate-500 focus:ring-2 focus:ring-slate-500/10" placeholder="Enter your password to confirm">
+                    <p class="text-xs text-slate-400 mt-1">Required for security verification.</p>
+                </div>
+
+                <div class="flex items-center gap-3 pt-2">
+                    <button type="button" onclick="closeRecordPaymentModal()" class="flex-1 py-2.5 border border-slate-200 text-slate-700 text-sm font-semibold rounded-xl hover:bg-slate-50 transition-colors">Cancel</button>
+                    <button type="submit" :disabled="submitting" class="flex-1 py-2.5 bg-slate-900 text-white text-sm font-semibold rounded-xl hover:bg-slate-800 transition-colors disabled:opacity-60" x-text="submitting ? 'Recording...' : 'Record Payment'"></button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+@endif
+@endpush
+
 @push('scripts')
 <script>
+function openRecordPaymentModal() {
+    document.getElementById('recordPaymentModal').classList.remove('hidden');
+}
+function closeRecordPaymentModal() {
+    document.getElementById('recordPaymentModal').classList.add('hidden');
+}
 function copyInvoiceLink(btn) {
     const link = btn.dataset.link;
     navigator.clipboard.writeText(link).then(() => {

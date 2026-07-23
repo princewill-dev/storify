@@ -174,6 +174,7 @@ Route::prefix('management')->name('management.')->group(function () {
                 Route::post('/invoices/{invoice}/send', [InvoiceController::class, 'send'])->name('invoices.send');
                 Route::post('/invoices/{invoice}/mark-paid', [InvoiceController::class, 'markPaid'])->name('invoices.mark-paid');
                 Route::post('/invoices/{invoice}/void', [InvoiceController::class, 'voidInvoice'])->name('invoices.void');
+                Route::post('/invoices/{invoice}/record-payment', [InvoiceController::class, 'recordPayment'])->name('invoices.record-payment');
             });
             Route::middleware('permission:invoices delete')->group(function () {
                 Route::delete('/invoices/{invoice}', [InvoiceController::class, 'destroy'])->name('invoices.destroy');

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Management;
 
 use App\Enums\InvoiceStatus;
+use App\Enums\TransactionStatus;
 use App\Http\Controllers\Controller;
 use App\Mail\InvoiceMail;
 use App\Models\Customer;
@@ -260,6 +261,88 @@ class InvoiceController extends Controller
         ]);
 
         return back()->with('success', 'Invoice voided.');
+    }
+
+    public function recordPayment(Request $request, Invoice $invoice): RedirectResponse
+    {
+        $user = $request->user();
+        if ($invoice->business_id !== $user->business_id) abort(403);
+
+        if (in_array($invoice->status, [InvoiceStatus::PAID, InvoiceStatus::VOID])) {
+            return back()->with('error', 'Cannot record payment on a ' . $invoice->status->label() . ' invoice.');
+        }
+
+        $validated = $request->validate([
+            'amount' => ['required', 'numeric', 'min:0.01', 'max:' . $invoice->remainingBalance()],
+            'payment_method' => ['required', 'in:gateway,bank_transfer,check'],
+            'password' => ['required', function ($attribute, $value, $fail) use ($user) {
+                if (!\Illuminate\Support\Facades\Hash::check($value, $user->password)) {
+                    $fail('The password is incorrect.');
+                }
+            }],
+            'note' => ['nullable', 'string', 'max:500'],
+        ], [
+            'amount.max' => 'Amount cannot exceed the remaining balance of ₦' . number_format($invoice->remainingBalance(), 2) . '.',
+        ]);
+
+        DB::transaction(function () use ($invoice, $user, $validated) {
+            $methodLabels = ['gateway' => 'Payment Gateway', 'bank_transfer' => 'Bank Transfer', 'check' => 'Cheque'];
+            $methodLabel = $methodLabels[$validated['payment_method']] ?? $validated['payment_method'];
+
+            $transaction = \App\Models\Transaction::create([
+                'reference' => 'PMT-' . strtoupper(\Illuminate\Support\Str::random(12)),
+                'invoice_id' => $invoice->id,
+                'business_id' => $invoice->business_id,
+                'amount' => $validated['amount'],
+                'currency' => 'NGN',
+                'status' => TransactionStatus::CONFIRMED,
+                'paid_at' => now(),
+                'metadata' => [
+                    'method' => 'manual',
+                    'source' => $validated['payment_method'],
+                    'recorded_by' => $user->id,
+                    'note' => $validated['note'] ?? null,
+                ],
+            ]);
+
+            $invoice->amount_paid = (float) bcadd((string) $invoice->amount_paid, (string) $validated['amount'], 2);
+
+            if ($invoice->isFullyPaid()) {
+                $invoice->status = InvoiceStatus::PAID;
+                $invoice->paid_at = now();
+            } elseif ($invoice->amount_paid > 0) {
+                $invoice->status = InvoiceStatus::PARTIAL;
+            }
+
+            $invoice->save();
+
+            if ($invoice->store) {
+                $store = $invoice->store;
+                $store->lockForUpdate();
+                $balanceBefore = $store->balance;
+                $store->creditBalance((int) ($validated['amount'] * 100));
+                $transaction->update([
+                    'balance_updated_at' => now(),
+                    'store_balance_before' => $balanceBefore,
+                    'store_balance_after' => $store->fresh()->balance,
+                ]);
+            }
+
+            \Log::info('invoice_manual_payment_recorded', [
+                'invoice_id' => $invoice->id,
+                'invoice_number' => $invoice->invoice_number,
+                'transaction_id' => $transaction->id,
+                'amount' => $validated['amount'],
+                'method' => $validated['payment_method'],
+                'recorded_by' => $user->id,
+                'store_balance_before' => $transaction->store_balance_before,
+                'store_balance_after' => $transaction->store_balance_after,
+            ]);
+        });
+
+        return back()->with('success', 'Payment of ₦' . number_format($validated['amount'], 2)
+            . ' via ' . ucfirst(str_replace('_', ' ', $validated['payment_method']))
+            . ' recorded successfully.');
     }
 
     public function pdf(Request $request, Invoice $invoice): \Illuminate\Http\Response
