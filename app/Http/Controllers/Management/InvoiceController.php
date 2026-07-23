@@ -305,7 +305,7 @@ class InvoiceController extends Controller
                 ],
             ]);
 
-            $invoice->amount_paid = (float) bcadd((string) $invoice->amount_paid, (string) $validated['amount'], 2);
+            $invoice->amount_paid = (float) $invoice->amount_paid + (float) $validated['amount'];
 
             if ($invoice->isFullyPaid()) {
                 $invoice->status = InvoiceStatus::PAID;
