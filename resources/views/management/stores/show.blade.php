@@ -469,4 +469,14 @@ function checkStoreSlug() {
     }, 500);
 }
 </script>
+<script>
+function openPaymentMethodsModal() {
+    var modal = document.getElementById('paymentMethodsModal');
+    if (modal) modal.classList.remove('hidden');
+}
+function closePaymentMethodsModal() {
+    var modal = document.getElementById('paymentMethodsModal');
+    if (modal) modal.classList.add('hidden');
+}
+</script>
 @endpush

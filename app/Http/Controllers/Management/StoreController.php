@@ -721,6 +721,48 @@ class StoreController extends Controller
         return back()->with('success', $staffUser->name . ' assigned to this store.');
     }
 
+    public function assignBank(Request $request, Store $store): RedirectResponse
+    {
+        $user = $request->user();
+
+        if (!$this->canAccessStore($user, $store)) {
+            abort(403);
+        }
+
+        $validated = $request->validate([
+            'store_bank_id' => 'required|exists:store_banks,id',
+        ]);
+
+        $bank = StoreBank::where('id', $validated['store_bank_id'])
+            ->where('business_id', $user->business_id)
+            ->firstOrFail();
+
+        if (!$store->assignedBanks->contains($bank->id)) {
+            $store->assignedBanks()->attach($bank->id, ['is_active' => true]);
+        }
+
+        $url = route('management.stores.show', $store) . '#settings';
+        return redirect($url)->with('success', $bank->bank_name . ' assigned to this store.');
+    }
+
+    public function removeBank(Request $request, Store $store, StoreBank $bank): RedirectResponse
+    {
+        $user = $request->user();
+
+        if (!$this->canAccessStore($user, $store)) {
+            abort(403);
+        }
+
+        if ($bank->business_id !== $user->business_id) {
+            abort(403);
+        }
+
+        $store->assignedBanks()->detach($bank->id);
+
+        $url = route('management.stores.show', $store) . '#settings';
+        return redirect($url)->with('success', $bank->bank_name . ' removed from this store.');
+    }
+
     public function enablePos(Request $request, Store $store): RedirectResponse
     {
         $user = $request->user();
@@ -1050,7 +1092,7 @@ class StoreController extends Controller
 
     private function tabSettings(Store $store, User $user): View
     {
-        $store->load(['ownershipType', 'businessType', 'business', 'banks', 'deliveryRoutes', 'assignedStaff.roles']);
+        $store->load(['ownershipType', 'businessType', 'business', 'banks', 'deliveryRoutes', 'assignedStaff.roles', 'paymentMethods', 'assignedBanks']);
         $availableStaff = User::where('business_id', $user->business_id)
             ->where('role', 'staff')
             ->where('status', 'active')
@@ -1058,7 +1100,37 @@ class StoreController extends Controller
             ->with('roles')
             ->get(['id', 'name', 'email']);
 
-        return view('management.stores.tabs.settings', compact('user', 'store', 'availableStaff'));
+        $assignedMethodIds = $store->paymentMethods->pluck('id')->toArray();
+        $availableMethods = DB::table('business_payment_method')
+            ->join('payment_methods', 'payment_methods.id', '=', 'business_payment_method.payment_method_id')
+            ->where('business_payment_method.business_id', $user->business_id)
+            ->where('business_payment_method.is_active', true)
+            ->whereNotIn('payment_methods.id', $assignedMethodIds)
+            ->select('business_payment_method.id', 'payment_methods.name', 'payment_methods.code', 'payment_methods.type')
+            ->get()
+            ->map(fn($m) => ['id' => $m->id, 'name' => $m->name, 'code' => $m->code, 'type' => $m->type]);
+
+        $assignedMethodPivotIds = DB::table('business_payment_method')
+            ->join('store_payment_method', fn($j) => $j->on('store_payment_method.payment_method_id', '=', 'business_payment_method.payment_method_id'))
+            ->where('business_payment_method.business_id', $user->business_id)
+            ->where('store_payment_method.store_id', $store->id)
+            ->where('store_payment_method.is_active', true)
+            ->pluck('business_payment_method.id', 'business_payment_method.payment_method_id');
+
+        $gatewayConfigs = DB::table('business_payment_method')
+            ->join('payment_methods', 'payment_methods.id', '=', 'business_payment_method.payment_method_id')
+            ->where('business_payment_method.business_id', $user->business_id)
+            ->where('payment_methods.type', 'gateway')
+            ->where('business_payment_method.is_active', true)
+            ->select('business_payment_method.id', 'business_payment_method.config', 'payment_methods.name')
+            ->get()
+            ->mapWithKeys(fn($g) => [$g->id => ['name' => $g->name, 'config' => json_decode($g->config, true)]]);
+
+        $bankAccounts = StoreBank::where('business_id', $user->business_id)->get();
+        $assignedBankIds = $store->assignedBanks->pluck('id')->toArray();
+        $availableBankAccounts = $bankAccounts->whereNotIn('id', $assignedBankIds);
+
+        return view('management.stores.tabs.settings', compact('user', 'store', 'availableStaff', 'availableMethods', 'assignedMethodPivotIds', 'gatewayConfigs', 'bankAccounts', 'availableBankAccounts'));
     }
 
     private function tabStaff(Store $store, User $user): View

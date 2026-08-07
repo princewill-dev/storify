@@ -79,6 +79,7 @@ class StaffController extends Controller
             'documents.*' => 'file|mimes:pdf,doc,docx,xls,xlsx,jpg,jpeg,png|max:5120',
             'document_tags' => 'nullable|array',
             'document_tags.*' => 'nullable|string|max:100',
+            'pin' => 'nullable|string|size:6|regex:/^[0-9]+$/',
         ]);
 
         $staffData = [
@@ -92,6 +93,7 @@ class StaffController extends Controller
             'status' => 'invited',
             'is_verified' => true,
             'email_verified_at' => now(),
+            'pos_pin' => $validated['pin'] ?? null,
         ];
 
         if ($request->hasFile('photo')) {
@@ -192,6 +194,7 @@ class StaffController extends Controller
             'document_tags.*' => 'nullable|string|max:100',
             'delete_document_ids' => 'nullable|array',
             'delete_document_ids.*' => 'exists:staff_documents,id',
+            'pin' => 'nullable|string|size:6|regex:/^[0-9]+$/',
         ]);
 
         Log::info('staff.update.start', [
@@ -205,7 +208,11 @@ class StaffController extends Controller
         $data = [
             'name' => $validated['name'],
             'phone' => $validated['phone'] ?? null,
+            'pos_pin' => $validated['pin'] ?? null,
         ];
+        if ($request->has('pin') && empty($validated['pin'])) {
+            $data['pos_pin'] = null;
+        }
 
         if ($request->hasFile('photo')) {
             if ($staff->photo_path) {

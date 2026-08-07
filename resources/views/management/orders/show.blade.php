@@ -202,7 +202,7 @@
                 @if($order->staff)
                 <div><span class="text-xs text-slate-400 uppercase tracking-wider">Handled by</span><p class="text-sm font-medium text-slate-800 mt-0.5">{{ $order->staff->name }}</p></div>
                 @endif
-                @php $pm = $order->transactions->first()?->paymentMethod; @endphp
+                @php $pm = $order->transactions->first()?->paymentMethod; $tx = $order->transactions->first(); @endphp
                 @if($pm)
                 <div><span class="text-xs text-slate-400 uppercase tracking-wider">Payment</span><p class="text-sm font-medium text-slate-800 mt-0.5">{{ $pm->code === 'cash' ? 'Cash' : ($pm->code === 'bank_transfer' ? 'Bank Transfer' : ($pm->name ?? '—')) }}</p></div>
                 @endif
@@ -211,6 +211,29 @@
                 @if($order->tax > 0)<div><span class="text-xs text-slate-400 uppercase tracking-wider">Tax</span><p class="text-sm text-slate-600 mt-0.5">₦{{ number_format($order->tax, 2) }}</p></div>@endif
             </div>
         </x-management.card>
+
+        @if($tx && $tx->storeBank)
+        <x-management.card header="Bank Account">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center shrink-0">
+                    <i class="fi fi-rr-bank text-blue-600"></i>
+                </div>
+                <div class="flex-1 min-w-0">
+                    <p class="text-sm font-semibold text-slate-800">{{ $tx->storeBank->bank_name }}</p>
+                    <p class="text-xs text-slate-400">{{ $tx->storeBank->account_number }}</p>
+                </div>
+                @if($tx->storeBank->is_verified)
+                <span class="inline-flex items-center gap-0.5 text-[10px] font-medium text-emerald-600 bg-emerald-50 rounded-full px-2 py-0.5 shrink-0">
+                    <span class="w-1 h-1 rounded-full bg-emerald-500"></span> Verified
+                </span>
+                @endif
+            </div>
+            <div class="mt-3 pt-3 border-t border-slate-100">
+                <span class="text-xs text-slate-400 uppercase tracking-wider">Account Name</span>
+                <p class="text-sm font-medium text-slate-800 mt-0.5">{{ $tx->storeBank->account_name }}</p>
+            </div>
+        </x-management.card>
+        @endif
 
         @if($order->notes)
         <x-management.card header="Notes">

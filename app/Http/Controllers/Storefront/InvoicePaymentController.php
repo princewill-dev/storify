@@ -36,7 +36,7 @@ class InvoicePaymentController extends Controller
 
         $store = $invoice->store;
         $businessName = $store?->name ?? $invoice->business?->name ?? config('app.name');
-        $storeBankAccounts = $store?->banks()->get() ?? collect();
+        $storeBankAccounts = $store?->assignedBanks()->where('is_verified', true)->get() ?? collect();
 
         $storeHasPaystack = $store && $store->paymentMethods()->where('code', 'paystack')->wherePivot('is_active', true)->exists();
 
@@ -219,6 +219,7 @@ class InvoicePaymentController extends Controller
         $request->validate([
             'payment_slip' => 'required|file|mimes:jpeg,png,jpg,pdf|max:5120',
             'amount' => 'required|numeric|min:1|max:' . $invoice->remainingBalance(),
+            'store_bank_id' => 'nullable|exists:store_banks,id',
         ]);
 
         $path = $request->file('payment_slip')->store('payment-slips', 'public');
@@ -231,6 +232,7 @@ class InvoicePaymentController extends Controller
             'currency' => 'NGN',
             'status' => 'pending',
             'payment_slip' => $path,
+            'store_bank_id' => $request->store_bank_id,
             'metadata' => [
                 'invoice_id' => $invoice->id,
                 'invoice_number' => $invoice->invoice_number,

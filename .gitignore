@@ -23,5 +23,6 @@ Homestead.json
 Homestead.yaml
 Thumbs.db
 /.windsurf
-prod-docs.md
+/prod-docs.md
+/pos-app
 *.sql

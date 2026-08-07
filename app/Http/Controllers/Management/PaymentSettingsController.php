@@ -26,24 +26,29 @@ class PaymentSettingsController extends Controller
     {
         $user = $request->user();
 
-        // Business-level payment methods (from business_payment_method pivot)
-        $methods = \App\Models\PaymentMethod::whereHas('businesses', fn($q) => $q->where('business_id', $user->business_id))
-            ->with(['businesses' => fn($q) => $q->where('business_id', $user->business_id)])
-            ->get();
+        $bankAccounts = StoreBank::where('business_id', $user->business_id)->latest()->get();
 
-        // Count assigned stores per method
-        foreach ($methods as $m) {
-            $m->assigned_count = $m->stores()
-                ->whereIn('stores.id', $user->accessibleStores()->pluck('id'))
-                ->wherePivot('is_active', true)->count();
-        }
+        $gateways = DB::table('business_payment_method')
+            ->join('payment_methods', 'payment_methods.id', '=', 'business_payment_method.payment_method_id')
+            ->where('business_payment_method.business_id', $user->business_id)
+            ->where('payment_methods.type', 'gateway')
+            ->select('business_payment_method.*', 'payment_methods.name', 'payment_methods.code')
+            ->get()
+            ->map(function ($gw) use ($user) {
+                $gw->config = json_decode($gw->config, true) ?? [];
+                $gw->assigned_count = DB::table('store_payment_method')
+                    ->join('stores', 'stores.id', '=', 'store_payment_method.store_id')
+                    ->where('store_payment_method.payment_method_id', $gw->payment_method_id)
+                    ->whereIn('stores.id', $user->accessibleStores()->pluck('id'))
+                    ->where('store_payment_method.is_active', true)
+                    ->count();
+                return $gw;
+            });
 
-        // Unconfigured methods (available but not yet set up for this business)
-        $availableMethods = \App\Models\PaymentMethod::active()
+        $availableGateways = \App\Models\PaymentMethod::active()->where('type', 'gateway')
             ->whereDoesntHave('businesses', fn($q) => $q->where('business_id', $user->business_id))
             ->get();
 
-        // Banks list for the add bank modal
         try {
             $banks = $this->paystackService->getBanks()['data'] ?? [];
         } catch (\Throwable $e) {
@@ -54,7 +59,7 @@ class PaymentSettingsController extends Controller
 
         $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Payment Settings']];
 
-        return view('management.payment-settings.index', compact('user', 'methods', 'availableMethods', 'banks', 'stores', 'breadcrumbs'));
+        return view('management.payment-settings.index', compact('user', 'bankAccounts', 'gateways', 'availableGateways', 'banks', 'stores', 'breadcrumbs'));
     }
 
     public function storeBankAccount(Request $request): RedirectResponse
@@ -296,18 +301,16 @@ class PaymentSettingsController extends Controller
             ]);
         }
 
-        return redirect()->route('management.payment-settings.method-info', ['type' => $type, 'id' => $id])
-            ->with('success', 'Assigned to ' . $store->name . '.');
+        return back()->with('success', 'Assigned to ' . $store->name . '.');
     }
 
     public function unassignStore(Request $request, $id, $type, $store_id): RedirectResponse
     {
         $user = $request->user();
         $store = $user->accessibleStores()->findOrFail($store_id);
-        $pid = $type === 'gateway' ? $this->paystackPivotId() : \App\Models\PaymentMethod::where('code', 'bank_transfer')->value('id');
+        $pid = $type === 'paystack' ? $this->paystackPivotId() : \App\Models\PaymentMethod::where('code', 'bank_transfer')->value('id');
         DB::table('store_payment_method')->where('store_id', $store->id)->where('payment_method_id', $pid)->delete();
-        return redirect()->route('management.payment-settings.method-info', ['type' => $type, 'id' => $id])
-            ->with('success', 'Removed from ' . $store->name . '.');
+        return back()->with('success', 'Payment method removed from ' . $store->name . '.');
     }
 
     public function verifyBankAccount(Request $request): JsonResponse

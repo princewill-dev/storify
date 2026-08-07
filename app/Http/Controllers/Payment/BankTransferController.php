@@ -35,7 +35,7 @@ class BankTransferController extends Controller
         }
 
         // Get business bank accounts (store assignment via store_payment_method pivot)
-        $bankAccounts = \App\Models\StoreBank::where('business_id', $store->business_id)->get();
+        $bankAccounts = $store->assignedBanks()->where('is_verified', true)->get();
 
         if ($bankAccounts->isEmpty()) {
             return redirect()->back()->with('error', 'This store has no bank details configured. Please contact support.');

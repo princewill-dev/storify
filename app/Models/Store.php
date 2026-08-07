@@ -107,6 +107,12 @@ class Store extends Model
         return $this->hasMany(StoreBank::class, 'business_id', 'business_id');
     }
 
+    public function assignedBanks(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
+    {
+        return $this->belongsToMany(StoreBank::class, 'store_bank', 'store_id', 'store_bank_id')
+            ->withTimestamps()->withPivot('is_active');
+    }
+
     public function paymentMethods(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
     {
         return $this->belongsToMany(\App\Models\PaymentMethod::class, 'store_payment_method', 'store_id', 'payment_method_id')

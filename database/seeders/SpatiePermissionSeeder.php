@@ -150,6 +150,8 @@ class SpatiePermissionSeeder extends Seeder
                 'pos'          => ['open_session', 'process_sale', 'close_session', 'view_history'],
                 'orders'       => ['view', 'create'],
                 'customers'    => ['view'],
+                'transactions' => ['view'],
+                'invoices'     => ['view'],
             ],
         ],
         'inventory_clerk' => [

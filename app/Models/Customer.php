@@ -32,6 +32,10 @@ class Customer extends Authenticatable
         'status',
         'last_login',
         'location',
+        'street_address',
+        'city',
+        'state',
+        'country',
     ];
 
     protected $hidden = [

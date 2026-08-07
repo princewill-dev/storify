@@ -96,27 +96,47 @@
 
         {{-- Payment Methods --}}
         <x-management.card header="Payment Methods">
-            @php $storeMethods = $store->paymentMethods()->wherePivot('is_active', true)->get(); @endphp
-            @if($storeMethods->isEmpty())
+            @php
+                $storeMethods = $store->paymentMethods()->wherePivot('is_active', true)->get();
+                $assignedBanks = $store->assignedBanks;
+            @endphp
+
+            @if($storeMethods->isEmpty() && $assignedBanks->isEmpty())
             <div class="text-center py-6">
                 <span class="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-slate-100 text-slate-400 mb-3"><i class="fi fi-rr-credit-card"></i></span>
-                <p class="text-sm text-slate-500 mb-2">No payment methods assigned</p>
-                <a href="{{ route('management.payment-settings.index') }}" class="text-xs font-medium text-blue-600 hover:text-blue-700">Configure in Payment Settings →</a>
+                <p class="text-sm text-slate-500 mb-3">No payment methods assigned</p>
+                <button onclick="openPaymentMethodsModal()" class="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 transition-colors">
+                    <i class="fi fi-rr-settings text-xs"></i> Manage Payment Methods
+                </button>
             </div>
             @else
-            <div class="grid grid-cols-2 gap-3">
+            <div class="space-y-2 mb-4">
                 @foreach($storeMethods as $method)
-                <div class="flex items-center gap-3 rounded-lg border border-slate-200 p-3">
-                    <span class="inline-flex items-center justify-center w-9 h-9 rounded-lg {{ $method->type === 'gateway' ? 'bg-indigo-50 text-indigo-600' : 'bg-amber-50 text-amber-600' }} shrink-0">
-                        <i class="fi fi-rr-{{ $method->type === 'gateway' ? 'credit-card' : 'bank' }} text-sm"></i>
+                <div class="flex items-center gap-3">
+                    <span class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 shrink-0">
+                        <i class="fi fi-rr-credit-card text-sm"></i>
                     </span>
-                    <div>
+                    <div class="flex-1 min-w-0">
                         <p class="text-sm font-medium text-slate-800">{{ $method->name }}</p>
-                        <p class="text-xs text-slate-400">{{ $method->type === 'gateway' ? 'Card Payment' : 'Bank Transfer' }}</p>
+                        <p class="text-xs text-slate-400">Card payments</p>
+                    </div>
+                </div>
+                @endforeach
+                @foreach($assignedBanks as $bank)
+                <div class="flex items-center gap-3">
+                    <span class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-amber-50 text-amber-600 shrink-0">
+                        <i class="fi fi-rr-bank text-sm"></i>
+                    </span>
+                    <div class="flex-1 min-w-0">
+                        <p class="text-sm font-medium text-slate-800">{{ $bank->bank_name }}</p>
+                        <p class="text-xs text-slate-400">{{ $bank->account_name }} · {{ $bank->masked_account_number }}</p>
                     </div>
                 </div>
                 @endforeach
             </div>
+            <button onclick="openPaymentMethodsModal()" class="w-full py-2 border border-slate-200 text-slate-700 text-xs font-semibold rounded-lg hover:bg-slate-50 transition-colors">
+                <i class="fi fi-rr-settings mr-1.5"></i> Manage Payment Methods
+            </button>
             @endif
         </x-management.card>
 
@@ -274,3 +294,162 @@
         </x-management.card>
     </div>
 </div>
+
+{{-- Manage Payment Methods Modal --}}
+<div id="paymentMethodsModal" class="hidden fixed inset-0 z-50 overflow-y-auto">
+    <div class="flex min-h-full items-center justify-center p-4">
+        <div class="fixed inset-0 bg-slate-900/50" onclick="closePaymentMethodsModal()"></div>
+        <div class="relative w-full max-w-lg bg-white rounded-2xl shadow-xl max-h-[85vh] flex flex-col">
+            <div class="flex items-center justify-between px-6 py-5 border-b border-slate-100">
+                <div>
+                    <h3 class="text-lg font-bold text-slate-900">Manage Payment Methods</h3>
+                    <p class="text-xs text-slate-400 mt-0.5">Assign or remove payment methods for this store</p>
+                </div>
+                <button onclick="closePaymentMethodsModal()" class="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-slate-400 hover:bg-slate-200 hover:text-slate-600 transition-colors">
+                    <i class="fi fi-rr-cross-small"></i>
+                </button>
+            </div>
+
+            <div class="flex-1 overflow-y-auto p-6 space-y-6">
+                {{-- Assigned Gateways --}}
+                @php $assignedGateways = $storeMethods->where('type', 'gateway'); @endphp
+                @if($assignedGateways->isNotEmpty())
+                <div>
+                    <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Assigned Gateways</p>
+                    <div class="space-y-2">
+                        @foreach($assignedGateways as $method)
+                        @php
+                            $pivotId = $assignedMethodPivotIds[$method->id] ?? 0;
+                            $gwConfig = $gatewayConfigs->get($pivotId)['config'] ?? [];
+                        @endphp
+                        <div class="flex items-center justify-between bg-slate-50 rounded-xl p-4 border border-slate-100">
+                            <div class="flex items-center gap-3 flex-1 min-w-0">
+                                <span class="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 shrink-0">
+                                    <i class="fi fi-rr-credit-card text-sm"></i>
+                                </span>
+                                <div class="min-w-0">
+                                    <p class="text-sm font-semibold text-slate-800">{{ $method->name }}</p>
+                                    <p class="text-xs text-slate-400 truncate">{{ \Illuminate\Support\Str::limit($gwConfig['public_key'] ?? '—', 22) }}</p>
+                                    <span class="inline-flex items-center gap-1 mt-1 text-[10px] font-medium text-emerald-600">
+                                        <span class="w-1 h-1 rounded-full bg-emerald-500"></span> Active
+                                    </span>
+                                </div>
+                            </div>
+                            <form method="POST" action="{{ route('management.payment-settings.unassign-store', ['id' => $pivotId, 'type' => $method->code, 'store_id' => $store->id]) }}" class="shrink-0 ml-3">
+                                @csrf @method('DELETE')
+                                <button type="submit" class="text-xs font-medium text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 rounded-lg px-3 py-1.5 transition-colors">Remove</button>
+                            </form>
+                        </div>
+                        @endforeach
+                    </div>
+                </div>
+                @endif
+
+                {{-- Assigned Bank Accounts --}}
+                @php $assignedBankList = $store->assignedBanks; @endphp
+                @if($assignedBankList->isNotEmpty())
+                <div>
+                    <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Assigned Bank Accounts</p>
+                    <div class="space-y-2">
+                        @foreach($assignedBankList as $bank)
+                        <div class="flex items-center justify-between bg-slate-50 rounded-xl p-4 border border-slate-100">
+                            <div class="flex items-center gap-3 flex-1 min-w-0">
+                                <div class="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
+                                    <i class="fi fi-rr-bank text-amber-600"></i>
+                                </div>
+                                <div class="min-w-0">
+                                    <p class="text-sm font-semibold text-slate-800">{{ $bank->bank_name }}</p>
+                                    <p class="text-xs text-slate-400">{{ $bank->account_name }} · {{ $bank->masked_account_number }}</p>
+                                    @if($bank->is_verified)
+                                    <span class="inline-flex items-center gap-1 mt-1 text-[10px] font-medium text-emerald-600">
+                                        <span class="w-1 h-1 rounded-full bg-emerald-500"></span> Verified
+                                    </span>
+                                    @endif
+                                </div>
+                            </div>
+                            <form method="POST" action="{{ route('management.stores.remove-bank', ['store' => $store, 'bank' => $bank]) }}" class="shrink-0 ml-3">
+                                @csrf @method('DELETE')
+                                <button type="submit" class="text-xs font-medium text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 rounded-lg px-3 py-1.5 transition-colors">Remove</button>
+                            </form>
+                        </div>
+                        @endforeach
+                    </div>
+                </div>
+                @endif
+
+                @if($storeMethods->isEmpty() && $assignedBankList->isEmpty())
+                <div class="text-center py-8 bg-slate-50 rounded-2xl border border-slate-100"><p class="text-sm text-slate-400">No payment methods assigned yet</p></div>
+                @endif
+
+                {{-- Available Gateways --}}
+                @php $availableGateways = $availableMethods->where('type', 'gateway'); @endphp
+                @if($availableGateways->isNotEmpty())
+                <div>
+                    <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Available Gateways</p>
+                    <div class="space-y-2">
+                        @foreach($availableGateways as $m)
+                        <div class="flex items-center justify-between bg-white rounded-xl p-4 border border-slate-200">
+                            <div class="flex items-center gap-3 flex-1 min-w-0">
+                                <span class="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 shrink-0"><i class="fi fi-rr-credit-card text-sm"></i></span>
+                                <div class="min-w-0">
+                                    <p class="text-sm font-semibold text-slate-700">{{ $m['name'] }}</p>
+                                    <p class="text-xs text-slate-400">Accept card payments via Paystack</p>
+                                </div>
+                            </div>
+                            <form method="POST" action="{{ route('management.payment-settings.assign-store', ['id' => $m['id'], 'type' => $m['code']]) }}" class="shrink-0 ml-3">
+                                @csrf
+                                <input type="hidden" name="store_id" value="{{ $store->id }}">
+                                <button type="submit" class="inline-flex items-center gap-1 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg px-4 py-2 transition-colors"><i class="fi fi-rr-plus text-[10px]"></i> Assign</button>
+                            </form>
+                        </div>
+                        @endforeach
+                    </div>
+                </div>
+                @endif
+
+                {{-- Available Bank Accounts --}}
+                @if(isset($availableBankAccounts) && $availableBankAccounts->isNotEmpty())
+                <div>
+                    <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Available Bank Accounts</p>
+                    <div class="space-y-2">
+                        @foreach($availableBankAccounts as $bank)
+                        <div class="flex items-center justify-between bg-white rounded-xl p-4 border border-slate-200">
+                            <div class="flex items-center gap-3 flex-1 min-w-0">
+                                <div class="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center shrink-0"><i class="fi fi-rr-bank text-amber-600"></i></div>
+                                <div class="min-w-0">
+                                    <p class="text-sm font-semibold text-slate-700">{{ $bank->bank_name }}</p>
+                                    <p class="text-xs text-slate-400">{{ $bank->account_name }} · {{ $bank->masked_account_number }}</p>
+                                    @if($bank->is_verified)
+                                    <span class="inline-flex items-center gap-1 mt-0.5 text-[10px] font-medium text-emerald-600"><span class="w-1 h-1 rounded-full bg-emerald-500"></span> Verified</span>
+                                    @endif
+                                </div>
+                            </div>
+                            <form method="POST" action="{{ route('management.stores.assign-bank', $store) }}" class="shrink-0 ml-3">
+                                @csrf
+                                <input type="hidden" name="store_bank_id" value="{{ $bank->id }}">
+                                <button type="submit" class="inline-flex items-center gap-1 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg px-4 py-2 transition-colors"><i class="fi fi-rr-plus text-[10px]"></i> Assign</button>
+                            </form>
+                        </div>
+                        @endforeach
+                    </div>
+                </div>
+                @endif
+
+                @if($availableGateways->isEmpty() && (!isset($availableBankAccounts) || $availableBankAccounts->isEmpty()) && ($storeMethods->isNotEmpty() || $assignedBankList->isNotEmpty()))
+                <div class="bg-slate-50 rounded-2xl border border-slate-100 p-4 text-center">
+                    <p class="text-sm text-slate-500">All available payment methods are assigned.</p>
+                    <a href="{{ route('management.payment-settings.index') }}" class="text-xs font-medium text-blue-600 hover:text-blue-700 mt-1 inline-block">Add in Payment Settings →</a>
+                </div>
+                @endif
+            </div>
+
+            <div class="border-t border-slate-100 px-6 py-4">
+                <button onclick="closePaymentMethodsModal()" class="w-full py-2.5 bg-slate-900 text-white text-sm font-semibold rounded-xl hover:bg-slate-800 transition-colors">
+                    Done
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+

@@ -9,8 +9,10 @@ class SetPermissionsTeamId
 {
     public function handle(Request $request, Closure $next)
     {
-        if (auth()->check()) {
-            setPermissionsTeamId(auth()->user()->business_id);
+        $user = auth()->user() ?? auth('sanctum')->user();
+
+        if ($user) {
+            setPermissionsTeamId($user->business_id);
         }
 
         return $next($request);

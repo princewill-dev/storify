@@ -31,6 +31,26 @@
                         <x-management.form-input name="phone" label="Phone" placeholder="08000000000" :value="old('phone', $staff->phone)" />
                     </div>
 
+                    <div x-data="{ showPin: false }">
+                        <div class="flex items-center gap-2 mb-1">
+                            <h3 class="text-sm font-semibold text-slate-800">POS PIN</h3>
+                            @if($staff->pos_pin)
+                            <span class="inline-flex items-center gap-0.5 text-[10px] font-medium text-emerald-600 bg-emerald-50 rounded-full px-2 py-0.5"><span class="w-1 h-1 rounded-full bg-emerald-500"></span> Set</span>
+                            @endif
+                        </div>
+                        <button type="button" @click="showPin = !showPin" class="inline-flex items-center gap-1.5 text-sm font-medium text-indigo-600 hover:text-indigo-700 transition-colors">
+                            <i class="fi text-xs" :class="showPin ? 'fi-rr-minus-circle' : 'fi-rr-plus-circle'"></i>
+                            <span x-show="!showPin">{{ $staff->pos_pin ? 'Change PIN' : 'Set PIN' }}</span>
+                            <span x-show="showPin">Cancel</span>
+                        </button>
+                        <div x-show="showPin" class="mt-3">
+                            <input type="text" name="pin" maxlength="6" inputmode="numeric" pattern="[0-9]{6}" autocomplete="off"
+                                class="block w-48 rounded-lg border-slate-300 px-4 py-2.5 text-center text-lg font-bold tracking-[0.5em] shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500"
+                                placeholder="000000">
+                            <p class="text-xs text-slate-400 mt-1">Enter new 6-digit PIN or leave empty to clear</p>
+                        </div>
+                    </div>
+
                     <hr class="border-slate-100">
 
                     <div>

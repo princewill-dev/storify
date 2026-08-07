@@ -10,11 +10,12 @@ use Illuminate\Database\Eloquent\Relations\MorphToMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Str;
+use Laravel\Sanctum\HasApiTokens;
 use Spatie\Permission\Traits\HasRoles;
 
 class User extends Authenticatable
 {
-    use HasFactory, HasRoles, Notifiable;
+    use HasApiTokens, HasFactory, HasRoles, Notifiable;
 
     public const ROLE_SUPERADMIN = 'superadmin';
     public const ROLE_ADMIN = 'admin';
@@ -26,6 +27,7 @@ class User extends Authenticatable
         'role', 'status', 'is_verified', 'last_login_at', 'location',
         'ip_address', 'password', 'business_id',
         'invitation_token', 'invited_at', 'accepted_at', 'force_password_change',
+        'pos_pin',
         'trial_ends_at', 'selected_plan_id',
     ];
 
@@ -38,6 +40,7 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+        'pos_pin' => 'hashed',
             'is_verified' => 'boolean',
             'last_login_at' => 'datetime',
             'invited_at' => 'datetime',

@@ -119,6 +119,9 @@ Route::prefix('management')->name('management.')->group(function () {
                 Route::post('/stores/{store}/assign-staff', [StoreController::class, 'assignStaff'])->name('stores.assign-staff');
                 Route::delete('/stores/{store}/remove-staff/{user}', [StoreController::class, 'removeStaff'])->name('stores.remove-staff');
 
+                Route::post('/stores/{store}/assign-bank', [StoreController::class, 'assignBank'])->name('stores.assign-bank');
+                Route::delete('/stores/{store}/remove-bank/{bank}', [StoreController::class, 'removeBank'])->name('stores.remove-bank');
+
                 Route::post('/stores/{store}/pos/enable', [StoreController::class, 'enablePos'])->name('pos.enable');
                 Route::post('/stores/{store}/enable-website', [StoreController::class, 'enableWebsite'])->name('stores.enable-website');
                 Route::get('/stores/{store}/storefront/create', [StoreController::class, 'createStorefront'])->name('stores.storefront.create');

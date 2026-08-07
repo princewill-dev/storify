@@ -39,6 +39,24 @@
                         </div>
                     </div>
 
+                    <div x-data="{ showPin: false }">
+                        <div class="flex items-center gap-2 mb-3">
+                            <h3 class="text-sm font-semibold text-slate-800">POS PIN</h3>
+                            <span class="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">6-digit numeric PIN for sales authorization</span>
+                        </div>
+                        <button type="button" @click="showPin = !showPin" class="inline-flex items-center gap-1.5 text-sm font-medium text-indigo-600 hover:text-indigo-700 transition-colors">
+                            <i class="fi text-xs" :class="showPin ? 'fi-rr-minus-circle' : 'fi-rr-plus-circle'"></i>
+                            <span x-show="!showPin">Set PIN now</span>
+                            <span x-show="showPin">Remove PIN</span>
+                        </button>
+                        <div x-show="showPin" class="mt-3">
+                            <input type="text" name="pin" maxlength="6" inputmode="numeric" pattern="[0-9]{6}" autocomplete="off"
+                                class="block w-48 rounded-lg border-slate-300 px-4 py-2.5 text-center text-lg font-bold tracking-[0.5em] shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500"
+                                placeholder="000000">
+                            <p class="text-xs text-slate-400 mt-1">Staff will use this PIN to authorize POS sales</p>
+                        </div>
+                    </div>
+
                     <hr class="border-slate-100">
 
                     <div>
