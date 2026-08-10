@@ -478,5 +478,22 @@ function closePaymentMethodsModal() {
     var modal = document.getElementById('paymentMethodsModal');
     if (modal) modal.classList.add('hidden');
 }
+function toggleServiceChargeForm() {
+    var form = document.getElementById('serviceChargeForm');
+    var btn = document.getElementById('scSubmitBtn');
+    if (form) { form.classList.toggle('hidden'); document.getElementById('scEditId').value = ''; document.getElementById('scName').value = ''; document.getElementById('scAmount').value = ''; document.getElementById('scDescription').value = ''; if (btn) btn.textContent = 'Save'; }
+}
+function editServiceCharge(id, name, amount, desc) {
+    var form = document.getElementById('serviceChargeForm');
+    if (form) {
+        form.classList.remove('hidden');
+        document.getElementById('scEditId').value = id;
+        document.getElementById('scName').value = name;
+        document.getElementById('scAmount').value = amount;
+        document.getElementById('scDescription').value = desc || '';
+        var btn = document.getElementById('scSubmitBtn');
+        if (btn) btn.textContent = 'Update';
+    }
+}
 </script>
 @endpush

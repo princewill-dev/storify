@@ -27,6 +27,7 @@ class SpatiePermissionSeeder extends Seeder
         'support'       => ['view_tickets', 'reply', 'close'],
         'coupons'       => ['view', 'create', 'edit', 'delete'],
         'transfers'     => ['view', 'create', 'approve', 'dispatch', 'receive'],
+        'service_charges' => ['view', 'create', 'edit', 'delete'],
     ];
 
     protected array $roles = [
@@ -99,6 +100,7 @@ class SpatiePermissionSeeder extends Seeder
                 'deliveries'   => ['view', 'update_status', 'manage_routes'],
                 'pos'          => ['view_history'],
                 'transfers'    => ['view', 'create', 'approve', 'dispatch', 'receive'],
+                'service_charges' => ['view', 'create', 'edit', 'delete'],
             ],
         ],
         'store_manager' => [
@@ -114,6 +116,7 @@ class SpatiePermissionSeeder extends Seeder
                 'reports'      => ['view_sales', 'view_inventory', 'view_staff'],
                 'deliveries'   => ['view', 'update_status'],
                 'transfers'    => ['view', 'create', 'receive'],
+                'service_charges' => ['view', 'create', 'edit', 'delete'],
             ],
         ],
         'warehouse_manager' => [

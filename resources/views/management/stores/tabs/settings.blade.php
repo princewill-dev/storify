@@ -140,6 +140,75 @@
             @endif
         </x-management.card>
 
+        {{-- Service Charges --}}
+        <x-management.card header="Service Charges">
+            @if($store->serviceCharges->isNotEmpty())
+            <div class="divide-y divide-slate-100 -mx-5 -mt-5 mb-5">
+                @foreach($store->serviceCharges as $charge)
+                <div class="flex items-center justify-between px-5 py-3">
+                    <div class="flex items-center gap-3 flex-1 min-w-0">
+                        <span class="inline-flex items-center justify-center w-9 h-9 rounded-lg bg-purple-50 text-purple-600 shrink-0">
+                            <i class="fi fi-rr-coins text-sm"></i>
+                        </span>
+                        <div class="min-w-0">
+                            <p class="text-sm font-medium text-slate-800">{{ $charge->name }}</p>
+                            <p class="text-xs text-slate-400">₦{{ number_format($charge->amount, 2) }}{{ $charge->description ? ' · ' . \Illuminate\Support\Str::limit($charge->description, 40) : '' }}</p>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2 shrink-0">
+                        <span class="inline-flex items-center gap-0.5 text-[10px] font-medium rounded-full px-2 py-0.5 {{ $charge->is_active ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500' }}">
+                            {{ $charge->is_active ? 'Active' : 'Inactive' }}
+                        </span>
+                        <form method="POST" action="{{ route('management.stores.update', $store) }}" class="inline">
+                            @csrf @method('PUT')
+                            <input type="hidden" name="redirect_to" value="{{ route('management.stores.show', $store) }}">
+                            <input type="hidden" name="toggle_service_charge_id" value="{{ $charge->id }}">
+                            <button class="text-xs text-slate-500 hover:text-slate-700">{{ $charge->is_active ? 'Disable' : 'Enable' }}</button>
+                        </form>
+                        <button onclick="editServiceCharge('{{ $charge->id }}', '{{ addslashes($charge->name) }}', '{{ $charge->amount }}', '{{ addslashes($charge->description ?? '') }}')" class="text-xs text-slate-500 hover:text-slate-700">Edit</button>
+                        <form method="POST" action="{{ route('management.stores.update', $store) }}" onsubmit="return confirm('Delete this service charge?')" class="inline">
+                            @csrf @method('PUT')
+                            <input type="hidden" name="redirect_to" value="{{ route('management.stores.show', $store) }}">
+                            <input type="hidden" name="delete_service_charge_id" value="{{ $charge->id }}">
+                            <button class="text-xs text-red-500 hover:text-red-700">Delete</button>
+                        </form>
+                    </div>
+                </div>
+                @endforeach
+            </div>
+            @else
+            <p class="text-sm text-slate-400 mb-5">No service charges configured yet.</p>
+            @endif
+
+            <div class="pt-4 border-t border-slate-100">
+                <button type="button" onclick="toggleServiceChargeForm()" class="inline-flex items-center gap-1.5 text-sm font-medium text-indigo-600 hover:text-indigo-700 transition-colors">
+                    <i class="fi fi-rr-plus text-xs"></i> Add Service Charge
+                </button>
+                <form id="serviceChargeForm" method="POST" action="{{ route('management.stores.update', $store) }}" class="hidden mt-4 space-y-3">
+                    @csrf @method('PUT')
+                    <input type="hidden" name="redirect_to" value="{{ route('management.stores.show', $store) }}">
+                    <input type="hidden" name="service_charge_id" id="scEditId">
+                    <div class="grid grid-cols-3 gap-3">
+                        <div>
+                            <label class="block text-xs font-medium text-slate-600 mb-1">Name <span class="text-red-400">*</span></label>
+                            <input type="text" name="service_charge_name" id="scName" required class="block w-full rounded-lg border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500" placeholder="e.g. Delivery Fee">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-600 mb-1">Amount (₦) <span class="text-red-400">*</span></label>
+                            <input type="number" name="service_charge_amount" id="scAmount" required step="0.01" min="0" class="block w-full rounded-lg border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500" placeholder="0.00">
+                        </div>
+                        <div class="flex items-end">
+                            <button type="submit" id="scSubmitBtn" class="w-full py-2 bg-slate-900 text-white text-sm font-semibold rounded-lg hover:bg-slate-800 transition-colors">Save</button>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-600 mb-1">Description</label>
+                        <input type="text" name="service_charge_description" id="scDescription" class="block w-full rounded-lg border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500" placeholder="Optional description">
+                    </div>
+                </form>
+            </div>
+        </x-management.card>
+
         {{-- Assigned Staff --}}
         <x-management.card header="Assigned Staff">
             @if($store->assignedStaff->isNotEmpty())

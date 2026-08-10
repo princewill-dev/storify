@@ -47,6 +47,7 @@ class SaleController extends Controller
             'customer_state' => 'nullable|string|max:100',
             'customer_country' => 'nullable|string|max:100',
             'pin' => 'nullable|string|size:6',
+            'service_charge_id' => 'nullable|exists:service_charges,id',
             'notes' => 'nullable|string|max:500',
         ]);
 
@@ -81,6 +82,17 @@ class SaleController extends Controller
         }
 
         $total = $subtotal;
+        $serviceChargeAmount = 0;
+        $serviceChargeName = null;
+
+        if ($request->filled('service_charge_id')) {
+            $charge = \App\Models\ServiceCharge::where('store_id', $store->id)->where('is_active', true)->find($validated['service_charge_id']);
+            if ($charge) {
+                $serviceChargeAmount = (float) $charge->amount;
+                $serviceChargeName = $charge->name;
+                $total += $serviceChargeAmount;
+            }
+        }
 
         $customerId = null;
         $customerName = trim((string) ($validated['customer_name'] ?? ''));
@@ -132,6 +144,7 @@ class SaleController extends Controller
             'pos_session_id' => $session->id,
             'subtotal' => $subtotal,
             'total' => $total,
+            'service_charge_amount' => $serviceChargeAmount > 0 ? $serviceChargeAmount : null,
             'status' => 'completed',
             'notes' => $validated['notes'] ?? null,
             'meta' => [
@@ -140,6 +153,8 @@ class SaleController extends Controller
                 'customer_email' => $validated['customer_email'] ?? null,
                 'payment_method' => $validated['payment_method'],
                 'amount_tendered' => $validated['amount_tendered'] ?? null,
+                'service_charge_id' => $validated['service_charge_id'] ?? null,
+                'service_charge_name' => $serviceChargeName,
             ],
         ]);
 
@@ -229,6 +244,8 @@ class SaleController extends Controller
                     'customer_name' => $validated['customer_name'] ?? null,
                     'customer_phone' => $validated['customer_phone'] ?? null,
                     'notes' => $validated['notes'] ?? null,
+                    'service_charge_name' => $serviceChargeName,
+                    'service_charge_amount' => $serviceChargeAmount,
                     'items' => $order->items->map(fn($i) => [
                         'name' => $i->product_name,
                         'qty' => $i->quantity,
@@ -324,6 +341,8 @@ class SaleController extends Controller
                     'customer_phone' => $meta['customer_phone'] ?? $order->customer?->phone ?? null,
                     'amount_tendered' => (int) ($meta['amount_tendered'] ?? 0),
                     'change' => (int) ($meta['amount_tendered'] ?? 0) > 0 ? max(0, (int) ($meta['amount_tendered'] ?? 0) - (int) $order->total) : 0,
+                    'service_charge_name' => $meta['service_charge_name'] ?? null,
+                    'service_charge_amount' => (float) ($order->service_charge_amount ?? 0),
                     'items' => $order->items->map(fn($i) => [
                         'name' => $i->product_name,
                         'qty' => $i->quantity,

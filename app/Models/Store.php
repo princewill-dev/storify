@@ -164,6 +164,11 @@ class Store extends Model
         return $this->hasMany(Product::class);
     }
 
+    public function serviceCharges(): HasMany
+    {
+        return $this->hasMany(ServiceCharge::class);
+    }
+
     /**
      * Atomically credit the store balance
      * 

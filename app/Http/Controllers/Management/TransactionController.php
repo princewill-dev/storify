@@ -109,7 +109,7 @@ class TransactionController extends Controller
             abort(403, 'You do not have access to this transaction.');
         }
 
-        $transaction->load(['order.customer', 'order.store', 'order.items', 'invoice.store', 'invoice.items', 'paymentMethod', 'storeBank']);
+        $transaction->load(['order.customer', 'order.store', 'order.items', 'order.staff', 'invoice.store', 'invoice.items', 'paymentMethod', 'storeBank']);
 
         $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Transactions', 'url' => route('management.transactions.index')], ['label' => $transaction->reference]];
         return view('management.transactions.show', [

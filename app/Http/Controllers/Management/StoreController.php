@@ -419,6 +419,21 @@ class StoreController extends Controller
             return redirect()->route('management.stores.index')->with('error', 'You do not have access to that store.');
         }
 
+        if ($request->filled('service_charge_name')) {
+            return $this->handleServiceChargeUpdate($request, $store);
+        }
+
+        if ($request->filled('delete_service_charge_id')) {
+            $store->serviceCharges()->where('id', $request->delete_service_charge_id)->delete();
+            return back()->with('success', 'Service charge deleted.');
+        }
+
+        if ($request->filled('toggle_service_charge_id')) {
+            $charge = $store->serviceCharges()->findOrFail($request->toggle_service_charge_id);
+            $charge->update(['is_active' => !$charge->is_active]);
+            return back()->with('success', 'Service charge ' . ($charge->is_active ? 'enabled' : 'disabled') . '.');
+        }
+
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'slug' => ['nullable', 'string', 'max:255'],
@@ -477,6 +492,31 @@ class StoreController extends Controller
         return $redirectTarget
             ? redirect($redirectTarget)->with('success', 'Store updated successfully.')
             : redirect()->route('management.stores.settings', $store)->with('success', 'Store updated successfully.');
+    }
+
+    private function handleServiceChargeUpdate(Request $request, Store $store): RedirectResponse
+    {
+        $request->validate([
+            'service_charge_name' => 'required|string|max:255',
+            'service_charge_amount' => 'required|numeric|min:0',
+            'service_charge_description' => 'nullable|string|max:500',
+        ]);
+
+        $data = [
+            'name' => $request->service_charge_name,
+            'amount' => $request->service_charge_amount,
+            'description' => $request->service_charge_description,
+        ];
+
+        if ($request->filled('service_charge_id')) {
+            $store->serviceCharges()->where('id', $request->service_charge_id)->update($data);
+            $message = 'Service charge updated.';
+        } else {
+            $store->serviceCharges()->create($data + ['store_id' => $store->id]);
+            $message = 'Service charge added.';
+        }
+
+        return back()->with('success', $message);
     }
 
     public function suspend(Request $request, Store $store): RedirectResponse
@@ -1092,7 +1132,7 @@ class StoreController extends Controller
 
     private function tabSettings(Store $store, User $user): View
     {
-        $store->load(['ownershipType', 'businessType', 'business', 'banks', 'deliveryRoutes', 'assignedStaff.roles', 'paymentMethods', 'assignedBanks']);
+        $store->load(['ownershipType', 'businessType', 'business', 'banks', 'deliveryRoutes', 'assignedStaff.roles', 'paymentMethods', 'assignedBanks', 'serviceCharges']);
         $availableStaff = User::where('business_id', $user->business_id)
             ->where('role', 'staff')
             ->where('status', 'active')

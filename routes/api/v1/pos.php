@@ -8,6 +8,8 @@ use App\Http\Controllers\Api\V1\Pos\SaleController;
 use App\Http\Controllers\Api\V1\Pos\CustomerController;
 use App\Http\Controllers\Api\V1\Pos\TransactionController;
 use App\Http\Controllers\Api\V1\Pos\BankController;
+use App\Http\Controllers\Api\V1\Pos\InvoiceController as PosInvoiceController;
+use App\Http\Controllers\Api\V1\Pos\ServiceChargeController;
 
 Route::prefix('pos')->group(function () {
 
@@ -19,6 +21,7 @@ Route::prefix('pos')->group(function () {
         Route::post('/logout', [AuthController::class, 'logout']);
         Route::post('/switch-store', [AuthController::class, 'switchStore']);
         Route::post('/verify-pin', [AuthController::class, 'verifyPin']);
+        Route::patch('/me/theme', [AuthController::class, 'updateTheme']);
 
         Route::prefix('stores/{store}')->group(function () {
 
@@ -30,6 +33,8 @@ Route::prefix('pos')->group(function () {
 
             Route::get('/banks', [BankController::class, 'index']);
 
+            Route::get('/service-charges', [ServiceChargeController::class, 'index']);
+
             Route::post('/checkout', [SaleController::class, 'checkout']);
             Route::get('/orders', [SaleController::class, 'history']);
             Route::get('/orders/{orderId}/receipt', [SaleController::class, 'receipt']);
@@ -40,6 +45,12 @@ Route::prefix('pos')->group(function () {
 
             Route::get('/transactions', [TransactionController::class, 'index']);
             Route::get('/transactions/{transaction}', [TransactionController::class, 'show']);
+
+            Route::get('/invoices', [PosInvoiceController::class, 'index']);
+            Route::get('/invoices/{invoiceId}', [PosInvoiceController::class, 'show']);
+            Route::post('/invoices', [PosInvoiceController::class, 'store']);
+            Route::post('/invoices/{invoiceId}/send', [PosInvoiceController::class, 'sendInvoice']);
+            Route::post('/invoices/{invoiceId}/record-payment', [PosInvoiceController::class, 'recordPayment']);
         });
     });
 });

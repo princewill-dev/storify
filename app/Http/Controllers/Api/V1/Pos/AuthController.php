@@ -64,6 +64,7 @@ class AuthController extends Controller
                     'role' => $user->role,
                     'permissions' => $user->getPermissionNames()->toArray(),
                     'force_password_change' => (bool) $user->force_password_change,
+                    'theme' => $user->theme_preference ?? 'dark',
                 ],
                 'stores' => $stores->map(fn($s) => [
                     'id' => $s->id,
@@ -97,6 +98,7 @@ class AuthController extends Controller
                     'email' => $user->email,
                     'role' => $user->role,
                     'permissions' => $user->getPermissionNames()->toArray(),
+                    'theme' => $user->theme_preference ?? 'dark',
                 ],
                 'stores' => $stores->map(fn($s) => [
                     'id' => $s->id,
@@ -202,6 +204,7 @@ class AuthController extends Controller
                     'email' => $matchedUser->email,
                     'role' => $matchedUser->role,
                     'permissions' => $matchedUser->getPermissionNames()->toArray(),
+                    'theme' => $matchedUser->theme_preference ?? 'dark',
                     'force_password_change' => (bool) $matchedUser->force_password_change,
                 ],
                 'stores' => $stores->map(fn($s) => [
@@ -220,6 +223,17 @@ class AuthController extends Controller
                 ] : null,
             ],
         ]);
+    }
+
+    public function updateTheme(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'theme' => 'required|in:light,dark',
+        ]);
+
+        $request->user()->update(['theme_preference' => $validated['theme']]);
+
+        return response()->json(['success' => true, 'data' => ['theme' => $validated['theme']]]);
     }
 
     private function getAccessibleStores($user): \Illuminate\Support\Collection

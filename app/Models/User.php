@@ -28,6 +28,7 @@ class User extends Authenticatable
         'ip_address', 'password', 'business_id',
         'invitation_token', 'invited_at', 'accepted_at', 'force_password_change',
         'pos_pin',
+        'theme_preference',
         'trial_ends_at', 'selected_plan_id',
     ];
 

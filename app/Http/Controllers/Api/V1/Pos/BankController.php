@@ -17,7 +17,8 @@ class BankController extends Controller
                 'id' => $bank->id,
                 'bank_name' => $bank->bank_name,
                 'account_name' => $bank->account_name,
-                'account_number' => $bank->masked_account_number,
+                'account_number' => $bank->account_number,
+                'masked_account_number' => $bank->masked_account_number,
                 'is_primary' => $bank->is_primary,
                 'is_verified' => $bank->is_verified,
             ]);
