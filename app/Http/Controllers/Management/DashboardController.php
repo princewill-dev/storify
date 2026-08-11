@@ -16,6 +16,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\View\View;
 
@@ -36,8 +37,11 @@ class DashboardController extends Controller
         }
 
         $activeStoreId = session('active_store_id');
+        $isRestricted = $user->isRestrictedStaff();
 
-        $storeIds = $user->isRestrictedStaff()
+        $data = Cache::remember("dashboard.{$user->id}.{$activeStoreId}", 30, function () use ($user, $activeStoreId, $isRestricted) {
+
+        $storeIds = $isRestricted
             ? $user->assignedStores()->where('status', '!=', 'deleted')->pluck('stores.id')
             : $user->accessibleStores()->where('status', '!=', 'deleted')->pluck('id');
 
@@ -113,7 +117,7 @@ class DashboardController extends Controller
         })->count();
 
         // ── Stores ──
-        $storeRelation = $user->isRestrictedStaff() ? $user->assignedStores() : $user->accessibleStores();
+        $storeRelation = $isRestricted ? $user->assignedStores() : $user->accessibleStores();
         $allStoresQuery = (clone $storeRelation)->where('status', '!=', 'deleted');
         $totalStores = (clone $allStoresQuery)->count();
         $activeStores = (clone $allStoresQuery)->where('status', 'active')->count();
@@ -127,7 +131,7 @@ class DashboardController extends Controller
         $totalProducts = (clone $productsQuery)->count();
         $activeProducts = (clone $productsQuery)->where('status', 'active')->count();
 
-        $warehouseIds = $user->isRestrictedStaff()
+        $warehouseIds = $isRestricted
             ? $user->assignedWarehouses()->where('status', '!=', 'deleted')->pluck('warehouses.id')
             : $user->warehouses()->where('status', '!=', 'deleted')->pluck('id');
 
@@ -194,13 +198,11 @@ class DashboardController extends Controller
         }
 
         // ── Warehouses ──
-        $warehouseQuery = $user->isRestrictedStaff() ? $user->assignedWarehouses() : $user->warehouses();
+        $warehouseQuery = $isRestricted ? $user->assignedWarehouses() : $user->warehouses();
         $totalWarehouses = (clone $warehouseQuery)->count();
         $activeWarehouses = (clone $warehouseQuery)->where('status', '!=', 'deleted')->count();
-        $warehouseTotalStock = StockLocation::whereIn('locationable_id', (clone $warehouseQuery)->pluck('warehouses.id'))
-            ->where('locationable_type', Warehouse::class)
-            ->sum('quantity');
         $warehouses = (clone $warehouseQuery)->withCount('stockLocations')->get();
+        $warehouseTotalStock = $warehouses->sum('stock_locations_count');
 
         // ── Stock Transfers ──
         $pendingTransfersQuery = \App\Models\StockTransfer::whereIn('status', ['pending', 'approved'])
@@ -294,6 +296,9 @@ class DashboardController extends Controller
             'all_stores' => $allStores,
         ];
 
+        }); // end Cache::remember
+
+        extract($data);
         $breadcrumbs = [['label' => 'Dashboard']];
 
         return view('management.dashboard', compact('user', 'stats', 'activeStoreId', 'activeStoreObj', 'breadcrumbs'));

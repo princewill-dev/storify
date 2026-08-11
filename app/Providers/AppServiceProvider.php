@@ -312,8 +312,14 @@ class AppServiceProvider extends ServiceProvider
                 $brandLogo = $store?->logo_path ? asset('storage/' . $store->logo_path) : ($company->favicon ?? asset('vendor_files/assets/images/logo.png'));
                 $brandName = $store?->name ?? $user->name ?? ($company->name ?? config('app.name'));
 
-                $pendingOrdersCount = \App\Models\Order::whereIn('store_id', $stores->pluck('id'))
-                    ->where('status', 'pending')->count();
+                $storeIds = $stores->pluck('id');
+                $counts = Cache::remember("sidebar.counts.{$user->id}", 60, fn() => [
+                    'pending_orders' => \App\Models\Order::whereIn('store_id', $storeIds->toArray())->where('status', 'pending')->count(),
+                    'pending_transactions' => \App\Models\Transaction::whereIn('order_id', \App\Models\Order::whereIn('store_id', $storeIds->toArray())->pluck('id'))->where('status', 'pending')->count(),
+                    'customers' => \App\Models\Customer::whereHas('orders', fn($q) => $q->whereIn('store_id', $storeIds->toArray()))->count(),
+                    'dispatches' => \App\Models\OrderDelivery::whereHas('order', fn($q) => $q->whereIn('store_id', $storeIds->toArray()))->whereNotIn('status', ['delivered', 'failed', 'returned'])->count(),
+                    'staff' => \App\Models\User::where('business_id', $user->business_id)->where('role', 'staff')->where('status', 'active')->count(),
+                ]);
 
                 $sidebarData = [
                     'vendorBrandLogo' => $brandLogo,
@@ -328,11 +334,11 @@ class AppServiceProvider extends ServiceProvider
                     'sidebarWarehouses' => $warehouses,
                     'sidebarPosStores' => $posStores,
                     'sidebarPosOpenCount' => $posOpenCount,
-                    'sidebarPendingOrdersCount' => $pendingOrdersCount,
-                    'sidebarPendingTransactionsCount' => \App\Models\Transaction::whereIn('order_id', \App\Models\Order::whereIn('store_id', $stores->pluck('id'))->pluck('id'))->where('status', 'pending')->count(),
-                    'sidebarCustomersCount' => \App\Models\Customer::whereHas('orders', fn($q) => $q->whereIn('store_id', $stores->pluck('id')))->count(),
-                    'sidebarDispatchesCount' => \App\Models\OrderDelivery::whereHas('order', fn($q) => $q->whereIn('store_id', $stores->pluck('id')))->whereNotIn('status', ['delivered', 'failed', 'returned'])->count(),
-                    'sidebarStaffCount' => \App\Models\User::where('business_id', $user->business_id)->where('role', 'staff')->where('status', 'active')->count(),
+                    'sidebarPendingOrdersCount' => $counts['pending_orders'],
+                    'sidebarPendingTransactionsCount' => $counts['pending_transactions'],
+                    'sidebarCustomersCount' => $counts['customers'],
+                    'sidebarDispatchesCount' => $counts['dispatches'],
+                    'sidebarStaffCount' => $counts['staff'],
                 ];
             } elseif (!$user->isBusinessOwner() && !$user->isStaff()) {
                 $sidebarData = [
@@ -358,8 +364,14 @@ class AppServiceProvider extends ServiceProvider
                     : ($company->favicon ?? asset('vendor_files/assets/images/logo.png'));
                 $brandName = $store?->name ?? $user->name ?? ($company->name ?? config('app.name'));
 
-                $pendingOrdersCount = \App\Models\Order::whereIn('store_id', $stores->pluck('id'))
-                    ->where('status', 'pending')->count();
+                $storeIds = $stores->pluck('id');
+                $counts = Cache::remember("sidebar.counts.{$user->id}", 60, fn() => [
+                    'pending_orders' => \App\Models\Order::whereIn('store_id', $storeIds->toArray())->where('status', 'pending')->count(),
+                    'pending_transactions' => \App\Models\Transaction::whereIn('order_id', \App\Models\Order::whereIn('store_id', $storeIds->toArray())->pluck('id'))->where('status', 'pending')->count(),
+                    'customers' => \App\Models\Customer::where('business_id', $user->business_id)->count(),
+                    'dispatches' => \App\Models\OrderDelivery::where('business_id', $user->business_id)->whereNotIn('status', ['delivered', 'failed', 'returned'])->count(),
+                    'staff' => \App\Models\User::where('business_id', $user->business_id)->where('role', 'staff')->where('status', 'active')->count(),
+                ]);
 
                 $sidebarData = [
                     'vendorBrandLogo' => $brandLogo,
@@ -374,11 +386,11 @@ class AppServiceProvider extends ServiceProvider
                     'sidebarWarehouses' => $warehouses,
                     'sidebarPosStores' => $posStores,
                     'sidebarPosOpenCount' => $posOpenCount,
-                    'sidebarPendingOrdersCount' => $pendingOrdersCount,
-                    'sidebarPendingTransactionsCount' => \App\Models\Transaction::whereIn('order_id', \App\Models\Order::whereIn('store_id', $stores->pluck('id'))->pluck('id'))->where('status', 'pending')->count(),
-                    'sidebarCustomersCount' => \App\Models\Customer::where('business_id', $user->business_id)->count(),
-                    'sidebarDispatchesCount' => \App\Models\OrderDelivery::where('business_id', $user->business_id)->whereNotIn('status', ['delivered', 'failed', 'returned'])->count(),
-                    'sidebarStaffCount' => \App\Models\User::where('business_id', $user->business_id)->where('role', 'staff')->where('status', 'active')->count(),
+                    'sidebarPendingOrdersCount' => $counts['pending_orders'],
+                    'sidebarPendingTransactionsCount' => $counts['pending_transactions'],
+                    'sidebarCustomersCount' => $counts['customers'],
+                    'sidebarDispatchesCount' => $counts['dispatches'],
+                    'sidebarStaffCount' => $counts['staff'],
                 ];
             }
 
