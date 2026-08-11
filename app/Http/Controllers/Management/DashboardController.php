@@ -115,9 +115,8 @@ class DashboardController extends Controller
         // ── Stores ──
         $storeRelation = $isRestricted ? $user->assignedStores() : $user->accessibleStores();
         $allStoresQuery = (clone $storeRelation)->where('status', '!=', 'deleted');
-        $storesStats = (clone $allStoresQuery)->selectRaw("COUNT(*) as total, SUM(status = 'active') as active")->first();
-        $totalStores = (int) $storesStats->total;
-        $activeStores = (int) $storesStats->active;
+        $totalStores = (clone $allStoresQuery)->count();
+        $activeStores = (clone $allStoresQuery)->where('status', 'active')->count();
         $allStores = (clone $allStoresQuery)->get();
         $activeStoreObj = $allStores->find($activeStoreId);
 
@@ -196,9 +195,8 @@ class DashboardController extends Controller
 
         // ── Warehouses ──
         $warehouseQuery = $isRestricted ? $user->assignedWarehouses() : $user->warehouses();
-        $warehouseStats = (clone $warehouseQuery)->selectRaw("COUNT(*) as total, SUM(status != 'deleted') as active")->first();
-        $totalWarehouses = (int) $warehouseStats->total;
-        $activeWarehouses = (int) $warehouseStats->active;
+        $totalWarehouses = (clone $warehouseQuery)->count();
+        $activeWarehouses = (clone $warehouseQuery)->where('status', '!=', 'deleted')->count();
         $warehouses = (clone $warehouseQuery)->withCount('stockLocations')->get();
         $warehouseTotalStock = $warehouses->sum('stock_locations_count');
 
