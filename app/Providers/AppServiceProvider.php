@@ -320,7 +320,7 @@ class AppServiceProvider extends ServiceProvider
                     'customers' => \App\Models\Customer::whereHas('orders', fn($q) => $q->whereIn('store_id', $storeIds))->count(),
                     'dispatches' => \App\Models\OrderDelivery::whereHas('order', fn($q) => $q->whereIn('store_id', $storeIds))->whereNotIn('status', ['delivered', 'failed', 'returned'])->count(),
                     'staff' => \App\Models\User::where('business_id', $user->business_id)->where('role', 'staff')->where('status', 'active')->count(),
-                ]);
+                ]) ?: [];
 
                 $sidebarData = [
                     'vendorBrandLogo' => $brandLogo,
@@ -373,7 +373,7 @@ class AppServiceProvider extends ServiceProvider
                     'customers' => \App\Models\Customer::where('business_id', $user->business_id)->count(),
                     'dispatches' => \App\Models\OrderDelivery::where('business_id', $user->business_id)->whereNotIn('status', ['delivered', 'failed', 'returned'])->count(),
                     'staff' => \App\Models\User::where('business_id', $user->business_id)->where('role', 'staff')->where('status', 'active')->count(),
-                ]);
+                ]) ?: [];
 
                 $sidebarData = [
                     'vendorBrandLogo' => $brandLogo,

@@ -39,8 +39,6 @@ class DashboardController extends Controller
         $activeStoreId = session('active_store_id');
         $isRestricted = $user->isRestrictedStaff();
 
-        $data = Cache::remember("dashboard.{$user->id}.{$activeStoreId}", 10, function () use ($user, $activeStoreId, $isRestricted) {
-
         $storeIds = $isRestricted
             ? $user->assignedStores()->where('status', '!=', 'deleted')->pluck('stores.id')
             : $user->accessibleStores()->where('status', '!=', 'deleted')->pluck('id');
@@ -296,9 +294,53 @@ class DashboardController extends Controller
             'all_stores' => $allStores,
         ];
 
-        }); // end Cache::remember
+        $stats = [
+            'total_revenue' => (float) $totalRevenue,
+            'revenue_this_month' => (float) $revenueThisMonth,
+            'pending_revenue' => (float) $pendingRevenue,
+            'revenue_change_percent' => $lastMonthRevenue > 0
+                ? round((($revenueThisMonth - $lastMonthRevenue) / $lastMonthRevenue) * 100, 1)
+                : ($revenueThisMonth > 0 ? 100 : 0),
+            'total_orders' => $totalOrders,
+            'pending_orders' => $pendingOrders,
+            'processing_orders' => $processingOrders,
+            'completed_orders' => $completedOrders,
+            'orders_this_month' => $ordersThisMonth,
+            'orders_change_percent' => $lastMonthOrders > 0
+                ? round((($ordersThisMonth - $lastMonthOrders) / $lastMonthOrders) * 100, 1)
+                : ($ordersThisMonth > 0 ? 100 : 0),
+            'total_transactions' => $totalTransactions,
+            'recent_transactions' => $recentTransactions,
+            'recent_orders' => $recentOrders,
+            'total_customers' => $totalCustomers,
+            'active_customers' => $activeCustomers,
+            'total_stores' => $totalStores,
+            'active_stores' => $activeStores,
+            'total_products' => $totalProducts,
+            'active_products' => $activeProducts,
+            'total_stock' => (int) $totalStock,
+            'stock_value' => (float) $stockValue,
+            'low_stock_products' => $lowStockProducts,
+            'out_of_stock' => $outOfStockProducts,
+            'total_staff' => $totalStaff,
+            'active_staff' => $activeStaff,
+            'invited_staff' => $invitedStaff,
+            'suspended_staff' => $suspendedStaff,
+            'recent_staff' => $recentStaff,
+            'total_warehouses' => $totalWarehouses,
+            'active_warehouses' => $activeWarehouses,
+            'warehouse_total_stock' => (int) $warehouseTotalStock,
+            'warehouses' => $warehouses,
+            'pending_transfers' => $pendingTransfers,
+            'pending_transfer_list' => $pendingTransferList,
+            'open_pos_sessions' => $openPosSessions,
+            'active_pos_stores' => $activePosStores,
+            'web_visits' => $webVisits,
+            'monthly_orders' => $monthlyOrders,
+            'monthly_revenue' => $monthlyRevenue,
+            'all_stores' => $allStores,
+        ];
 
-        extract($data);
         $breadcrumbs = [['label' => 'Dashboard']];
 
         return view('management.dashboard', compact('user', 'stats', 'activeStoreId', 'activeStoreObj', 'breadcrumbs'));
