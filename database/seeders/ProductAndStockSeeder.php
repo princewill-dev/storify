@@ -473,7 +473,12 @@ class ProductAndStockSeeder extends Seeder
             return;
         }
 
-        $files = glob($sourceDir . '/*.{jpg,jpeg,png,webp}', GLOB_BRACE);
+        $files = array_merge(
+            glob($sourceDir . '/*.jpg') ?: [],
+            glob($sourceDir . '/*.jpeg') ?: [],
+            glob($sourceDir . '/*.png') ?: [],
+            glob($sourceDir . '/*.webp') ?: [],
+        );
         if (empty($files)) {
             return;
         }
