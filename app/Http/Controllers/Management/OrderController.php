@@ -25,7 +25,7 @@ class OrderController extends Controller
         $user = $request->user();
 
         $query = Order::query()
-            ->with(['customer', 'store', 'items', 'staff']);
+            ->with(['customer', 'store', 'items', 'staff', 'transactions.paymentMethod']);
         $this->forBusiness($query, $user);
         if ($user->isRestrictedStaff()) {
             $query->whereIn('store_id', $user->assignedStores()->pluck('id'));
@@ -64,9 +64,6 @@ class OrderController extends Controller
         }
 
         $orders = $query->latest()->paginate(20)->withQueryString();
-
-        $statsQuery = Order::where('business_id', $user->business_id);
-        $this->forBusiness($statsQuery, $user);
 
         $orderStats = Order::where('business_id', $user->business_id)
             ->selectRaw("

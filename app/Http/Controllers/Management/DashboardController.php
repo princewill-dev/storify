@@ -39,7 +39,7 @@ class DashboardController extends Controller
         $activeStoreId = session('active_store_id');
         $isRestricted = $user->isRestrictedStaff();
 
-        $data = Cache::remember("dashboard.{$user->id}.{$activeStoreId}", 30, function () use ($user, $activeStoreId, $isRestricted) {
+        $data = Cache::remember("dashboard.{$user->id}.{$activeStoreId}", 10, function () use ($user, $activeStoreId, $isRestricted) {
 
         $storeIds = $isRestricted
             ? $user->assignedStores()->where('status', '!=', 'deleted')->pluck('stores.id')
@@ -77,15 +77,13 @@ class DashboardController extends Controller
         $recentOrders = (clone $ordersQuery)->with(['store', 'items'])->latest()->take(8)->get();
 
         // ── Transactions ──
-        $transactionsQuery = Transaction::query()->where(function ($q) use ($user, $activeStoreId) {
-            $q->whereHas('order', function ($o) use ($user, $activeStoreId) {
-                $o->where('business_id', $user->business_id);
-                if ($activeStoreId) $o->where('store_id', $activeStoreId);
-            })->orWhereHas('invoice', function ($i) use ($user, $activeStoreId) {
-                $i->where('business_id', $user->business_id);
-                if ($activeStoreId) $i->where('store_id', $activeStoreId);
+        $transactionsQuery = Transaction::query()->where('business_id', $user->business_id);
+        if ($activeStoreId) {
+            $transactionsQuery->where(function ($q) use ($activeStoreId) {
+                $q->whereHas('order', fn($o) => $o->where('store_id', $activeStoreId))
+                  ->orWhereHas('invoice', fn($i) => $i->where('store_id', $activeStoreId));
             });
-        });
+        }
 
         $completedStatuses = ['confirmed'];
 
@@ -119,8 +117,9 @@ class DashboardController extends Controller
         // ── Stores ──
         $storeRelation = $isRestricted ? $user->assignedStores() : $user->accessibleStores();
         $allStoresQuery = (clone $storeRelation)->where('status', '!=', 'deleted');
-        $totalStores = (clone $allStoresQuery)->count();
-        $activeStores = (clone $allStoresQuery)->where('status', 'active')->count();
+        $storesStats = (clone $allStoresQuery)->selectRaw("COUNT(*) as total, SUM(status = 'active') as active")->first();
+        $totalStores = (int) $storesStats->total;
+        $activeStores = (int) $storesStats->active;
         $allStores = (clone $allStoresQuery)->get();
         $activeStoreObj = $allStores->find($activeStoreId);
 
@@ -199,8 +198,9 @@ class DashboardController extends Controller
 
         // ── Warehouses ──
         $warehouseQuery = $isRestricted ? $user->assignedWarehouses() : $user->warehouses();
-        $totalWarehouses = (clone $warehouseQuery)->count();
-        $activeWarehouses = (clone $warehouseQuery)->where('status', '!=', 'deleted')->count();
+        $warehouseStats = (clone $warehouseQuery)->selectRaw("COUNT(*) as total, SUM(status != 'deleted') as active")->first();
+        $totalWarehouses = (int) $warehouseStats->total;
+        $activeWarehouses = (int) $warehouseStats->active;
         $warehouses = (clone $warehouseQuery)->withCount('stockLocations')->get();
         $warehouseTotalStock = $warehouses->sum('stock_locations_count');
 

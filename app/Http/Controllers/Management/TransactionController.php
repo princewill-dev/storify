@@ -19,10 +19,7 @@ class TransactionController extends Controller
         if (!$user->business_id) {
             return;
         }
-        $query->where(function ($q) use ($user) {
-            $q->whereHas('order', fn($o) => $o->where('business_id', $user->business_id))
-              ->orWhereHas('invoice', fn($i) => $i->where('business_id', $user->business_id));
-        });
+        $query->where('business_id', $user->business_id);
     }
 
     protected function userOwnsTransaction(User $user, Transaction $transaction): bool
