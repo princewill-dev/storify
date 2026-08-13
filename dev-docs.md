@@ -20,3 +20,28 @@ php artisan tinker --execute="(new Database\Seeders\ProductAndStockSeeder)->run(
 
 
 php artisan permissions:sync
+
+
+php artisan tinker --execute="
+\$wh = App\Models\Warehouse::where('warehouse_code', 'WH_CODE')->first();
+if (\$wh) {
+    App\Models\StockLocation::where('locationable_type', App\Models\Warehouse::class)->where('locationable_id', \$wh->id)->delete();
+    App\Models\Product::where('section_id', fn(\$q) => \$q->whereIn('id', \$wh->sections()->pluck('id')))->delete();
+    \$wh->sections()->delete();
+    \$wh->delete();
+    echo 'Wiped';
+}
+"
+Wipe a store:
+php artisan tinker --execute="
+\$st = App\Models\Store::where('store_id', 'st_XXXXXXXXXX')->first();
+if (\$st) {
+    App\Models\Transaction::whereHas('order', fn(\$q) => \$q->where('store_id', \$st->id))->delete();
+    App\Models\Order::where('store_id', \$st->id)->delete();
+    App\Models\StockLocation::where('locationable_type', App\Models\Store::class)->where('locationable_id', \$st->id)->delete();
+    App\Models\Product::where('store_id', \$st->id)->delete();
+    App\Models\PosSession::where('store_id', \$st->id)->delete();
+    \$st->delete();
+    echo 'Wiped';
+}
+"
