@@ -32,6 +32,8 @@ if (\$wh) {
     echo 'Wiped';
 }
 "
+
+
 Wipe a store:
 php artisan tinker --execute="
 \$st = App\Models\Store::where('store_id', 'st_XXXXXXXXXX')->first();

@@ -58,7 +58,7 @@
     <div class="divide-y divide-slate-100">
         @foreach($sessions as $session)
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-5 py-4 hover:bg-slate-50/50 transition-colors">
-            <a href="{{ $session->isOpen() ? route('management.pos.terminal', $session->store) : route('management.pos.show', $session) }}" class="flex items-start gap-3 min-w-0 flex-1">
+            <a href="{{ $session->isOpen() ? config('pos.link') : route('management.pos.show', $session) }}" {{ $session->isOpen() ? 'target="_blank" rel="noopener"' : '' }} class="flex items-start gap-3 min-w-0 flex-1">
                 <span class="inline-flex items-center justify-center w-9 h-9 rounded-xl shrink-0 {{ $session->status === 'open' ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-500' }}">
                     <i class="fi fi-rr-terminal text-sm"></i>
                 </span>
@@ -77,7 +77,7 @@
                     <span class="text-slate-400">{{ $session->orders_count }} orders</span>
                 </div>
                 @if($session->isOpen())
-                <a href="{{ route('management.pos.terminal', $session->store) }}" class="inline-flex items-center gap-1 px-3 py-1.5 bg-slate-900 text-white text-xs font-medium rounded-lg hover:bg-slate-800 transition-colors">Terminal</a>
+                <a href="{{ config('pos.link') }}" target="_blank" rel="noopener" class="inline-flex items-center gap-1 px-3 py-1.5 bg-slate-900 text-white text-xs font-medium rounded-lg hover:bg-slate-800 transition-colors">Terminal</a>
                 @endif
             </div>
         </div>

@@ -14,7 +14,7 @@
     </div>
     <div class="flex-1"></div>
     @if($session->isOpen())
-    <a href="{{ route('management.pos.terminal', $session->store) }}" class="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition-colors">Open Terminal</a>
+    <a href="{{ config('pos.link') }}" target="_blank" rel="noopener" class="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition-colors">Open Terminal</a>
     @else
     <span class="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600 ring-1 ring-inset ring-slate-500/20">Closed</span>
     @endif

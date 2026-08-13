@@ -282,7 +282,7 @@
                 <span class="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 ring-1 ring-inset ring-emerald-600/20">
                     <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Enabled
                 </span>
-                <a href="{{ route('management.pos.terminal', $store) }}" class="block w-full py-2.5 bg-slate-900 text-white text-xs font-semibold rounded-lg hover:bg-slate-800 transition-colors text-center">
+                <a href="{{ config('pos.link') }}" target="_blank" rel="noopener" class="block w-full py-2.5 bg-slate-900 text-white text-xs font-semibold rounded-lg hover:bg-slate-800 transition-colors text-center">
                     <i class="fi fi-rr-terminal mr-1.5"></i> Open Terminal
                 </a>
             </div>

@@ -195,7 +195,8 @@ if (request()->routeIs('management.stores.*') || request()->routeIs('management.
                     <span>Create New POS</span>
                 </a>
                 @forelse($sidebarPosStores ?? [] as $ps)
-                <a href="{{ route('management.pos.terminal', $ps) }}"
+                <a href="{{ config('pos.link') }}"
+                   target="_blank" rel="noopener"
                    class="block px-3 py-2 rounded-lg text-sm transition-colors {{ request()->route('store')?->id == $ps->id ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white hover:bg-slate-800' }}">
                     <span class="truncate block">{{ $ps->name }}</span>
                     <span class="text-[10px] text-slate-500">{{ $ps->active_pos_sessions_count ?? 0 }} active</span>

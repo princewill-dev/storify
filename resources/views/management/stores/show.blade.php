@@ -12,7 +12,7 @@
         </a>
         @endif
         @if($store->pos_enabled)
-        <a href="{{ route('pos.index') }}" target="_blank" rel="noopener" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-lg transition-colors">
+        <a href="{{ config('pos.link') }}" target="_blank" rel="noopener" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-lg transition-colors">
             <i class="fi fi-rr-terminal text-xs"></i> Open POS Portal
         </a>
         @endif
