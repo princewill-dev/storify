@@ -2,12 +2,8 @@
 
 namespace App\Console\Commands;
 
-use App\Models\Order;
-use App\Models\PosSession;
 use App\Models\Product;
-use App\Models\StockLocation;
 use App\Models\Store;
-use App\Models\Transaction;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 
@@ -17,7 +13,7 @@ class StoreWipe extends Command
                             {identifier : The store ID (e.g. st_6507410129)}
                             {--force : Skip confirmation prompt}';
 
-    protected $description = 'Wipe all data belonging to a store';
+    protected $description = 'Wipe all products belonging to a store';
 
     public function handle(): int
     {
@@ -30,60 +26,33 @@ class StoreWipe extends Command
             return Command::FAILURE;
         }
 
-        $orderCount = Order::where('store_id', $store->id)->count();
-        $productCount = Product::where('store_id', $store->id)->count();
-        $invoiceCount = \App\Models\Invoice::where('store_id', $store->id)->count();
-        $sessionCount = PosSession::where('store_id', $store->id)->count();
+        $productIds = Product::where('store_id', $store->id)->pluck('id');
 
         $this->warn("Store: {$store->name} ({$store->store_id})");
-        $this->table(
-            ['Metric', 'Count'],
-            [
-                ['Orders', $orderCount],
-                ['Products', $productCount],
-                ['Invoices', $invoiceCount],
-                ['POS Sessions', $sessionCount],
-            ]
-        );
+        $this->info("Products to wipe: {$productIds->count()}");
 
-        if (!$this->option('force') && !$this->confirm('This will PERMANENTLY delete all this data. Continue?', false)) {
+        if (!$this->option('force') && !$this->confirm('This will PERMANENTLY delete these products. Continue?', false)) {
             $this->info('Aborted.');
             return Command::FAILURE;
         }
 
-        DB::transaction(function () use ($store) {
-            $orderIds = Order::where('store_id', $store->id)->pluck('id');
-            $invoiceIds = \App\Models\Invoice::where('store_id', $store->id)->pluck('id');
-
-            if ($orderIds->isNotEmpty() || $invoiceIds->isNotEmpty()) {
-                Transaction::where(function ($q) use ($orderIds, $invoiceIds) {
-                    if ($orderIds->isNotEmpty()) $q->orWhereIn('order_id', $orderIds);
-                    if ($invoiceIds->isNotEmpty()) $q->orWhereIn('invoice_id', $invoiceIds);
-                })->delete();
+        DB::transaction(function () use ($productIds) {
+            if ($productIds->isNotEmpty()) {
+                DB::table('stock_movements')->whereIn('product_id', $productIds)->delete();
+                DB::table('inventory_stocks')->whereIn('product_id', $productIds)->delete();
+                DB::table('inventory_movements')->whereIn('product_id', $productIds)->delete();
+                DB::table('product_images')->whereIn('product_id', $productIds)->delete();
+                DB::table('product_variants')->whereIn('product_id', $productIds)->delete();
+                DB::table('cart_items')->whereIn('product_id', $productIds)->delete();
+                DB::table('pack_items')->whereIn('product_id', $productIds)->delete();
+                DB::table('storefront_slides')->whereIn('product_id', $productIds)->delete();
+                DB::table('stock_transfer_items')->whereIn('product_id', $productIds)->delete();
             }
 
-            Order::where('store_id', $store->id)->delete();
-            \App\Models\Invoice::where('store_id', $store->id)->delete();
-            \App\Models\ServiceCharge::where('store_id', $store->id)->delete();
-
-            StockLocation::where('locationable_type', Store::class)
-                ->where('locationable_id', $store->id)
-                ->delete();
-
-            Product::where('store_id', $store->id)->delete();
-            \App\Models\Category::where('store_id', $store->id)->delete();
-            PosSession::where('store_id', $store->id)->delete();
-
-            DB::table('store_payment_method')->where('store_id', $store->id)->delete();
-            DB::table('store_bank')->where('store_id', $store->id)->delete();
-            DB::table('staff_assignments')->where('assignmentable_type', Store::class)
-                ->where('assignmentable_id', $store->id)->delete();
-            \App\Models\DeliveryRoute::where('store_id', $store->id)->delete();
-
-            $store->delete();
+            Product::whereIn('id', $productIds)->delete();
         });
 
-        $this->info("Store [{$identifier}] wiped successfully.");
+        $this->info("Store [{$identifier}] products wiped successfully.");
         return Command::SUCCESS;
     }
 }
