@@ -35,10 +35,16 @@ class SaleController extends Controller
             'items' => 'required|array|min:1',
             'items.*.product_id' => 'required|exists:products,id',
             'items.*.quantity' => 'required|integer|min:1',
-            'payment_method' => 'required|in:cash,paystack,transfer',
+            'payment_method' => 'nullable|in:cash,paystack,transfer',
             'amount_tendered' => 'nullable|integer|min:0',
             'paystack_reference' => 'nullable|string',
-            'bank_account_id' => 'nullable|required_if:payment_method,transfer|exists:store_banks,id',
+            'bank_account_id' => 'nullable|exists:store_banks,id',
+            'payments' => 'nullable|array|min:1',
+            'payments.*.method' => 'required|in:cash,paystack,transfer',
+            'payments.*.amount' => 'required|numeric|min:0.01',
+            'payments.*.amount_tendered' => 'nullable|integer|min:0',
+            'payments.*.paystack_reference' => 'nullable|string',
+            'payments.*.bank_account_id' => 'nullable|exists:store_banks,id',
             'customer_name' => 'nullable|string|max:255',
             'customer_phone' => 'nullable|string|max:20',
             'customer_email' => 'nullable|email|max:255',
@@ -144,6 +150,7 @@ class SaleController extends Controller
             'pos_session_id' => $session->id,
             'subtotal' => $subtotal,
             'total' => $total,
+            'amount_paid' => $total,
             'service_charge_amount' => $serviceChargeAmount > 0 ? $serviceChargeAmount : null,
             'status' => 'completed',
             'notes' => $validated['notes'] ?? null,
@@ -151,43 +158,79 @@ class SaleController extends Controller
                 'customer_name' => $validated['customer_name'] ?? null,
                 'customer_phone' => $validated['customer_phone'] ?? null,
                 'customer_email' => $validated['customer_email'] ?? null,
-                'payment_method' => $validated['payment_method'],
-                'amount_tendered' => $validated['amount_tendered'] ?? null,
                 'service_charge_id' => $validated['service_charge_id'] ?? null,
                 'service_charge_name' => $serviceChargeName,
+                'split_payment' => isset($validated['payments']) ? collect($validated['payments'])->map(fn($p) => [
+                    'method' => $p['method'],
+                    'amount' => (float) $p['amount'],
+                ])->toArray() : null,
             ],
         ]);
 
         $order->items()->saveMany($orderItems);
 
-        $txnReference = 'TXN-POS-' . strtoupper(\Illuminate\Support\Str::random(10));
-        $paymentMethodId = null;
-        $storeBankId = null;
+        // Build payment legs — support new payments[] and legacy single payment_method
+        $payments = $validated['payments'] ?? null;
+        if (!$payments) {
+            $payments = [[
+                'method' => $validated['payment_method'],
+                'amount' => $total,
+                'amount_tendered' => $validated['amount_tendered'] ?? null,
+                'paystack_reference' => $validated['paystack_reference'] ?? null,
+                'bank_account_id' => $validated['bank_account_id'] ?? null,
+            ]];
+        }
 
-        if ($validated['payment_method'] === 'paystack' && $request->filled('paystack_reference')) {
-            $txnReference = $validated['paystack_reference'];
+        $paymentsSum = collect($payments)->sum(fn($p) => (float) $p['amount']);
+        if (abs($paymentsSum - $total) > 0.01) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Payment amounts (' . number_format($paymentsSum, 2) . ') do not match order total (' . number_format($total, 2) . ').',
+            ], 422);
         }
 
         $paymentMethods = \App\Models\PaymentMethod::whereIn('code', ['paystack', 'bank_transfer'])->get()->keyBy('code');
 
-        if ($validated['payment_method'] === 'paystack') {
-            $paymentMethodId = $paymentMethods->get('paystack')?->id;
-        } elseif ($validated['payment_method'] === 'transfer') {
-            $paymentMethodId = $paymentMethods->get('bank_transfer')?->id;
-            $storeBankId = $validated['bank_account_id'] ?? null;
+        foreach ($payments as $leg) {
+            $legMethod = $leg['method'];
+            $legAmount = (float) $leg['amount'];
+
+            if ($legMethod === 'transfer' && empty($leg['bank_account_id'])) {
+                return response()->json(['success' => false, 'message' => 'A bank account is required for bank transfer payments.'], 422);
+            }
+
+            $txnReference = 'TXN-POS-' . strtoupper(\Illuminate\Support\Str::random(10));
+            $paymentMethodId = null;
+            $storeBankId = null;
+
+            if ($legMethod === 'paystack') {
+                $paymentMethodId = $paymentMethods->get('paystack')?->id;
+                if (!empty($leg['paystack_reference'])) {
+                    $txnReference = $leg['paystack_reference'];
+                }
+            } elseif ($legMethod === 'transfer') {
+                $paymentMethodId = $paymentMethods->get('bank_transfer')?->id;
+                $storeBankId = $leg['bank_account_id'] ?? null;
+            }
+
+            Transaction::create([
+                'reference' => $txnReference,
+                'order_id' => $order->id,
+                'business_id' => $store->business_id,
+                'store_bank_id' => $storeBankId,
+                'payment_method_id' => $paymentMethodId,
+                'amount' => $legAmount,
+                'status' => TransactionStatus::CONFIRMED,
+                'paid_at' => now(),
+                'metadata' => [
+                    'leg_method' => $legMethod,
+                    'amount_tendered' => $leg['amount_tendered'] ?? null,
+                    'is_split' => count($payments) > 1,
+                ],
+            ]);
+
+            $store->creditBalance((int) round($legAmount * 100));
         }
-
-        Transaction::create([
-            'reference' => $txnReference,
-            'order_id' => $order->id,
-            'business_id' => $store->business_id,
-            'store_bank_id' => $storeBankId,
-            'payment_method_id' => $paymentMethodId,
-            'amount' => $total,
-            'status' => TransactionStatus::CONFIRMED,
-        ]);
-
-        $store->creditBalance((int) round($total * 100));
 
         if ($customerEmail !== '') {
             try {
@@ -225,7 +268,7 @@ class SaleController extends Controller
         }
 
         $order->load(['items', 'transactions.paymentMethod']);
-        $amountTendered = (int) ($validated['amount_tendered'] ?? 0);
+        $amountTendered = (int) collect($payments)->sum(fn($p) => (int) ($p['amount_tendered'] ?? 0));
         $change = $amountTendered > 0 ? max(0, $amountTendered - (int) $total) : 0;
 
         return response()->json([
@@ -238,7 +281,12 @@ class SaleController extends Controller
                     'change' => $change,
                     'date' => $order->created_at->toISOString(),
                     'cashier' => $user->name,
-                    'payment_method' => $validated['payment_method'],
+                    'payment_method' => count($payments) === 1 ? $payments[0]['method'] : 'split',
+                    'payments' => $order->transactions->map(fn($tx) => [
+                        'method' => $tx->metadata['leg_method'] ?? ($tx->paymentMethod?->code ?? 'cash'),
+                        'method_label' => $tx->paymentMethod?->name ?? 'Cash',
+                        'amount' => (float) $tx->amount,
+                    ]),
                     'store_name' => $store->name,
                     'store_address' => $store->address,
                     'customer_name' => $validated['customer_name'] ?? null,

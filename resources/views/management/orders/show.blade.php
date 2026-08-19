@@ -36,6 +36,13 @@
             <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Total</span>
             <p class="text-3xl font-bold text-slate-900 mt-0.5 tracking-tight">₦{{ number_format($order->total, 2) }}</p>
         </div>
+        @if((float) $order->remainingBalance() > 0)
+        <div>
+            <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Amount Paid</span>
+            <p class="text-xl font-bold text-emerald-600 mt-0.5">₦{{ number_format($order->amount_paid, 2) }}</p>
+            <p class="text-xs text-amber-600 mt-0.5">₦{{ number_format($order->remainingBalance(), 2) }} remaining</p>
+        </div>
+        @endif
         <div class="text-sm text-slate-400 space-x-3">
             <span>{{ $order->items->count() }} item(s)</span>
             <span class="text-slate-300">·</span>

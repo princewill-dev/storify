@@ -69,8 +69,16 @@
             <span class="text-sm font-semibold text-slate-800">₦{{ number_format($order->total, 2) }}</span>
             @php $pm = $order->transactions->first()?->paymentMethod; @endphp
             @if($pm)<span class="block text-[10px] text-slate-400 uppercase">{{ $pm->code === 'cash' ? 'Cash' : ($pm->code === 'bank_transfer' ? 'Transfer' : $pm->name) }}</span>@endif
+            @if($order->transactions->count() > 1)
+            <span class="block text-[10px] font-semibold text-amber-600 uppercase">Split · {{ $order->transactions->count() }} legs</span>
+            @endif
         </td>
-        <td class="px-5 py-3 text-center"><x-management.status-badge :status="$order->status" /></td>
+        <td class="px-5 py-3 text-center">
+            <x-management.status-badge :status="$order->status" />
+            @if((float) $order->remainingBalance() > 0 && $order->amount_paid > 0)
+            <span class="block mt-1 text-[10px] font-semibold text-amber-600">₦{{ number_format($order->remainingBalance(), 2) }} left</span>
+            @endif
+        </td>
         <td class="px-5 py-3 text-right text-xs text-slate-400 hidden md:table-cell">{{ $order->created_at->format('d M Y') }}</td>
     </tr>
     @empty

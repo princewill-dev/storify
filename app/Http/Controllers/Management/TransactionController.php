@@ -142,7 +142,10 @@ class TransactionController extends Controller
             $transaction->update(['status' => TransactionStatus::CONFIRMED->value]);
             
             // Credit the store balance
-            $store = $transaction->order->store;
+            $store = $transaction->order?->store ?? $transaction->invoice?->store;
+            if (!$store) {
+                throw new \RuntimeException('Transaction has no associated store.');
+            }
             $amountInKobo = (int) ($transaction->amount * 100);
             
             // Lock and record balance before
@@ -159,6 +162,17 @@ class TransactionController extends Controller
                     'store_balance_before' => $balanceBefore,
                     'store_balance_after' => $store->fresh()->balance,
                 ]);
+
+                // Update order amount_paid for split payment support
+                if ($transaction->order) {
+                    $order = $transaction->order;
+                    $order->amount_paid = (float) $order->amount_paid + (float) $transaction->amount;
+
+                    if ($order->isFullyPaid() && $order->status->value === 'pending') {
+                        $order->status = \App\Enums\OrderStatus::ACCEPTED;
+                    }
+                    $order->save();
+                }
                 
                 \Log::info('payment_confirmed', [
                     'transaction_id' => $transaction->id,

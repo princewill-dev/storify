@@ -32,7 +32,7 @@ class Order extends Model
         'shipping_fee',
         'tax',
         'total',
-        'status',
+        'amount_paid',
         'status',
         'notes',
         'meta',
@@ -45,6 +45,7 @@ class Order extends Model
         'shipping_fee' => 'decimal:2',
         'tax' => 'decimal:2',
         'total' => 'decimal:2',
+        'amount_paid' => 'decimal:2',
         'status' => \App\Enums\OrderStatus::class,
         'meta' => 'array',
     ];
@@ -143,21 +144,56 @@ class Order extends Model
         return $this->status instanceof \App\Enums\OrderStatus ? $this->status->badgeClass() : 'bg-secondary';
     }
 
+    public function remainingBalance(): float
+    {
+        return (float) max(0, $this->total - $this->amount_paid);
+    }
+
+    public function isFullyPaid(): bool
+    {
+        return (float) $this->amount_paid >= (float) $this->total;
+    }
+
     public function getPaymentStatusAttribute()
     {
-        $transaction = $this->transaction; // Uses the HasOne latestOfMany relationship
+        $transactions = $this->transactions()
+            ->whereIn('status', [
+                \App\Enums\TransactionStatus::PENDING,
+                \App\Enums\TransactionStatus::PAID,
+                \App\Enums\TransactionStatus::CONFIRMED,
+                \App\Enums\TransactionStatus::REFUNDED,
+                \App\Enums\TransactionStatus::REFUND_PENDING,
+            ])
+            ->get();
 
-        if (!$transaction) {
+        if ($transactions->isEmpty()) {
             return \App\Enums\PaymentStatus::UNPAID;
         }
 
-        // Map TransactionStatus to PaymentStatus
-        return match($transaction->status) {
-            \App\Enums\TransactionStatus::PENDING => \App\Enums\PaymentStatus::PENDING,
-            \App\Enums\TransactionStatus::CONFIRMED => \App\Enums\PaymentStatus::PAID,
-            \App\Enums\TransactionStatus::REFUNDED => \App\Enums\PaymentStatus::REFUNDED,
-            \App\Enums\TransactionStatus::CANCELED => \App\Enums\PaymentStatus::FAILED,
-            default => \App\Enums\PaymentStatus::UNPAID,
-        };
+        if ($transactions->contains('status', \App\Enums\TransactionStatus::REFUNDED)) {
+            return \App\Enums\PaymentStatus::REFUNDED;
+        }
+
+        if ($transactions->contains('status', \App\Enums\TransactionStatus::REFUND_PENDING)) {
+            return \App\Enums\PaymentStatus::REFUNDED;
+        }
+
+        $confirmedSum = $transactions
+            ->whereIn('status', [\App\Enums\TransactionStatus::CONFIRMED, \App\Enums\TransactionStatus::PAID])
+            ->sum('amount');
+
+        if ((float) $confirmedSum >= (float) $this->total) {
+            return \App\Enums\PaymentStatus::PAID;
+        }
+
+        if ((float) $confirmedSum > 0) {
+            return \App\Enums\PaymentStatus::PARTIAL;
+        }
+
+        if ($transactions->contains('status', \App\Enums\TransactionStatus::PENDING)) {
+            return \App\Enums\PaymentStatus::PENDING;
+        }
+
+        return \App\Enums\PaymentStatus::UNPAID;
     }
 }

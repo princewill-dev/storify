@@ -23,6 +23,7 @@ class BankTransferController extends Controller
     {
         return app()->environment('local') ? 'local.' . $name : $name;
     }
+
     /**
      * Show bank transfer payment page with bank details
      */
@@ -41,14 +42,18 @@ class BankTransferController extends Controller
             return redirect()->back()->with('error', 'This store has no bank details configured. Please contact support.');
         }
 
-        // Get transaction
-        $transaction = $order->transactions()->first();
+        // Get the latest pending bank-transfer transaction (supports split payments)
+        $transaction = $order->transactions()
+            ->where('payment_method_id', null)
+            ->where('status', TransactionStatus::PENDING)
+            ->latest()
+            ->first();
 
         if (!$transaction) {
             return redirect()->back()->with('error', 'Transaction not found.');
         }
 
-        $paymentAmount = $order->total;
+        $paymentAmount = $transaction->amount ?: $order->remainingBalance();
 
         return view('storefront.pages.payment.bank-transfer', compact('order', 'store', 'bankAccounts', 'transaction', 'paymentAmount'));
     }
@@ -69,7 +74,11 @@ class BankTransferController extends Controller
             abort(404);
         }
 
-        $transaction = $order->transactions()->first();
+        $transaction = $order->transactions()
+            ->where('payment_method_id', null)
+            ->where('status', TransactionStatus::PENDING)
+            ->latest()
+            ->first();
 
         if (!$transaction) {
             return redirect()->back()->with('error', 'Transaction not found.');
@@ -81,34 +90,24 @@ class BankTransferController extends Controller
             $paymentSlipPath = $request->file('payment_slip')->store('payment-slips', 'public');
         }
 
-        // Update transaction status to PAID
+        // Update transaction — remains PENDING until merchant confirms
         $transaction->update([
-            'status' => TransactionStatus::PENDING,
             'paid_at' => now(),
             'payment_slip' => $paymentSlipPath,
             'store_bank_id' => $request->store_bank_id,
         ]);
 
-        // Update order payment status
-        // Order payment status is now derived from transaction status
-        /*
-        $order->update([
-            'payment_status' => 'pending',
-        ]);
-        */
-
         Log::info('bank_transfer.payment_confirmed', [
             'transaction_id' => $transaction->id,
             'order_id' => $order->id,
+            'amount' => $transaction->amount,
             'payment_slip' => $paymentSlipPath ? 'uploaded' : 'not_provided',
         ]);
 
         // Send email notifications
         try {
-            // Send order confirmation to customer
             Mail::to($order->customer->email)->send(new OrderReceivedMail($order));
             
-            // Send new order notification to admin
             $adminEmail = config('mail.admin_email', env('ADMIN_EMAIL', 'admin@example.com'));
             if ($adminEmail && $adminEmail !== 'admin@example.com') {
                 Mail::to($adminEmail)->send(new NewOrderAdminMail($order));
@@ -118,17 +117,11 @@ class BankTransferController extends Controller
             if ($userEmail) {
                 Mail::to($userEmail)->send(new VendorOrderNotificationMail($order));
             }
-
-            Log::info('bank_transfer_notification', [
-                'order_id' => $order->id,
-                'user_email' => $userEmail,
-            ]);
         } catch (\Exception $e) {
             Log::error('payment_confirmation_email_failed', [
                 'order_id' => $order->id,
                 'error' => $e->getMessage()
             ]);
-            // Don't fail the request if email fails
         }
 
         // Return JSON response for AJAX requests
@@ -156,5 +149,23 @@ class BankTransferController extends Controller
         }
 
         return view('storefront.pages.payment.pending_payment', compact('order', 'store'));
+    }
+
+    /**
+     * Show remaining balance page after partial payment
+     */
+    public function remaining(Request $request, $store_subdomain, Order $order)
+    {
+        $store = Store::where('slug', $store_subdomain)->where('status', 'active')->firstOrFail();
+        
+        if ($order->store_id !== $store->id) {
+            abort(404);
+        }
+
+        $order->load('transactions');
+        $paymentMethods = $store->paymentMethods()->wherePivot('is_active', true)->get();
+        $remaining = $order->remainingBalance();
+
+        return view('storefront.pages.payment.payment-remaining', compact('order', 'store', 'paymentMethods', 'remaining'));
     }
 }

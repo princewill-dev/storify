@@ -145,6 +145,7 @@ Route::domain('{store_subdomain}.' . config('app.main_domain', parse_url(config(
         Route::get('/checkout/{order}/bank-transfer', [\App\Http\Controllers\Payment\BankTransferController::class, 'show'])->name('payment.bank-transfer');
         Route::post('/checkout/{order}/bank-transfer/confirm', [\App\Http\Controllers\Payment\BankTransferController::class, 'confirmPayment'])->name('payment.bank-transfer.confirm');
         Route::get('/checkout/{order}/payment-pending', [\App\Http\Controllers\Payment\BankTransferController::class, 'pending'])->name('payment.pending');
+        Route::get('/checkout/{order}/payment-remaining', [\App\Http\Controllers\Payment\BankTransferController::class, 'remaining'])->name('payment.remaining');
     });
 
 // Paystack Payment Routes (global, not subdomain-specific)

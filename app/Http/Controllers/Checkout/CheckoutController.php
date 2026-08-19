@@ -574,54 +574,49 @@ class CheckoutController extends Controller
 
         // Get store's assigned payment methods (RBAC-style: business → store → customer)
         $paymentMethods = $store->paymentMethods()->wherePivot('is_active', true)->get();
-        $paymentAmount = $order->total;
+        $paymentAmount = $order->remainingBalance();
 
         return view('storefront.pages.select-payment-method', compact('store', 'order', 'paymentMethods', 'paymentAmount'));
     }
 
     public function selectPaymentMethod(Request $request, $store_subdomain, Order $order)
     {
-        $validated = $request->validate([
-            'payment_method' => 'required|in:paystack,bank_transfer',
-        ]);
-
         $store = Store::where('slug', $store_subdomain)->where('status', 'active')->firstOrFail();
 
         if ($order->store_id !== $store->id) {
             abort(404);
         }
 
-        $methodCode = $validated['payment_method'];
+        $validated = $request->validate([
+            'payment_method' => 'required|in:paystack,bank_transfer',
+            'amount' => 'nullable|numeric|min:1|max:' . $order->remainingBalance(),
+        ]);
 
-        $order->update(['payment_method_id' => null]);
+        $methodCode = $validated['payment_method'];
+        $payAmount = $validated['amount'] ?? $order->remainingBalance();
 
         Log::info('payment_method_selected', [
             'order_id' => $order->id,
                 'business_id' => $order->business_id,
             'payment_method' => $methodCode,
+            'amount' => $payAmount,
         ]);
 
         // If Paystack is selected, initialize payment immediately
         if ($methodCode === 'paystack') {
-            return $this->initializePaystackPayment($request, $order, $store);
+            return $this->initializePaystackPayment($request, $order, $store, $payAmount);
         }
 
-        // If Bank Transfer is selected, create transaction and redirect to bank transfer page
+        // If Bank Transfer is selected, create a NEW transaction for the submitted amount
         if ($methodCode === 'bank_transfer') {
-            $transaction = $order->transactions()->first();
-            if ($transaction) {
-                $transaction->update([
-                    'payment_method_id' => null,
-                ]);
-            } else {
-                $transaction = Transaction::create([
-                    'order_id' => $order->id,
+            Transaction::create([
+                'order_id' => $order->id,
                 'business_id' => $order->business_id,
-                    'payment_method_id' => null,
-                    'amount' => $order->total,
-                    'status' => 'pending',
-                ]);
-            }
+                'payment_method_id' => null,
+                'amount' => $payAmount,
+                'status' => 'pending',
+                'metadata' => ['is_partial' => $payAmount < $order->remainingBalance()],
+            ]);
 
             return redirect()->route($this->routeName('payment.bank-transfer'), [
                 'store_subdomain' => $store_subdomain,
@@ -629,7 +624,6 @@ class CheckoutController extends Controller
             ]);
         }
 
-        // For other payment methods, create/update transaction and redirect to payment page
         $transaction = $order->transactions()->first();
         if ($transaction) {
             $transaction->update([
@@ -640,7 +634,7 @@ class CheckoutController extends Controller
                 'order_id' => $order->id,
                 'business_id' => $order->business_id,
                 'payment_method_id' => $paymentMethodId,
-                'amount' => $order->total,
+                'amount' => $payAmount,
                 'status' => 'pending',
             ]);
         }
@@ -654,7 +648,7 @@ class CheckoutController extends Controller
     /**
      * Initialize Paystack payment and redirect to authorization URL
      */
-    protected function initializePaystackPayment(Request $request, Order $order, Store $store)
+    protected function initializePaystackPayment(Request $request, Order $order, Store $store, float $payAmount)
     {
         $customer = $order->customer;
         
@@ -681,7 +675,7 @@ class CheckoutController extends Controller
             // Initialize payment
             $result = $paystack->initializePayment([
                 'email' => $customer->email,
-                'amount' => (int) ($order->total * 100), // Convert to kobo (integer)
+                'amount' => (int) round($payAmount * 100), // Convert to kobo (integer)
                 'currency' => 'NGN',
                 'reference' => $reference,
                 'callback_url' => route('payment.paystack.callback'),
@@ -715,43 +709,29 @@ class CheckoutController extends Controller
                 return redirect()->back()->with('error', $result['message']);
             }
 
-            // Create pending transaction
+            // Create a NEW pending transaction per attempt (supports split payments)
             $paymentMethod = PaymentMethod::where('code', 'paystack')->first();
 
-            $transaction = $order->transactions()->first();
-            if ($transaction) {
-                $transaction->update([
-                    'payment_method_id' => $paymentMethod->id,
-                    'reference' => $reference,
-                    'amount' => $order->total,
-                    'currency' => 'NGN',
-                    'status' => 'pending',
-                    'metadata' => [
-                        'authorization_url' => $result['data']['authorization_url'],
-                        'access_code' => $result['data']['access_code'],
-                    ],
-                ]);
-            } else {
-                $transaction = Transaction::create([
-                    'order_id' => $order->id,
+            Transaction::create([
+                'order_id' => $order->id,
                 'business_id' => $order->business_id,
-                    'payment_method_id' => $paymentMethod->id,
-                    'reference' => $reference,
-                    'amount' => $order->total,
-                    'currency' => 'NGN',
-                    'status' => 'pending',
-                    'metadata' => [
-                        'authorization_url' => $result['data']['authorization_url'],
-                        'access_code' => $result['data']['access_code'],
-                    ],
-                ]);
-            }
+                'payment_method_id' => $paymentMethod->id,
+                'reference' => $reference,
+                'amount' => $payAmount,
+                'currency' => 'NGN',
+                'status' => 'pending',
+                'metadata' => [
+                    'authorization_url' => $result['data']['authorization_url'],
+                    'access_code' => $result['data']['access_code'],
+                    'is_partial' => $payAmount < $order->remainingBalance(),
+                ],
+            ]);
 
             Log::info('paystack.transaction_created', [
-                'transaction_id' => $transaction->id,
                 'reference' => $reference,
                 'order_id' => $order->id,
                 'business_id' => $order->business_id,
+                'amount' => $payAmount,
             ]);
 
             // Redirect to Paystack payment page

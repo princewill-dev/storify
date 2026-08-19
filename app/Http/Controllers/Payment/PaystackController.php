@@ -259,9 +259,14 @@ class PaystackController extends Controller
                     ]),
                 ]);
 
-                // Update order — auto-accept since payment is verified
+                // Update order payment accumulation — auto-accept only when fully paid
                 $order = $transaction->order;
-                $order->update(['status' => \App\Enums\OrderStatus::ACCEPTED->value]);
+                $order->amount_paid = (float) $order->amount_paid + (float) $transaction->amount;
+
+                if ($order->isFullyPaid()) {
+                    $order->status = \App\Enums\OrderStatus::ACCEPTED;
+                }
+                $order->save();
 
                 // Credit store balance
                 $store = $order->store;
@@ -312,8 +317,15 @@ class PaystackController extends Controller
 
                 DB::commit();
 
-                return redirect()->route('order.success', ['reference' => $reference])
-                    ->with('success', 'Payment verified successfully');
+                if ($order->isFullyPaid()) {
+                    return redirect()->route('order.success', ['reference' => $reference])
+                        ->with('success', 'Payment verified successfully');
+                }
+
+                return redirect()->route('payment.remaining', [
+                    'store_subdomain' => $order->store?->slug,
+                    'order' => $order->order_number,
+                ])->with('info', 'Payment received. Please complete the remaining balance.');
             } catch (\Throwable $e) {
                 DB::rollBack();
                 throw $e;

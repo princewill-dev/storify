@@ -22,6 +22,11 @@
                         </div>
                         <span style="font-size:20px;font-weight:700;color:#0f172a;">₦{{ number_format($paymentAmount, 2) }}</span>
                     </div>
+                    @if((float) $order->remainingBalance() < (float) $order->total)
+                    <div style="margin-top:10px;padding-top:10px;border-top:1px solid #f1f5f9;font-size:12px;color:#d97706;">
+                        Partially paid — remaining balance: <strong>₦{{ number_format($order->remainingBalance(), 2) }}</strong>
+                    </div>
+                    @endif
                 </div>
 
                 @if(session('error'))
@@ -38,6 +43,22 @@
 
                 <form method="POST" action="{{ route('checkout.payment-methods.select', ['store_subdomain' => $store->slug, 'order' => $order->order_number]) }}">
                     @csrf
+
+                    <div style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px;">Amount to Pay</div>
+
+                    <div style="margin-bottom:24px;">
+                        <div style="display:flex;align-items:center;gap:8px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:10px 16px;">
+                            <span style="font-size:16px;font-weight:700;color:#0f172a;">₦</span>
+                            <input type="number" name="amount" id="payAmount" value="{{ number_format($paymentAmount, 2, '.', '') }}"
+                                   step="0.01" min="1" max="{{ $paymentAmount }}"
+                                   style="flex:1;border:none;background:transparent;font-size:18px;font-weight:700;color:#0f172a;outline:none;" />
+                            <button type="button" onclick="document.getElementById('payAmount').value='{{ number_format($paymentAmount, 2, '.', '') }}'"
+                                    style="font-size:11px;font-weight:600;color:#6366f1;border:none;background:transparent;cursor:pointer;">Pay Full</button>
+                        </div>
+                        <div style="font-size:11px;color:#94a3b8;margin-top:6px;">
+                            You can pay a portion now and the rest later. Minimum ₦1.00 · Maximum ₦{{ number_format($paymentAmount, 2) }}
+                        </div>
+                    </div>
 
                     <div style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px;">Available Methods</div>
 
