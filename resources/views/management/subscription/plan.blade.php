@@ -81,55 +81,65 @@
 @endif
 
 {{-- Available plans to switch to (if subscribed) or choose (if on trial / no plan) --}}
-<div class="mb-8">
+<div class="mb-8" x-data="{ billingCycle: '{{ $subscription?->subscriptionPlan?->interval === 'yearly' ? 'yearly' : 'monthly' }}' }">
     <h3 class="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-4">
         @if($subscription) Available Plans @else Plans @endif
     </h3>
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
-        @forelse($plans as $plan)
-        @php $isCurrent = $subscription && $subscription->subscription_plan_id === $plan->id; @endphp
-        <div class="bg-white rounded-xl shadow-sm border {{ $isCurrent ? 'border-slate-900 ring-2 ring-slate-900/10' : 'border-slate-200' }} p-6 flex flex-col {{ $isCurrent ? 'opacity-75' : '' }}">
-            <div class="flex items-start justify-between mb-3">
-                <div>
-                    <h4 class="text-base font-bold text-slate-900">{{ $plan->name }}</h4>
-                    @if($isCurrent)
-                    <span class="inline-flex items-center gap-1 mt-0.5 px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[10px] font-medium">Current Plan</span>
-                    @endif
-                </div>
-                <div class="text-right">
-                    <p class="text-xl font-bold text-slate-900">₦{{ number_format($plan->amount, 2) }}</p>
-                    <p class="text-[11px] text-slate-400">/{{ $plan->interval }}</p>
-                </div>
-            </div>
-            @if($plan->features)
-            <ul class="space-y-1.5 mb-5 flex-1">
-                @foreach($plan->features as $feature)
-                <li class="flex items-start gap-2 text-[13px] text-slate-600">
-                    <i class="fi fi-rr-check-circle text-emerald-500 mt-0.5 shrink-0 text-xs"></i> {{ $feature }}
-                </li>
-                @endforeach
-            </ul>
+
+    {{-- Billing cycle tabs --}}
+    @if($monthlyPlans->isNotEmpty() && $yearlyPlans->isNotEmpty())
+    <div class="flex items-center gap-1 bg-slate-100 rounded-xl p-1 w-fit mb-5">
+        <button
+            @click="billingCycle = 'monthly'"
+            :class="billingCycle === 'monthly' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'"
+            class="px-5 py-2 text-sm font-semibold rounded-lg transition-all">
+            Monthly
+        </button>
+        <button
+            @click="billingCycle = 'yearly'"
+            :class="billingCycle === 'yearly' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'"
+            class="px-5 py-2 text-sm font-semibold rounded-lg transition-all flex items-center gap-1.5">
+            Yearly
+            @if($yearlySavingsPercent !== null && $yearlySavingsPercent > 0)
+            <span class="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">Save {{ $yearlySavingsPercent }}%</span>
             @endif
-            @if(!$isCurrent && $subscription)
-            <button onclick="openChangePlanModal({{ $plan->id }}, '{{ $plan->name }}', '₦{{ number_format($plan->amount, 2) }}/{{ $plan->interval }}')" class="w-full py-2.5 text-sm font-semibold rounded-lg bg-slate-900 text-white hover:bg-slate-800 transition-colors">
-                Switch to {{ $plan->name }}
-            </button>
-            @elseif(!$subscription && !$user->selected_plan_id)
-            <form action="{{ route('management.subscription.select-plan') }}" method="POST">
-                @csrf
-                <input type="hidden" name="plan_id" value="{{ $plan->id }}">
-                <button class="w-full py-2.5 text-sm font-semibold rounded-lg bg-slate-900 text-white hover:bg-slate-800 transition-colors">
-                    {{ $trialEnabled ? 'Get Started' : 'Select Plan' }}
-                </button>
-            </form>
-            @endif
-        </div>
+        </button>
+    </div>
+    @endif
+
+    {{-- Monthly plans --}}
+    <div x-show="billingCycle === 'monthly'" class="grid grid-cols-1 md:grid-cols-2 gap-5">
+        @forelse($monthlyPlans as $plan)
+            @include('management.subscription._plan-card', ['plan' => $plan, 'subscription' => $subscription, 'user' => $user, 'trialEnabled' => $trialEnabled])
         @empty
         <div class="col-span-full">
-            <x-management.empty-state icon="fi fi-rr-bolt" title="No plans available" description="Plans will appear once configured by the platform admin." />
+            <x-management.empty-state icon="fi fi-rr-bolt" title="No monthly plans available" description="Monthly plans will appear here once configured by the platform admin." />
         </div>
         @endforelse
     </div>
+
+    {{-- Yearly plans --}}
+    <div x-show="billingCycle === 'yearly'" x-cloak class="grid grid-cols-1 md:grid-cols-2 gap-5">
+        @forelse($yearlyPlans as $plan)
+            @include('management.subscription._plan-card', ['plan' => $plan, 'subscription' => $subscription, 'user' => $user, 'trialEnabled' => $trialEnabled])
+        @empty
+        <div class="col-span-full">
+            <x-management.empty-state icon="fi fi-rr-bolt" title="No yearly plans available" description="Yearly plans will appear here once configured by the platform admin." />
+        </div>
+        @endforelse
+    </div>
+
+    {{-- Other interval plans (daily/weekly) — shown below the tabs --}}
+    @if($otherPlans->isNotEmpty())
+    <div class="mt-8">
+        <h4 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-4">Other Billing Cycles</h4>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+            @foreach($otherPlans as $plan)
+                @include('management.subscription._plan-card', ['plan' => $plan, 'subscription' => $subscription, 'user' => $user, 'trialEnabled' => $trialEnabled])
+            @endforeach
+        </div>
+    </div>
+    @endif
 </div>
 
 {{-- Payment history --}}

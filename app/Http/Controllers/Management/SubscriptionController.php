@@ -59,6 +59,20 @@ class SubscriptionController extends Controller
         $subscription = $user->business?->activeSubscription()?->first();
         $payments = collect();
         $plans = SubscriptionPlan::active()->where('is_trial', false)->orderBy('sort_order')->get();
+        $monthlyPlans = $plans->where('interval', 'monthly')->values();
+        $yearlyPlans = $plans->where('interval', 'yearly')->values();
+        $otherPlans = $plans->whereNotIn('interval', ['monthly', 'yearly'])->values();
+
+        $yearlySavingsPercent = null;
+        if ($monthlyPlans->isNotEmpty() && $yearlyPlans->isNotEmpty()) {
+            $lowestMonthly = (float) $monthlyPlans->min('amount');
+            $lowestYearly = (float) $yearlyPlans->min('amount');
+            $monthlyAnnualCost = $lowestMonthly * 12;
+            if ($monthlyAnnualCost > 0) {
+                $yearlySavingsPercent = (int) round((1 - ($lowestYearly / $monthlyAnnualCost)) * 100);
+            }
+        }
+
         $trial = $this->trialSettings();
 
         if ($subscription) {
@@ -78,6 +92,10 @@ class SubscriptionController extends Controller
             'subscription' => $subscription,
             'payments' => $payments,
             'plans' => $plans,
+            'monthlyPlans' => $monthlyPlans,
+            'yearlyPlans' => $yearlyPlans,
+            'otherPlans' => $otherPlans,
+            'yearlySavingsPercent' => $yearlySavingsPercent,
             'trialEnabled' => $trial['enabled'],
             'trialDays' => $trial['days'],
             'breadcrumbs' => $breadcrumbs,
