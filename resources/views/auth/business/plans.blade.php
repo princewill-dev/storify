@@ -41,56 +41,64 @@
     </header>
 
     <main class="flex-1 px-6 lg:px-8 py-12">
-        <div class="max-w-5xl mx-auto">
-            <div class="text-center mb-10">
+        <div class="max-w-6xl mx-auto">
+            <div class="text-center mb-8">
                 <h1 class="text-3xl font-bold text-slate-900 tracking-tight">Choose your plan</h1>
                 <p class="mt-3 text-base text-slate-500 max-w-lg mx-auto">Select a plan that fits your business. Start with a free trial — no payment required today.</p>
             </div>
 
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-2xl mx-auto mb-10">
-                @forelse($plans as $plan)
-                <div class="plan-card relative bg-white rounded-2xl shadow-sm border {{ $plan->is_default ? 'border-slate-900 shadow-md' : 'border-slate-200' }} flex flex-col hover:shadow-lg transition-shadow duration-200">
-                    @if($plan->is_default)
-                    <span class="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-xs font-semibold px-4 py-1 rounded-full tracking-wide">Recommended</span>
-                    @endif
+            @php $hasTabs = $monthlyPlans->isNotEmpty() && $yearlyPlans->isNotEmpty(); @endphp
 
-                    <h3 class="plan-name">{{ $plan->name }}</h3>
-                    <p class="plan-desc">{{ $plan->description ?? 'All the essentials to get started.' }}</p>
-
-                    <div style="margin-bottom: 32px;">
-                        <span class="plan-price">₦{{ number_format($plan->amount, 2) }}</span>
-                        <span class="plan-interval">/{{ $plan->interval }}</span>
-                        @if($plan->interval === 'yearly')
-                        <p class="plan-savings">Save 17% vs monthly</p>
+            <div x-data="{ billingCycle: 'monthly' }">
+                {{-- Billing cycle tabs --}}
+                @if($hasTabs)
+                <div class="flex items-center justify-center gap-1 bg-slate-100 rounded-xl p-1 w-fit mx-auto mb-8">
+                    <button
+                        @click="billingCycle = 'monthly'"
+                        :class="billingCycle === 'monthly' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'"
+                        class="px-6 py-2.5 text-sm font-semibold rounded-lg transition-all">
+                        Monthly
+                    </button>
+                    <button
+                        @click="billingCycle = 'yearly'"
+                        :class="billingCycle === 'yearly' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'"
+                        class="px-6 py-2.5 text-sm font-semibold rounded-lg transition-all flex items-center gap-1.5">
+                        Yearly
+                        @if($yearlySavingsPercent !== null && $yearlySavingsPercent > 0)
+                        <span class="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">Save {{ $yearlySavingsPercent }}%</span>
                         @endif
+                    </button>
+                </div>
+                @endif
+
+                {{-- Monthly plans --}}
+                <div x-show="!{{ $hasTabs ? 'true' : 'false' }} || billingCycle === 'monthly'"
+                     class="{{ $monthlyPlans->count() === 1 ? 'max-w-md mx-auto' : 'grid grid-cols-1 md:grid-cols-3 gap-6 mb-10' }}">
+                    @forelse($monthlyPlans as $plan)
+                        @include('auth.business._plan-card', ['plan' => $plan])
+                    @empty
+                        @if(!$hasTabs)
+                        <div class="text-center py-12 text-slate-400">
+                            <p class="text-lg font-medium mb-2">No plans available</p>
+                            <p class="text-sm">Please contact support to set up subscription plans.</p>
+                        </div>
+                        @endif
+                    @endforelse
+                </div>
+
+                {{-- Yearly plans --}}
+                @if($hasTabs)
+                <div x-show="billingCycle === 'yearly'" x-cloak
+                     class="{{ $yearlyPlans->count() === 1 ? 'max-w-md mx-auto' : 'grid grid-cols-1 md:grid-cols-3 gap-6 mb-10' }}">
+                    @forelse($yearlyPlans as $plan)
+                        @include('auth.business._plan-card', ['plan' => $plan])
+                    @empty
+                    <div class="text-center py-12 text-slate-400">
+                        <p class="text-lg font-medium mb-2">No yearly plans available</p>
                     </div>
-
-                    @if($plan->features)
-                    <ul class="plan-features">
-                        @foreach($plan->features as $feature)
-                        <li><i class="fi fi-rr-check-circle"></i> {{ $feature }}</li>
-                        @endforeach
-                    </ul>
-                    @endif
-
-                    @if(($trial['enabled'] ?? true))
-                        <p class="plan-trial-notice">{{ $trial['days'] ?? 7 }}-day free trial · Cancel anytime</p>
-                    @endif
-
-                    <form action="{{ route('management.subscription.select-plan') }}" method="POST">
-                        @csrf
-                        <input type="hidden" name="plan_id" value="{{ $plan->id }}">
-                        <button type="submit" class="plan-btn {{ $plan->is_default ? 'plan-btn-primary' : 'plan-btn-secondary' }}">
-                            Get Started
-                        </button>
-                    </form>
+                    @endforelse
                 </div>
-                @empty
-                <div class="col-span-2 text-center py-12 text-slate-400">
-                    <p class="text-lg font-medium mb-2">No plans available</p>
-                    <p class="text-sm">Please contact support to set up subscription plans.</p>
-                </div>
-                @endforelse
+                @endif
             </div>
         </div>
     </main>

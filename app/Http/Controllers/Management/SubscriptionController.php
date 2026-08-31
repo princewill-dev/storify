@@ -572,8 +572,19 @@ class SubscriptionController extends Controller
         if (!$user->is_verified) return redirect()->route('management.auth.verify-otp', ['user' => $user]);
 
         $plans = SubscriptionPlan::active()->where('is_trial', false)->orderBy('sort_order')->get();
+        $monthlyPlans = $plans->where('interval', 'monthly')->values();
+        $yearlyPlans = $plans->where('interval', 'yearly')->values();
+
+        $yearlySavingsPercent = null;
+        if ($monthlyPlans->isNotEmpty() && $yearlyPlans->isNotEmpty()) {
+            $monthlyAnnualCost = (float) $monthlyPlans->min('amount') * 12;
+            if ($monthlyAnnualCost > 0) {
+                $yearlySavingsPercent = (int) round((1 - ((float) $yearlyPlans->min('amount') / $monthlyAnnualCost)) * 100);
+            }
+        }
+
         $trial = $this->trialSettings();
-        return view('auth.business.plans', compact('user', 'plans', 'trial'));
+        return view('auth.business.plans', compact('user', 'plans', 'monthlyPlans', 'yearlyPlans', 'yearlySavingsPercent', 'trial'));
     }
 
     public function validateCoupon(Request $request): JsonResponse
