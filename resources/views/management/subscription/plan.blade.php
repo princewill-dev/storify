@@ -108,7 +108,7 @@
     @endif
 
     {{-- Monthly plans --}}
-    <div x-show="billingCycle === 'monthly'" class="grid grid-cols-1 md:grid-cols-2 gap-5">
+    <div x-show="billingCycle === 'monthly'" class="{{ $monthlyPlans->count() === 1 ? 'max-w-md mx-auto' : 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5' }}">
         @forelse($monthlyPlans as $plan)
             @include('management.subscription._plan-card', ['plan' => $plan, 'subscription' => $subscription, 'user' => $user, 'trialEnabled' => $trialEnabled])
         @empty
@@ -119,7 +119,7 @@
     </div>
 
     {{-- Yearly plans --}}
-    <div x-show="billingCycle === 'yearly'" x-cloak class="grid grid-cols-1 md:grid-cols-2 gap-5">
+    <div x-show="billingCycle === 'yearly'" x-cloak class="{{ $yearlyPlans->count() === 1 ? 'max-w-md mx-auto' : 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5' }}">
         @forelse($yearlyPlans as $plan)
             @include('management.subscription._plan-card', ['plan' => $plan, 'subscription' => $subscription, 'user' => $user, 'trialEnabled' => $trialEnabled])
         @empty
@@ -133,7 +133,7 @@
     @if($otherPlans->isNotEmpty())
     <div class="mt-8">
         <h4 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-4">Other Billing Cycles</h4>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+        <div class="{{ $otherPlans->count() === 1 ? 'max-w-md mx-auto' : 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5' }}">
             @foreach($otherPlans as $plan)
                 @include('management.subscription._plan-card', ['plan' => $plan, 'subscription' => $subscription, 'user' => $user, 'trialEnabled' => $trialEnabled])
             @endforeach

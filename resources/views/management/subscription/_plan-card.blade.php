@@ -1,5 +1,5 @@
 @php $isCurrent = $subscription && $subscription->subscription_plan_id === $plan->id; @endphp
-<div class="bg-white rounded-xl shadow-sm border {{ $isCurrent ? 'border-slate-900 ring-2 ring-slate-900/10' : 'border-slate-200' }} p-6 flex flex-col {{ $isCurrent ? 'opacity-75' : '' }}">
+<div class="bg-white rounded-xl shadow-sm border {{ $isCurrent ? 'border-slate-900 ring-2 ring-slate-900/10' : 'border-slate-200' }} p-6 flex flex-col h-full {{ $isCurrent ? 'opacity-75' : '' }}">
     <div class="flex items-start justify-between mb-3">
         <div>
             <h4 class="text-base font-bold text-slate-900">{{ $plan->name }}</h4>
