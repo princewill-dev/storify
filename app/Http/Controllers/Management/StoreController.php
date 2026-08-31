@@ -17,6 +17,7 @@ use App\Models\KycApplication;
 use App\Http\Requests\Management\CreateStoreRequest;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
@@ -126,6 +127,17 @@ class StoreController extends Controller
         unset($data['logo']);
 
         try {
+            Log::info('store.create_attempt', [
+                'user_id' => $user->id,
+                'user_email' => $user->email,
+                'business_id' => $user->business_id,
+                'name' => $data['name'],
+                'has_logo' => $request->hasFile('logo'),
+                'bank_id' => $data['bank_id'] ?? null,
+                'staff_ids' => $data['staff_ids'] ?? null,
+                'ip' => $request->ip(),
+            ]);
+
             DB::beginTransaction();
             $store = Store::create($data);
             
@@ -164,13 +176,42 @@ class StoreController extends Controller
                 }
             }
 
+            $errorRef = Str::upper(Str::random(8));
+
             Log::error('store.create_failed', [
+                'error_ref' => $errorRef,
                 'user_id' => $user->id,
+                'user_email' => $user->email,
+                'business_id' => $user->business_id,
+                'exception' => get_class($e),
                 'error' => $e->getMessage(),
+                'code' => $e->getCode(),
+                'sql' => $e instanceof QueryException ? $e->getSql() : null,
+                'bindings' => $e instanceof QueryException ? $e->getBindings() : null,
+                'input' => collect($data)->except(['logo_path'])->toArray(),
+                'url' => $request->fullUrl(),
+                'ip' => $request->ip(),
                 'trace' => $e->getTraceAsString(),
             ]);
 
-            return back()->withInput()->with('error', 'We could not create your store right now. Please try again.');
+            $message = 'We could not create your store right now. Please try again.';
+
+            if ($e instanceof QueryException) {
+                $message = match ((string) $e->getCode()) {
+                    '23000' => 'We could not save this store due to a data conflict. Please try a different store name, or contact support if it keeps happening.',
+                    default => 'We hit a database problem while saving your store.',
+                };
+            } elseif ($e instanceof \Illuminate\Validation\ValidationException) {
+                $message = 'Some details you entered were not accepted. Please review the form and try again.';
+            }
+
+            if (config('app.debug')) {
+                $message .= ' [' . get_class($e) . ': ' . $e->getMessage() . ']';
+            }
+
+            $message .= ' (Ref: ' . $errorRef . ')';
+
+            return back()->withInput()->with('error', $message);
         }
 
         if (!$hadStores) {
