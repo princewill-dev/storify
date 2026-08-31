@@ -158,6 +158,11 @@
                     <i class="fi fi-rr-tags text-base w-5 text-center"></i>
                     <span>Plans & Pricing</span>
                 </a>
+                <a href="{{ route('admin.coupons.index') }}"
+                   class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('admin.coupons.*') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
+                    <i class="fi fi-rr-ticket text-base w-5 text-center"></i>
+                    <span>Coupons</span>
+                </a>
                 <a href="{{ route('admin.payment-methods.index') }}"
                    class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('admin.payment-methods.*') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
                     <i class="fi fi-rr-credit-card text-base w-5 text-center"></i>

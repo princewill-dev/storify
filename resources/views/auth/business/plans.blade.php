@@ -49,7 +49,7 @@
 
             @php $hasTabs = $monthlyPlans->isNotEmpty() && $yearlyPlans->isNotEmpty(); @endphp
 
-            <div x-data="{ billingCycle: 'monthly' }">
+            <div x-data="plansPage">
                 {{-- Billing cycle tabs --}}
                 @if($hasTabs)
                 <div class="flex items-center justify-center gap-1 bg-slate-100 rounded-xl p-1 w-fit mx-auto mb-8">
@@ -99,11 +99,122 @@
                     @endforelse
                 </div>
                 @endif
+
+                {{-- Coupon section --}}
+                <div class="text-center mt-10">
+                    <template x-if="!appliedCoupon">
+                        <button @click="couponModal = true; couponMessage = ''; couponError = false; couponCode = ''"
+                                class="text-sm font-medium text-blue-600 hover:text-blue-700 underline decoration-dotted underline-offset-4">
+                            Have a coupon code?
+                        </button>
+                    </template>
+                    <template x-if="appliedCoupon">
+                        <div class="inline-flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-full px-4 py-2">
+                            <i class="fi fi-rr-ticket text-emerald-600 text-sm"></i>
+                            <span class="text-sm font-semibold text-emerald-800" x-text="appliedCoupon"></span>
+                            <span class="text-xs text-emerald-600">applied</span>
+                            <button @click="removeCoupon()"
+                                    class="ml-2 text-emerald-600 hover:text-emerald-800 text-lg leading-none">&times;</button>
+                        </div>
+                    </template>
+                </div>
+
+                {{-- Coupon modal --}}
+                <div x-show="couponModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4" @keydown.escape.window="couponModal = false">
+                    <div class="fixed inset-0 bg-slate-900/50" @click="couponModal = false"></div>
+                    <div class="relative w-full max-w-sm bg-white rounded-2xl shadow-xl p-6">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-lg font-bold text-slate-900">Enter Coupon Code</h3>
+                            <button @click="couponModal = false" class="text-slate-400 hover:text-slate-600 text-xl">&times;</button>
+                        </div>
+                        <div class="space-y-4">
+                            <div>
+                                <input type="text" x-model="couponCode" @keydown.enter="applyCoupon()"
+                                       placeholder="e.g., SAVE10"
+                                       class="block w-full rounded-xl border-slate-300 px-4 py-3 text-sm font-mono uppercase shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
+                            </div>
+                            <div x-show="couponMessage" x-cloak
+                                 :class="couponError ? 'bg-red-50 border-red-200 text-red-700' : 'bg-emerald-50 border-emerald-200 text-emerald-700'"
+                                 class="rounded-xl border p-3 text-sm font-medium">
+                                <span x-text="couponMessage"></span>
+                            </div>
+                            <div class="flex gap-3">
+                                <button @click="couponModal = false" class="flex-1 py-2.5 border border-slate-200 text-slate-700 text-sm font-semibold rounded-xl hover:bg-slate-50">Cancel</button>
+                                <button @click="applyCoupon()" :disabled="couponLoading || !couponCode"
+                                        class="flex-1 py-2.5 bg-slate-900 text-white text-sm font-semibold rounded-xl hover:bg-slate-800 disabled:opacity-50">
+                                    <span x-text="couponLoading ? 'Applying...' : 'Apply'"></span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </main>
 </div>
 
 <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+<script>
+document.addEventListener('alpine:init', () => {
+    Alpine.data('plansPage', () => ({
+        billingCycle: 'monthly',
+        couponModal: false,
+        couponCode: '',
+        couponLoading: false,
+        couponMessage: '',
+        couponError: false,
+        appliedCoupon: {{ session('applied_coupon_code') ? Js::from(session('applied_coupon_code')) : 'null' }},
+
+        async applyCoupon() {
+            const code = this.couponCode.trim();
+            if (!code) return;
+            this.couponLoading = true;
+            this.couponMessage = '';
+            this.couponError = false;
+            try {
+                const r = await fetch('{{ route('management.plans.validate-coupon') }}', {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                    },
+                    body: JSON.stringify({ code }),
+                });
+                const data = await r.json();
+                this.couponLoading = false;
+                if (data.valid) {
+                    this.couponMessage = data.message || data.description;
+                    this.couponError = false;
+                    this.appliedCoupon = data.code;
+
+                    if (data.activated && data.redirect_url) {
+                        setTimeout(() => { window.location.href = data.redirect_url; }, 2000);
+                    } else {
+                        setTimeout(() => { this.couponModal = false; }, 1500);
+                    }
+                } else {
+                    this.couponMessage = data.message;
+                    this.couponError = true;
+                }
+            } catch (e) {
+                this.couponLoading = false;
+                this.couponMessage = 'Something went wrong. Please try again.';
+                this.couponError = true;
+            }
+        },
+
+        async removeCoupon() {
+            this.appliedCoupon = null;
+            try {
+                await fetch('{{ route('management.plans.remove-coupon') }}', {
+                    method: 'POST',
+                    headers: { 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content },
+                });
+            } catch (e) {}
+        },
+    }));
+});
+</script>
 </body>
 </html>

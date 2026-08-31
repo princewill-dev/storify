@@ -251,9 +251,11 @@ class SubscriptionController extends Controller
 
             if ($couponCode) {
                 $coupon = Coupon::where('code', $couponCode)->first();
-                if ($coupon && $coupon->isValid()) {
+                if ($coupon && $coupon->isValid() && $coupon->isApplicableTo($plan->id)) {
                     $discount = $coupon->calculateDiscount($amount);
                     $amount = max(0, $amount - $discount);
+                } elseif ($coupon && !$coupon->isApplicableTo($plan->id)) {
+                    session()->forget('applied_coupon_code');
                 }
             }
 
@@ -439,7 +441,16 @@ class SubscriptionController extends Controller
 
                 if ($payment->metadata['coupon_code'] ?? null) {
                     $usedCoupon = Coupon::where('code', $payment->metadata['coupon_code'])->first();
-                    if ($usedCoupon) $usedCoupon->incrementUsage();
+                    if ($usedCoupon) {
+                        $usedCoupon->incrementUsage();
+
+                        // Auto-deactivate and notify admin when coupon is exhausted
+                        $freshCoupon = $usedCoupon->fresh();
+                        if ($freshCoupon->isExhausted()) {
+                            $freshCoupon->update(['is_active' => false]);
+                            $this->notifyAdminCouponExhausted($freshCoupon);
+                        }
+                    }
                 }
 
                 return redirect()->route('management.dashboard')
@@ -589,31 +600,170 @@ class SubscriptionController extends Controller
 
     public function validateCoupon(Request $request): JsonResponse
     {
-        $code = $request->input('code', '');
+        $user = $request->user();
+        $code = strtoupper(trim($request->input('code', '')));
+        $planId = $request->input('plan_id');
         $coupon = Coupon::where('code', $code)->first();
 
         if (!$coupon || !$coupon->isValid()) {
             return response()->json(['valid' => false, 'message' => 'Invalid or expired coupon code.']);
         }
 
+        if ($planId && !$coupon->isApplicableTo((int) $planId)) {
+            $planName = $coupon->subscriptionPlan?->name ?? 'another plan';
+            return response()->json([
+                'valid' => false,
+                'message' => "This coupon only applies to {$planName}.",
+            ]);
+        }
+
         $description = $coupon->discount_type === 'percentage'
             ? number_format($coupon->discount_value, 0) . '% off'
             : '₦' . number_format($coupon->discount_value, 2) . ' off';
+
+        $planLabel = $coupon->subscriptionPlan
+            ? ' on ' . $coupon->subscriptionPlan->name
+            : ' on any plan';
+
+        // If coupon fully covers a specific plan, activate immediately (no payment needed)
+        $targetPlan = $coupon->subscriptionPlan;
+        if ($targetPlan && $this->couponFullyCoversPlan($coupon, $targetPlan)) {
+            $activation = $this->activateSubscriptionWithCoupon($user, $targetPlan, $coupon);
+
+            if ($activation['success']) {
+                return response()->json([
+                    'valid' => true,
+                    'code' => $code,
+                    'activated' => true,
+                    'message' => '✓ ' . $targetPlan->name . ' activated! Taking you to your dashboard...',
+                    'redirect_url' => $activation['redirect_url'],
+                ]);
+            }
+
+            return response()->json([
+                'valid' => false,
+                'message' => $activation['message'] ?? 'Could not activate this plan.',
+            ]);
+        }
 
         session(['applied_coupon_code' => $code]);
 
         return response()->json([
             'valid' => true,
-            'description' => '✓ ' . $description . ' applied! Discount will be shown at checkout.',
+            'code' => $code,
+            'description' => '✓ ' . $description . $planLabel . ' applied! Discount will be shown at checkout.',
             'discount_type' => $coupon->discount_type,
             'discount_value' => (float) $coupon->discount_value,
+            'plan_name' => $coupon->subscriptionPlan?->name,
         ]);
+    }
+
+    private function couponFullyCoversPlan(Coupon $coupon, SubscriptionPlan $plan): bool
+    {
+        if ($coupon->discount_type === 'percentage') {
+            return (float) $coupon->discount_value >= 100;
+        }
+        return (float) $coupon->discount_value >= (float) $plan->amount;
+    }
+
+    private function activateSubscriptionWithCoupon(User $user, SubscriptionPlan $plan, Coupon $coupon): array
+    {
+        if ($user->business?->hasActiveSubscription()) {
+            return ['success' => false, 'message' => 'You already have an active subscription.'];
+        }
+
+        DB::beginTransaction();
+        try {
+            SubscriptionModel::create([
+                'user_id' => $user->id,
+                'business_id' => $user->business_id,
+                'subscription_plan_id' => $plan->id,
+                'status' => SubscriptionModel::STATUS_ACTIVE,
+                'starts_at' => now(),
+                'expires_at' => $plan->interval === 'yearly' ? now()->addYear() : now()->addMonth(),
+                'metadata' => [
+                    'coupon_code' => $coupon->code,
+                    'coupon_id' => $coupon->id,
+                    'activated_at' => now()->toDateTimeString(),
+                    'payment_skipped' => true,
+                ],
+            ]);
+
+            $user->update([
+                'trial_ends_at' => null,
+                'selected_plan_id' => $plan->id,
+                'status' => 'active',
+                'is_verified' => true,
+            ]);
+
+            Store::whereIn('id', $user->stores()->pluck('id'))
+                ->whereIn('status', [Store::STATUS_PENDING, Store::STATUS_SUSPENDED])
+                ->update(['status' => Store::STATUS_ACTIVE]);
+
+            $coupon->incrementUsage();
+            $freshCoupon = $coupon->fresh();
+            if ($freshCoupon->isExhausted()) {
+                $freshCoupon->update(['is_active' => false]);
+                $this->notifyAdminCouponExhausted($freshCoupon);
+            }
+
+            DB::commit();
+
+            $this->sendStoreActivationEmails($user);
+
+            Log::info('subscription.activated_with_coupon', [
+                'user_id' => $user->id,
+                'plan_id' => $plan->id,
+                'coupon_code' => $coupon->code,
+            ]);
+
+            return [
+                'success' => true,
+                'redirect_url' => route('management.dashboard'),
+            ];
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            Log::error('subscription.coupon_activation_failed', [
+                'user_id' => $user->id,
+                'coupon_code' => $coupon->code,
+                'error' => $e->getMessage(),
+            ]);
+            return ['success' => false, 'message' => 'Something went wrong activating your plan. Please try again.'];
+        }
+    }
+
+    public function removeCoupon(Request $request): JsonResponse
+    {
+        session()->forget('applied_coupon_code');
+
+        return response()->json(['success' => true]);
     }
 
     public function showCheckout(Request $request, SubscriptionPlan $plan): RedirectResponse
     {
         return redirect()->route('management.subscription.plan')
             ->with('warning', 'Please select a plan to start your free trial.');
+    }
+
+    private function notifyAdminCouponExhausted(Coupon $coupon): void
+    {
+        try {
+            $adminEmail = config('mail.admin_email', env('ADMIN_EMAIL'));
+            if (!$adminEmail) return;
+
+            Mail::to($adminEmail)->queue(new \App\Mail\CouponExhaustedMail($coupon));
+
+            Log::info('coupon.exhausted_email_sent', [
+                'coupon_code' => $coupon->code,
+                'uses_count' => $coupon->uses_count,
+                'max_uses' => $coupon->max_uses,
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('coupon.exhausted_email_failed', [
+                'coupon_code' => $coupon->code,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     private function sendStoreActivationEmails(User $user): void

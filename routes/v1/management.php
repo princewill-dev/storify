@@ -62,6 +62,7 @@ Route::prefix('management')->name('management.')->group(function () {
         Route::get('/plans', [SubscriptionController::class, 'showPlans'])->name('plans.index');
         Route::get('/plans/checkout/{plan}', [SubscriptionController::class, 'showCheckout'])->name('plans.checkout');
         Route::post('/plans/validate-coupon', [SubscriptionController::class, 'validateCoupon'])->name('plans.validate-coupon');
+        Route::post('/plans/remove-coupon', [SubscriptionController::class, 'removeCoupon'])->name('plans.remove-coupon');
         
         Route::get('/stores/create/onboarding', [StoreController::class, 'showStoreCreationForm'])->name('store.create');
         Route::post('/stores/create/onboarding', [StoreController::class, 'submitOnboardingStore'])->name('store.submit');
