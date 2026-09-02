@@ -1,7 +1,7 @@
 <?php
 
-use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Admin\StorefrontSlideController;
+use Illuminate\Support\Facades\Route;
 
 // API endpoints for admin storefront slides and product listings
 Route::middleware(['auth'])

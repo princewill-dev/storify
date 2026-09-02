@@ -2,8 +2,8 @@
 
 namespace Database\Seeders;
 
-use Illuminate\Database\Seeder;
 use App\Models\PageStyling;
+use Illuminate\Database\Seeder;
 
 class PageStylingSeeder extends Seeder
 {

@@ -5,7 +5,6 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\VatRequest;
 use App\Models\Vat;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
 class VatController extends Controller
@@ -16,6 +15,7 @@ class VatController extends Controller
             ->orderByDesc('effective_at')
             ->orderByDesc('id')
             ->paginate(20);
+
         return view('admin.VAT.index', compact('vats'));
     }
 
@@ -27,11 +27,12 @@ class VatController extends Controller
         if (empty($data['effective_at'])) {
             $data['effective_at'] = now();
         }
-        \DB::transaction(function() use (&$vat, $data) {
+        \DB::transaction(function () use (&$vat, $data) {
             Vat::query()->update(['active' => false]);
             $vat = Vat::create($data);
         });
         Log::info('vat_created', ['user_id' => auth()->id(), 'vat_id' => $vat->id, 'pct' => $vat->percentage]);
+
         return redirect()->route('admin.vats.index')->with('success', 'VAT created');
     }
 
@@ -41,6 +42,7 @@ class VatController extends Controller
             ->orderByDesc('effective_at')
             ->orderByDesc('id')
             ->paginate(20);
+
         return view('admin.VAT.index', compact('vats', 'vat'));
     }
 
@@ -48,8 +50,8 @@ class VatController extends Controller
     {
         $data = $request->validated();
         // If this VAT is marked active (or if no flag provided but we want it active), enforce single-active rule
-        if (array_key_exists('active', $data) ? (bool)$data['active'] : false) {
-            \DB::transaction(function() use ($vat, $data) {
+        if (array_key_exists('active', $data) ? (bool) $data['active'] : false) {
+            \DB::transaction(function () use ($vat, $data) {
                 Vat::where('id', '!=', $vat->id)->update(['active' => false]);
                 $vat->update($data + ['active' => true]);
             });
@@ -57,6 +59,7 @@ class VatController extends Controller
             $vat->update($data);
         }
         Log::info('vat_updated', ['user_id' => auth()->id(), 'vat_id' => $vat->id]);
+
         return redirect()->route('admin.vats.index')->with('success', 'VAT updated');
     }
 
@@ -64,6 +67,7 @@ class VatController extends Controller
     {
         $vat->delete();
         Log::info('vat_deleted', ['user_id' => auth()->id(), 'vat_id' => $vat->id]);
+
         return redirect()->route('admin.vats.index')->with('success', 'VAT deleted');
     }
 
@@ -76,6 +80,7 @@ class VatController extends Controller
             'effective_at' => now(),
         ]);
         Log::info('vat_zero_created', ['user_id' => auth()->id(), 'old_vat_id' => $vat->id, 'new_vat_id' => $zero->id]);
+
         return redirect()->route('admin.vats.index')->with('success', '0% VAT created');
     }
 }

@@ -42,6 +42,7 @@
 
     <form method="POST" action="{{ route('management.subscription.process-payment') }}">
         @csrf
+        <input type="hidden" name="idempotency_key" value="{{ $paymentAttemptKey }}">
         <button type="submit" class="w-full py-3 bg-slate-900 text-white text-sm font-semibold rounded-xl hover:bg-slate-800 shadow-md transition-all">
             Pay with Paystack · ₦{{ number_format($plan->amount, 2) }}
         </button>

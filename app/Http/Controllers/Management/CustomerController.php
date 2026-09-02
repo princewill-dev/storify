@@ -7,8 +7,6 @@ use App\Models\ActivityLog;
 use App\Models\Customer;
 use App\Models\Order;
 use App\Models\User;
-use Illuminate\Database\Eloquent\Collection;
-use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -18,8 +16,6 @@ use Illuminate\View\View;
 
 class CustomerController extends Controller
 {
-
-
     private function customerBelongsToUser(Customer $customer, User $user): bool
     {
         return $customer->business_id === $user->business_id;
@@ -31,10 +27,10 @@ class CustomerController extends Controller
 
         $query = Customer::query()
             ->with('deliveryAddresses')
-            ->withCount(['orders as orders_count' => fn($q) => $q->where('user_id', $user->id)]);
+            ->withCount(['orders as orders_count' => fn ($q) => $q->where('user_id', $user->id)]);
         $this->forBusiness($query, $user);
         if ($user->isRestrictedStaff()) {
-            $query->whereHas('orders', fn($q) => $q->whereIn('store_id', $user->assignedStores()->pluck('id')));
+            $query->whereHas('orders', fn ($q) => $q->whereIn('store_id', $user->assignedStores()->pluck('id')));
         }
 
         if ($request->filled('search')) {
@@ -59,14 +55,14 @@ class CustomerController extends Controller
         }
 
         if ($request->filled('store_id')) {
-            $query->whereHas('orders', fn($q) => $q->where('store_id', $request->store_id));
+            $query->whereHas('orders', fn ($q) => $q->where('store_id', $request->store_id));
         }
 
         $customers = $query->latest('created_at')->paginate(20)->withQueryString();
 
         $baseCustomers = Customer::query()
             ->where('business_id', $user->business_id)
-            ->whereHas('orders', fn($q) => $q->where('user_id', $user->id));
+            ->whereHas('orders', fn ($q) => $q->where('user_id', $user->id));
         $this->forBusiness($baseCustomers, $user);
 
         $stats = [
@@ -91,13 +87,14 @@ class CustomerController extends Controller
         $activeFilters = $request->only(['search', 'status', 'country', 'store_id']);
 
         $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Customers']];
+
         return view('management.customers.index', compact('customers', 'stats', 'countries', 'stores', 'activeFilters', 'breadcrumbs'));
     }
 
     public function show(Request $request, Customer $customer): View|RedirectResponse
     {
         $user = $request->user();
-        if (!$user || !$this->customerBelongsToUser($customer, $user)) {
+        if (! $user || ! $this->customerBelongsToUser($customer, $user)) {
             return redirect()->route('management.auth.login');
         }
 
@@ -148,13 +145,14 @@ class CustomerController extends Controller
             ->get();
 
         $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Customers', 'url' => route('management.customers.index')], ['label' => $customer->full_name]];
+
         return view('management.customers.show', compact('customer', 'stats', 'transactions', 'activityLogs', 'breadcrumbs'));
     }
 
     public function edit(Request $request, Customer $customer): View|RedirectResponse
     {
         $user = $request->user();
-        if (!$user || !$this->customerBelongsToUser($customer, $user)) {
+        if (! $user || ! $this->customerBelongsToUser($customer, $user)) {
             return redirect()->route('management.auth.login');
         }
 
@@ -165,13 +163,14 @@ class CustomerController extends Controller
         ];
 
         $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Customers', 'url' => route('management.customers.index')], ['label' => $customer->full_name, 'url' => route('management.customers.show', $customer)], ['label' => 'Edit']];
+
         return view('management.customers.edit', compact('customer', 'statuses', 'breadcrumbs'));
     }
 
     public function update(Request $request, Customer $customer): RedirectResponse
     {
         $user = $request->user();
-        if (!$user || !$this->customerBelongsToUser($customer, $user)) {
+        if (! $user || ! $this->customerBelongsToUser($customer, $user)) {
             return redirect()->route('management.auth.login');
         }
 
@@ -193,7 +192,7 @@ class CustomerController extends Controller
         $customer->fill($data);
 
         if ($data['status'] === Customer::STATUS_ACTIVE) {
-            if (!$customer->hasVerifiedEmail()) {
+            if (! $customer->hasVerifiedEmail()) {
                 $customer->markEmailAsVerified();
             } else {
                 $customer->save();
@@ -210,7 +209,7 @@ class CustomerController extends Controller
     public function suspend(Request $request, Customer $customer): RedirectResponse
     {
         $user = $request->user();
-        if (!$user || !$this->customerBelongsToUser($customer, $user)) {
+        if (! $user || ! $this->customerBelongsToUser($customer, $user)) {
             return redirect()->route('management.auth.login');
         }
 
@@ -235,14 +234,14 @@ class CustomerController extends Controller
                 'action' => 'customer_suspended',
                 'subject_type' => Customer::class,
                 'subject_id' => $customer->id,
-                'description' => "Vendor suspended customer: {$customer->full_name}. Reason: {$request->reason}",
+                'description' => "Business suspended customer: {$customer->full_name}. Reason: {$request->reason}",
                 'old_values' => json_encode(['email_verified_at' => $oldVerifiedAt]),
                 'new_values' => json_encode(['email_verified_at' => null, 'reason' => $request->reason]),
                 'ip_address' => $request->ip(),
                 'metadata' => ['user_id' => $user->id],
             ]);
 
-            Log::info('vendor_customer_suspended', [
+            Log::info('business_customer_suspended', [
                 'customer_id' => $customer->id,
                 'account_id' => $customer->account_id,
                 'user_id' => $user->id,
@@ -255,7 +254,7 @@ class CustomerController extends Controller
         } catch (\Exception $e) {
             DB::rollBack();
 
-            Log::error('vendor_customer_suspension_failed', [
+            Log::error('business_customer_suspension_failed', [
                 'customer_id' => $customer->id,
                 'user_id' => $user->id,
                 'error' => $e->getMessage(),
@@ -268,7 +267,7 @@ class CustomerController extends Controller
     public function activate(Request $request, Customer $customer): RedirectResponse
     {
         $user = $request->user();
-        if (!$user || !$this->customerBelongsToUser($customer, $user)) {
+        if (! $user || ! $this->customerBelongsToUser($customer, $user)) {
             return redirect()->route('management.auth.login');
         }
 
@@ -281,7 +280,7 @@ class CustomerController extends Controller
             $oldVerifiedAt = $customer->email_verified_at;
 
             $customer->status = Customer::STATUS_ACTIVE;
-            if (!$customer->hasVerifiedEmail()) {
+            if (! $customer->hasVerifiedEmail()) {
                 $customer->markEmailAsVerified();
             } else {
                 $customer->save();
@@ -292,14 +291,14 @@ class CustomerController extends Controller
                 'action' => 'customer_activated',
                 'subject_type' => Customer::class,
                 'subject_id' => $customer->id,
-                'description' => "Vendor activated customer: {$customer->full_name}",
+                'description' => "Business activated customer: {$customer->full_name}",
                 'old_values' => json_encode(['email_verified_at' => $oldVerifiedAt]),
                 'new_values' => json_encode(['email_verified_at' => $customer->email_verified_at]),
                 'ip_address' => $request->ip(),
                 'metadata' => ['user_id' => $user->id],
             ]);
 
-            Log::info('vendor_customer_activated', [
+            Log::info('business_customer_activated', [
                 'customer_id' => $customer->id,
                 'account_id' => $customer->account_id,
                 'user_id' => $user->id,
@@ -311,7 +310,7 @@ class CustomerController extends Controller
         } catch (\Exception $e) {
             DB::rollBack();
 
-            Log::error('vendor_customer_activation_failed', [
+            Log::error('business_customer_activation_failed', [
                 'customer_id' => $customer->id,
                 'user_id' => $user->id,
                 'error' => $e->getMessage(),

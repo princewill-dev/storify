@@ -11,11 +11,10 @@ class ActivityLogger
     /**
      * Log an activity.
      *
-     * @param string $action The action being performed
-     * @param string|null $description Human-readable description
-     * @param array $metadata Additional context (exclude sensitive data)
-     * @param int|null $userId User ID (defaults to authenticated user)
-     * @return ActivityLog
+     * @param  string  $action  The action being performed
+     * @param  string|null  $description  Human-readable description
+     * @param  array  $metadata  Additional context (exclude sensitive data)
+     * @param  int|null  $userId  User ID (defaults to authenticated user)
      */
     public static function log(
         string $action,
@@ -38,11 +37,6 @@ class ActivityLogger
 
     /**
      * Log authentication-related activity.
-     *
-     * @param string $action
-     * @param int|null $userId
-     * @param string|null $description
-     * @return ActivityLog
      */
     public static function logAuth(
         string $action,
@@ -54,11 +48,6 @@ class ActivityLogger
 
     /**
      * Log user creation.
-     *
-     * @param int $userId
-     * @param string $role
-     * @param string|null $createdBy
-     * @return ActivityLog
      */
     public static function logUserCreation(
         int $userId,
@@ -83,9 +72,6 @@ class ActivityLogger
 
     /**
      * Filter out sensitive data from metadata.
-     *
-     * @param array $data
-     * @return array
      */
     protected static function filterSensitiveData(array $data): array
     {
@@ -101,7 +87,7 @@ class ActivityLogger
         ];
 
         return array_filter($data, function ($key) use ($sensitiveKeys) {
-            return !in_array(strtolower($key), $sensitiveKeys);
+            return ! in_array(strtolower($key), $sensitiveKeys);
         }, ARRAY_FILTER_USE_KEY);
     }
 }

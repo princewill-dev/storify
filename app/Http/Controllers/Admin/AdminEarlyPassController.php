@@ -5,7 +5,6 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\EarlyPass;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
 
 class AdminEarlyPassController extends Controller
 {
@@ -27,8 +26,8 @@ class AdminEarlyPassController extends Controller
      */
     public function show(EarlyPass $earlyPass)
     {
-        $earlyPass->load(['usages.vendor', 'usages.store']);
-        
+        $earlyPass->load(['usages.user', 'usages.store']);
+
         return view('admin.Earlyaccess.show', compact('earlyPass'));
     }
 
@@ -94,7 +93,7 @@ class AdminEarlyPassController extends Controller
     public function toggleStatus(EarlyPass $earlyPass)
     {
         $earlyPass->update([
-            'is_active' => !$earlyPass->is_active,
+            'is_active' => ! $earlyPass->is_active,
         ]);
 
         $status = $earlyPass->is_active ? 'activated' : 'deactivated';

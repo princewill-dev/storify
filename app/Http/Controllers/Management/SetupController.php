@@ -2,8 +2,10 @@
 
 namespace App\Http\Controllers\Management;
 
+use App\Data\Countries;
 use App\Http\Controllers\Controller;
 use App\Models\Business;
+use Database\Seeders\SpatiePermissionSeeder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -14,11 +16,11 @@ class SetupController extends Controller
     {
         $user = $request->user();
 
-        if (!$user) {
+        if (! $user) {
             return redirect()->route('management.auth.login');
         }
 
-        if (!$user->is_verified) {
+        if (! $user->is_verified) {
             return redirect()->route('management.auth.verify-otp', ['user' => $user])
                 ->with('warning', 'Please verify your email first.');
         }
@@ -27,7 +29,7 @@ class SetupController extends Controller
             return redirect()->route('management.dashboard');
         }
 
-        $countries = \App\Data\Countries::business();
+        $countries = Countries::business();
 
         return view('auth.business.setup', compact('user', 'countries'));
     }
@@ -36,7 +38,7 @@ class SetupController extends Controller
     {
         $user = $request->user();
 
-        if (!$user) {
+        if (! $user) {
             return redirect()->route('management.auth.login');
         }
 
@@ -57,7 +59,7 @@ class SetupController extends Controller
 
         $user->update(['business_id' => $business->id]);
 
-        $seeder = new \Database\Seeders\SpatiePermissionSeeder();
+        $seeder = new SpatiePermissionSeeder;
         $seeder->createRolesForBusiness($business);
 
         return redirect()->route('management.plans.index')

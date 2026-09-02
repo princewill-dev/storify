@@ -5,13 +5,16 @@ namespace Database\Seeders;
 use App\Models\Business;
 use App\Models\Category;
 use App\Models\Product;
+use App\Models\ProductImage;
 use App\Models\ProductVariant;
 use App\Models\Section;
 use App\Models\StockLocation;
+use App\Models\StockMovement;
 use App\Models\Store;
 use App\Models\Warehouse;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 
 class ProductAndStockSeeder extends Seeder
@@ -97,31 +100,42 @@ class ProductAndStockSeeder extends Seeder
                 ? Warehouse::find($warehouseId)
                 : Warehouse::where('warehouse_code', $warehouseId)->first();
 
-            if (!$warehouse) {
+            if (! $warehouse) {
                 $msg = "Warehouse '{$warehouseId}' not found.";
-                if ($this->command) $this->command->warn($msg); else echo $msg . PHP_EOL;
+                if ($this->command) {
+                    $this->command->warn($msg);
+                } else {
+                    echo $msg.PHP_EOL;
+                }
+
                 return;
             }
             $business = $warehouse->business;
         }
 
-        if (!$business) {
+        if (! $business) {
             $business = $businessId
                 ? Business::find($businessId)
                 : Business::first();
         }
 
-        if (!$business) {
+        if (! $business) {
             $this->warn('No business found. Ensure BusinessSeeder has run first.');
+
             return;
         }
 
         $stores = $business->stores;
 
         if ($warehouseId) {
-            if (!$warehouse) {
+            if (! $warehouse) {
                 $msg = "Warehouse '{$warehouseId}' not found.";
-                if ($this->command) $this->command->warn($msg); else echo $msg . PHP_EOL;
+                if ($this->command) {
+                    $this->command->warn($msg);
+                } else {
+                    echo $msg.PHP_EOL;
+                }
+
                 return;
             }
             $sections = $this->seedSections($warehouse, $business);
@@ -130,6 +144,7 @@ class ProductAndStockSeeder extends Seeder
             $currencyId = \DB::table('currencies')->where('is_default', true)->value('id') ?? 1;
             $total = $this->seedWarehouseProducts($warehouse, $business, $sections, $sizeUnitIds, $weightUnitIds, $currencyId);
             $this->info("Done: {$total} warehouse-only products created for [{$warehouse->name}].");
+
             return;
         }
 
@@ -137,7 +152,7 @@ class ProductAndStockSeeder extends Seeder
             $store = Store::firstOrCreate(
                 ['business_id' => $business->id, 'slug' => Str::slug($business->name)],
                 [
-                    'name' => $business->name . ' Store',
+                    'name' => $business->name.' Store',
                     'user_id' => $business->user_id,
                     'status' => 'active',
                 ]
@@ -146,11 +161,11 @@ class ProductAndStockSeeder extends Seeder
             $this->line("No stores found — created default store [{$store->name}].");
         }
 
-        if (!$warehouse) {
+        if (! $warehouse) {
             $warehouse = Warehouse::where('business_id', $business->id)->first();
         }
 
-        if (!$warehouse) {
+        if (! $warehouse) {
             $this->warn("No warehouse found for business [{$business->name}]. Skipping warehouse stock.");
         }
 
@@ -170,6 +185,7 @@ class ProductAndStockSeeder extends Seeder
             $existingCount = Product::where('store_id', $store->id)->count();
             if ($existingCount > 0) {
                 $this->line("  Store [{$store->name}] already has {$existingCount} products. Skipping.");
+
                 continue;
             }
 
@@ -186,19 +202,19 @@ class ProductAndStockSeeder extends Seeder
                         'store_id' => $store->id,
                         'business_id' => $business->id,
                         'warehouse_id' => $warehouse?->id,
-                        'product_code' => 'prd_' . strtoupper(Str::random(8)),
+                        'product_code' => 'prd_'.strtoupper(Str::random(8)),
                         'category_id' => $cat->id,
                         'section_id' => $assignedSection?->id,
                         'name' => $name,
                         'brand' => $brand,
-                        'slug' => Str::slug($name) . '-' . substr((string) Str::uuid(), 0, 8),
+                        'slug' => Str::slug($name).'-'.substr((string) Str::uuid(), 0, 8),
                         'description' => "High-quality {$name} by {$brand}. Perfect for everyday use.",
                         'quantity' => $isVariant ? null : $quantity,
                         'stock_quantity' => $isVariant ? null : $quantity + rand(50, 200),
-                        'size' => !empty($sizeUnitIds) ? rand(10, 500) : null,
-                        'size_unit_id' => !empty($sizeUnitIds) ? Arr::random($sizeUnitIds) : null,
+                        'size' => ! empty($sizeUnitIds) ? rand(10, 500) : null,
+                        'size_unit_id' => ! empty($sizeUnitIds) ? Arr::random($sizeUnitIds) : null,
                         'weight' => $weight,
-                        'weight_unit_id' => !empty($weightUnitIds) ? Arr::random($weightUnitIds) : null,
+                        'weight_unit_id' => ! empty($weightUnitIds) ? Arr::random($weightUnitIds) : null,
                         'amount' => $isVariant ? null : $amount,
                         'currency_id' => $currencyId,
                         'discount_percentage' => rand(0, 3) === 0 ? rand(5, 25) : null,
@@ -216,16 +232,16 @@ class ProductAndStockSeeder extends Seeder
                             ProductVariant::create([
                                 'product_id' => $product->id,
                                 'business_id' => $business->id,
-                                'variant_code' => 'var_' . strtoupper(Str::random(10)),
-                                'sku' => strtoupper(substr($brand, 0, 3)) . '-' . Str::random(5),
+                                'variant_code' => 'var_'.strtoupper(Str::random(10)),
+                                'sku' => strtoupper(substr($brand, 0, 3)).'-'.Str::random(5),
                                 'color' => $color,
                                 'quantity' => rand(5, 50),
                                 'amount' => $amount + ($vi * 500),
                                 'currency_id' => $currencyId,
                                 'size' => rand(10, 200),
-                                'size_unit_id' => !empty($sizeUnitIds) ? Arr::random($sizeUnitIds) : null,
+                                'size_unit_id' => ! empty($sizeUnitIds) ? Arr::random($sizeUnitIds) : null,
                                 'weight' => $weight + ($vi * 10),
-                                'weight_unit_id' => !empty($weightUnitIds) ? Arr::random($weightUnitIds) : null,
+                                'weight_unit_id' => ! empty($weightUnitIds) ? Arr::random($weightUnitIds) : null,
                                 'status' => 'active',
                                 'featured' => $vi === 0,
                             ]);
@@ -274,7 +290,7 @@ class ProductAndStockSeeder extends Seeder
             $this->info("  Store [{$store->name}]: {$totalProducts} products seeded.");
         }
 
-        $this->info("Done: {$totalProducts} products across " . $stores->count() . " stores, warehouse stock created for [{$warehouse?->name}].");
+        $this->info("Done: {$totalProducts} products across ".$stores->count()." stores, warehouse stock created for [{$warehouse?->name}].");
     }
 
     protected function seedWarehouseProducts(Warehouse $warehouse, Business $business, $sections, array $sizeUnitIds, array $weightUnitIds, $currencyId): int
@@ -313,19 +329,19 @@ class ProductAndStockSeeder extends Seeder
                     'store_id' => null,
                     'warehouse_id' => $warehouse->id,
                     'business_id' => $business->id,
-                    'product_code' => 'prd_' . strtoupper(Str::random(8)),
+                    'product_code' => 'prd_'.strtoupper(Str::random(8)),
                     'category_id' => null,
                     'section_id' => $assignedSection?->id,
                     'name' => $name,
                     'brand' => $brand,
-                    'slug' => Str::slug($name) . '-' . substr((string) Str::uuid(), 0, 8),
+                    'slug' => Str::slug($name).'-'.substr((string) Str::uuid(), 0, 8),
                     'description' => "Warehouse stock: {$name} by {$brand}.",
                     'quantity' => $quantity * 10,
                     'stock_quantity' => $quantity * 15,
-                    'size' => !empty($sizeUnitIds) ? rand(10, 500) : null,
-                    'size_unit_id' => !empty($sizeUnitIds) ? Arr::random($sizeUnitIds) : null,
+                    'size' => ! empty($sizeUnitIds) ? rand(10, 500) : null,
+                    'size_unit_id' => ! empty($sizeUnitIds) ? Arr::random($sizeUnitIds) : null,
                     'weight' => $weight,
-                    'weight_unit_id' => !empty($weightUnitIds) ? Arr::random($weightUnitIds) : null,
+                    'weight_unit_id' => ! empty($weightUnitIds) ? Arr::random($weightUnitIds) : null,
                     'amount' => $amount,
                     'currency_id' => $currencyId,
                     'discount_percentage' => rand(0, 3) === 0 ? rand(5, 25) : null,
@@ -361,16 +377,18 @@ class ProductAndStockSeeder extends Seeder
             );
             $categories[] = $cat;
         }
+
         return $categories;
     }
 
-    protected function seedSections(Warehouse $warehouse, Business $business): \Illuminate\Support\Collection
+    protected function seedSections(Warehouse $warehouse, Business $business): Collection
     {
         $sections = collect();
         $existingCount = Section::where('warehouse_id', $warehouse->id)->count();
 
         if ($existingCount >= count($this->sectionNames)) {
             $this->line("  Warehouse [{$warehouse->name}] already has {$existingCount} sections. Skipping section creation.");
+
             return Section::where('warehouse_id', $warehouse->id)->get();
         }
 
@@ -382,7 +400,7 @@ class ProductAndStockSeeder extends Seeder
                 ],
                 [
                     'business_id' => $business->id,
-                    'section_code' => 'sec_' . Str::lower(Str::random(10)),
+                    'section_code' => 'sec_'.Str::lower(Str::random(10)),
                     'description' => $this->sectionDescriptions()[$i] ?? null,
                     'is_active' => true,
                 ]
@@ -391,22 +409,35 @@ class ProductAndStockSeeder extends Seeder
         }
 
         $this->info("  Warehouse [{$warehouse->name}]: {$sections->count()} sections created.");
+
         return $sections;
     }
 
     protected function line(string $message): void
     {
-        if ($this->command) $this->command->line($message); else echo $message . PHP_EOL;
+        if ($this->command) {
+            $this->command->line($message);
+        } else {
+            echo $message.PHP_EOL;
+        }
     }
 
     protected function warn(string $message): void
     {
-        if ($this->command) $this->command->warn($message); else echo $message . PHP_EOL;
+        if ($this->command) {
+            $this->command->warn($message);
+        } else {
+            echo $message.PHP_EOL;
+        }
     }
 
     protected function info(string $message): void
     {
-        if ($this->command) $this->command->info($message); else echo $message . PHP_EOL;
+        if ($this->command) {
+            $this->command->info($message);
+        } else {
+            echo $message.PHP_EOL;
+        }
     }
 
     protected function sectionDescriptions(): array
@@ -428,8 +459,9 @@ class ProductAndStockSeeder extends Seeder
             ? Warehouse::find($warehouseId)
             : Warehouse::where('warehouse_code', $warehouseId)->first();
 
-        if (!$warehouse) {
-            echo "Warehouse '{$warehouseId}' not found." . PHP_EOL;
+        if (! $warehouse) {
+            echo "Warehouse '{$warehouseId}' not found.".PHP_EOL;
+
             return;
         }
 
@@ -438,7 +470,7 @@ class ProductAndStockSeeder extends Seeder
         $stockCount = StockLocation::where('locationable_type', Warehouse::class)
             ->where('locationable_id', $warehouse->id)->delete();
 
-        echo "Wiped warehouse [{$warehouse->name}]: {$productCount} products, {$sectionCount} sections, {$stockCount} stock locations." . PHP_EOL;
+        echo "Wiped warehouse [{$warehouse->name}]: {$productCount} products, {$sectionCount} sections, {$stockCount} stock locations.".PHP_EOL;
     }
 
     public static function wipeStore($storeId): void
@@ -447,37 +479,38 @@ class ProductAndStockSeeder extends Seeder
             ? Store::find($storeId)
             : Store::where('store_id', $storeId)->first();
 
-        if (!$store) {
-            echo "Store '{$storeId}' not found." . PHP_EOL;
+        if (! $store) {
+            echo "Store '{$storeId}' not found.".PHP_EOL;
+
             return;
         }
 
         $productIds = Product::where('store_id', $store->id)->pluck('id');
 
         // Delete child records first to avoid FK constraint issues
-        \App\Models\ProductImage::whereIn('product_id', $productIds)->delete();
-        \App\Models\ProductVariant::whereIn('product_id', $productIds)->delete();
-        \App\Models\StockMovement::whereIn('product_id', $productIds)->delete();
+        ProductImage::whereIn('product_id', $productIds)->delete();
+        ProductVariant::whereIn('product_id', $productIds)->delete();
+        StockMovement::whereIn('product_id', $productIds)->delete();
         StockLocation::where('locationable_type', Store::class)->where('locationable_id', $store->id)->delete();
 
         $productCount = Product::where('store_id', $store->id)->delete();
         $categoryCount = Category::where('store_id', $store->id)->delete();
 
-        echo "Wiped store [{$store->name}]: {$productCount} products, {$categoryCount} categories." . PHP_EOL;
+        echo "Wiped store [{$store->name}]: {$productCount} products, {$categoryCount} categories.".PHP_EOL;
     }
 
     protected function attachImage(Product $product, int $seed): void
     {
         $sourceDir = base_path('.temp_products');
-        if (!is_dir($sourceDir)) {
+        if (! is_dir($sourceDir)) {
             return;
         }
 
         $files = array_merge(
-            glob($sourceDir . '/*.jpg') ?: [],
-            glob($sourceDir . '/*.jpeg') ?: [],
-            glob($sourceDir . '/*.png') ?: [],
-            glob($sourceDir . '/*.webp') ?: [],
+            glob($sourceDir.'/*.jpg') ?: [],
+            glob($sourceDir.'/*.jpeg') ?: [],
+            glob($sourceDir.'/*.png') ?: [],
+            glob($sourceDir.'/*.webp') ?: [],
         );
         if (empty($files)) {
             return;
@@ -488,11 +521,11 @@ class ProductAndStockSeeder extends Seeder
 
             $sourcePath = $files[$seed % count($files)];
             $ext = strtolower(pathinfo($sourcePath, PATHINFO_EXTENSION));
-            $filename = 'products/seeds/' . $product->product_code . '.' . $ext;
+            $filename = 'products/seeds/'.$product->product_code.'.'.$ext;
 
             \Storage::disk('public')->put($filename, file_get_contents($sourcePath));
 
-            \App\Models\ProductImage::create([
+            ProductImage::create([
                 'product_id' => $product->id,
                 'business_id' => $product->business_id,
                 'path' => $filename,

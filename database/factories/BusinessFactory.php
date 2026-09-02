@@ -3,6 +3,7 @@
 namespace Database\Factories;
 
 use App\Models\Business;
+use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 class BusinessFactory extends Factory
@@ -13,7 +14,7 @@ class BusinessFactory extends Factory
     {
         return [
             'name' => $this->faker->company(),
-            'user_id' => \App\Models\User::factory(),
+            'user_id' => User::factory(),
             'status' => 'active',
         ];
     }

@@ -21,7 +21,7 @@ return new class extends Migration
             $table->timestamp('verified_at')->nullable();
             $table->string('ip_address', 45)->nullable();
             $table->timestamps();
-            
+
             $table->index(['identifier', 'type', 'is_verified']);
             $table->index('expires_at');
         });

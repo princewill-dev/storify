@@ -43,6 +43,7 @@
 
                 <form method="POST" action="{{ route('checkout.payment-methods.select', ['store_subdomain' => $store->slug, 'order' => $order->order_number]) }}">
                     @csrf
+                    <input type="hidden" name="idempotency_key" value="{{ $paymentAttemptKey }}">
 
                     <div style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px;">Amount to Pay</div>
 

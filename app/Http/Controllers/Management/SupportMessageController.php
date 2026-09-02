@@ -4,8 +4,8 @@ namespace App\Http\Controllers\Management;
 
 use App\Http\Controllers\Controller;
 use App\Mail\SupportMessageReplyMail;
+use App\Models\Store;
 use App\Models\SupportMessage;
-use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
@@ -13,17 +13,15 @@ use Illuminate\Support\Facades\Validator;
 
 class SupportMessageController extends Controller
 {
-
-
     /**
-     * Display support messages for vendor's store
+     * Display support messages for the business's stores.
      */
     public function index(Request $request)
     {
         $user = $request->user();
 
-        // Get all store IDs that belong to this vendor
-        $storeIds = \App\Models\Store::where('user_id', $user->id)->pluck('id');
+        // Get all store IDs that belong to this business.
+        $storeIds = Store::where('user_id', $user->id)->pluck('id');
 
         $messages = SupportMessage::whereIn('store_id', $storeIds)
             ->with('store')
@@ -43,9 +41,9 @@ class SupportMessageController extends Controller
     {
         $user = $request->user();
 
-        // Ensure message belongs to one of vendor's stores
-        $storeIds = \App\Models\Store::where('user_id', $user->id)->pluck('id');
-        if (!$storeIds->contains($supportMessage->store_id)) {
+        // Ensure the message belongs to one of the business's stores.
+        $storeIds = Store::where('user_id', $user->id)->pluck('id');
+        if (! $storeIds->contains($supportMessage->store_id)) {
             abort(403, 'Unauthorized action.');
         }
 
@@ -62,7 +60,7 @@ class SupportMessageController extends Controller
             $supportMessage->update([
                 'reply' => $request->reply,
                 'status' => 'replied',
-                'replied_by_type' => 'vendor',
+                'replied_by_type' => 'business',
                 'replied_by_id' => $user->id,
                 'replied_at' => now(),
             ]);

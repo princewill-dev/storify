@@ -46,7 +46,7 @@
                         </td>
                         <td class="px-4 py-3">
                             @if($store->business)
-                                <a href="{{ route('admin.vendors.show', $store->user) }}" class="font-medium text-slate-900 hover:text-indigo-600">{{ $store->business->name }}</a>
+                                <a href="{{ route('admin.businesses.show', $store->user) }}" class="font-medium text-slate-900 hover:text-indigo-600">{{ $store->business->name }}</a>
                                 <div class="text-xs text-slate-400 font-mono">{{ $store->business->business_code }}</div>
                             @else
                                 <span class="text-slate-400">—</span>
@@ -422,7 +422,7 @@
                     </div>
                     <div class="md:col-span-2">
                         <label class="block text-sm font-medium text-slate-700 mb-1">Search</label>
-                        <input type="text" name="q" value="{{ $q ?? '' }}" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" placeholder="Name, store ID or vendor name">
+                        <input type="text" name="q" value="{{ $q ?? '' }}" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" placeholder="Name, store ID or business name">
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-slate-700 mb-1">From</label>

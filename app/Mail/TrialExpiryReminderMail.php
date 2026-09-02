@@ -3,7 +3,6 @@
 namespace App\Mail;
 
 use App\Models\User;
-
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Mail\Mailable;
@@ -16,6 +15,7 @@ class TrialExpiryReminderMail extends Mailable implements ShouldQueue
     use Queueable, SerializesModels;
 
     public User $user;
+
     public int $daysRemaining;
 
     public function __construct(User $user, int $daysRemaining)
@@ -28,7 +28,7 @@ class TrialExpiryReminderMail extends Mailable implements ShouldQueue
     {
         $subject = $this->daysRemaining > 0
             ? "Your free trial expires in {$this->daysRemaining} day(s)"
-            : "Your free trial expires today";
+            : 'Your free trial expires today';
 
         return new Envelope(subject: $subject);
     }

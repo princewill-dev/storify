@@ -24,8 +24,7 @@ class EarlyPass extends Model
     }
 
     /**
-     * Mark this pass as used by a vendor.
-     * @deprecated Use usages() relationship instead.
+     * Mark this pass as used by a business user.
      */
     public function markAsUsed(int $userId, ?int $storeId = null): void
     {
@@ -35,7 +34,7 @@ class EarlyPass extends Model
             'used_at' => now(),
         ]);
 
-        if (!is_null($this->max_uses) && $this->usages()->count() >= $this->max_uses) {
+        if (! is_null($this->max_uses) && $this->usages()->count() >= $this->max_uses) {
             $this->update(['is_active' => false]);
         }
     }
@@ -45,11 +44,11 @@ class EarlyPass extends Model
      */
     public function isAvailable(): bool
     {
-        if (!$this->is_active) {
+        if (! $this->is_active) {
             return false;
         }
 
-        if (!is_null($this->max_uses) && $this->usages()->count() >= $this->max_uses) {
+        if (! is_null($this->max_uses) && $this->usages()->count() >= $this->max_uses) {
             return false;
         }
 
@@ -62,22 +61,5 @@ class EarlyPass extends Model
     public function usages()
     {
         return $this->hasMany(EarlyPassUsage::class);
-    }
-
-    /**
-     * Get the vendor who used this pass.
-     * @deprecated Use usages() relationship instead.
-     */
-    public function usedByVendor()
-    {
-        // For Backward Compatibility in case Admin Index uses it, 
-        // return HasOneThrough or similar, or just return empty/null or throw?
-        // Admin index uses `with('usedByVendor')`.
-        // I should update Admin Index to use `withCount('usages')` instead.
-        // But for now, returning null relation or empty might break eager load?
-        // Relation methods must return Relation instance.
-        // I'll return a dummy relation or update AdminController IMMEDIATELY.
-        // I WILL UPDATE ADMIN CONTROLLER IMMEDIATELY.
-        return $this->hasOne(EarlyPassUsage::class)->latest(); // Return latest usage as "used by"?
     }
 }

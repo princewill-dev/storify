@@ -7,16 +7,19 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Str;
-use App\Models\BelongsToBusiness;
 
 class Subscription extends Model
 {
-    use HasFactory, BelongsToBusiness;
+    use BelongsToBusiness, HasFactory;
 
     public const STATUS_PENDING = 'pending';
+
     public const STATUS_ACTIVE = 'active';
+
     public const STATUS_CANCELLED = 'cancelled';
+
     public const STATUS_EXPIRED = 'expired';
+
     public const STATUS_SUSPENDED = 'suspended';
 
     protected $fillable = [
@@ -51,7 +54,7 @@ class Subscription extends Model
         parent::boot();
         static::creating(function (Subscription $subscription) {
             if (empty($subscription->subscription_code)) {
-                $subscription->subscription_code = 'sub_' . Str::upper(Str::random(12));
+                $subscription->subscription_code = 'sub_'.Str::upper(Str::random(12));
             }
         });
     }
@@ -78,14 +81,14 @@ class Subscription extends Model
 
     public function isActive(): bool
     {
-        return $this->status === self::STATUS_ACTIVE 
-            && $this->expires_at 
+        return $this->status === self::STATUS_ACTIVE
+            && $this->expires_at
             && $this->expires_at->isFuture();
     }
 
     public function isExpired(): bool
     {
-        return $this->status === self::STATUS_EXPIRED 
+        return $this->status === self::STATUS_EXPIRED
             || ($this->expires_at && $this->expires_at->isPast());
     }
 
@@ -99,7 +102,7 @@ class Subscription extends Model
     {
         return $query->where(function ($q) {
             $q->where('status', self::STATUS_EXPIRED)
-              ->orWhere('expires_at', '<=', now());
+                ->orWhere('expires_at', '<=', now());
         });
     }
 }

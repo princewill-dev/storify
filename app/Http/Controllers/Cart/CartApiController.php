@@ -3,25 +3,26 @@
 namespace App\Http\Controllers\Cart;
 
 use App\Http\Controllers\Controller;
-use Illuminate\Http\Request;
-use Illuminate\Support\Str;
-use App\Models\Store;
 use App\Models\Cart;
 use App\Models\CartItem;
 use App\Models\Product;
+use App\Models\Store;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cookie;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 class CartApiController extends Controller
 {
     private function guestToken(Request $request): string
     {
-        $token = (string)$request->cookie('guest_token');
-        if (!$token) {
+        $token = (string) $request->cookie('guest_token');
+        if (! $token) {
             $token = Str::uuid()->toString();
             Cookie::queue('guest_token', $token, 60 * 24 * 30);
         }
+
         return $token;
     }
 
@@ -37,14 +38,14 @@ class CartApiController extends Controller
         $token = $this->guestToken($request);
         $query = Cart::query()->where('store_id', $store->id)->where('status', 'active');
         if ($userId) {
-            $query->where(function($q) use ($userId, $token) {
+            $query->where(function ($q) use ($userId, $token) {
                 $q->where('user_id', $userId)->orWhere('guest_token', $token);
             });
         } else {
             $query->where('guest_token', $token);
         }
         $cart = $query->first();
-        if (!$cart) {
+        if (! $cart) {
             $cart = Cart::create([
                 'store_id' => $store->id,
                 'user_id' => $userId,
@@ -52,30 +53,31 @@ class CartApiController extends Controller
                 'currency' => 'NGN',
                 'status' => 'active',
             ]);
-            
+
             Log::info('cart_created', [
                 'cart_id' => $cart->id,
                 'store_id' => $store->id,
                 'user_id' => $userId,
                 'guest_token' => $userId ? null : $token,
-                'is_guest' => !$userId,
+                'is_guest' => ! $userId,
             ]);
-        } else if ($userId && !$cart->user_id) {
+        } elseif ($userId && ! $cart->user_id) {
             $cart->user_id = $userId;
             $cart->guest_token = null;
             $cart->save();
-            
+
             Log::info('cart_transferred_to_user', [
                 'cart_id' => $cart->id,
                 'user_id' => $userId,
             ]);
         }
+
         return $cart->load('items');
     }
 
     private function cartPayload(Cart $cart): array
     {
-        $items = $cart->items()->with('product')->get()->map(function(CartItem $i){
+        $items = $cart->items()->with('product')->get()->map(function (CartItem $i) {
             $product = $i->product;
             $image = null;
             if ($product) {
@@ -96,11 +98,12 @@ class CartApiController extends Controller
                 'slug' => $product->slug ?? null,
                 'code' => $product->product_code ?? null,
                 'is_bulk' => $isBulk,
-                'max_stock' => ($product && !$product->has_variants && !is_null($product->quantity))
-                    ? (int)$product->quantity
+                'max_stock' => ($product && ! $product->has_variants && ! is_null($product->quantity))
+                    ? (int) $product->quantity
                     : null,
             ];
         });
+
         return [
             'id' => $cart->id,
             'store_id' => $cart->store_id,
@@ -118,48 +121,50 @@ class CartApiController extends Controller
         $store = $this->resolveStore($store_subdomain);
         $cart = $this->resolveCart($request, $store);
         $cart->recalcTotals();
+
         return response()->json($this->cartPayload($cart));
     }
 
     public function add(Request $request, string $store_subdomain)
     {
         $data = $request->validate([
-            'product_id' => ['required','exists:products,id'],
-            'qty' => ['nullable','integer','min:1'],
-            'variant_key' => ['nullable','string','max:100'],
+            'product_id' => ['required', 'exists:products,id'],
+            'qty' => ['nullable', 'integer', 'min:1'],
+            'variant_key' => ['nullable', 'string', 'max:100'],
         ]);
-        $qty = max(1, (int)($data['qty'] ?? 1));
+        $qty = max(1, (int) ($data['qty'] ?? 1));
         $store = $this->resolveStore($store_subdomain);
         $product = Product::findOrFail($data['product_id']);
-        if ((int)$product->store_id !== (int)$store->id) {
+        if ((int) $product->store_id !== (int) $store->id) {
             return response()->json(['message' => 'Product not in this store'], 422);
         }
 
         $cart = $this->resolveCart($request, $store);
 
         // For non-variant products, check stock against total qty that will be in cart
-        if (!$product->has_variants && !is_null($product->quantity)) {
+        if (! $product->has_variants && ! is_null($product->quantity)) {
             $existingLine = CartItem::where('cart_id', $cart->id)
                 ->where('product_id', $product->id)
                 ->where('variant_key', $data['variant_key'] ?? null)
                 ->first();
 
-            $existingCartQty = $existingLine ? (int)$existingLine->qty : 0;
+            $existingCartQty = $existingLine ? (int) $existingLine->qty : 0;
             $totalQtyAfterAdd = $existingCartQty + $qty;
 
-            if ($totalQtyAfterAdd > (int)$product->quantity) {
-                $available = max(0, (int)$product->quantity - $existingCartQty);
+            if ($totalQtyAfterAdd > (int) $product->quantity) {
+                $available = max(0, (int) $product->quantity - $existingCartQty);
+
                 return response()->json([
                     'message' => $available > 0
                         ? "Only {$available} more unit(s) can be added (you already have {$existingCartQty} in cart)."
                         : 'You have already added the maximum available stock to your cart.',
-                    'max_stock' => (int)$product->quantity,
+                    'max_stock' => (int) $product->quantity,
                     'cart_qty' => $existingCartQty,
                 ], 422);
             }
         }
 
-        return DB::transaction(function() use ($cart, $product, $data, $qty) {
+        return DB::transaction(function () use ($cart, $product, $data, $qty) {
             $line = CartItem::where('cart_id', $cart->id)
                 ->where('product_id', $product->id)
                 ->where('variant_key', $data['variant_key'] ?? null)
@@ -169,7 +174,7 @@ class CartApiController extends Controller
                 'qty' => $qty,
                 'bulk_quantity' => $product->bulk_quantity,
                 'bulk_price' => $product->bulk_price,
-                'base_amount' => $product->amount
+                'base_amount' => $product->amount,
             ]);
 
             // Check for bulk pricing
@@ -180,9 +185,11 @@ class CartApiController extends Controller
             } else {
                 // Normalize product amount to kobo (integer)
                 $raw = $product->amount ?? 0;
-                if (is_string($raw)) { $raw = trim($raw); }
+                if (is_string($raw)) {
+                    $raw = trim($raw);
+                }
                 if (is_numeric($raw)) {
-                    $unit = (strpos((string)$raw, '.') !== false) ? (int) round(((float)$raw) * 100) : (int) $raw;
+                    $unit = (strpos((string) $raw, '.') !== false) ? (int) round(((float) $raw) * 100) : (int) $raw;
                 } else {
                     $unit = 0;
                 }
@@ -207,8 +214,9 @@ class CartApiController extends Controller
             $cart->load('items');
             $cart->recalcTotals();
             $payload = $this->cartPayload($cart);
-            $payload['max_stock'] = is_null($product->quantity) ? null : (int)$product->quantity;
-            $payload['cart_qty'] = (int)$line->qty;
+            $payload['max_stock'] = is_null($product->quantity) ? null : (int) $product->quantity;
+            $payload['cart_qty'] = (int) $line->qty;
+
             return response()->json($payload);
         });
     }
@@ -216,30 +224,30 @@ class CartApiController extends Controller
     public function buyNow(Request $request, string $store_subdomain)
     {
         $data = $request->validate([
-            'product_id' => ['required','exists:products,id'],
-            'qty' => ['nullable','integer','min:1'],
-            'variant_key' => ['nullable','string','max:100'],
+            'product_id' => ['required', 'exists:products,id'],
+            'qty' => ['nullable', 'integer', 'min:1'],
+            'variant_key' => ['nullable', 'string', 'max:100'],
         ]);
-        $qty = max(1, (int)($data['qty'] ?? 1));
+        $qty = max(1, (int) ($data['qty'] ?? 1));
         $store = $this->resolveStore($store_subdomain);
         $product = Product::findOrFail($data['product_id']);
-        if ((int)$product->store_id !== (int)$store->id) {
+        if ((int) $product->store_id !== (int) $store->id) {
             return response()->json(['message' => 'Product not in this store'], 422);
         }
 
         // Check stock availability
-        if (!$product->has_variants && !is_null($product->quantity)) {
-            if ($qty > (int)$product->quantity) {
+        if (! $product->has_variants && ! is_null($product->quantity)) {
+            if ($qty > (int) $product->quantity) {
                 return response()->json([
                     'message' => 'Requested quantity exceeds available stock.',
                 ], 422);
             }
         }
 
-        return DB::transaction(function() use ($product, $data, $qty, $store, $store_subdomain, $request) {
+        return DB::transaction(function () use ($product, $data, $qty, $store, $store_subdomain, $request) {
             // Create an isolated cart specifically for Buy Now
             $token = bin2hex(random_bytes(16)); // 32 chars
-            
+
             $cart = Cart::create([
                 'store_id' => $store->id,
                 'user_id' => auth()->guard('customer')->id() ?: null,
@@ -254,9 +262,11 @@ class CartApiController extends Controller
                 $unit = (int) round(($product->bulk_price / $product->bulk_quantity) * 100);
             } else {
                 $raw = $product->amount ?? 0;
-                if (is_string($raw)) { $raw = trim($raw); }
+                if (is_string($raw)) {
+                    $raw = trim($raw);
+                }
                 if (is_numeric($raw)) {
-                    $unit = (strpos((string)$raw, '.') !== false) ? (int) round(((float)$raw) * 100) : (int) $raw;
+                    $unit = (strpos((string) $raw, '.') !== false) ? (int) round(((float) $raw) * 100) : (int) $raw;
                 } else {
                     $unit = 0;
                 }
@@ -280,18 +290,18 @@ class CartApiController extends Controller
             if ($request->routeIs('local.*') || config('app.env') === 'local') {
                 $redirectUrl = route('local.checkout.index', [
                     'store_subdomain' => $store_subdomain,
-                    'token' => $token
+                    'token' => $token,
                 ]);
             } else {
                 $redirectUrl = route('checkout.index', [
                     'store_subdomain' => $store_subdomain,
-                    'token' => $token
+                    'token' => $token,
                 ]);
             }
 
             return response()->json([
                 'success' => true,
-                'redirect_url' => $redirectUrl
+                'redirect_url' => $redirectUrl,
             ]);
         });
     }
@@ -299,14 +309,14 @@ class CartApiController extends Controller
     public function updateItem(Request $request, string $store_subdomain, CartItem $item)
     {
         $data = $request->validate([
-            'qty' => ['required','integer','min:1']
+            'qty' => ['required', 'integer', 'min:1'],
         ]);
         $store = $this->resolveStore($store_subdomain);
-        if ((int)$item->cart->store_id !== (int)$store->id) {
+        if ((int) $item->cart->store_id !== (int) $store->id) {
             return response()->json(['message' => 'Wrong store'], 403);
         }
-        $item->qty = (int)$data['qty'];
-        
+        $item->qty = (int) $data['qty'];
+
         // Recalculate unit amount based on new qty (Bulk Pricing)
         $product = $item->product;
         if ($product) {
@@ -314,7 +324,7 @@ class CartApiController extends Controller
                 'item_id' => $item->id,
                 'new_qty' => $item->qty,
                 'bulk_quantity' => $product->bulk_quantity,
-                'bulk_price' => $product->bulk_price
+                'bulk_price' => $product->bulk_price,
             ]);
 
             if ($product->bulk_quantity > 0 && $item->qty >= $product->bulk_quantity && $product->bulk_price > 0) {
@@ -322,9 +332,11 @@ class CartApiController extends Controller
                 Log::info('cart_update_bulk_applied', ['unit_kobo' => $unit]);
             } else {
                 $raw = $product->amount ?? 0;
-                if (is_string($raw)) { $raw = trim($raw); }
+                if (is_string($raw)) {
+                    $raw = trim($raw);
+                }
                 if (is_numeric($raw)) {
-                    $unit = (strpos((string)$raw, '.') !== false) ? (int) round(((float)$raw) * 100) : (int) $raw;
+                    $unit = (strpos((string) $raw, '.') !== false) ? (int) round(((float) $raw) * 100) : (int) $raw;
                 } else {
                     $unit = 0;
                 }
@@ -333,23 +345,25 @@ class CartApiController extends Controller
             $item->unit_amount = $unit;
         }
 
-        $item->line_subtotal = $item->qty * (int)$item->unit_amount;
+        $item->line_subtotal = $item->qty * (int) $item->unit_amount;
         $item->save();
         $cart = $item->cart()->with('items')->first();
         $cart->recalcTotals();
+
         return response()->json($this->cartPayload($cart));
     }
 
     public function removeItem(Request $request, string $store_subdomain, CartItem $item)
     {
         $store = $this->resolveStore($store_subdomain);
-        if ((int)$item->cart->store_id !== (int)$store->id) {
+        if ((int) $item->cart->store_id !== (int) $store->id) {
             return response()->json(['message' => 'Wrong store'], 403);
         }
         $cart = $item->cart;
         $item->delete();
         $cart->load('items');
         $cart->recalcTotals();
+
         return response()->json($this->cartPayload($cart));
     }
 
@@ -360,6 +374,7 @@ class CartApiController extends Controller
         $cart->items()->delete();
         $cart->load('items');
         $cart->recalcTotals();
+
         return response()->json($this->cartPayload($cart));
     }
 }

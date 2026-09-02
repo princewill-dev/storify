@@ -2,8 +2,8 @@
 
 namespace Database\Seeders;
 
-use Illuminate\Database\Seeder;
 use App\Models\BusinessType;
+use Illuminate\Database\Seeder;
 
 class BusinessTypeSeeder extends Seeder
 {

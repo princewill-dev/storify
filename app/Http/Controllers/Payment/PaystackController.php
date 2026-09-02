@@ -2,21 +2,22 @@
 
 namespace App\Http\Controllers\Payment;
 
+use App\Enums\OrderStatus;
+use App\Enums\TransactionStatus;
 use App\Http\Controllers\Controller;
+use App\Mail\BusinessOrderNotificationMail;
+use App\Mail\NewOrderAdminMail;
+use App\Mail\OrderReceivedMail;
 use App\Models\Order;
 use App\Models\PaymentMethod;
 use App\Models\Transaction;
 use App\Models\User;
-use App\Enums\TransactionStatus;
 use App\Services\PaystackService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Mail;
-use App\Mail\NewOrderAdminMail;
-use App\Mail\OrderReceivedMail;
-use App\Mail\VendorOrderNotificationMail;
+use Illuminate\Support\Facades\Validator;
 
 class PaystackController extends Controller
 {
@@ -80,7 +81,7 @@ class PaystackController extends Controller
                 ],
             ]);
 
-            if (!$result['success']) {
+            if (! $result['success']) {
                 Log::warning('paystack.initialize_failed', [
                     'order_id' => $order->id,
                     'message' => $result['message'],
@@ -144,7 +145,7 @@ class PaystackController extends Controller
     {
         $reference = $request->query('reference');
 
-        if (!$reference) {
+        if (! $reference) {
             return redirect()->route('home.index')->with('error', 'Invalid payment reference');
         }
 
@@ -152,7 +153,7 @@ class PaystackController extends Controller
             // Find transaction
             $transaction = Transaction::where('reference', $reference)->first();
 
-            if (!$transaction) {
+            if (! $transaction) {
                 Log::warning('paystack.callback.transaction_not_found', [
                     'reference' => $reference,
                 ]);
@@ -178,7 +179,7 @@ class PaystackController extends Controller
                 // Step 1: First verification
                 $firstVerification = $this->paystack->verifyPayment($reference);
 
-                if (!$firstVerification['success']) {
+                if (! $firstVerification['success']) {
                     Log::warning('paystack.first_verification_failed', [
                         'reference' => $reference,
                         'message' => $firstVerification['message'],
@@ -201,7 +202,7 @@ class PaystackController extends Controller
                 // Step 2: Second verification (Double check)
                 $secondVerification = $this->paystack->doubleVerifyPayment($reference);
 
-                if (!$secondVerification['success']) {
+                if (! $secondVerification['success']) {
                     Log::warning('paystack.second_verification_failed', [
                         'reference' => $reference,
                         'message' => $secondVerification['message'],
@@ -264,7 +265,7 @@ class PaystackController extends Controller
                 $order->amount_paid = (float) $order->amount_paid + (float) $transaction->amount;
 
                 if ($order->isFullyPaid()) {
-                    $order->status = \App\Enums\OrderStatus::ACCEPTED;
+                    $order->status = OrderStatus::ACCEPTED;
                 }
                 $order->save();
 
@@ -292,7 +293,7 @@ class PaystackController extends Controller
                 try {
                     // Send order confirmation to customer
                     Mail::to($order->customer->email)->send(new OrderReceivedMail($order));
-                    
+
                     // Send new order notification to admin
                     $adminEmail = config('mail.admin_email', env('ADMIN_EMAIL', 'admin@example.com'));
                     if ($adminEmail && $adminEmail !== 'admin@example.com') {
@@ -301,9 +302,9 @@ class PaystackController extends Controller
 
                     $userEmail = User::find($order->user_id)?->email;
                     if ($userEmail) {
-                        Mail::to($userEmail)->send(new VendorOrderNotificationMail($order));
+                        Mail::to($userEmail)->send(new BusinessOrderNotificationMail($order));
                     }
-                    
+
                     Log::info('paystack.callback.emails_sent', [
                         'order_id' => $order->id,
                         'customer_email' => $order->customer->email,
@@ -311,7 +312,7 @@ class PaystackController extends Controller
                 } catch (\Exception $e) {
                     Log::error('paystack.callback.email_failed', [
                         'order_id' => $order->id,
-                        'error' => $e->getMessage()
+                        'error' => $e->getMessage(),
                     ]);
                 }
 
@@ -351,7 +352,7 @@ class PaystackController extends Controller
         $signature = $request->header('x-paystack-signature');
         $payload = $request->getContent();
 
-        if (!$this->paystack->verifyWebhookSignature($payload, $signature)) {
+        if (! $this->paystack->verifyWebhookSignature($payload, $signature)) {
             Log::warning('paystack.webhook.invalid_signature', [
                 'ip' => $request->ip(),
             ]);
@@ -399,17 +400,17 @@ class PaystackController extends Controller
     {
         $reference = $data['reference'] ?? null;
 
-        if (!$reference) {
+        if (! $reference) {
             return;
         }
 
         $transaction = Transaction::where('reference', $reference)->first();
 
-        $transactionStatus = $transaction->status instanceof \App\Enums\TransactionStatus 
-            ? $transaction->status->value 
+        $transactionStatus = $transaction->status instanceof TransactionStatus
+            ? $transaction->status->value
             : $transaction->status;
 
-        if (!$transaction || $transactionStatus === TransactionStatus::CONFIRMED->value) {
+        if (! $transaction || $transactionStatus === TransactionStatus::CONFIRMED->value) {
             return;
         }
 
@@ -453,7 +454,7 @@ class PaystackController extends Controller
                 try {
                     // Send order confirmation to customer
                     Mail::to($transaction->order->customer->email)->send(new OrderReceivedMail($transaction->order));
-                    
+
                     // Send new order notification to admin
                     $adminEmail = config('mail.admin_email', env('ADMIN_EMAIL', 'admin@example.com'));
                     if ($adminEmail && $adminEmail !== 'admin@example.com') {
@@ -462,9 +463,9 @@ class PaystackController extends Controller
 
                     $userEmail = User::find($transaction->order->user_id)?->email;
                     if ($userEmail) {
-                        Mail::to($userEmail)->send(new VendorOrderNotificationMail($transaction->order));
+                        Mail::to($userEmail)->send(new BusinessOrderNotificationMail($transaction->order));
                     }
-                    
+
                     Log::info('paystack.webhook.emails_sent', [
                         'order_id' => $transaction->order->id,
                         'customer_email' => $transaction->order->customer->email,
@@ -472,7 +473,7 @@ class PaystackController extends Controller
                 } catch (\Exception $e) {
                     Log::error('paystack.webhook.email_failed', [
                         'order_id' => $transaction->order->id,
-                        'error' => $e->getMessage()
+                        'error' => $e->getMessage(),
                     ]);
                 }
             });
@@ -486,17 +487,17 @@ class PaystackController extends Controller
     {
         $reference = $data['reference'] ?? null;
 
-        if (!$reference) {
+        if (! $reference) {
             return;
         }
 
         $transaction = Transaction::where('reference', $reference)->first();
 
-        $transactionStatus = $transaction->status instanceof \App\Enums\TransactionStatus 
-            ? $transaction->status->value 
+        $transactionStatus = $transaction->status instanceof TransactionStatus
+            ? $transaction->status->value
             : $transaction->status;
 
-        if (!$transaction || $transactionStatus === TransactionStatus::CONFIRMED->value) {
+        if (! $transaction || $transactionStatus === TransactionStatus::CONFIRMED->value) {
             return;
         }
 

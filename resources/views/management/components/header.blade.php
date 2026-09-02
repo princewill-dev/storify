@@ -50,19 +50,19 @@
         {{-- Profile dropdown --}}
         <div class="relative" x-data="{ open: false }">
             <button @click="open = !open" class="flex items-center gap-2 p-1.5 rounded-lg hover:bg-slate-100 transition-colors">
-                <img src="{{ $headerVendor->photoUrl() }}" alt="" class="h-8 w-8 rounded-full object-cover bg-slate-200 shrink-0">
+                <img src="{{ $headerUser->photoUrl() }}" alt="" class="h-8 w-8 rounded-full object-cover bg-slate-200 shrink-0">
                 <div class="hidden sm:flex flex-col items-start leading-none">
-                    <span class="text-sm font-medium text-slate-700 max-w-[120px] truncate">{{ $headerVendor->name }}</span>
-                    @if($roleName = $headerVendor->getRoleNames()->first())
+                    <span class="text-sm font-medium text-slate-700 max-w-[120px] truncate">{{ $headerUser->name }}</span>
+                    @if($roleName = $headerUser->getRoleNames()->first())
                     <span class="text-[10px] font-medium text-slate-400">{{ $roleName }}</span>
                     @endif
                 </div>
             </button>
             <div x-show="open" @click.outside="open = false" x-transition class="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-lg border border-slate-200 py-1 z-50">
                 <div class="px-3 py-2 border-b border-slate-100">
-                    <p class="text-sm font-medium text-slate-900 truncate">{{ $headerVendor->name }}</p>
-                    <p class="text-xs text-slate-500 truncate">{{ $headerVendor->email }}</p>
-                    @if($roleName = $headerVendor->getRoleNames()->first())
+                    <p class="text-sm font-medium text-slate-900 truncate">{{ $headerUser->name }}</p>
+                    <p class="text-xs text-slate-500 truncate">{{ $headerUser->email }}</p>
+                    @if($roleName = $headerUser->getRoleNames()->first())
                     <span class="inline-block mt-1 text-[10px] font-medium text-slate-500 bg-slate-100 rounded-full px-2 py-0.5">{{ $roleName }}</span>
                     @endif
                 </div>

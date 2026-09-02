@@ -13,14 +13,12 @@ class SupportMessageAdmin extends Mailable implements ShouldQueue
 {
     use Queueable, SerializesModels;
 
-    public function __construct(public array $data)
-    {
-    }
+    public function __construct(public array $data) {}
 
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: 'New Support Message: ' . ($this->data['subject'] ?? 'No Subject'),
+            subject: 'New Support Message: '.($this->data['subject'] ?? 'No Subject'),
             replyTo: [$this->data['email']],
         );
     }

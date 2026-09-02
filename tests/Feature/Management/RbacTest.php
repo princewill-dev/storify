@@ -1,26 +1,27 @@
 <?php
 
-use App\Models\User;
 use App\Models\Business;
-use function Pest\Laravel\{actingAs, get, seed};
+use App\Models\User;
+use Database\Seeders\SpatiePermissionSeeder;
+use Illuminate\Support\Str;
+
+use function Pest\Laravel\actingAs;
+use function Pest\Laravel\seed;
 
 beforeEach(function () {
-    seed(\Database\Seeders\SpatiePermissionSeeder::class);
-});
-
-afterEach(function () {
-    User::where('email', 'like', '%.test')->delete();
+    seed(SpatiePermissionSeeder::class);
 });
 
 function makeStaffUser(string $role): User
 {
     $business = Business::first();
-    if (!$business) {
+    if (! $business) {
         $business = Business::factory()->create(['status' => 'active']);
+        (new SpatiePermissionSeeder)->createRolesForBusiness($business);
     }
     $user = User::create([
-        'name' => 'Test ' . \Illuminate\Support\Str::random(6),
-        'email' => \Illuminate\Support\Str::random(8) . '@rbac.test',
+        'name' => 'Test '.Str::random(6),
+        'email' => Str::random(8).'@rbac.test',
         'password' => bcrypt('password'),
         'role' => 'staff',
         'business_id' => $business->id,
@@ -29,6 +30,7 @@ function makeStaffUser(string $role): User
     ]);
     setPermissionsTeamId($business->id);
     $user->assignRole($role);
+
     return $user;
 }
 

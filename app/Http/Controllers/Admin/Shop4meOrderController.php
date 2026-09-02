@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Enums\TransactionStatus;
 use App\Http\Controllers\Controller;
 use App\Models\Order;
 use App\Models\Store;
@@ -24,11 +25,11 @@ class Shop4meOrderController extends Controller
             if ($status === 'unpaid') {
                 $query->whereDoesntHave('transactions');
             } elseif ($status === 'paid') {
-                $query->whereHas('transactions', fn($q) => $q->where('status', \App\Enums\TransactionStatus::CONFIRMED->value));
+                $query->whereHas('transactions', fn ($q) => $q->where('status', TransactionStatus::CONFIRMED->value));
             } elseif ($status === 'refunded') {
-                $query->whereHas('transactions', fn($q) => $q->where('status', \App\Enums\TransactionStatus::REFUNDED->value));
+                $query->whereHas('transactions', fn ($q) => $q->where('status', TransactionStatus::REFUNDED->value));
             } elseif ($status === 'failed') {
-                $query->whereHas('transactions', fn($q) => $q->where('status', \App\Enums\TransactionStatus::CANCELED->value));
+                $query->whereHas('transactions', fn ($q) => $q->where('status', TransactionStatus::CANCELED->value));
             }
         }
 
@@ -74,8 +75,8 @@ class Shop4meOrderController extends Controller
             'delivered' => (clone $statsBase)->where('status', 'delivered')->count(),
             'completed' => (clone $statsBase)->where('status', 'completed')->count(),
             'cancelled' => (clone $statsBase)->where('status', 'cancelled')->count(),
-            'paid' => (clone $statsBase)->whereHas('transactions', fn($q) => $q->where('status', \App\Enums\TransactionStatus::CONFIRMED->value))->count(),
-            'total_revenue' => (clone $statsBase)->whereHas('transactions', fn($q) => $q->where('status', \App\Enums\TransactionStatus::CONFIRMED->value))->sum('total'),
+            'paid' => (clone $statsBase)->whereHas('transactions', fn ($q) => $q->where('status', TransactionStatus::CONFIRMED->value))->count(),
+            'total_revenue' => (clone $statsBase)->whereHas('transactions', fn ($q) => $q->where('status', TransactionStatus::CONFIRMED->value))->sum('total'),
         ];
 
         return view('admin.order_management.shop4me_orders', compact('orders', 'stores', 'stats'));

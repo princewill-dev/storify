@@ -6,7 +6,6 @@ use App\Enums\TransactionStatus;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Str;
-use App\Models\BelongsToBusiness;
 
 class Transaction extends Model
 {
@@ -14,6 +13,7 @@ class Transaction extends Model
 
     protected $fillable = [
         'reference',
+        'idempotency_key',
         'order_id',
         'invoice_id',
         'business_id',
@@ -43,10 +43,10 @@ class Transaction extends Model
     protected static function boot()
     {
         parent::boot();
-        
+
         static::creating(function ($transaction) {
             if (empty($transaction->reference)) {
-                $transaction->reference = 'TXN-' . strtoupper(Str::random(12));
+                $transaction->reference = 'TXN-'.strtoupper(Str::random(12));
             }
         });
     }

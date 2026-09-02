@@ -17,7 +17,7 @@ class TransactionController extends Controller
         $query = Transaction::with(['order.customer', 'invoice.store', 'paymentMethod']);
 
         if ($request->filled('reference')) {
-            $query->where('reference', 'like', '%' . $request->reference . '%');
+            $query->where('reference', 'like', '%'.$request->reference.'%');
         }
 
         if ($request->filled('status') && in_array($request->status, TransactionStatus::values(), true)) {

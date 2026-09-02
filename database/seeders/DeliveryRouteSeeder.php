@@ -2,19 +2,19 @@
 
 namespace Database\Seeders;
 
-use Illuminate\Database\Seeder;
 use App\Models\DeliveryRoute;
+use Illuminate\Database\Seeder;
 
 class DeliveryRouteSeeder extends Seeder
 {
     public function run(): void
     {
         $data = [
-            ['country' => 'Nigeria','state' => 'Lagos','area' => 'Lekki','fee' => 5000,'delivery_days' => 3,'active' => true],
-            ['country' => 'Nigeria','state' => 'Lagos','area' => 'Ikeja','fee' => 4000,'delivery_days' => 3,'active' => true],
-            ['country' => 'Nigeria','state' => 'Abuja','area' => 'Wuse','fee' => 6000,'delivery_days' => 4,'active' => true],
-            ['country' => 'Nigeria','state' => 'Rivers','area' => 'Port Harcourt','fee' => 5500,'delivery_days' => 4,'active' => true],
-            ['country' => 'Nigeria','state' => 'Oyo','area' => 'Ibadan','fee' => 4500,'delivery_days' => 4,'active' => true],
+            ['country' => 'Nigeria', 'state' => 'Lagos', 'area' => 'Lekki', 'fee' => 5000, 'delivery_days' => 3, 'active' => true],
+            ['country' => 'Nigeria', 'state' => 'Lagos', 'area' => 'Ikeja', 'fee' => 4000, 'delivery_days' => 3, 'active' => true],
+            ['country' => 'Nigeria', 'state' => 'Abuja', 'area' => 'Wuse', 'fee' => 6000, 'delivery_days' => 4, 'active' => true],
+            ['country' => 'Nigeria', 'state' => 'Rivers', 'area' => 'Port Harcourt', 'fee' => 5500, 'delivery_days' => 4, 'active' => true],
+            ['country' => 'Nigeria', 'state' => 'Oyo', 'area' => 'Ibadan', 'fee' => 4500, 'delivery_days' => 4, 'active' => true],
         ];
         foreach ($data as $r) {
             DeliveryRoute::firstOrCreate(

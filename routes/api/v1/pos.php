@@ -1,15 +1,17 @@
 <?php
 
-use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\V1\Pos\AuthController;
-use App\Http\Controllers\Api\V1\Pos\SessionController;
-use App\Http\Controllers\Api\V1\Pos\ProductController;
-use App\Http\Controllers\Api\V1\Pos\SaleController;
-use App\Http\Controllers\Api\V1\Pos\CustomerController;
-use App\Http\Controllers\Api\V1\Pos\TransactionController;
 use App\Http\Controllers\Api\V1\Pos\BankController;
+use App\Http\Controllers\Api\V1\Pos\CheckoutController;
+use App\Http\Controllers\Api\V1\Pos\CustomerController;
 use App\Http\Controllers\Api\V1\Pos\InvoiceController as PosInvoiceController;
+use App\Http\Controllers\Api\V1\Pos\OrderController;
+use App\Http\Controllers\Api\V1\Pos\ProductController;
 use App\Http\Controllers\Api\V1\Pos\ServiceChargeController;
+use App\Http\Controllers\Api\V1\Pos\SessionController;
+use App\Http\Controllers\Api\V1\Pos\TransactionController;
+use App\Http\Middleware\EnsurePosStoreAccess;
+use Illuminate\Support\Facades\Route;
 
 Route::prefix('pos')->group(function () {
 
@@ -23,7 +25,7 @@ Route::prefix('pos')->group(function () {
         Route::post('/verify-pin', [AuthController::class, 'verifyPin']);
         Route::patch('/me/theme', [AuthController::class, 'updateTheme']);
 
-        Route::prefix('stores/{store}')->group(function () {
+        Route::prefix('stores/{store}')->middleware(EnsurePosStoreAccess::class)->group(function () {
 
             Route::get('/session', [SessionController::class, 'status']);
             Route::post('/session/open', [SessionController::class, 'open'])->middleware('permission:pos open_session');
@@ -35,10 +37,10 @@ Route::prefix('pos')->group(function () {
 
             Route::get('/service-charges', [ServiceChargeController::class, 'index']);
 
-            Route::post('/checkout', [SaleController::class, 'checkout']);
-            Route::get('/orders', [SaleController::class, 'history']);
-            Route::get('/orders/{orderId}/receipt', [SaleController::class, 'receipt']);
-            Route::post('/orders/{orderId}/refund', [SaleController::class, 'refund']);
+            Route::post('/checkout', CheckoutController::class);
+            Route::get('/orders', [OrderController::class, 'history']);
+            Route::get('/orders/{orderId}/receipt', [OrderController::class, 'receipt']);
+            Route::post('/orders/{orderId}/refund', [OrderController::class, 'refund']);
 
             Route::get('/customers', [CustomerController::class, 'search']);
             Route::get('/customers/{customerId}', [CustomerController::class, 'show']);

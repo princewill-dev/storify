@@ -6,11 +6,12 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
-return new class extends Migration {
+return new class extends Migration
+{
     public function up(): void
     {
         Schema::table('vendors', function (Blueprint $table) {
-            if (!Schema::hasColumn('vendors', 'account_id')) {
+            if (! Schema::hasColumn('vendors', 'account_id')) {
                 $table->string('account_id')->nullable()->unique();
             }
         });

@@ -3,10 +3,11 @@
 namespace App\Http\Controllers\Api\V1\Pos;
 
 use App\Http\Controllers\Controller;
-use App\Models\PosSession;
 use App\Models\Store;
+use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
@@ -24,7 +25,7 @@ class AuthController extends Controller
             'password' => 'required|string',
         ]);
 
-        if (!Auth::guard('web')->attempt($validated, false)) {
+        if (! Auth::guard('web')->attempt($validated, false)) {
             throw ValidationException::withMessages([
                 'email' => ['The provided credentials are incorrect.'],
             ]);
@@ -39,7 +40,7 @@ class AuthController extends Controller
             ], 403);
         }
 
-        if ($user->role === 'staff' && !$user->pos_pin) {
+        if ($user->role === 'staff' && ! $user->pos_pin) {
             return response()->json([
                 'success' => false,
                 'message' => 'Your account does not have a POS PIN set. Please contact your manager to set one up in the management portal.',
@@ -66,19 +67,19 @@ class AuthController extends Controller
                     'force_password_change' => (bool) $user->force_password_change,
                     'theme' => $user->theme_preference ?? 'dark',
                 ],
-                'stores' => $stores->map(fn($s) => [
+                'stores' => $stores->map(fn ($s) => [
                     'id' => $s->id,
                     'store_id' => $s->store_id,
                     'name' => $s->name,
                     'address' => $s->address,
-                    'logo' => $s->logo_path ? asset('storage/' . $s->logo_path) : null,
+                    'logo' => $s->logo_path ? asset('storage/'.$s->logo_path) : null,
                 ]),
                 'active_store' => $activeStore ? [
                     'id' => $activeStore->id,
                     'store_id' => $activeStore->store_id,
                     'name' => $activeStore->name,
                     'address' => $activeStore->address,
-                    'logo' => $activeStore->logo_path ? asset('storage/' . $activeStore->logo_path) : null,
+                    'logo' => $activeStore->logo_path ? asset('storage/'.$activeStore->logo_path) : null,
                 ] : null,
             ],
         ]);
@@ -100,7 +101,7 @@ class AuthController extends Controller
                     'permissions' => $user->getPermissionNames()->toArray(),
                     'theme' => $user->theme_preference ?? 'dark',
                 ],
-                'stores' => $stores->map(fn($s) => [
+                'stores' => $stores->map(fn ($s) => [
                     'id' => $s->id,
                     'store_id' => $s->store_id,
                     'name' => $s->name,
@@ -129,14 +130,14 @@ class AuthController extends Controller
             ->where('status', '!=', 'deleted')
             ->exists();
 
-        if (!$assigned && !$user->isRestrictedStaff()) {
+        if (! $assigned && ! $user->isRestrictedStaff()) {
             $assigned = Store::where('id', $validated['store_id'])
                 ->where('pos_enabled', true)
                 ->where('status', '!=', 'deleted')
                 ->exists();
         }
 
-        if (!$assigned) {
+        if (! $assigned) {
             return response()->json(['success' => false, 'message' => 'You are not assigned to this store.'], 403);
         }
 
@@ -150,7 +151,7 @@ class AuthController extends Controller
                     'store_id' => $store->store_id,
                     'name' => $store->name,
                     'address' => $store->address,
-                    'logo' => $store->logo_path ? asset('storage/' . $store->logo_path) : null,
+                    'logo' => $store->logo_path ? asset('storage/'.$store->logo_path) : null,
                 ],
             ],
         ]);
@@ -169,7 +170,7 @@ class AuthController extends Controller
             return response()->json(['success' => true, 'data' => ['switched' => false]]);
         }
 
-        $staffUsers = \App\Models\User::where('business_id', $currentUser->business_id)
+        $staffUsers = User::where('business_id', $currentUser->business_id)
             ->where('role', 'staff')
             ->where('id', '!=', $currentUser->id)
             ->whereNotNull('pos_pin')
@@ -183,11 +184,11 @@ class AuthController extends Controller
             }
         }
 
-        if (!$matchedUser) {
+        if (! $matchedUser) {
             return response()->json(['success' => false, 'message' => 'Invalid PIN.'], 422);
         }
 
-        $matchedUser = \App\Models\User::find($matchedUser->id);
+        $matchedUser = User::find($matchedUser->id);
         $token = $matchedUser->createToken('pos-terminal')->plainTextToken;
         $stores = $this->getAccessibleStores($matchedUser);
         $activeStore = $stores->count() === 1 ? $stores->first() : null;
@@ -207,19 +208,19 @@ class AuthController extends Controller
                     'theme' => $matchedUser->theme_preference ?? 'dark',
                     'force_password_change' => (bool) $matchedUser->force_password_change,
                 ],
-                'stores' => $stores->map(fn($s) => [
+                'stores' => $stores->map(fn ($s) => [
                     'id' => $s->id,
                     'store_id' => $s->store_id,
                     'name' => $s->name,
                     'address' => $s->address,
-                    'logo' => $s->logo_path ? asset('storage/' . $s->logo_path) : null,
+                    'logo' => $s->logo_path ? asset('storage/'.$s->logo_path) : null,
                 ]),
                 'active_store' => $activeStore ? [
                     'id' => $activeStore->id,
                     'store_id' => $activeStore->store_id,
                     'name' => $activeStore->name,
                     'address' => $activeStore->address,
-                    'logo' => $activeStore->logo_path ? asset('storage/' . $activeStore->logo_path) : null,
+                    'logo' => $activeStore->logo_path ? asset('storage/'.$activeStore->logo_path) : null,
                 ] : null,
             ],
         ]);
@@ -236,7 +237,7 @@ class AuthController extends Controller
         return response()->json(['success' => true, 'data' => ['theme' => $validated['theme']]]);
     }
 
-    private function getAccessibleStores($user): \Illuminate\Support\Collection
+    private function getAccessibleStores($user): Collection
     {
         if ($user->isRestrictedStaff()) {
             return $user->assignedStores()

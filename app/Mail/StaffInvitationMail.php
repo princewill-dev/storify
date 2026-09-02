@@ -16,8 +16,7 @@ class StaffInvitationMail extends Mailable
     public function __construct(
         public User $user,
         public ?string $plainPassword = null,
-    ) {
-    }
+    ) {}
 
     public function envelope(): Envelope
     {

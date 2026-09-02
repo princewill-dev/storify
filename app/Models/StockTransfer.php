@@ -9,11 +9,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Support\Str;
-use App\Models\BelongsToBusiness;
 
 class StockTransfer extends Model
 {
-    use HasFactory, BelongsToBusiness;
+    use BelongsToBusiness, HasFactory;
 
     protected $fillable = [
         'transfer_code',
@@ -40,7 +39,7 @@ class StockTransfer extends Model
         parent::boot();
         static::creating(function (self $transfer) {
             if (empty($transfer->transfer_code)) {
-                $transfer->transfer_code = 'txr_' . Str::lower(Str::random(10));
+                $transfer->transfer_code = 'txr_'.Str::lower(Str::random(10));
             }
         });
     }

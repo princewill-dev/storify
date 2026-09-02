@@ -54,7 +54,7 @@ class SubscriptionPlan extends Model
     /**
      * Get the subscriptions associated with this plan.
      */
-    public function vendorSubscriptions(): HasMany
+    public function subscriptions(): HasMany
     {
         return $this->hasMany(Subscription::class);
     }
@@ -100,11 +100,11 @@ class SubscriptionPlan extends Model
     }
 
     /**
-     * Calculate when the trial expires if a vendor starts it now.
+     * Calculate when the trial expires if a business starts it now.
      */
     public function getTrialExpiresAt(): ?Carbon
     {
-        if (!$this->is_trial || !$this->trial_days) {
+        if (! $this->is_trial || ! $this->trial_days) {
             return null;
         }
 

@@ -4,16 +4,16 @@ namespace App\Http\Controllers\Home;
 
 use App\Http\Controllers\Controller;
 use App\Mail\AdminNewSupportMessageMail;
+use App\Mail\SupportMessageAdmin;
+use App\Mail\SupportMessageReceipt;
 use App\Mail\SupportMessageReceivedMail;
+use App\Models\Setting;
 use App\Models\Store;
 use App\Models\SupportMessage;
-use App\Models\Setting;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Validator;
-use App\Mail\SupportMessageAdmin;
-use App\Mail\SupportMessageReceipt;
 
 class SupportController extends Controller
 {
@@ -57,18 +57,18 @@ class SupportController extends Controller
 
             return response()->json([
                 'success' => true,
-                'message' => 'Your message has been received. We will get back to you shortly.'
+                'message' => 'Your message has been received. We will get back to you shortly.',
             ]);
 
         } catch (\Exception $e) {
             Log::error('Failed to send support message', [
                 'error' => $e->getMessage(),
-                'data' => $validated
+                'data' => $validated,
             ]);
 
             return response()->json([
                 'success' => false,
-                'message' => 'An error occurred while sending your message. Please try again later.'
+                'message' => 'An error occurred while sending your message. Please try again later.',
             ], 500);
         }
     }

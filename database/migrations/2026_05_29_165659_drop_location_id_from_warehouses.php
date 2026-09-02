@@ -8,7 +8,10 @@ return new class extends Migration
 {
     public function up(): void
     {
-        try { Schema::table('warehouses', fn (Blueprint $t) => $t->dropForeign(['location_id'])); } catch (\Throwable) {}
+        try {
+            Schema::table('warehouses', fn (Blueprint $t) => $t->dropForeign(['location_id']));
+        } catch (Throwable) {
+        }
         Schema::table('warehouses', fn (Blueprint $t) => $t->dropColumn('location_id'));
     }
 

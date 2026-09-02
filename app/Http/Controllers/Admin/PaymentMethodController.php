@@ -29,6 +29,6 @@ class PaymentMethodController extends Controller
             : 'disabled';
 
         return redirect()->route('admin.payment-methods.index')
-            ->with('success', $paymentMethod->name . ' ' . ucfirst($message) . ' successfully.');
+            ->with('success', $paymentMethod->name.' '.ucfirst($message).' successfully.');
     }
 }

@@ -11,8 +11,8 @@ class Cart extends Model
     use HasFactory;
 
     protected $fillable = [
-        'store_id','user_id','guest_token','checkout_token','delivery_route_id','currency','status',
-        'item_count','subtotal','discount_total','tax_total','total','meta'
+        'store_id', 'user_id', 'user_type', 'guest_token', 'checkout_token', 'delivery_route_id', 'currency', 'status',
+        'item_count', 'subtotal', 'discount_total', 'tax_total', 'total', 'meta',
     ];
 
     protected $casts = [
@@ -35,7 +35,7 @@ class Cart extends Model
         $this->subtotal = $subtotal;
         $this->discount_total = $this->discount_total ?? 0;
         $this->tax_total = $this->tax_total ?? 0;
-        $this->total = max(0, $subtotal - (int)$this->discount_total + (int)$this->tax_total);
+        $this->total = max(0, $subtotal - (int) $this->discount_total + (int) $this->tax_total);
         $this->item_count = (int) $this->items->sum('qty');
         $this->save();
     }

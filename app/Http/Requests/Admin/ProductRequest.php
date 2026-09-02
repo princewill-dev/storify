@@ -2,11 +2,11 @@
 
 namespace App\Http\Requests\Admin;
 
-use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Contracts\Validation\Validator as ValidatorContract;
-use Illuminate\Validation\ValidationException;
-use Illuminate\Support\Facades\Log;
+use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
 
 class ProductRequest extends FormRequest
 {
@@ -60,6 +60,7 @@ class ProductRequest extends FormRequest
                 'variants.*.status' => 'sometimes|in:active,inactive',
                 'variants.*.featured' => 'sometimes|boolean',
             ];
+
             return array_merge($base, $variantRules);
         }
 
@@ -96,7 +97,7 @@ class ProductRequest extends FormRequest
         $errors = $validator->errors();
 
         foreach ($this->normalizeFiles($this->file('images', [])) as $index => $file) {
-            if ($file instanceof UploadedFile && !$file->isValid()) {
+            if ($file instanceof UploadedFile && ! $file->isValid()) {
                 $message = $this->buildUploadErrorMessage($file, $index);
                 $errors->forget("images.$index");
                 $errors->add("images.$index", $message);
@@ -128,7 +129,6 @@ class ProductRequest extends FormRequest
     }
 
     /**
-     * @param  mixed  $files
      * @return array<int, UploadedFile>
      */
     protected function normalizeFiles(mixed $files): array
@@ -199,7 +199,7 @@ class ProductRequest extends FormRequest
         $units = ['B', 'KB', 'MB', 'GB', 'TB'];
         $power = min((int) floor(log($bytes, 1024)), count($units) - 1);
 
-        return number_format($bytes / pow(1024, $power), $power >= 2 ? 2 : 0) . ' ' . $units[$power];
+        return number_format($bytes / pow(1024, $power), $power >= 2 ? 2 : 0).' '.$units[$power];
     }
 
     protected function logUploadFailure(UploadedFile $file, int $index, string $message): void

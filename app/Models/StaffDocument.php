@@ -5,7 +5,6 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\Storage;
-use App\Models\BelongsToBusiness;
 
 class StaffDocument extends Model
 {
@@ -39,9 +38,9 @@ class StaffDocument extends Model
     public function formattedSize(): string
     {
         return match (true) {
-            $this->size >= 1048576 => number_format($this->size / 1048576, 1) . ' MB',
-            $this->size >= 1024 => number_format($this->size / 1024, 1) . ' KB',
-            default => $this->size . ' B',
+            $this->size >= 1048576 => number_format($this->size / 1048576, 1).' MB',
+            $this->size >= 1024 => number_format($this->size / 1024, 1).' KB',
+            default => $this->size.' B',
         };
     }
 }

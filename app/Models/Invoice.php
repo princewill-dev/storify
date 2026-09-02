@@ -3,7 +3,6 @@
 namespace App\Models;
 
 use App\Enums\InvoiceStatus;
-use App\Models\BelongsToBusiness;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -12,7 +11,7 @@ use Illuminate\Support\Str;
 
 class Invoice extends Model
 {
-    use SoftDeletes, BelongsToBusiness;
+    use BelongsToBusiness, SoftDeletes;
 
     protected $fillable = [
         'invoice_number', 'business_id', 'user_id', 'store_id',
@@ -44,7 +43,7 @@ class Invoice extends Model
     {
         static::creating(function (Invoice $invoice) {
             if (empty($invoice->invoice_number)) {
-                $invoice->invoice_number = 'INV-' . Str::upper(Str::random(12));
+                $invoice->invoice_number = 'INV-'.Str::upper(Str::random(12));
             }
         });
     }

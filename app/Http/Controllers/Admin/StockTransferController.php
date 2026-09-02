@@ -2,9 +2,9 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Enums\TransferStatus;
 use App\Http\Controllers\Controller;
 use App\Models\StockTransfer;
-use App\Enums\TransferStatus;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\View\View;
@@ -21,15 +21,15 @@ class StockTransferController extends Controller
             ->with(['fromLocation', 'toLocation', 'requester', 'items'])
             ->withCount('items');
 
-        if ($status && in_array($status, array_map(fn($s) => $s->value, TransferStatus::cases()), true)) {
+        if ($status && in_array($status, array_map(fn ($s) => $s->value, TransferStatus::cases()), true)) {
             $query->where('status', $status);
         }
 
         if ($q !== '') {
             $query->where(function ($x) use ($q) {
                 $x->where('transfer_code', 'like', "%$q%")
-                  ->orWhereHas('fromLocation', fn($l) => $l->where('name', 'like', "%$q%"))
-                  ->orWhereHas('toLocation', fn($l) => $l->where('name', 'like', "%$q%"));
+                    ->orWhereHas('fromLocation', fn ($l) => $l->where('name', 'like', "%$q%"))
+                    ->orWhereHas('toLocation', fn ($l) => $l->where('name', 'like', "%$q%"));
             });
         }
 
@@ -74,6 +74,7 @@ class StockTransferController extends Controller
     private function delegateToManagement(string $action, Request $request, StockTransfer $transfer)
     {
         $controller = app(\App\Http\Controllers\Management\StockTransferController::class);
+
         return $controller->{$action}($request, $transfer);
     }
 }

@@ -19,7 +19,7 @@ return new class extends Migration
             $table->foreignId('used_by_vendor_id')->nullable()->constrained('vendors')->nullOnDelete();
             $table->timestamp('used_at')->nullable();
             $table->timestamps();
-            
+
             $table->index('code');
             $table->index('is_used');
         });

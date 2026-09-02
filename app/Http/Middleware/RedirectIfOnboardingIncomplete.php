@@ -12,7 +12,7 @@ class RedirectIfOnboardingIncomplete
     {
         $user = $request->user();
 
-        if (!$user) {
+        if (! $user) {
             return $next($request);
         }
 
@@ -22,7 +22,7 @@ class RedirectIfOnboardingIncomplete
 
         $currentRoute = $request->route()->getName();
 
-        if (!$user->is_verified) {
+        if (! $user->is_verified) {
             $exemptRoutes = [
                 'management.auth.verify-otp',
                 'management.auth.verify-otp.store',
@@ -30,13 +30,13 @@ class RedirectIfOnboardingIncomplete
                 'management.auth.logout',
             ];
 
-            if (!in_array($currentRoute, $exemptRoutes)) {
+            if (! in_array($currentRoute, $exemptRoutes)) {
                 return redirect()->route('management.auth.verify-otp')
                     ->with('warning', 'Please verify your email to continue.');
             }
         }
 
-        if ($user->is_verified && !$user->business_id) {
+        if ($user->is_verified && ! $user->business_id) {
             $exemptRoutes = [
                 'management.setup',
                 'management.setup.store',
@@ -44,17 +44,15 @@ class RedirectIfOnboardingIncomplete
                 'management.plans.checkout',
                 'management.plans.validate-coupon',
                 'management.subscription.plan',
-                'management.subscription.initialize',
                 'management.subscription.callback',
                 'management.subscription.check-early-pass',
-                'management.subscription.activate-trial',
                 'management.auth.logout',
                 'management.auth.verify-otp',
                 'management.auth.verify-otp.store',
                 'management.auth.verify-otp.resend',
             ];
 
-            if (!in_array($currentRoute, $exemptRoutes)) {
+            if (! in_array($currentRoute, $exemptRoutes)) {
                 return redirect()->route('management.setup')
                     ->with('info', 'Please complete your business setup to continue.');
             }

@@ -13,12 +13,14 @@ class OwnershipTypeController extends Controller
     {
         Log::info('ownership_types_viewed', ['user_id' => auth()->id()]);
         $types = OwnershipType::orderBy('name')->paginate(20);
+
         return view('admin.ownership_types.index', compact('types'));
     }
 
     public function create()
     {
         Log::info('ownership_type_create_viewed', ['user_id' => auth()->id()]);
+
         return view('admin.ownership_types.create');
     }
 
@@ -29,12 +31,14 @@ class OwnershipTypeController extends Controller
         ]);
         $type = OwnershipType::create($data);
         Log::info('ownership_type_created', ['user_id' => auth()->id(), 'id' => $type->id]);
+
         return redirect()->route('admin.ownership-types.index')->with('success', 'Ownership type created');
     }
 
     public function edit(OwnershipType $ownershipType)
     {
         Log::info('ownership_type_edit_viewed', ['user_id' => auth()->id(), 'id' => $ownershipType->id]);
+
         return view('admin.ownership_types.edit', ['type' => $ownershipType]);
     }
 
@@ -45,6 +49,7 @@ class OwnershipTypeController extends Controller
         ]);
         $ownershipType->update($data);
         Log::info('ownership_type_updated', ['user_id' => auth()->id(), 'id' => $ownershipType->id]);
+
         return redirect()->route('admin.ownership-types.index')->with('success', 'Ownership type updated');
     }
 
@@ -52,6 +57,7 @@ class OwnershipTypeController extends Controller
     {
         Log::info('ownership_type_delete_requested', ['user_id' => auth()->id(), 'id' => $ownershipType->id]);
         $ownershipType->delete();
+
         return redirect()->route('admin.ownership-types.index')->with('success', 'Ownership type deleted');
     }
 }

@@ -5,7 +5,7 @@
 @section('hero_subtitle', 'We sent a 6-digit verification code to your email address. Enter it below to continue.')
 
 @section('form')
-@php $email = $email ?? session('pending_vendor_email') @endphp
+@php $email = $email ?? session('pending_business_email') @endphp
 <div class="mb-8">
     <h1 class="text-2xl font-bold text-slate-900 tracking-tight">Verify your email</h1>
     <p class="mt-1.5 text-sm text-slate-500">Code sent to <span class="font-semibold text-slate-700">{{ $email }}</span></p>

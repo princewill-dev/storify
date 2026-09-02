@@ -30,30 +30,30 @@ return new class extends Migration
     private function addIndex(string $table, string|array $columns): void
     {
         $cols = (array) $columns;
-        $indexName = $table . '_' . implode('_', $cols) . '_idx';
+        $indexName = $table.'_'.implode('_', $cols).'_idx';
         $indexName = substr($indexName, 0, 64);
         $exists = DB::selectOne(
-            "SELECT COUNT(*) as cnt FROM information_schema.statistics
-             WHERE table_schema = DATABASE() AND table_name = ? AND index_name = ?",
+            'SELECT COUNT(*) as cnt FROM information_schema.statistics
+             WHERE table_schema = DATABASE() AND table_name = ? AND index_name = ?',
             [$table, $indexName]
         );
-        if (!$exists || $exists->cnt == 0) {
-            Schema::table($table, fn(Blueprint $t) => $t->index($cols, $indexName));
+        if (! $exists || $exists->cnt == 0) {
+            Schema::table($table, fn (Blueprint $t) => $t->index($cols, $indexName));
         }
     }
 
     private function dropIndex(string $table, string|array $columns): void
     {
         $cols = (array) $columns;
-        $indexName = $table . '_' . implode('_', $cols) . '_idx';
+        $indexName = $table.'_'.implode('_', $cols).'_idx';
         $indexName = substr($indexName, 0, 64);
         $exists = DB::selectOne(
-            "SELECT COUNT(*) as cnt FROM information_schema.statistics
-             WHERE table_schema = DATABASE() AND table_name = ? AND index_name = ?",
+            'SELECT COUNT(*) as cnt FROM information_schema.statistics
+             WHERE table_schema = DATABASE() AND table_name = ? AND index_name = ?',
             [$table, $indexName]
         );
         if ($exists && $exists->cnt > 0) {
-            Schema::table($table, fn(Blueprint $t) => $t->dropIndex($indexName));
+            Schema::table($table, fn (Blueprint $t) => $t->dropIndex($indexName));
         }
     }
 };

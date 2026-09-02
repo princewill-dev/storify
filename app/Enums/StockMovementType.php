@@ -38,6 +38,7 @@ enum StockMovementType: string
                 'class' => $type->badgeClass(),
             ];
         }
+
         return $data;
     }
 }

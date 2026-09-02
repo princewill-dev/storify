@@ -17,8 +17,6 @@ class StoreDeliveryRouteController extends Controller
         /** @var User|null $user */
         $user = $request->user();
 
-        
-
         if ($store->user_id !== $user->id) {
             return back()->with('error', 'Unauthorized action.');
         }
@@ -38,7 +36,7 @@ class StoreDeliveryRouteController extends Controller
 
         DeliveryRoute::create($validated);
 
-        Log::info('vendor.delivery_route.created', [
+        Log::info('business.delivery_route.created', [
             'user_id' => $user->id,
             'store_id' => $store->id,
         ]);
@@ -50,8 +48,6 @@ class StoreDeliveryRouteController extends Controller
     {
         /** @var User|null $user */
         $user = $request->user();
-
-        
 
         if ($store->user_id !== $user->id || $deliveryRoute->store_id !== $store->id) {
             return back()->with('error', 'Unauthorized action.');
@@ -71,7 +67,7 @@ class StoreDeliveryRouteController extends Controller
 
         $deliveryRoute->update($validated);
 
-        Log::info('vendor.delivery_route.updated', [
+        Log::info('business.delivery_route.updated', [
             'user_id' => $user->id,
             'store_id' => $store->id,
             'route_id' => $deliveryRoute->id,
@@ -85,15 +81,13 @@ class StoreDeliveryRouteController extends Controller
         /** @var User|null $user */
         $user = $request->user();
 
-        
-
         if ($store->user_id !== $user->id || $deliveryRoute->store_id !== $store->id) {
             return back()->with('error', 'Unauthorized action.');
         }
 
         $deliveryRoute->delete();
 
-        Log::info('vendor.delivery_route.deleted', [
+        Log::info('business.delivery_route.deleted', [
             'user_id' => $user->id,
             'store_id' => $store->id,
             'route_id' => $deliveryRoute->id,

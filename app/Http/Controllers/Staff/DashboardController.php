@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\Staff;
 
 use App\Http\Controllers\Controller;
+use App\Models\Order;
+use App\Models\PosSession;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -27,24 +29,24 @@ class DashboardController extends Controller
 
         $storeIds = $user->assignedStores()->where('status', '!=', 'deleted')->pluck('stores.id');
 
-        $todaySales = \App\Models\Order::whereIn('store_id', $storeIds)
+        $todaySales = Order::whereIn('store_id', $storeIds)
             ->where('source', 'pos')
             ->whereDate('created_at', today())
             ->sum('total');
 
-        $todayOrders = \App\Models\Order::whereIn('store_id', $storeIds)
+        $todayOrders = Order::whereIn('store_id', $storeIds)
             ->where('source', 'pos')
             ->whereDate('created_at', today())
             ->count();
 
-        $recentActivity = \App\Models\Order::whereIn('store_id', $storeIds)
+        $recentActivity = Order::whereIn('store_id', $storeIds)
             ->where('source', 'pos')
             ->with(['items', 'transactions.paymentMethod', 'store'])
             ->latest()
             ->take(8)
             ->get();
 
-        $activeSession = \App\Models\PosSession::whereIn('store_id', $storeIds)
+        $activeSession = PosSession::whereIn('store_id', $storeIds)
             ->where('staff_id', $user->id)
             ->where('status', 'open')
             ->with('store')
@@ -52,7 +54,7 @@ class DashboardController extends Controller
             ->first();
 
         $modules = $this->buildModules($user, $hasPosStore, $hasStore);
-        $hasAnyPermission = !empty($modules);
+        $hasAnyPermission = ! empty($modules);
 
         return view('staff.dashboard', compact(
             'user', 'modules', 'hasAnyPermission',
@@ -65,11 +67,11 @@ class DashboardController extends Controller
         return array_values(array_filter([
             $this->module('pos', 'Point of Sale', 'Process sales at the register, open and close sessions.',
                 $user->can('pos process_sale'), $hasPosStore ? route('staff.pos') : null,
-                !$hasStore ? 'No store assigned yet — contact your administrator.' : (!$hasPosStore ? 'No POS-enabled store assigned — contact your administrator.' : null)),
+                ! $hasStore ? 'No store assigned yet — contact your administrator.' : (! $hasPosStore ? 'No POS-enabled store assigned — contact your administrator.' : null)),
 
             $this->module('stores', 'Store Management', 'Manage your store settings, delivery routes, and payment methods.',
                 $user->can('stores view'), route('management.stores.index'),
-                !$hasStore ? 'No store assigned yet.' : null),
+                ! $hasStore ? 'No store assigned yet.' : null),
 
             $this->module('products', 'Products', 'View and manage product listings, stock levels, and pricing.',
                 $user->can('products view'), route('management.products.index')),
@@ -108,7 +110,7 @@ class DashboardController extends Controller
 
     private function module(string $key, string $label, string $description, bool $can, ?string $route = null, ?string $warning = null): ?array
     {
-        if (!$can) {
+        if (! $can) {
             return null;
         }
 

@@ -16,6 +16,7 @@ class TestimonialController extends Controller
     public function index()
     {
         $testimonials = Testimonial::orderBy('position')->orderBy('created_at', 'desc')->get();
+
         return view('admin.testimonials.index', compact('testimonials'));
     }
 
@@ -41,13 +42,13 @@ class TestimonialController extends Controller
 
         try {
             $data = $request->only(['name', 'occupation', 'message', 'status', 'position']);
-            
+
             // Convert photo to base64
             if ($request->hasFile('photo')) {
                 $photo = $request->file('photo');
                 $photoData = base64_encode(file_get_contents($photo->getRealPath()));
                 $mimeType = $photo->getMimeType();
-                $data['photo'] = 'data:' . $mimeType . ';base64,' . $photoData;
+                $data['photo'] = 'data:'.$mimeType.';base64,'.$photoData;
             }
 
             Testimonial::create($data);
@@ -56,13 +57,13 @@ class TestimonialController extends Controller
 
             return redirect()->route('admin.testimonials.index')
                 ->with('success', 'Testimonial created successfully.');
-                
+
         } catch (\Exception $e) {
             Log::error('admin.testimonial.create_failed', [
                 'error' => $e->getMessage(),
                 'admin_id' => auth()->id(),
             ]);
-            
+
             return redirect()->back()
                 ->with('error', 'Failed to create testimonial. Please try again.')
                 ->withInput();
@@ -91,13 +92,13 @@ class TestimonialController extends Controller
 
         try {
             $data = $request->only(['name', 'occupation', 'message', 'status', 'position']);
-            
+
             // Convert photo to base64 if new photo is uploaded
             if ($request->hasFile('photo')) {
                 $photo = $request->file('photo');
                 $photoData = base64_encode(file_get_contents($photo->getRealPath()));
                 $mimeType = $photo->getMimeType();
-                $data['photo'] = 'data:' . $mimeType . ';base64,' . $photoData;
+                $data['photo'] = 'data:'.$mimeType.';base64,'.$photoData;
             }
 
             $testimonial->update($data);
@@ -109,14 +110,14 @@ class TestimonialController extends Controller
 
             return redirect()->route('admin.testimonials.index')
                 ->with('success', 'Testimonial updated successfully.');
-                
+
         } catch (\Exception $e) {
             Log::error('admin.testimonial.update_failed', [
                 'testimonial_id' => $testimonial->id,
                 'error' => $e->getMessage(),
                 'admin_id' => auth()->id(),
             ]);
-            
+
             return redirect()->back()
                 ->with('error', 'Failed to update testimonial. Please try again.')
                 ->withInput();
@@ -138,14 +139,14 @@ class TestimonialController extends Controller
 
             return redirect()->route('admin.testimonials.index')
                 ->with('success', 'Testimonial deleted successfully.');
-                
+
         } catch (\Exception $e) {
             Log::error('admin.testimonial.delete_failed', [
                 'testimonial_id' => $testimonial->id,
                 'error' => $e->getMessage(),
                 'admin_id' => auth()->id(),
             ]);
-            
+
             return redirect()->back()
                 ->with('error', 'Failed to delete testimonial. Please try again.');
         }

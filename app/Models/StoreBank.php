@@ -4,7 +4,6 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use App\Models\BelongsToBusiness;
 
 class StoreBank extends Model
 {
@@ -19,7 +18,10 @@ class StoreBank extends Model
         'is_verified' => 'boolean',
     ];
 
-    public function business(): BelongsTo { return $this->belongsTo(Business::class); }
+    public function business(): BelongsTo
+    {
+        return $this->belongsTo(Business::class);
+    }
 
     /**
      * Mask the account number for display.
@@ -30,6 +32,7 @@ class StoreBank extends Model
         if (strlen($number) <= 4) {
             return $number;
         }
-        return substr($number, 0, 3) . str_repeat('*', strlen($number) - 5) . substr($number, -2);
+
+        return substr($number, 0, 3).str_repeat('*', strlen($number) - 5).substr($number, -2);
     }
 }

@@ -16,7 +16,7 @@ class DispatchesController extends Controller
         $query = OrderDelivery::with(['order.store', 'order.customer', 'deliveryRoute', 'createdBy']);
         $this->forBusiness($query, $user);
         if ($user->isRestrictedStaff()) {
-            $query->whereHas('order', fn($q) => $q->whereIn('store_id', $user->assignedStores()->pluck('id')));
+            $query->whereHas('order', fn ($q) => $q->whereIn('store_id', $user->assignedStores()->pluck('id')));
         }
 
         if ($request->filled('status')) {
@@ -24,7 +24,7 @@ class DispatchesController extends Controller
         }
 
         if ($request->filled('store_id')) {
-            $query->whereHas('order', fn($q) => $q->where('store_id', $request->store_id));
+            $query->whereHas('order', fn ($q) => $q->where('store_id', $request->store_id));
         }
 
         if ($request->filled('search')) {
@@ -32,7 +32,7 @@ class DispatchesController extends Controller
             $query->where(function ($q) use ($search) {
                 $q->where('driver_name', 'like', "%{$search}%")
                     ->orWhere('tracking_number', 'like', "%{$search}%")
-                    ->orWhereHas('order', fn($q) => $q->where('order_number', 'like', "%{$search}%"));
+                    ->orWhereHas('order', fn ($q) => $q->where('order_number', 'like', "%{$search}%"));
             });
         }
 

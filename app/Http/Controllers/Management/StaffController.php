@@ -3,11 +3,10 @@
 namespace App\Http\Controllers\Management;
 
 use App\Http\Controllers\Controller;
+use App\Mail\StaffInvitationMail;
 use App\Models\User;
-use App\Models\Store;
-use App\Models\Warehouse;
-use Illuminate\Http\Request;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -19,7 +18,7 @@ class StaffController extends Controller
     public function index(Request $request): View|RedirectResponse
     {
         $user = $request->user();
-        if (!$user) {
+        if (! $user) {
             return redirect()->route('management.auth.login');
         }
 
@@ -32,20 +31,21 @@ class StaffController extends Controller
         if ($request->filled('store_id')) {
             $store = $user->accessibleStores()->where('store_id', $request->query('store_id'))->first();
             if ($store) {
-                $query->whereHas('assignedStores', fn($q) => $q->where('assignmentable_id', $store->id));
+                $query->whereHas('assignedStores', fn ($q) => $q->where('assignmentable_id', $store->id));
             }
         }
 
         $staff = $query->latest()->get();
 
         $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Staff']];
+
         return view('management.staff.index', compact('user', 'staff', 'store', 'breadcrumbs'));
     }
 
     public function create(Request $request): View|RedirectResponse
     {
         $user = $request->user();
-        if (!$user) {
+        if (! $user) {
             return redirect()->route('management.auth.login');
         }
 
@@ -54,13 +54,14 @@ class StaffController extends Controller
         $warehouses = $user->warehouses()->where('status', '!=', 'deleted')->get();
 
         $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Staff', 'url' => route('management.staff.index')], ['label' => 'Create']];
+
         return view('management.staff.create', compact('user', 'roles', 'stores', 'warehouses', 'breadcrumbs'));
     }
 
     public function store(Request $request): RedirectResponse
     {
         $user = $request->user();
-        if (!$user) {
+        if (! $user) {
             return redirect()->route('management.auth.login');
         }
 
@@ -101,7 +102,7 @@ class StaffController extends Controller
         }
 
         $plainPassword = null;
-        if (!empty($validated['password'])) {
+        if (! empty($validated['password'])) {
             $staffData['password'] = $validated['password'];
             $staffData['force_password_change'] = true;
             $plainPassword = $validated['password'];
@@ -130,16 +131,16 @@ class StaffController extends Controller
             }
         }
 
-        if (!empty($validated['store_ids'])) {
+        if (! empty($validated['store_ids'])) {
             $staffUser->assignedStores()->sync($validated['store_ids']);
         }
 
-        if (!empty($validated['warehouse_ids'])) {
+        if (! empty($validated['warehouse_ids'])) {
             $staffUser->assignedWarehouses()->sync($validated['warehouse_ids']);
         }
 
-        if (class_exists(\App\Mail\StaffInvitationMail::class)) {
-            \Mail::to($staffUser->email)->queue(new \App\Mail\StaffInvitationMail($staffUser, $plainPassword));
+        if (class_exists(StaffInvitationMail::class)) {
+            \Mail::to($staffUser->email)->queue(new StaffInvitationMail($staffUser, $plainPassword));
         }
 
         return redirect()->route('management.staff.index')
@@ -149,19 +150,20 @@ class StaffController extends Controller
     public function show(Request $request, User $staff): View|RedirectResponse
     {
         $user = $request->user();
-        if (!$user || ($staff->role !== 'staff' && !$staff->isBusinessOwner()) || $staff->business_id !== $user->business_id) {
+        if (! $user || ($staff->role !== 'staff' && ! $staff->isBusinessOwner()) || $staff->business_id !== $user->business_id) {
             abort(403);
         }
 
         $staff->load('roles', 'assignedStores', 'assignedWarehouses');
         $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Staff', 'url' => route('management.staff.index')], ['label' => $staff->name]];
+
         return view('management.staff.show', compact('user', 'staff', 'breadcrumbs'));
     }
 
     public function edit(Request $request, User $staff): View|RedirectResponse
     {
         $user = $request->user();
-        if (!$user || $staff->role !== 'staff' || $staff->business_id !== $user->business_id) {
+        if (! $user || $staff->role !== 'staff' || $staff->business_id !== $user->business_id) {
             abort(403);
         }
 
@@ -170,13 +172,14 @@ class StaffController extends Controller
         $assignedRoles = $staff->getRoleNames()->toArray();
 
         $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Staff', 'url' => route('management.staff.index')], ['label' => $staff->name, 'url' => route('management.staff.show', $staff)], ['label' => 'Edit']];
+
         return view('management.staff.edit', compact('user', 'staff', 'roles', 'assignedRoles', 'breadcrumbs'));
     }
 
     public function update(Request $request, User $staff): RedirectResponse
     {
         $user = $request->user();
-        if (!$user || $staff->role !== 'staff' || $staff->business_id !== $user->business_id) {
+        if (! $user || $staff->role !== 'staff' || $staff->business_id !== $user->business_id) {
             abort(403);
         }
 
@@ -266,7 +269,7 @@ class StaffController extends Controller
     public function resendInvite(Request $request, User $staff): RedirectResponse
     {
         $user = $request->user();
-        if (!$user || $staff->role !== 'staff' || $staff->business_id !== $user->business_id) {
+        if (! $user || $staff->role !== 'staff' || $staff->business_id !== $user->business_id) {
             abort(403);
         }
 
@@ -279,8 +282,8 @@ class StaffController extends Controller
             'invited_at' => now(),
         ]);
 
-        if (class_exists(\App\Mail\StaffInvitationMail::class)) {
-            \Mail::to($staff->email)->queue(new \App\Mail\StaffInvitationMail($staff));
+        if (class_exists(StaffInvitationMail::class)) {
+            \Mail::to($staff->email)->queue(new StaffInvitationMail($staff));
         }
 
         return back()->with('success', 'Invitation resent successfully.');
@@ -289,7 +292,7 @@ class StaffController extends Controller
     public function suspend(Request $request, User $staff): RedirectResponse
     {
         $user = $request->user();
-        if (!$user || $staff->role !== 'staff' || $staff->business_id !== $user->business_id) {
+        if (! $user || $staff->role !== 'staff' || $staff->business_id !== $user->business_id) {
             abort(403);
         }
 
@@ -301,7 +304,7 @@ class StaffController extends Controller
     public function activate(Request $request, User $staff): RedirectResponse
     {
         $user = $request->user();
-        if (!$user || $staff->role !== 'staff' || $staff->business_id !== $user->business_id) {
+        if (! $user || $staff->role !== 'staff' || $staff->business_id !== $user->business_id) {
             abort(403);
         }
 
@@ -313,7 +316,7 @@ class StaffController extends Controller
     public function destroy(Request $request, User $staff): RedirectResponse
     {
         $user = $request->user();
-        if (!$user || $staff->role !== 'staff' || $staff->business_id !== $user->business_id) {
+        if (! $user || $staff->role !== 'staff' || $staff->business_id !== $user->business_id) {
             abort(403);
         }
 

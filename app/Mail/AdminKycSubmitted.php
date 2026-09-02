@@ -3,6 +3,7 @@
 namespace App\Mail;
 
 use App\Models\KycApplication;
+use App\Models\User;
 use App\Queue\WithQueueConfig;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -20,8 +21,9 @@ class AdminKycSubmitted extends Mailable implements ShouldQueue
 
     public function build(): self
     {
-        $applicant = $this->application->user_id ? \App\Models\User::find($this->application->user_id) : null;
-        return $this->subject('[KYC] New submission from ' . ($applicant?->name ?? 'vendor'))
+        $applicant = $this->application->user_id ? User::find($this->application->user_id) : null;
+
+        return $this->subject('[KYC] New submission from '.($applicant?->name ?? 'business owner'))
             ->view('emails.admin.kyc-submitted')
             ->with([
                 'application' => $this->application,

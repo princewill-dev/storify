@@ -43,7 +43,10 @@ Register → Verify Email → Business Setup (/management/setup) → Plans (/man
 ```
 Auth/BusinessAuthController   — Registration, login, OTP verification
 Management/SetupController    — Business setup form (ownership type, business model, currency, etc.)
-Management/SubscriptionController — Plans, checkout, Paystack integration, trial activation
+Management/SubscriptionPlanController — Plan selection, trials, and plan changes
+Management/SubscriptionPaymentController — Paystack initialization and verified callbacks
+Management/SubscriptionCouponController — Coupon validation and application
+Management/EarlyPassController — Early-access activation
 Management/DashboardController — Main dashboard with metric cards
 ```
 
@@ -82,6 +85,7 @@ All management routes use `management.*` prefix. Staff routes use `staff.*`. No 
 ```bash
 php artisan test                 # Pest PHP
 php artisan test --filter=Foo    # Single test
+composer lint                    # Laravel Pint formatting check
 ```
 
 ### Session & Cookies
@@ -112,6 +116,8 @@ php artisan test --filter=Foo    # Single test
 - `Route::resource` names must match view `route()` calls exactly.
 - Plan checkout URLs use `plan_code` (random string), not numeric IDs.
 - Old `Staff` model, `Role` model, `CheckStaffPermission` middleware, and `StaffStatus` enum are deleted — use `User` with Spatie.
+- Payment, order, and stock mutations must stay atomic and tenant-scoped. Client retries use persisted idempotency keys.
+- Tests run only against `storify_test`; `tests/TestCase.php` refuses destructive test setup on any other database.
 
 
 DO NOT USE ANY vendor terminated variables, use user instead

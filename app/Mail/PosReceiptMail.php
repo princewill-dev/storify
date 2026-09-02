@@ -19,7 +19,7 @@ class PosReceiptMail extends Mailable implements ShouldQueue
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: 'Your Receipt — Order #' . ($this->order->order_number ?? $this->order->id),
+            subject: 'Your Receipt — Order #'.($this->order->order_number ?? $this->order->id),
         );
     }
 

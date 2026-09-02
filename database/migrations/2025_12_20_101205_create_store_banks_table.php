@@ -21,7 +21,7 @@ return new class extends Migration
             $table->boolean('is_primary')->default(false);
             $table->boolean('is_verified')->default(true);
             $table->timestamps();
-            
+
             $table->index(['store_id', 'is_primary']);
             $table->unique(['store_id', 'account_number', 'bank_code']);
         });

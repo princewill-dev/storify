@@ -7,6 +7,7 @@ use App\Models\Customer;
 use App\Models\DeliveryAddress;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Str;
 
 class CustomerSeeder extends Seeder
 {
@@ -36,14 +37,16 @@ class CustomerSeeder extends Seeder
             ? Business::find($businessId)
             : Business::first();
 
-        if (!$business) {
+        if (! $business) {
             $this->command?->warn('No business found.');
+
             return;
         }
 
         $existingCount = Customer::where('business_id', $business->id)->count();
         if ($existingCount > 0) {
             $this->command?->line("  Business [{$business->name}] already has {$existingCount} customers. Skipping.");
+
             return;
         }
 
@@ -54,13 +57,13 @@ class CustomerSeeder extends Seeder
             for ($i = 0; $i < $perStore; $i++) {
                 $firstName = Arr::random($this->firstNames);
                 $lastName = Arr::random($this->lastNames);
-                $email = strtolower($firstName . '.' . $lastName . rand(10, 99) . '@email.com');
-                $phone = '080' . rand(10000000, 99999999);
+                $email = strtolower($firstName.'.'.$lastName.rand(10, 99).'@email.com');
+                $phone = '080'.rand(10000000, 99999999);
                 $status = rand(1, 10) <= 1 ? 'suspended' : 'active';
 
                 $customer = Customer::create([
                     'business_id' => $business->id,
-                    'account_id' => 'CUS_' . strtoupper(\Illuminate\Support\Str::random(8)),
+                    'account_id' => 'CUS_'.strtoupper(Str::random(8)),
                     'first_name' => $firstName,
                     'last_name' => $lastName,
                     'email' => $email,
@@ -76,7 +79,7 @@ class CustomerSeeder extends Seeder
             }
         }
 
-        $this->command?->info("Done: {$totalCreated} customers seeded across " . $business->stores->count() . " stores.");
+        $this->command?->info("Done: {$totalCreated} customers seeded across ".$business->stores->count().' stores.');
     }
 
     protected function seedAddresses(Customer $customer): void
@@ -91,9 +94,9 @@ class CustomerSeeder extends Seeder
             DeliveryAddress::create([
                 'customer_id' => $customer->id,
                 'label' => $i === 0 ? 'Home' : 'Office',
-                'recipient_name' => $customer->first_name . ' ' . $customer->last_name,
+                'recipient_name' => $customer->first_name.' '.$customer->last_name,
                 'recipient_phone' => $customer->phone,
-                'street_address' => rand(1, 200) . ' ' . Arr::random(['Main Street', 'Broadway', 'Church Road', 'Market Road', 'Airport Road']),
+                'street_address' => rand(1, 200).' '.Arr::random(['Main Street', 'Broadway', 'Church Road', 'Market Road', 'Airport Road']),
                 'city' => Arr::random($cities),
                 'state' => $state,
                 'country' => 'Nigeria',

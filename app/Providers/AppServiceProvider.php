@@ -2,19 +2,25 @@
 
 namespace App\Providers;
 
-use Illuminate\Support\ServiceProvider;
-use Illuminate\Support\Facades\View;
-use Illuminate\Support\Facades\Cache;
-use Illuminate\Pagination\Paginator;
-use Illuminate\Support\Facades\Schema;
+use App\Models\Category;
+use App\Models\CompanyService;
+use App\Models\Currency;
+use App\Models\Customer;
+use App\Models\Feature;
+use App\Models\Order;
+use App\Models\OrderDelivery;
+use App\Models\Product;
 use App\Models\Setting;
 use App\Models\Store;
-use App\Models\CompanyService;
-use App\Models\Feature;
-use Illuminate\Support\Facades\Auth;
-use App\Models\Currency;
-use Illuminate\Support\Facades\Route;
+use App\Models\Transaction;
 use App\Models\User;
+use Illuminate\Pagination\Paginator;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\View;
+use Illuminate\Support\ServiceProvider;
+use Opcodes\LogViewer\Facades\LogViewer;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -34,16 +40,16 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        Route::bind('vendor', fn ($value) => User::where('account_id', $value)->first() ?? abort(404));
         // Force HTTPS in production (for Cloudflare proxy)
         if ($this->app->environment('production')) {
             \URL::forceScheme('https');
         }
 
         // Configure Log Viewer access - only allow superadmins (if package is installed)
-        if (class_exists(\Opcodes\LogViewer\Facades\LogViewer::class)) {
-            \Opcodes\LogViewer\Facades\LogViewer::auth(function ($request) {
+        if (class_exists(LogViewer::class)) {
+            LogViewer::auth(function ($request) {
                 $user = $request->user('web');
+
                 return $user !== null && ($user->role ?? null) === 'superadmin';
             });
         }
@@ -54,7 +60,7 @@ class AppServiceProvider extends ServiceProvider
         try {
             $company = Cache::remember('company_settings', 600, function () {
                 try {
-                    if (!Schema::hasTable('settings')) {
+                    if (! Schema::hasTable('settings')) {
                         $s = null;
                     } else {
                         $s = Setting::query()->first();
@@ -63,11 +69,11 @@ class AppServiceProvider extends ServiceProvider
                     $s = null;
                 }
                 $logoPath = $s?->company_logo_path;
-                $logoUrl = $logoPath ? asset('storage/' . $logoPath) : asset('logo.png');
+                $logoUrl = $logoPath ? asset('storage/'.$logoPath) : asset('logo.png');
                 $faviconPath = $s?->company_favicon_path;
-                $faviconUrl = $faviconPath ? asset('storage/' . $faviconPath) : asset('favicon.png');
+                $faviconUrl = $faviconPath ? asset('storage/'.$faviconPath) : asset('favicon.png');
                 $certPath = $s?->company_certificate_path;
-                $certUrl = $certPath ? asset('storage/' . $certPath) : null;
+                $certUrl = $certPath ? asset('storage/'.$certPath) : null;
                 // Safely resolve default currency (may not exist during fresh installs/migrations)
                 $curr = null;
                 try {
@@ -77,6 +83,7 @@ class AppServiceProvider extends ServiceProvider
                 } catch (\Throwable $e) {
                     $curr = null;
                 }
+
                 return (object) [
                     'logo' => $logoUrl,
                     'logo_path' => $logoPath,
@@ -98,7 +105,7 @@ class AppServiceProvider extends ServiceProvider
                     // SEO defaults
                     'og_title' => $s->og_title ?? config('app.name'),
                     'og_description' => $s->og_description ?? null,
-                    'og_image' => ($s?->og_image_path ? asset('storage/' . $s->og_image_path) : null),
+                    'og_image' => ($s?->og_image_path ? asset('storage/'.$s->og_image_path) : null),
                     'og_url' => $s->og_url ?? url('/'),
                     'og_type' => $s->og_type ?? 'website',
                     // Greeting Modal
@@ -140,9 +147,10 @@ class AppServiceProvider extends ServiceProvider
         try {
             $services = Cache::remember('company_services', 600, function () {
                 try {
-                    if (!Schema::hasTable('company_services')) {
+                    if (! Schema::hasTable('company_services')) {
                         return collect();
                     }
+
                     return CompanyService::where('status', 'active')
                         ->ordered()
                         ->get();
@@ -159,27 +167,30 @@ class AppServiceProvider extends ServiceProvider
 
         // Share main store with admin views only (requires authenticated admin)
         View::composer(['admin.*'], function ($view) {
-            if (!Auth::check()) {
+            if (! Auth::check()) {
                 return;
             }
             $user = Auth::user();
-            if (!in_array($user->role ?? null, ['superadmin','admin'], true)) {
+            if (! in_array($user->role ?? null, ['superadmin', 'admin'], true)) {
                 return;
             }
 
             try {
                 $store = Cache::remember('admin_main_store', 300, function () {
                     try {
-                        if (!Schema::hasTable('settings')) { return null; }
+                        if (! Schema::hasTable('settings')) {
+                            return null;
+                        }
                         $s = Setting::query()->first();
                         $mainStoreId = $s->main_store_id ?? null;
                         $st = null;
                         if ($mainStoreId && Schema::hasTable('stores')) {
                             $st = Store::find($mainStoreId);
                         }
-                        if (!$st && Schema::hasTable('stores')) {
-                            $st = Store::where('status','active')->orderBy('id')->first();
+                        if (! $st && Schema::hasTable('stores')) {
+                            $st = Store::where('status', 'active')->orderBy('id')->first();
                         }
+
                         return $st;
                     } catch (\Throwable $e) {
                         return null;
@@ -195,70 +206,76 @@ class AppServiceProvider extends ServiceProvider
         });
 
         // Share active company services with page links to home views for header navigation
-        View::composer(['home.*','home.components.*'], function ($view) {
+        View::composer(['home.*', 'home.components.*'], function ($view) {
             $services = Cache::remember('nav_company_services', 300, function () {
                 try {
-                    if (!Schema::hasTable('company_services')) { return collect(); }
-                    return CompanyService::where('status','active')
+                    if (! Schema::hasTable('company_services')) {
+                        return collect();
+                    }
+
+                    return CompanyService::where('status', 'active')
                         ->whereNotNull('page_link')
                         ->ordered()
-                        ->get(['title','page_link']);
+                        ->get(['title', 'page_link']);
                 } catch (\Throwable $e) {
                     return collect();
                 }
             });
             $view->with('navServices', $services);
-            
+
             // Share main store for cart functionality
             $mainStore = Cache::remember('home_main_store', 300, function () {
                 try {
-                    if (!Schema::hasTable('settings')) { return null; }
+                    if (! Schema::hasTable('settings')) {
+                        return null;
+                    }
                     $s = Setting::query()->first();
                     $mainStoreId = $s->main_store_id ?? null;
                     $st = null;
                     if ($mainStoreId && Schema::hasTable('stores')) {
                         $st = Store::find($mainStoreId);
                     }
-                    if (!$st && Schema::hasTable('stores')) {
-                        $st = Store::where('status','active')->orderBy('id')->first();
+                    if (! $st && Schema::hasTable('stores')) {
+                        $st = Store::where('status', 'active')->orderBy('id')->first();
                     }
+
                     return $st;
                 } catch (\Throwable $e) {
                     return null;
                 }
             });
             $view->with('mainStore', $mainStore);
-            
+
             // Share suggested products for search "You May Also Like" carousel
             $suggestedProducts = Cache::remember('search_suggested_products', 300, function () use ($mainStore) {
                 try {
-                    if (!$mainStore || !Schema::hasTable('products')) {
+                    if (! $mainStore || ! Schema::hasTable('products')) {
                         return collect();
                     }
-                    
+
                     // Get featured products first
-                    $featured = \App\Models\Product::with('images', 'store')
+                    $featured = Product::with('images', 'store')
                         ->where('store_id', $mainStore->id)
                         ->where('status', 'active')
                         ->where('featured', true)
                         ->inRandomOrder()
                         ->limit(10)
                         ->get();
-                    
+
                     // If less than 10 featured, get more random products
                     if ($featured->count() < 10) {
                         $remaining = 10 - $featured->count();
-                        $others = \App\Models\Product::with('images', 'store')
+                        $others = Product::with('images', 'store')
                             ->where('store_id', $mainStore->id)
                             ->where('status', 'active')
                             ->where('featured', false)
                             ->inRandomOrder()
                             ->limit($remaining)
                             ->get();
-                        
+
                         return $featured->merge($others);
                     }
-                    
+
                     return $featured;
                 } catch (\Throwable $e) {
                     return collect();
@@ -267,7 +284,7 @@ class AppServiceProvider extends ServiceProvider
             $view->with('suggestedProducts', $suggestedProducts);
         });
 
-        View::composer(['home.*','home.components.features_cta'], function ($view) {
+        View::composer(['home.*', 'home.components.features_cta'], function ($view) {
             try {
                 $featureCtas = Cache::remember('home_features_cta', 3600, function () {
                     return Schema::hasTable('features') ? Feature::ordered()->get() : collect();
@@ -284,9 +301,9 @@ class AppServiceProvider extends ServiceProvider
             $company = $data['company'] ?? (object) [];
 
             $user = Auth::user();
-            if (!$user) {
+            if (! $user) {
                 $view->with([
-                    'headerVendor' => null,
+                    'headerUser' => null,
                     'headerStores' => collect(),
                     'sidebarUser' => null,
                     'sidebarStores' => collect(),
@@ -298,6 +315,7 @@ class AppServiceProvider extends ServiceProvider
                     'sidebarDispatchesCount' => 0,
                     'sidebarStaffCount' => 0,
                 ]);
+
                 return;
             }
 
@@ -305,29 +323,29 @@ class AppServiceProvider extends ServiceProvider
                 $stores = $user->assignedStores()->where('status', '!=', 'deleted')->get();
                 $warehouses = $user->assignedWarehouses()->with('sections')->get();
                 $posStores = $user->assignedStores()->where('pos_enabled', true)->where('status', '!=', 'deleted')
-                    ->withCount(['posSessions as active_pos_sessions_count' => fn($q) => $q->where('status', 'open')])
+                    ->withCount(['posSessions as active_pos_sessions_count' => fn ($q) => $q->where('status', 'open')])
                     ->orderBy('name')->get();
                 $posOpenCount = $posStores->sum('active_pos_sessions_count');
                 $store = $stores->first();
-                $brandLogo = $store?->logo_path ? asset('storage/' . $store->logo_path) : ($company->favicon ?? asset('vendor_files/assets/images/logo.png'));
+                $brandLogo = $store?->logo_path ? asset('storage/'.$store->logo_path) : ($company->favicon ?? asset('vendor_files/assets/images/logo.png'));
                 $brandName = $store?->name ?? $user->name ?? ($company->name ?? config('app.name'));
 
                 $storeIds = $stores->pluck('id')->toArray();
-                $counts = Cache::remember("sidebar.counts.{$user->id}", 15, fn() => [
-                    'pending_orders' => \App\Models\Order::whereIn('store_id', $storeIds)->where('status', 'pending')->count(),
-                    'pending_transactions' => \App\Models\Transaction::join('orders', 'orders.id', '=', 'transactions.order_id')
+                $counts = Cache::remember("sidebar.counts.{$user->id}", 15, fn () => [
+                    'pending_orders' => Order::whereIn('store_id', $storeIds)->where('status', 'pending')->count(),
+                    'pending_transactions' => Transaction::join('orders', 'orders.id', '=', 'transactions.order_id')
                         ->whereIn('orders.store_id', $storeIds)->where('transactions.status', 'pending')->count(),
-                    'customers' => \App\Models\Customer::whereHas('orders', fn($q) => $q->whereIn('store_id', $storeIds))->count(),
-                    'dispatches' => \App\Models\OrderDelivery::whereHas('order', fn($q) => $q->whereIn('store_id', $storeIds))->whereNotIn('status', ['delivered', 'failed', 'returned'])->count(),
-                    'staff' => \App\Models\User::where('business_id', $user->business_id)->where('role', 'staff')->where('status', 'active')->count(),
+                    'customers' => Customer::whereHas('orders', fn ($q) => $q->whereIn('store_id', $storeIds))->count(),
+                    'dispatches' => OrderDelivery::whereHas('order', fn ($q) => $q->whereIn('store_id', $storeIds))->whereNotIn('status', ['delivered', 'failed', 'returned'])->count(),
+                    'staff' => User::where('business_id', $user->business_id)->where('role', 'staff')->where('status', 'active')->count(),
                 ]) ?: [];
 
                 $sidebarData = [
-                    'vendorBrandLogo' => $brandLogo,
-                    'vendorBrandName' => $brandName,
-                    'vendorBrandStore' => $store,
-                    'vendorBrandVendor' => $user,
-                    'headerVendor' => $user,
+                    'businessBrandLogo' => $brandLogo,
+                    'businessBrandName' => $brandName,
+                    'businessBrandStore' => $store,
+                    'businessBrandUser' => $user,
+                    'headerUser' => $user,
                     'headerStores' => $stores,
                     'sidebarUser' => $user,
                     'sidebarStores' => $stores,
@@ -341,9 +359,9 @@ class AppServiceProvider extends ServiceProvider
                     'sidebarDispatchesCount' => $counts['dispatches'],
                     'sidebarStaffCount' => $counts['staff'],
                 ];
-            } elseif (!$user->isBusinessOwner() && !$user->isStaff()) {
+            } elseif (! $user->isBusinessOwner() && ! $user->isStaff()) {
                 $sidebarData = [
-                    'headerVendor' => $user,
+                    'headerUser' => $user,
                     'headerStores' => collect(),
                     'sidebarUser' => $user,
                     'sidebarStores' => collect(),
@@ -355,32 +373,32 @@ class AppServiceProvider extends ServiceProvider
                 $stores = $user->accessibleStores()->where('status', '!=', 'deleted')->get();
                 $warehouses = $user->accessibleWarehouses()->with('sections')->where('status', '!=', 'deleted')->get();
                 $posStores = $user->accessibleStores()->where('pos_enabled', true)->where('status', '!=', 'deleted')
-                    ->withCount(['posSessions as active_pos_sessions_count' => fn($q) => $q->where('status', 'open')])
+                    ->withCount(['posSessions as active_pos_sessions_count' => fn ($q) => $q->where('status', 'open')])
                     ->orderBy('name')
                     ->get();
                 $posOpenCount = $posStores->sum('active_pos_sessions_count');
                 $store = $stores->first();
                 $brandLogo = $store?->logo_path
-                    ? asset('storage/' . $store->logo_path)
+                    ? asset('storage/'.$store->logo_path)
                     : ($company->favicon ?? asset('vendor_files/assets/images/logo.png'));
                 $brandName = $store?->name ?? $user->name ?? ($company->name ?? config('app.name'));
 
                 $storeIds = $stores->pluck('id')->toArray();
-                $counts = Cache::remember("sidebar.counts.{$user->id}", 15, fn() => [
-                    'pending_orders' => \App\Models\Order::whereIn('store_id', $storeIds)->where('status', 'pending')->count(),
-                    'pending_transactions' => \App\Models\Transaction::join('orders', 'orders.id', '=', 'transactions.order_id')
+                $counts = Cache::remember("sidebar.counts.{$user->id}", 15, fn () => [
+                    'pending_orders' => Order::whereIn('store_id', $storeIds)->where('status', 'pending')->count(),
+                    'pending_transactions' => Transaction::join('orders', 'orders.id', '=', 'transactions.order_id')
                         ->whereIn('orders.store_id', $storeIds)->where('transactions.status', 'pending')->count(),
-                    'customers' => \App\Models\Customer::where('business_id', $user->business_id)->count(),
-                    'dispatches' => \App\Models\OrderDelivery::where('business_id', $user->business_id)->whereNotIn('status', ['delivered', 'failed', 'returned'])->count(),
-                    'staff' => \App\Models\User::where('business_id', $user->business_id)->where('role', 'staff')->where('status', 'active')->count(),
+                    'customers' => Customer::where('business_id', $user->business_id)->count(),
+                    'dispatches' => OrderDelivery::where('business_id', $user->business_id)->whereNotIn('status', ['delivered', 'failed', 'returned'])->count(),
+                    'staff' => User::where('business_id', $user->business_id)->where('role', 'staff')->where('status', 'active')->count(),
                 ]) ?: [];
 
                 $sidebarData = [
-                    'vendorBrandLogo' => $brandLogo,
-                    'vendorBrandName' => $brandName,
-                    'vendorBrandStore' => $store,
-                    'vendorBrandVendor' => $user,
-                    'headerVendor' => $user,
+                    'businessBrandLogo' => $brandLogo,
+                    'businessBrandName' => $brandName,
+                    'businessBrandStore' => $store,
+                    'businessBrandUser' => $user,
+                    'headerUser' => $user,
                     'headerStores' => $stores,
                     'sidebarUser' => $user,
                     'sidebarStores' => $stores,
@@ -409,21 +427,21 @@ class AppServiceProvider extends ServiceProvider
             $store = $data['store'] ?? null;
 
             if ($store) {
-                 try {
-                     // Cache key per store to avoid DB hits on every page load
-                     $categories = Cache::remember('store_categories_' . $store->id, 300, function () use ($store) {
-                        return \App\Models\Category::where('store_id', $store->id)
+                try {
+                    // Cache key per store to avoid DB hits on every page load
+                    $categories = Cache::remember('store_categories_'.$store->id, 300, function () use ($store) {
+                        return Category::where('store_id', $store->id)
                             ->where('status', 'active')
                             ->orderBy('name')
                             ->take(10)
                             ->get();
-                     });
-                 } catch (\Throwable $e) {
-                     $categories = collect();
-                 }
-                 $view->with('headerCategories', $categories);
+                    });
+                } catch (\Throwable $e) {
+                    $categories = collect();
+                }
+                $view->with('headerCategories', $categories);
             } else {
-                 $view->with('headerCategories', collect());
+                $view->with('headerCategories', collect());
             }
         });
     }

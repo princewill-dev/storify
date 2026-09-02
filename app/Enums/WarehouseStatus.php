@@ -35,6 +35,7 @@ enum WarehouseStatus: string
                 'class' => $status->badgeClass(),
             ];
         }
+
         return $data;
     }
 }

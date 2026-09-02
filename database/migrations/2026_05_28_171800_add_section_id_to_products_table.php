@@ -25,10 +25,12 @@ return new class extends Migration
         foreach ($vendors as $vendor) {
             // Create default location if vendor has warehouses but no locations
             $hasWarehouses = DB::table('warehouses')->where('vendor_id', $vendor->id)->exists();
-            if (!$hasWarehouses) continue;
+            if (! $hasWarehouses) {
+                continue;
+            }
 
             $locationId = DB::table('locations')->insertGetId([
-                'location_code' => 'loc_' . Str::lower(Str::random(10)),
+                'location_code' => 'loc_'.Str::lower(Str::random(10)),
                 'vendor_id' => $vendor->id,
                 'name' => 'Main Location',
                 'is_active' => true,
@@ -43,7 +45,7 @@ return new class extends Migration
 
                 // Create default section for each warehouse
                 $sectionId = DB::table('sections')->insertGetId([
-                    'section_code' => 'sec_' . Str::lower(Str::random(10)),
+                    'section_code' => 'sec_'.Str::lower(Str::random(10)),
                     'warehouse_id' => $wh->id,
                     'name' => 'General',
                     'is_active' => true,

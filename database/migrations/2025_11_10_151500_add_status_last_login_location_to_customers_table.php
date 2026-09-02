@@ -12,19 +12,19 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('customers', function (Blueprint $table) {
-            if (!Schema::hasColumn('customers', 'status')) {
+            if (! Schema::hasColumn('customers', 'status')) {
                 $table->enum('status', ['ACTIVE', 'SUSPENDED', 'DELETED'])
                     ->default('ACTIVE')
                     ->after('email_verified_at');
             }
 
-            if (!Schema::hasColumn('customers', 'last_login')) {
+            if (! Schema::hasColumn('customers', 'last_login')) {
                 $table->timestamp('last_login')
                     ->nullable()
                     ->after('status');
             }
 
-            if (!Schema::hasColumn('customers', 'location')) {
+            if (! Schema::hasColumn('customers', 'location')) {
                 $table->string('location')
                     ->nullable()
                     ->after('last_login');

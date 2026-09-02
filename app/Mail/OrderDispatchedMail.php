@@ -7,6 +7,7 @@ use App\Queue\WithQueueConfig;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Mail\Mailable;
+use Illuminate\Mail\Mailables\Attachment;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Queue\SerializesModels;
@@ -30,7 +31,7 @@ class OrderDispatchedMail extends Mailable implements ShouldQueue
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: 'Your Order Has Been Dispatched - ' . $this->order->order_number,
+            subject: 'Your Order Has Been Dispatched - '.$this->order->order_number,
         );
     }
 
@@ -54,7 +55,7 @@ class OrderDispatchedMail extends Mailable implements ShouldQueue
     /**
      * Get the attachments for the message.
      *
-     * @return array<int, \Illuminate\Mail\Mailables\Attachment>
+     * @return array<int, Attachment>
      */
     public function attachments(): array
     {

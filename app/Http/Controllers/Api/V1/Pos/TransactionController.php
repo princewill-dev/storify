@@ -14,8 +14,8 @@ class TransactionController extends Controller
     {
         $query = Transaction::query()
             ->where(function ($q) use ($store) {
-                $q->whereHas('order', fn($o) => $o->where('store_id', $store->id))
-                  ->orWhereHas('invoice', fn($i) => $i->where('store_id', $store->id));
+                $q->whereHas('order', fn ($o) => $o->where('store_id', $store->id))
+                    ->orWhereHas('invoice', fn ($i) => $i->where('store_id', $store->id));
             })
             ->with(['order.customer', 'paymentMethod'])
             ->latest();
@@ -37,7 +37,7 @@ class TransactionController extends Controller
         return response()->json([
             'success' => true,
             'data' => [
-                'transactions' => $transactions->map(fn($tx) => [
+                'transactions' => $transactions->map(fn ($tx) => [
                     'id' => $tx->id,
                     'reference' => $tx->reference,
                     'amount' => (float) $tx->amount,
@@ -82,7 +82,7 @@ class TransactionController extends Controller
                         'order_number' => $transaction->order->order_number,
                         'total' => (float) $transaction->order->total,
                         'items_count' => $transaction->order->items->count(),
-                        'items' => $transaction->order->items->map(fn($i) => [
+                        'items' => $transaction->order->items->map(fn ($i) => [
                             'name' => $i->product_name,
                             'qty' => $i->quantity,
                             'price' => (float) $i->unit_price,

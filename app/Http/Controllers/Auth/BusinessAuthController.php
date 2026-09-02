@@ -7,7 +7,6 @@ use App\Http\Requests\Auth\LoginRequest;
 use App\Http\Requests\Auth\RegisterRequest;
 use App\Http\Requests\Auth\VerifyOtpRequest;
 use App\Mail\OtpMail;
-use App\Mail\VendorLoginAlert;
 use App\Models\User;
 use App\Services\OtpService;
 use Illuminate\Database\QueryException;
@@ -48,6 +47,7 @@ class BusinessAuthController extends Controller
         } catch (QueryException $e) {
             if (($e->getCode() === '23000') || str_contains($e->getMessage(), 'Duplicate entry')) {
                 Log::warning('register.duplicate_data', ['email' => $data['email'], 'phone' => $data['phone'], 'error' => $e->getMessage()]);
+
                 return back()->withInput($request->except('password'))
                     ->with('error', 'We already have an account with that phone number or email.');
             }
@@ -56,8 +56,8 @@ class BusinessAuthController extends Controller
 
         Log::info('register.initiated', ['user_id' => $user->id, 'email' => $user->email]);
 
-        $this->sendOtp($user->email, 'vendor_email_verification');
-        session(['pending_vendor_email' => $user->email]);
+        $this->sendOtp($user->email, 'business_email_verification');
+        session(['pending_business_email' => $user->email]);
 
         return redirect()->route('management.auth.verify-otp')
             ->with('success', 'We sent a verification code to your email. Enter it below to continue.');
@@ -72,10 +72,11 @@ class BusinessAuthController extends Controller
                 if ($user->isStaff()) {
                     return redirect()->to($this->staffRedirectRoute($user));
                 }
+
                 return redirect()->route('management.dashboard');
             }
             // User is mid-onboarding — log them out so they can start fresh
-            if ($user && !$user->business_id) {
+            if ($user && ! $user->business_id) {
                 Auth::guard('web')->logout();
                 session()->invalidate();
                 session()->regenerateToken();
@@ -89,7 +90,7 @@ class BusinessAuthController extends Controller
     {
         $credentials = $request->only('email', 'password');
 
-        if (!Auth::guard('web')->attempt($credentials, false)) {
+        if (! Auth::guard('web')->attempt($credentials, false)) {
             return back()->withInput($request->only('email'))
                 ->with('error', 'Invalid credentials.');
         }
@@ -102,6 +103,7 @@ class BusinessAuthController extends Controller
         if ($user->isStaff()) {
             if ($user->status === 'suspended') {
                 Auth::guard('web')->logout();
+
                 return back()->withInput($request->only('email'))
                     ->with('error', 'Your account has been suspended. Contact your administrator.');
             }
@@ -118,19 +120,20 @@ class BusinessAuthController extends Controller
             $route = $this->staffRedirectRoute($user);
 
             return redirect()->intended($route)
-                ->with('success', 'Welcome, ' . $user->name . '!');
+                ->with('success', 'Welcome, '.$user->name.'!');
         }
 
-        if (!$user->isBusinessOwner() && !$user->isAdmin()) {
+        if (! $user->isBusinessOwner() && ! $user->isAdmin()) {
             Auth::guard('web')->logout();
+
             return back()->withInput($request->only('email'))
                 ->with('error', 'This account is not a business account.');
         }
 
-        if (!$user->is_verified) {
+        if (! $user->is_verified) {
             Auth::guard('web')->logout();
-            $this->sendOtp($user->email, 'vendor_email_verification');
-            session(['pending_vendor_email' => $user->email]);
+            $this->sendOtp($user->email, 'business_email_verification');
+            session(['pending_business_email' => $user->email]);
 
             return redirect()->route('management.auth.verify-otp')
                 ->with('warning', 'Please verify your email to continue. We just re-sent the code.');
@@ -140,8 +143,9 @@ class BusinessAuthController extends Controller
 
         if ($user->status === 'suspended' || $user->status === 'deleted') {
             Auth::guard('web')->logout();
+
             return back()->withInput($request->only('email'))
-                ->with('error', 'Your account is currently ' . $user->status . '. Please contact support.');
+                ->with('error', 'Your account is currently '.$user->status.'. Please contact support.');
         }
 
         $ipAddress = $request->ip();
@@ -156,12 +160,12 @@ class BusinessAuthController extends Controller
         $intended = session()->pull('url.intended', route('management.dashboard'));
 
         Auth::guard('web')->logout();
-        $this->sendOtp($user->email, 'vendor_login');
+        $this->sendOtp($user->email, 'business_login');
 
         session([
-            'pending_vendor_login_email' => $user->email,
-            'pending_vendor_login_redirect' => $intended,
-            'otp_context' => 'vendor_login',
+            'pending_business_login_email' => $user->email,
+            'pending_business_login_redirect' => $intended,
+            'otp_context' => 'business_login',
         ]);
 
         return redirect()->route('management.auth.verify-otp')
@@ -188,12 +192,12 @@ class BusinessAuthController extends Controller
         $request->validate(['email' => ['required', 'email']]);
 
         $user = User::where('email', $request->email)->first();
-        if (!$user) {
+        if (! $user) {
             return back()->with('status', 'If that email is registered, we will send a verification code.')->withInput();
         }
 
-        $this->sendOtp($user->email, 'vendor_password_reset');
-        session(['vendor_password_reset_email' => $user->email]);
+        $this->sendOtp($user->email, 'business_password_reset');
+        session(['business_password_reset_email' => $user->email]);
 
         return redirect()->route('management.auth.reset-password')
             ->with('success', 'Verification code sent. Please check your email.');
@@ -201,13 +205,13 @@ class BusinessAuthController extends Controller
 
     public function showResetPassword(): View|RedirectResponse
     {
-        if (!session('vendor_password_reset_email')) {
+        if (! session('business_password_reset_email')) {
             return redirect()->route('management.auth.forgot-password')
                 ->with('error', 'Start by entering your email address.');
         }
 
         return view('auth.business.reset-password', [
-            'email' => session('vendor_password_reset_email'),
+            'email' => session('business_password_reset_email'),
         ]);
     }
 
@@ -220,34 +224,34 @@ class BusinessAuthController extends Controller
         ]);
 
         $user = User::where('email', $data['email'])->first();
-        if (!$user) {
+        if (! $user) {
             return back()->with('error', 'Invalid reset request.')->withInput($request->except('password', 'password_confirmation'));
         }
 
-        if (!OtpService::verify($data['email'], $data['otp'], 'vendor_password_reset')) {
+        if (! OtpService::verify($data['email'], $data['otp'], 'business_password_reset')) {
             return back()->with('error', 'Invalid or expired verification code.')
                 ->withInput($request->except('password', 'password_confirmation'));
         }
 
         $user->forceFill(['password' => $data['password']])->save();
-        session()->forget('vendor_password_reset_email');
+        session()->forget('business_password_reset_email');
 
         return redirect()->route('management.auth.login')->with('success', 'Password updated. You can now login.');
     }
 
     public function showVerifyOtp(): View|RedirectResponse
     {
-        $context = session('otp_context', 'vendor_email_verification');
-        $email = session('pending_vendor_login_email', session('pending_vendor_email'));
+        $context = session('otp_context', 'business_email_verification');
+        $email = session('pending_business_login_email', session('pending_business_email'));
 
-        if (!$email) {
+        if (! $email) {
             return redirect()->route('management.auth.login')
                 ->with('error', 'No pending verification. Please log in first.');
         }
 
         $user = User::where('email', $email)->first();
 
-        if ($user && $user->is_verified && $context !== 'vendor_login') {
+        if ($user && $user->is_verified && $context !== 'business_login') {
             return redirect()->route('management.dashboard')
                 ->with('status', 'Email already verified.');
         }
@@ -259,11 +263,11 @@ class BusinessAuthController extends Controller
 
     public function verifyOtp(VerifyOtpRequest $request): RedirectResponse
     {
-        $context = session('otp_context', 'vendor_email_verification');
-        $otpType = $context === 'vendor_login' ? 'vendor_login' : 'vendor_email_verification';
+        $context = session('otp_context', 'business_email_verification');
+        $otpType = $context === 'business_login' ? 'business_login' : 'business_email_verification';
         $email = $request->email;
 
-        if (!OtpService::verify($email, $request->otp, $otpType)) {
+        if (! OtpService::verify($email, $request->otp, $otpType)) {
             return back()->with('error', 'Invalid or expired verification code.')
                 ->withInput($request->only('email'));
         }
@@ -272,17 +276,17 @@ class BusinessAuthController extends Controller
 
         $user = User::where('email', $email)->first();
 
-        if ($context === 'vendor_login') {
+        if ($context === 'business_login') {
             if ($user) {
                 Auth::guard('web')->login($user);
                 $user->forceFill(['last_login_at' => now()])->save();
             }
 
-            $redirect = session()->pull('pending_vendor_login_redirect', $this->redirectAfterAuth());
-            session()->forget('pending_vendor_login_email');
+            $redirect = session()->pull('pending_business_login_redirect', $this->redirectAfterAuth());
+            session()->forget('pending_business_login_email');
 
             return redirect()->to($redirect)
-                ->with('success', 'Welcome back, ' . ($user?->name ?? ''));
+                ->with('success', 'Welcome back, '.($user?->name ?? ''));
         }
 
         if ($user) {
@@ -291,7 +295,7 @@ class BusinessAuthController extends Controller
             $user->forceFill(['last_login_at' => now()])->save();
         }
 
-        session()->forget('pending_vendor_email');
+        session()->forget('pending_business_email');
 
         return redirect()->to($this->redirectAfterAuth())
             ->with('success', 'Email verified successfully. Welcome!');
@@ -307,7 +311,7 @@ class BusinessAuthController extends Controller
             return $this->staffRedirectRoute($user);
         }
 
-        if ($user && !$user->business_id) {
+        if ($user && ! $user->business_id) {
             return route('management.setup');
         }
 
@@ -316,10 +320,11 @@ class BusinessAuthController extends Controller
 
     public function resendOtp(Request $request): RedirectResponse
     {
-        $email = session('pending_vendor_login_email', session('pending_vendor_email'));
+        $email = session('pending_business_login_email', session('pending_business_email'));
         if ($email) {
-            $this->sendOtp($email, 'vendor_email_verification');
-            return back()->with('success', 'We sent a new verification code to ' . $email . '.');
+            $this->sendOtp($email, 'business_email_verification');
+
+            return back()->with('success', 'We sent a new verification code to '.$email.'.');
         }
 
         return back()->with('error', 'No pending email. Please log in first.');
@@ -332,18 +337,20 @@ class BusinessAuthController extends Controller
         try {
             Mail::to($email)->queue(new OtpMail($otp->code, 10));
         } catch (\Throwable $e) {
-            Log::error('vendor.otp.mail_failed', ['email' => $email, 'type' => $type, 'error' => $e->getMessage()]);
+            Log::error('business.otp.mail_failed', ['email' => $email, 'type' => $type, 'error' => $e->getMessage()]);
         }
     }
 
-    private function staffRedirectRoute(\App\Models\User $user): string
+    private function staffRedirectRoute(User $user): string
     {
         // Only redirect pure cashiers (no other roles) to POS
         $roles = $user->getRoleNames();
         if ($roles->count() === 1 && $roles->contains('Cashier')) {
             $hasPosStore = $user->assignedStores()->where('pos_enabled', true)->exists();
+
             return $hasPosStore ? route('pos.index') : route('pos.no-store');
         }
+
         return route('management.dashboard');
     }
 }

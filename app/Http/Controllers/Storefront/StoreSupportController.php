@@ -103,7 +103,7 @@ class StoreSupportController extends Controller
                     Mail::to($adminEmail)->queue(new AdminNewSupportMessageMail($supportMessage));
                     Log::info('store.support.message.admin_email_queued', [
                         'message_id' => $supportMessage->id,
-                        'email' => $adminEmail
+                        'email' => $adminEmail,
                     ]);
                 }
             } catch (\Exception $e) {

@@ -20,21 +20,21 @@ class ProductController extends Controller
             ->when($query !== '', function ($q) use ($query) {
                 $q->where(function ($x) use ($query) {
                     $x->where('name', 'like', "%{$query}%")
-                      ->orWhere('product_code', 'like', "%{$query}%");
+                        ->orWhere('product_code', 'like', "%{$query}%");
                 });
             })
-            ->with(['images' => fn($q) => $q->orderBy('position')])
+            ->with(['images' => fn ($q) => $q->orderBy('position')])
             ->latest()
             ->limit($query !== '' ? 20 : 30)
             ->get()
-            ->map(fn($product) => [
+            ->map(fn ($product) => [
                 'id' => $product->id,
                 'name' => $product->name,
                 'product_code' => $product->product_code,
                 'amount' => (float) $product->amount,
                 'quantity' => (int) $product->quantity,
                 'image' => $product->images->first()
-                    ? asset('storage/' . $product->images->first()->path)
+                    ? asset('storage/'.$product->images->first()->path)
                     : null,
             ]);
 

@@ -14,9 +14,9 @@ class VatRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'percentage' => ['required','numeric','min:0','max:100'],
-            'effective_at' => ['nullable','date'],
-            'active' => ['sometimes','boolean'],
+            'percentage' => ['required', 'numeric', 'min:0', 'max:100'],
+            'effective_at' => ['nullable', 'date'],
+            'active' => ['sometimes', 'boolean'],
         ];
     }
 }

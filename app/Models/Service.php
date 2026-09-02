@@ -7,11 +7,10 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Str;
-use App\Models\BelongsToBusiness;
 
 class Service extends Model
 {
-    use HasFactory, BelongsToBusiness;
+    use BelongsToBusiness, HasFactory;
 
     protected $fillable = [
         'store_id',
@@ -28,11 +27,11 @@ class Service extends Model
     {
         parent::boot();
         static::creating(function ($model) {
-            if (empty($model->slug) && !empty($model->name)) {
-                $model->slug = Str::slug($model->name) . '-' . substr((string) Str::uuid(), 0, 8);
+            if (empty($model->slug) && ! empty($model->name)) {
+                $model->slug = Str::slug($model->name).'-'.substr((string) Str::uuid(), 0, 8);
             }
             if (empty($model->service_code)) {
-                $model->service_code = 'svc_' . strtoupper(Str::random(8));
+                $model->service_code = 'svc_'.strtoupper(Str::random(8));
             }
         });
     }
@@ -60,6 +59,7 @@ class Service extends Model
     public function primaryImage(): ?ServiceImage
     {
         $img = $this->images->firstWhere('is_primary', true);
+
         return $img ?: $this->images->first();
     }
 }

@@ -48,7 +48,7 @@
     <table class="w-full text-sm">
         <thead class="border-b border-slate-100">
             <tr>
-                <th class="text-left py-3 px-4 font-medium text-slate-600">Vendor</th>
+                <th class="text-left py-3 px-4 font-medium text-slate-600">Business</th>
                 <th class="text-left py-3 px-4 font-medium text-slate-600">Store Used On</th>
                 <th class="text-left py-3 px-4 font-medium text-slate-600">Used At</th>
             </tr>
@@ -57,18 +57,18 @@
             @forelse($earlyPass->usages as $usage)
             <tr>
                 <td class="py-3 px-4">
-                    @if($usage->vendor)
+                    @if($usage->user)
                     <div class="flex items-center gap-3">
                         <div class="flex items-center justify-center w-8 h-8 rounded-full bg-slate-100 text-slate-600 text-xs font-bold">
-                            {{ substr($usage->vendor->name, 0, 1) }}
+                            {{ substr($usage->user->name, 0, 1) }}
                         </div>
                         <div>
-                            <a href="{{ route('admin.vendors.show', $usage->vendor) }}" class="text-sm font-medium text-slate-900 hover:text-slate-700">{{ $usage->vendor->name }}</a>
-                            <div class="text-xs text-slate-400">{{ $usage->vendor->email }}</div>
+                            <a href="{{ route('admin.businesses.show', $usage->user) }}" class="text-sm font-medium text-slate-900 hover:text-slate-700">{{ $usage->user->name }}</a>
+                            <div class="text-xs text-slate-400">{{ $usage->user->email }}</div>
                         </div>
                     </div>
                     @else
-                        <span class="text-slate-400">Unknown Vendor</span>
+                        <span class="text-slate-400">Unknown Business</span>
                     @endif
                 </td>
                 <td class="py-3 px-4">

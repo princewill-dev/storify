@@ -21,12 +21,12 @@ class KycDocumentType extends Model
         'is_active' => 'boolean',
     ];
 
-    public function vendorKycApplications(): HasMany
+    public function kycApplications(): HasMany
     {
         return $this->hasMany(KycApplication::class, 'kyc_document_type_id');
     }
 
-    public function vendors(): HasMany
+    public function users(): HasMany
     {
         return $this->hasMany(User::class, 'kyc_document_type_id');
     }

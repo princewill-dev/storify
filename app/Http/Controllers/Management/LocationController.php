@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Management;
 
+use App\Data\Nigeria;
 use App\Http\Controllers\Controller;
 use App\Models\Location;
 use Illuminate\Http\RedirectResponse;
@@ -14,18 +15,20 @@ class LocationController extends Controller
     {
         $user = $request->user();
         $locations = $user->locations()->withCount('warehouses')->latest()->get();
-        $nigerianStates = \App\Data\Nigeria::states();
-        $nigerianCities = \App\Data\Nigeria::topCities();
+        $nigerianStates = Nigeria::states();
+        $nigerianCities = Nigeria::topCities();
         $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Locations']];
+
         return view('management.locations.index', compact('user', 'locations', 'nigerianStates', 'nigerianCities', 'breadcrumbs'));
     }
 
     public function create(Request $request): View
     {
         $user = $request->user();
-        $nigerianStates = \App\Data\Nigeria::states();
-        $nigerianCities = \App\Data\Nigeria::topCities();
+        $nigerianStates = Nigeria::states();
+        $nigerianCities = Nigeria::topCities();
         $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Locations', 'url' => route('management.locations.index')], ['label' => 'Create']];
+
         return view('management.locations.create', compact('user', 'nigerianStates', 'nigerianCities', 'breadcrumbs'));
     }
 
@@ -42,32 +45,41 @@ class LocationController extends Controller
         ]);
         $validated['user_id'] = $user->id;
         Location::create($validated);
+
         return redirect()->route('management.locations.index')->with('success', 'Location created.');
     }
 
     public function show(Request $request, Location $location): View
     {
         $user = $request->user();
-        if ($location->user_id !== $user->id) abort(403);
+        if ($location->user_id !== $user->id) {
+            abort(403);
+        }
         $location->load('warehouses.sections');
         $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Locations', 'url' => route('management.locations.index')], ['label' => $location->name ?? 'Location']];
+
         return view('management.locations.show', compact('user', 'location', 'breadcrumbs'));
     }
 
     public function edit(Request $request, Location $location): View
     {
         $user = $request->user();
-        if ($location->user_id !== $user->id) abort(403);
-        $nigerianStates = \App\Data\Nigeria::states();
-        $nigerianCities = \App\Data\Nigeria::topCities();
+        if ($location->user_id !== $user->id) {
+            abort(403);
+        }
+        $nigerianStates = Nigeria::states();
+        $nigerianCities = Nigeria::topCities();
         $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Locations', 'url' => route('management.locations.index')], ['label' => $location->name ?? 'Location', 'url' => route('management.locations.show', $location)], ['label' => 'Edit']];
+
         return view('management.locations.edit', compact('user', 'location', 'nigerianStates', 'nigerianCities', 'breadcrumbs'));
     }
 
     public function update(Request $request, Location $location): RedirectResponse
     {
         $user = $request->user();
-        if ($location->user_id !== $user->id) abort(403);
+        if ($location->user_id !== $user->id) {
+            abort(403);
+        }
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'address' => 'nullable|string|max:500',
@@ -77,14 +89,18 @@ class LocationController extends Controller
             'is_active' => 'boolean',
         ]);
         $location->update($validated);
+
         return redirect()->route('management.locations.index')->with('success', 'Location updated.');
     }
 
     public function destroy(Request $request, Location $location): RedirectResponse
     {
         $user = $request->user();
-        if ($location->user_id !== $user->id) abort(403);
+        if ($location->user_id !== $user->id) {
+            abort(403);
+        }
         $location->delete();
+
         return redirect()->route('management.locations.index')->with('success', 'Location deleted.');
     }
 }

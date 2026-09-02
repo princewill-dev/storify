@@ -12,17 +12,39 @@ return new class extends Migration
     {
         // === STEP 1: Add vendor columns to users ===
         Schema::table('users', function (Blueprint $table) {
-            if (!Schema::hasColumn('users', 'slug')) $table->string('slug')->nullable()->unique()->after('name');
-            if (!Schema::hasColumn('users', 'description')) $table->text('description')->nullable()->after('location');
-            if (!Schema::hasColumn('users', 'ownership_type_id')) $table->foreignId('ownership_type_id')->nullable()->after('description')->constrained('ownership_types')->nullOnDelete();
-            if (!Schema::hasColumn('users', 'business_type_id')) $table->foreignId('business_type_id')->nullable()->after('ownership_type_id')->constrained('business_types')->nullOnDelete();
-            if (!Schema::hasColumn('users', 'business_setup_complete')) $table->boolean('business_setup_complete')->default(false)->after('business_type_id');
-            if (!Schema::hasColumn('users', 'business_location')) $table->string('business_location')->nullable()->after('business_setup_complete');
-            if (!Schema::hasColumn('users', 'business_model')) $table->string('business_model', 20)->nullable()->after('business_location');
-            if (!Schema::hasColumn('users', 'currency')) $table->string('currency', 10)->nullable()->after('business_model');
-            if (!Schema::hasColumn('users', 'physical_store_count')) $table->string('physical_store_count', 10)->nullable()->after('currency');
-            if (!Schema::hasColumn('users', 'store_slug')) $table->string('store_slug')->nullable()->after('physical_store_count');
-            if (!Schema::hasColumn('users', 'account_code') && !Schema::hasColumn('users', 'user_code')) $table->string('account_code', 30)->nullable()->unique()->after('id');
+            if (! Schema::hasColumn('users', 'slug')) {
+                $table->string('slug')->nullable()->unique()->after('name');
+            }
+            if (! Schema::hasColumn('users', 'description')) {
+                $table->text('description')->nullable()->after('location');
+            }
+            if (! Schema::hasColumn('users', 'ownership_type_id')) {
+                $table->foreignId('ownership_type_id')->nullable()->after('description')->constrained('ownership_types')->nullOnDelete();
+            }
+            if (! Schema::hasColumn('users', 'business_type_id')) {
+                $table->foreignId('business_type_id')->nullable()->after('ownership_type_id')->constrained('business_types')->nullOnDelete();
+            }
+            if (! Schema::hasColumn('users', 'business_setup_complete')) {
+                $table->boolean('business_setup_complete')->default(false)->after('business_type_id');
+            }
+            if (! Schema::hasColumn('users', 'business_location')) {
+                $table->string('business_location')->nullable()->after('business_setup_complete');
+            }
+            if (! Schema::hasColumn('users', 'business_model')) {
+                $table->string('business_model', 20)->nullable()->after('business_location');
+            }
+            if (! Schema::hasColumn('users', 'currency')) {
+                $table->string('currency', 10)->nullable()->after('business_model');
+            }
+            if (! Schema::hasColumn('users', 'physical_store_count')) {
+                $table->string('physical_store_count', 10)->nullable()->after('currency');
+            }
+            if (! Schema::hasColumn('users', 'store_slug')) {
+                $table->string('store_slug')->nullable()->after('physical_store_count');
+            }
+            if (! Schema::hasColumn('users', 'account_code') && ! Schema::hasColumn('users', 'user_code')) {
+                $table->string('account_code', 30)->nullable()->unique()->after('id');
+            }
         });
 
         // === STEP 2: Copy vendor data into users ===
@@ -31,7 +53,9 @@ return new class extends Migration
         $vendors = DB::table('vendors')->get();
         foreach ($vendors as $v) {
             $userId = $v->user_id;
-            if (!$userId || !DB::table('users')->where('id', $userId)->exists()) continue;
+            if (! $userId || ! DB::table('users')->where('id', $userId)->exists()) {
+                continue;
+            }
 
             $slug = $this->uniqueSlug($v->slug ?? Str::slug($v->name));
 
@@ -76,7 +100,10 @@ return new class extends Migration
             $constraint = $m['constraint'];
 
             // Drop old FK
-            try { DB::statement("ALTER TABLE `$table` DROP FOREIGN KEY `$constraint`"); } catch (\Throwable $e) {}
+            try {
+                DB::statement("ALTER TABLE `$table` DROP FOREIGN KEY `$constraint`");
+            } catch (Throwable $e) {
+            }
 
             // Rename column
             if (Schema::hasColumn($table, 'vendor_id')) {
@@ -103,38 +130,51 @@ return new class extends Migration
                 Schema::table($table, function (Blueprint $table) use ($column) {
                     $table->foreign($column)->references('id')->on('users')->cascadeOnDelete();
                 });
-            } catch (\Throwable $e) {}
+            } catch (Throwable $e) {
+            }
         }
 
         // === STEP 5: Rename tables ===
-        if (Schema::hasTable('vendor_kyc_applications') && !Schema::hasTable('kyc_applications')) {
+        if (Schema::hasTable('vendor_kyc_applications') && ! Schema::hasTable('kyc_applications')) {
             Schema::rename('vendor_kyc_applications', 'kyc_applications');
         }
-        if (Schema::hasTable('vendor_subscriptions') && !Schema::hasTable('subscriptions')) {
+        if (Schema::hasTable('vendor_subscriptions') && ! Schema::hasTable('subscriptions')) {
             Schema::rename('vendor_subscriptions', 'subscriptions');
         }
 
         // === STEP 6: Update orders FK (already done, but fix any constraint name) ===
         try {
-            DB::statement("ALTER TABLE `orders` DROP FOREIGN KEY IF EXISTS `orders_user_id_to_vendors_foreign`");
-        } catch (\Throwable $e) {}
+            DB::statement('ALTER TABLE `orders` DROP FOREIGN KEY IF EXISTS `orders_user_id_to_vendors_foreign`');
+        } catch (Throwable $e) {
+        }
 
         // === STEP 7: Drop old trigger/index for vendor_id on subscriptions if exists ===
-        try { DB::statement('DROP INDEX IF EXISTS vendor_subscriptions_vendor_id_status_index ON vendor_subscriptions'); } catch (\Throwable $e) {}
-        try { DB::statement('DROP INDEX IF EXISTS vendor_subscriptions_vendor_id_status_index ON subscriptions'); } catch (\Throwable $e) {}
-        try { DB::statement('DROP INDEX IF EXISTS payments_vendor_id_status_index ON payments'); } catch (\Throwable $e) {}
+        try {
+            DB::statement('DROP INDEX IF EXISTS vendor_subscriptions_vendor_id_status_index ON vendor_subscriptions');
+        } catch (Throwable $e) {
+        }
+        try {
+            DB::statement('DROP INDEX IF EXISTS vendor_subscriptions_vendor_id_status_index ON subscriptions');
+        } catch (Throwable $e) {
+        }
+        try {
+            DB::statement('DROP INDEX IF EXISTS payments_vendor_id_status_index ON payments');
+        } catch (Throwable $e) {
+        }
 
         try {
             Schema::table('subscriptions', function (Blueprint $table) {
                 $table->index(['user_id', 'status']);
             });
-        } catch (\Throwable $e) {}
+        } catch (Throwable $e) {
+        }
 
         try {
             Schema::table('payments', function (Blueprint $table) {
                 $table->index(['user_id', 'status']);
             });
-        } catch (\Throwable $e) {}
+        } catch (Throwable $e) {
+        }
 
         // === STEP 8: Drop vendors table ===
         // (Commented out for safety — uncomment after verifying data migration)
@@ -148,12 +188,18 @@ return new class extends Migration
 
     protected function dropSlugUniqueTemporarily(): void
     {
-        try { DB::statement('ALTER TABLE users DROP INDEX users_slug_unique'); } catch (\Throwable $e) {}
+        try {
+            DB::statement('ALTER TABLE users DROP INDEX users_slug_unique');
+        } catch (Throwable $e) {
+        }
     }
 
     protected function restoreSlugUnique(): void
     {
-        try { DB::statement('ALTER TABLE users ADD UNIQUE users_slug_unique (slug)'); } catch (\Throwable $e) {}
+        try {
+            DB::statement('ALTER TABLE users ADD UNIQUE users_slug_unique (slug)');
+        } catch (Throwable $e) {
+        }
     }
 
     protected function uniqueSlug(string $slug): string
@@ -161,8 +207,9 @@ return new class extends Migration
         $original = $slug;
         $counter = 1;
         while (DB::table('users')->where('slug', $slug)->exists()) {
-            $slug = $original . '-' . $counter++;
+            $slug = $original.'-'.$counter++;
         }
+
         return $slug;
     }
 };

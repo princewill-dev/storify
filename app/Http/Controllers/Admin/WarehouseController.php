@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\StockMovement;
 use App\Models\Warehouse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -29,8 +30,8 @@ class WarehouseController extends Controller
         if ($q !== '') {
             $query->where(function ($x) use ($q) {
                 $x->where('name', 'like', "%$q%")
-                  ->orWhere('warehouse_code', 'like', "%$q%")
-                  ->orWhereHas('business', fn($b) => $b->where('name', 'like', "%$q%"));
+                    ->orWhere('warehouse_code', 'like', "%$q%")
+                    ->orWhereHas('business', fn ($b) => $b->where('name', 'like', "%$q%"));
             });
         }
 
@@ -45,24 +46,24 @@ class WarehouseController extends Controller
 
         $warehouse->load([
             'business', 'user',
-            'sections' => fn($q) => $q->withCount('stockLocations'),
-            'stockLocations' => fn($q) => $q->with('product')->take(20),
+            'sections' => fn ($q) => $q->withCount('stockLocations'),
+            'stockLocations' => fn ($q) => $q->with('product')->take(20),
         ]);
         $warehouse->loadCount(['stockLocations', 'sections']);
 
         $totalStock = $warehouse->stockLocations->sum('quantity');
-        $lowStockCount = $warehouse->stockLocations->filter(fn($l) => $l->quantity <= 10 && $l->quantity > 0)->count();
+        $lowStockCount = $warehouse->stockLocations->filter(fn ($l) => $l->quantity <= 10 && $l->quantity > 0)->count();
 
         // Recent stock movements for this warehouse
-        $recentMovements = \App\Models\StockMovement::where(function ($q) use ($warehouse) {
-                $q->where(function ($sq) use ($warehouse) {
-                    $sq->where('from_location_type', \App\Models\Warehouse::class)
-                       ->where('from_location_id', $warehouse->id);
-                })->orWhere(function ($sq) use ($warehouse) {
-                    $sq->where('to_location_type', \App\Models\Warehouse::class)
-                       ->where('to_location_id', $warehouse->id);
-                });
-            })
+        $recentMovements = StockMovement::where(function ($q) use ($warehouse) {
+            $q->where(function ($sq) use ($warehouse) {
+                $sq->where('from_location_type', Warehouse::class)
+                    ->where('from_location_id', $warehouse->id);
+            })->orWhere(function ($sq) use ($warehouse) {
+                $sq->where('to_location_type', Warehouse::class)
+                    ->where('to_location_id', $warehouse->id);
+            });
+        })
             ->with(['product', 'performedBy'])
             ->latest()
             ->take(15)

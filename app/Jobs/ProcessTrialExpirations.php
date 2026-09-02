@@ -2,10 +2,11 @@
 
 namespace App\Jobs;
 
-use App\Mail\TrialExpiryReminderMail;
 use App\Mail\TrialExpiredMail;
-use App\Models\User;
+use App\Mail\TrialExpiryReminderMail;
 use App\Models\Setting;
+use App\Models\Store;
+use App\Models\User;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -29,7 +30,7 @@ class ProcessTrialExpirations implements ShouldQueue
         $trialEnabled = $settings?->trial_enabled ?? true;
         $trialDays = (int) ($settings?->trial_days ?? 7);
 
-        if (!$trialEnabled) {
+        if (! $trialEnabled) {
             return;
         }
 
@@ -58,7 +59,7 @@ class ProcessTrialExpirations implements ShouldQueue
 
     private function processUser(User $user, int $trialDays): void
     {
-        if (!$user->trial_ends_at) {
+        if (! $user->trial_ends_at) {
             return;
         }
 
@@ -69,6 +70,7 @@ class ProcessTrialExpirations implements ShouldQueue
             if ($daysRemaining <= 3 && $daysRemaining >= 1) {
                 $this->sendReminder($user, $daysRemaining);
             }
+
             return;
         }
 
@@ -82,7 +84,7 @@ class ProcessTrialExpirations implements ShouldQueue
 
     private function sendReminder(User $user, int $daysRemaining): void
     {
-        if (!$user->email) {
+        if (! $user->email) {
             return;
         }
 
@@ -97,11 +99,11 @@ class ProcessTrialExpirations implements ShouldQueue
     private function expireTrial(User $user): void
     {
         $stores = $user->stores()
-            ->where('status', \App\Models\Store::STATUS_ACTIVE)
+            ->where('status', Store::STATUS_ACTIVE)
             ->get();
 
         foreach ($stores as $store) {
-            $store->update(['status' => \App\Models\Store::STATUS_PENDING]);
+            $store->update(['status' => Store::STATUS_PENDING]);
         }
 
         if ($user->email) {

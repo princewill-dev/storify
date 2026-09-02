@@ -2,15 +2,15 @@
 
 namespace App\Models;
 
+use App\Enums\OrderStatus;
+use App\Enums\PaymentStatus;
+use App\Enums\TransactionStatus;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Str;
-use App\Enums\OrderStatus;
-use App\Enums\PaymentStatus;
-use App\Models\BelongsToBusiness;
 
 class Order extends Model
 {
@@ -38,6 +38,8 @@ class Order extends Model
         'meta',
         'staff_id',
         'pos_session_id',
+        'idempotency_key',
+        'service_charge_amount',
     ];
 
     protected $casts = [
@@ -46,7 +48,7 @@ class Order extends Model
         'tax' => 'decimal:2',
         'total' => 'decimal:2',
         'amount_paid' => 'decimal:2',
-        'status' => \App\Enums\OrderStatus::class,
+        'status' => OrderStatus::class,
         'meta' => 'array',
     ];
 
@@ -63,10 +65,10 @@ class Order extends Model
     protected static function boot()
     {
         parent::boot();
-        
+
         static::creating(function ($order) {
             if (empty($order->order_number)) {
-                $order->order_number = 'ORD-' . strtoupper(Str::random(10));
+                $order->order_number = 'ORD-'.strtoupper(Str::random(10));
             }
         });
     }
@@ -119,9 +121,9 @@ class Order extends Model
         return $this->belongsTo(DeliveryRoute::class);
     }
 
-    public function delivery(): \Illuminate\Database\Eloquent\Relations\HasOne
+    public function delivery(): HasOne
     {
-        return $this->hasOne(\App\Models\OrderDelivery::class);
+        return $this->hasOne(OrderDelivery::class);
     }
 
     public function staff(): BelongsTo
@@ -136,12 +138,12 @@ class Order extends Model
 
     public function getStatusLabelAttribute(): string
     {
-        return $this->status instanceof \App\Enums\OrderStatus ? $this->status->label() : ucfirst($this->status);
+        return $this->status instanceof OrderStatus ? $this->status->label() : ucfirst($this->status);
     }
 
     public function getStatusBadgeClassAttribute(): string
     {
-        return $this->status instanceof \App\Enums\OrderStatus ? $this->status->badgeClass() : 'bg-secondary';
+        return $this->status instanceof OrderStatus ? $this->status->badgeClass() : 'bg-secondary';
     }
 
     public function remainingBalance(): float
@@ -158,42 +160,42 @@ class Order extends Model
     {
         $transactions = $this->transactions()
             ->whereIn('status', [
-                \App\Enums\TransactionStatus::PENDING,
-                \App\Enums\TransactionStatus::PAID,
-                \App\Enums\TransactionStatus::CONFIRMED,
-                \App\Enums\TransactionStatus::REFUNDED,
-                \App\Enums\TransactionStatus::REFUND_PENDING,
+                TransactionStatus::PENDING,
+                TransactionStatus::PAID,
+                TransactionStatus::CONFIRMED,
+                TransactionStatus::REFUNDED,
+                TransactionStatus::REFUND_PENDING,
             ])
             ->get();
 
         if ($transactions->isEmpty()) {
-            return \App\Enums\PaymentStatus::UNPAID;
+            return PaymentStatus::UNPAID;
         }
 
-        if ($transactions->contains('status', \App\Enums\TransactionStatus::REFUNDED)) {
-            return \App\Enums\PaymentStatus::REFUNDED;
+        if ($transactions->contains('status', TransactionStatus::REFUNDED)) {
+            return PaymentStatus::REFUNDED;
         }
 
-        if ($transactions->contains('status', \App\Enums\TransactionStatus::REFUND_PENDING)) {
-            return \App\Enums\PaymentStatus::REFUNDED;
+        if ($transactions->contains('status', TransactionStatus::REFUND_PENDING)) {
+            return PaymentStatus::REFUNDED;
         }
 
         $confirmedSum = $transactions
-            ->whereIn('status', [\App\Enums\TransactionStatus::CONFIRMED, \App\Enums\TransactionStatus::PAID])
+            ->whereIn('status', [TransactionStatus::CONFIRMED, TransactionStatus::PAID])
             ->sum('amount');
 
         if ((float) $confirmedSum >= (float) $this->total) {
-            return \App\Enums\PaymentStatus::PAID;
+            return PaymentStatus::PAID;
         }
 
         if ((float) $confirmedSum > 0) {
-            return \App\Enums\PaymentStatus::PARTIAL;
+            return PaymentStatus::PARTIAL;
         }
 
-        if ($transactions->contains('status', \App\Enums\TransactionStatus::PENDING)) {
-            return \App\Enums\PaymentStatus::PENDING;
+        if ($transactions->contains('status', TransactionStatus::PENDING)) {
+            return PaymentStatus::PENDING;
         }
 
-        return \App\Enums\PaymentStatus::UNPAID;
+        return PaymentStatus::UNPAID;
     }
 }

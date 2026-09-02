@@ -1,8 +1,9 @@
 <?php
 
-use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\Account\RegisterController;
 use App\Http\Controllers\Account\AccountController;
+use App\Http\Controllers\Account\AddressController;
+use App\Http\Controllers\Account\RegisterController;
+use Illuminate\Support\Facades\Route;
 
 // Registration + OTP under /account paths (list parameter optional for SHOP4ME flow)
 Route::get('/account/register/{list?}', [RegisterController::class, 'showRegister'])->name('account.register');
@@ -33,7 +34,7 @@ Route::middleware('auth:customer')->group(function () {
     Route::get('/account/orders/{orderNumber}', [AccountController::class, 'showOrder'])->name('account.order.show');
     Route::get('/account/transactions', [AccountController::class, 'transactions'])->name('account.transactions');
     Route::get('/account/transactions/{transactionId}', [AccountController::class, 'showTransaction'])->name('account.transaction.show');
-    
+
     // Address Management
-    Route::post('/account/addresses', [App\Http\Controllers\Account\AddressController::class, 'store'])->name('account.addresses.store');
+    Route::post('/account/addresses', [AddressController::class, 'store'])->name('account.addresses.store');
 });

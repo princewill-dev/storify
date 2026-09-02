@@ -15,21 +15,21 @@ class CustomerController extends Controller
         $q = trim($request->input('q', ''));
 
         $customers = Customer::query()
-            ->whereHas('orders', fn($o) => $o->where('store_id', $store->id))
+            ->whereHas('orders', fn ($o) => $o->where('store_id', $store->id))
             ->when($q !== '', function ($query) use ($q) {
                 $query->where(function ($x) use ($q) {
                     $x->where('first_name', 'like', "%{$q}%")
-                      ->orWhere('last_name', 'like', "%{$q}%")
-                      ->orWhere('phone', 'like', "%{$q}%")
-                      ->orWhere('account_id', 'like', "%{$q}%")
-                      ->orWhereRaw("CONCAT(first_name, ' ', last_name) like ?", ["%{$q}%"]);
+                        ->orWhere('last_name', 'like', "%{$q}%")
+                        ->orWhere('phone', 'like', "%{$q}%")
+                        ->orWhere('account_id', 'like', "%{$q}%")
+                        ->orWhereRaw("CONCAT(first_name, ' ', last_name) like ?", ["%{$q}%"]);
                 });
             })
-            ->withCount(['orders' => fn($o) => $o->where('store_id', $store->id)])
+            ->withCount(['orders' => fn ($o) => $o->where('store_id', $store->id)])
             ->latest()
             ->limit(30)
             ->get()
-            ->map(fn($c) => [
+            ->map(fn ($c) => [
                 'id' => $c->id,
                 'account_id' => $c->account_id,
                 'name' => $c->full_name,
@@ -55,14 +55,14 @@ class CustomerController extends Controller
             ->latest()
             ->take(10)
             ->get()
-            ->map(fn($o) => [
+            ->map(fn ($o) => [
                 'id' => $o->id,
                 'order_number' => $o->order_number,
                 'total' => (float) $o->total,
                 'status' => $o->status->value,
                 'created_at' => $o->created_at->toISOString(),
                 'items_count' => $o->items->count(),
-                'items' => $o->items->take(3)->map(fn($i) => [
+                'items' => $o->items->take(3)->map(fn ($i) => [
                     'name' => $i->product_name,
                     'qty' => $i->quantity,
                 ]),

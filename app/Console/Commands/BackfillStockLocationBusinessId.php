@@ -20,7 +20,7 @@ class BackfillStockLocationBusinessId extends Command
         $query = StockLocation::withoutGlobalScopes()->whereNull('business_id');
 
         if ($businessId) {
-            $query->whereHas('product', fn($q) => $q->withoutGlobalScopes()->where('business_id', $businessId));
+            $query->whereHas('product', fn ($q) => $q->withoutGlobalScopes()->where('business_id', $businessId));
             $this->info("Backfilling stock_locations for business_id = {$businessId}...");
         } else {
             $this->info('Finding all stock_locations with null business_id...');
@@ -44,9 +44,10 @@ class BackfillStockLocationBusinessId extends Command
         foreach ($locations as $loc) {
             $product = Product::withoutGlobalScopes()->find($loc->product_id);
 
-            if (!$product || !$product->business_id) {
+            if (! $product || ! $product->business_id) {
                 $skipped++;
                 $bar->advance();
+
                 continue;
             }
 
@@ -58,7 +59,7 @@ class BackfillStockLocationBusinessId extends Command
         $bar->finish();
         $this->newLine(2);
 
-        $this->info("Backfill complete.");
+        $this->info('Backfill complete.');
         $this->info("  Updated: {$updated}");
         $this->info("  Skipped: {$skipped} (no product or product has no business_id)");
 

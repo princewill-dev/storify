@@ -10,8 +10,9 @@ use App\Models\Currency;
 use App\Models\Product;
 use App\Models\ProductImage;
 use App\Models\ProductVariant;
+use App\Models\Section;
 use App\Models\User;
-use Illuminate\Database\QueryException;
+use App\Models\Warehouse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -21,8 +22,6 @@ use Illuminate\View\View;
 
 class ProductController extends Controller
 {
-
-
     private function userStoreIds(User $user): array
     {
         return $user->accessibleStores()->where('status', '!=', 'deleted')->pluck('id')->all();
@@ -32,10 +31,10 @@ class ProductController extends Controller
     {
         $user = $request->user();
 
-        Log::info('vendor.products.viewed', ['user_id' => $user->id]);
+        Log::info('business.products.viewed', ['user_id' => $user->id]);
 
-        $status = strtolower((string)$request->query('status', ''));
-        $q = trim((string)$request->query('q', ''));
+        $status = strtolower((string) $request->query('status', ''));
+        $q = trim((string) $request->query('q', ''));
         $from = $request->query('from');
         $to = $request->query('to');
 
@@ -48,7 +47,7 @@ class ProductController extends Controller
             $selectedStore = $user->accessibleStores()
                 ->where('store_id', $selectedPublicStoreId)
                 ->first();
-            
+
             if ($selectedStore) {
                 $selectedStoreId = $selectedStore->id;
             }
@@ -104,7 +103,7 @@ class ProductController extends Controller
         }
 
         $perPage = (int) $request->query('per_page', 100);
-        if (!in_array($perPage, [10, 50, 100], true)) {
+        if (! in_array($perPage, [10, 50, 100], true)) {
             $perPage = 10;
         }
 
@@ -114,7 +113,7 @@ class ProductController extends Controller
         foreach ($products as $prod) {
             $pi = $prod->primaryImage();
             if ($pi && $pi->path) {
-                $productImages[$prod->id] = asset('storage/' . $pi->path);
+                $productImages[$prod->id] = asset('storage/'.$pi->path);
             }
         }
 
@@ -127,27 +126,28 @@ class ProductController extends Controller
                 $max = $prod->variants_max_amount;
                 if ($min === null) {
                     $displayPrices[$prod->id] = '—';
+
                     continue;
                 }
                 $minCur = ($prod->variants_min_currency_id ?? null) ? ($currencies[$prod->variants_min_currency_id] ?? null) : null;
                 $maxCur = ($prod->variants_max_currency_id ?? null) ? ($currencies[$prod->variants_max_currency_id] ?? null) : null;
-                $minStr = ($minCur->symbol ?? '') . number_format((float) $min, 2);
+                $minStr = ($minCur->symbol ?? '').number_format((float) $min, 2);
                 if ($max === null || $min == $max) {
                     $displayPrices[$prod->id] = $minStr;
                 } else {
-                    $maxStr = ($maxCur->symbol ?? '') . number_format((float) $max, 2);
-                    $displayPrices[$prod->id] = $minStr . ' - ' . $maxStr;
+                    $maxStr = ($maxCur->symbol ?? '').number_format((float) $max, 2);
+                    $displayPrices[$prod->id] = $minStr.' - '.$maxStr;
                 }
             } else {
                 $cur = $currencies[$prod->currency_id ?? 0] ?? null;
                 $amt = (float) ($prod->amount ?? 0);
                 $sym = $cur->symbol ?? '';
-                if (!is_null($prod->discount_percentage) && (float)$prod->discount_percentage > 0) {
-                    $disc = $amt * (1 - ((float)$prod->discount_percentage / 100));
-                    $pct = rtrim(rtrim(number_format((float)$prod->discount_percentage, 2, '.', ''), '0'), '.');
-                    $displayPrices[$prod->id] = $sym . number_format($amt, 2) . ' -> ' . $sym . number_format($disc, 2) . ' (-' . $pct . '%)';
+                if (! is_null($prod->discount_percentage) && (float) $prod->discount_percentage > 0) {
+                    $disc = $amt * (1 - ((float) $prod->discount_percentage / 100));
+                    $pct = rtrim(rtrim(number_format((float) $prod->discount_percentage, 2, '.', ''), '0'), '.');
+                    $displayPrices[$prod->id] = $sym.number_format($amt, 2).' -> '.$sym.number_format($disc, 2).' (-'.$pct.'%)';
                 } else {
-                    $displayPrices[$prod->id] = $sym . number_format($amt, 2);
+                    $displayPrices[$prod->id] = $sym.number_format($amt, 2);
                 }
             }
         }
@@ -169,7 +169,7 @@ class ProductController extends Controller
         ]);
     }
 
-    public function create(Request $request, ?\App\Models\Warehouse $warehouse = null): View|RedirectResponse
+    public function create(Request $request, ?Warehouse $warehouse = null): View|RedirectResponse
     {
         $user = $request->user();
 
@@ -180,13 +180,13 @@ class ProductController extends Controller
 
         $warehouses = ($user->isStaff()
             ? $user->assignedWarehouses()
-            : \App\Models\Warehouse::where('user_id', $user->id))
+            : Warehouse::where('user_id', $user->id))
             ->where('status', '!=', 'deleted')->orderBy('name')->get();
 
         $selectedWarehouseId = $warehouse?->id ?? old('warehouse_id');
 
         // Load sections — scoped to the preselected warehouse, or all user sections
-        $sections = \App\Models\Section::whereHas('warehouse', function ($q) use ($user, $selectedWarehouseId) {
+        $sections = Section::whereHas('warehouse', function ($q) use ($user) {
             $q->where('user_id', $user->id);
         })->where('status', '!=', 'deleted')->orderBy('name')->get();
 
@@ -216,7 +216,7 @@ class ProductController extends Controller
     public function edit(Request $request, Product $product): View|RedirectResponse
     {
         $user = $request->user();
-        if (!$user || !$this->ownsProduct($product, $user)) {
+        if (! $user || ! $this->ownsProduct($product, $user)) {
             return redirect()->route('management.auth.login');
         }
 
@@ -228,13 +228,13 @@ class ProductController extends Controller
         $storeIds = $this->userStoreIds($user);
         $categories = Category::whereIn('store_id', $storeIds)->orderBy('name')->get();
 
-        $sections = \App\Models\Section::whereHas('warehouse', function ($q) use ($user) {
+        $sections = Section::whereHas('warehouse', function ($q) use ($user) {
             $q->where('user_id', $user->id);
         })->where('status', '!=', 'deleted')->orderBy('name')->get();
 
         $warehouses = ($user->isStaff()
             ? $user->assignedWarehouses()
-            : \App\Models\Warehouse::where('user_id', $user->id))
+            : Warehouse::where('user_id', $user->id))
             ->where('status', '!=', 'deleted')->orderBy('name')->get();
 
         $product->load(['images', 'variants', 'category', 'section']);
@@ -256,17 +256,17 @@ class ProductController extends Controller
     public function store(ProductRequest $request): RedirectResponse
     {
         $user = $request->user();
-        if (!$user) {
+        if (! $user) {
             return redirect()->route('management.auth.login');
         }
 
         $stores = $user->accessibleStores()->where('status', '!=', 'deleted')->pluck('id')->all();
-        if ($request->filled('store_id') && !in_array((int) $request->input('store_id'), $stores, true)) {
+        if ($request->filled('store_id') && ! in_array((int) $request->input('store_id'), $stores, true)) {
             return back()->with('error', 'Invalid store selection.')->withInput();
         }
 
         // Warehouse is the primary location for new products
-        if (!$request->filled('warehouse_id')) {
+        if (! $request->filled('warehouse_id')) {
             return back()->with('error', 'Please assign the product to a warehouse.')->withInput();
         }
 
@@ -278,8 +278,8 @@ class ProductController extends Controller
         $data['has_variants'] = $request->boolean('has_variants');
 
         // Auto-assign warehouse_id from section
-        if (!empty($data['section_id']) && empty($data['warehouse_id'])) {
-            $section = \App\Models\Section::find($data['section_id']);
+        if (! empty($data['section_id']) && empty($data['warehouse_id'])) {
+            $section = Section::find($data['section_id']);
             if ($section && $section->warehouse_id) {
                 $data['warehouse_id'] = $section->warehouse_id;
             }
@@ -317,15 +317,15 @@ class ProductController extends Controller
                             'amount' => $v['amount'],
                             'currency_id' => $v['currency_id'] ?? null,
                             'status' => $v['status'] ?? 'active',
-                            'featured' => !empty($v['featured']),
+                            'featured' => ! empty($v['featured']),
                         ]);
                     }
                 }
 
                 ActivityLog::create([
                     'user_id' => null,
-                    'action' => 'vendor_create_product',
-                    'description' => 'Vendor created a product: ' . $product->name,
+                    'action' => 'business_create_product',
+                    'description' => 'Business created a product: '.$product->name,
                     'ip_address' => $request->ip(),
                     'user_agent' => substr((string) $request->userAgent(), 0, 255),
                     'metadata' => ['user_id' => $user->id, 'product_id' => $product->id],
@@ -335,7 +335,8 @@ class ProductController extends Controller
             return redirect()->route('management.products.index')
                 ->with('success', 'Product created successfully.');
         } catch (\Throwable $e) {
-            Log::error('vendor.product.create_failed', ['error' => $e->getMessage(), 'user_id' => $user->id]);
+            Log::error('business.product.create_failed', ['error' => $e->getMessage(), 'user_id' => $user->id]);
+
             return back()->with('error', 'Unable to create product. Please try again.')->withInput();
         }
     }
@@ -343,12 +344,12 @@ class ProductController extends Controller
     public function update(ProductRequest $request, Product $product): RedirectResponse
     {
         $user = $request->user();
-        if (!$user || !$this->ownsProduct($product, $user)) {
+        if (! $user || ! $this->ownsProduct($product, $user)) {
             return redirect()->route('management.auth.login');
         }
 
         $stores = $user->accessibleStores()->where('status', '!=', 'deleted')->pluck('id')->all();
-        if (!in_array((int)$request->input('store_id'), $stores, true)) {
+        if (! in_array((int) $request->input('store_id'), $stores, true)) {
             return back()->with('error', 'Invalid store selection.')->withInput();
         }
 
@@ -364,13 +365,16 @@ class ProductController extends Controller
                     $ids = $request->input('delete_image_ids');
                     $toDelete = $product->images()->whereIn('id', $ids)->get();
                     foreach ($toDelete as $img) {
-                        try { Storage::disk('public')->delete($img->path); } catch (\Throwable $e) {}
+                        try {
+                            Storage::disk('public')->delete($img->path);
+                        } catch (\Throwable $e) {
+                        }
                         $img->delete();
                     }
                 }
 
                 if ($request->hasFile('images')) {
-                    $pos = (int)$product->images()->max('position');
+                    $pos = (int) $product->images()->max('position');
                     $pos = $pos < 0 ? 0 : $pos + 1;
                     foreach ($request->file('images') as $file) {
                         $path = $file->store('products/images', 'public');
@@ -384,16 +388,16 @@ class ProductController extends Controller
                 }
 
                 if ($request->filled('primary_image_id')) {
-                    $pid = (int)$request->input('primary_image_id');
+                    $pid = (int) $request->input('primary_image_id');
                     $product->images()->update(['is_primary' => false]);
                     $product->images()->where('id', $pid)->update(['is_primary' => true]);
                 }
 
                 if ($product->has_variants) {
-                    $incoming = collect((array)$request->input('variants', []));
+                    $incoming = collect((array) $request->input('variants', []));
                     $keepIds = [];
                     foreach ($incoming as $v) {
-                        if (!empty($v['id'])) {
+                        if (! empty($v['id'])) {
                             $pv = ProductVariant::where('id', $v['id'])->where('product_id', $product->id)->first();
                             if ($pv) {
                                 $pv->update([
@@ -407,7 +411,7 @@ class ProductController extends Controller
                                     'amount' => $v['amount'],
                                     'currency_id' => $v['currency_id'] ?? null,
                                     'status' => $v['status'] ?? $pv->status,
-                                    'featured' => !empty($v['featured']),
+                                    'featured' => ! empty($v['featured']),
                                 ]);
                                 $keepIds[] = $pv->id;
                             }
@@ -424,12 +428,12 @@ class ProductController extends Controller
                                 'amount' => $v['amount'],
                                 'currency_id' => $v['currency_id'] ?? null,
                                 'status' => $v['status'] ?? 'active',
-                                'featured' => !empty($v['featured']),
+                                'featured' => ! empty($v['featured']),
                             ]);
                             $keepIds[] = $pv->id;
                         }
                     }
-                    if (!empty($keepIds)) {
+                    if (! empty($keepIds)) {
                         ProductVariant::where('product_id', $product->id)->whereNotIn('id', $keepIds)->delete();
                     }
                 } else {
@@ -439,16 +443,17 @@ class ProductController extends Controller
 
             ActivityLog::create([
                 'user_id' => null,
-                'action' => 'vendor_update_product',
-                'description' => 'Vendor updated a product',
+                'action' => 'business_update_product',
+                'description' => 'Business updated a product',
                 'ip_address' => $request->ip(),
-                'user_agent' => substr((string)$request->userAgent(), 0, 255),
-                'metadata' => ['user_id' => $user->id, 'product_id' => $product->id, 'has_variants' => (bool)$product->has_variants],
+                'user_agent' => substr((string) $request->userAgent(), 0, 255),
+                'metadata' => ['user_id' => $user->id, 'product_id' => $product->id, 'has_variants' => (bool) $product->has_variants],
             ]);
 
             return redirect()->route('management.stores.products', $product->store)->with('success', 'Product updated.');
         } catch (\Throwable $e) {
-            Log::error('vendor.product.update_failed', ['error' => $e->getMessage(), 'product_id' => $product->id]);
+            Log::error('business.product.update_failed', ['error' => $e->getMessage(), 'product_id' => $product->id]);
+
             return back()->with('error', 'Unable to update product.')->withInput();
         }
     }
@@ -456,7 +461,7 @@ class ProductController extends Controller
     public function show(Request $request, Product $product): View|RedirectResponse
     {
         $user = $request->user();
-        if (!$user || !$this->ownsProduct($product, $user)) {
+        if (! $user || ! $this->ownsProduct($product, $user)) {
             return redirect()->route('management.auth.login');
         }
 
@@ -468,51 +473,59 @@ class ProductController extends Controller
             $minVar = $product->variants->sortBy('amount')->first();
             $maxVar = $product->variants->sortByDesc('amount')->first();
             if ($minVar && $maxVar) {
-                $min = (float)$minVar->amount;
-                $max = (float)$maxVar->amount;
-                $priceInfo = $min == $max ? number_format($min, 2) : number_format($min, 2) . ' - ' . number_format($max, 2);
+                $min = (float) $minVar->amount;
+                $max = (float) $maxVar->amount;
+                $priceInfo = $min == $max ? number_format($min, 2) : number_format($min, 2).' - '.number_format($max, 2);
                 $minSym = optional($currencySymbols[$minVar->currency_id] ?? null)->symbol ?? '';
                 $maxSym = optional($currencySymbols[$maxVar->currency_id] ?? null)->symbol ?? '';
-                $priceInfoSymbol = $min == $max ? ($minSym . number_format($min, 2)) : ($minSym . number_format($min, 2) . ' - ' . $maxSym . number_format($max, 2));
+                $priceInfoSymbol = $min == $max ? ($minSym.number_format($min, 2)) : ($minSym.number_format($min, 2).' - '.$maxSym.number_format($max, 2));
             }
         }
 
         $backUrl = route('management.products.index', ['user' => $user]);
         $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Products', 'url' => route('management.products.index')], ['label' => $product->name]];
+
         return view('management.products.show', compact('user', 'product', 'priceInfo', 'priceInfoSymbol', 'backUrl', 'currencySymbols', 'breadcrumbs'));
     }
 
     public function updateStatus(Request $request, Product $product): RedirectResponse
     {
         $user = $request->user();
-        if (!$user || !$this->ownsProduct($product, $user)) {
+        if (! $user || ! $this->ownsProduct($product, $user)) {
             return redirect()->route('management.auth.login');
         }
 
         $data = $request->validate(['status' => 'required|in:active,inactive']);
         $product->update(['status' => $data['status']]);
         $message = $data['status'] === 'active' ? 'Product activated' : 'Product deactivated';
+
         return redirect()->route('management.stores.products', $product->store)->with('success', $message);
     }
 
     public function destroy(Request $request, Product $product): RedirectResponse
     {
         $user = $request->user();
-        if (!$user || !$this->ownsProduct($product, $user)) {
+        if (! $user || ! $this->ownsProduct($product, $user)) {
             return redirect()->route('management.auth.login');
         }
 
         foreach ($product->images as $img) {
-            try { Storage::disk('public')->delete($img->path); } catch (\Throwable $e) {}
+            try {
+                Storage::disk('public')->delete($img->path);
+            } catch (\Throwable $e) {
+            }
         }
         $product->delete();
+
         return redirect()->route('management.stores.products', $product->store)->with('success', 'Product deleted.');
     }
 
     public function bulkDestroy(Request $request): RedirectResponse
     {
         $user = $request->user();
-        if (!$user) return redirect()->route('management.auth.login');
+        if (! $user) {
+            return redirect()->route('management.auth.login');
+        }
 
         $ids = $request->input('product_ids', []);
         if (empty($ids)) {
@@ -523,10 +536,15 @@ class ProductController extends Controller
         $deleted = 0;
 
         foreach ($products as $product) {
-            if (!$this->ownsProduct($product, $user)) continue;
+            if (! $this->ownsProduct($product, $user)) {
+                continue;
+            }
 
             foreach ($product->images as $img) {
-                try { Storage::disk('public')->delete($img->path); } catch (\Throwable $e) {}
+                try {
+                    Storage::disk('public')->delete($img->path);
+                } catch (\Throwable $e) {
+                }
             }
             $product->delete();
             $deleted++;
@@ -538,29 +556,43 @@ class ProductController extends Controller
     public function bulkUpdate(Request $request): RedirectResponse
     {
         $user = $request->user();
-        if (!$user) return redirect()->route('management.auth.login');
+        if (! $user) {
+            return redirect()->route('management.auth.login');
+        }
 
         $products = $request->input('products', []);
-        if (empty($products)) return back()->with('error', 'No products selected.');
+        if (empty($products)) {
+            return back()->with('error', 'No products selected.');
+        }
 
         $validIds = Product::whereIn('id', array_column($products, 'id'))
-            ->when($user->isRestrictedStaff(), fn($q) => $q->whereIn('store_id', $user->assignedStores()->pluck('id')))
-            ->when(!$user->isRestrictedStaff(), function ($q) use ($user) {
+            ->when($user->isRestrictedStaff(), fn ($q) => $q->whereIn('store_id', $user->assignedStores()->pluck('id')))
+            ->when(! $user->isRestrictedStaff(), function ($q) use ($user) {
                 $storeIds = $this->userStoreIds($user);
-                if (!empty($storeIds)) $q->whereIn('store_id', $storeIds);
+                if (! empty($storeIds)) {
+                    $q->whereIn('store_id', $storeIds);
+                }
             })
             ->pluck('id')->toArray();
 
         $updated = 0;
         foreach ($products as $item) {
-            if (!in_array((int) ($item['id'] ?? 0), $validIds, true)) continue;
+            if (! in_array((int) ($item['id'] ?? 0), $validIds, true)) {
+                continue;
+            }
 
             $data = [];
-            if (isset($item['amount']) && $item['amount'] !== '') $data['amount'] = $item['amount'];
-            if (isset($item['quantity']) && $item['quantity'] !== '') $data['quantity'] = $item['quantity'];
-            if (isset($item['status']) && in_array($item['status'], ['active', 'inactive'])) $data['status'] = $item['status'];
+            if (isset($item['amount']) && $item['amount'] !== '') {
+                $data['amount'] = $item['amount'];
+            }
+            if (isset($item['quantity']) && $item['quantity'] !== '') {
+                $data['quantity'] = $item['quantity'];
+            }
+            if (isset($item['status']) && in_array($item['status'], ['active', 'inactive'])) {
+                $data['status'] = $item['status'];
+            }
 
-            if (!empty($data)) {
+            if (! empty($data)) {
                 Product::where('id', $item['id'])->update($data);
                 $updated++;
             }
@@ -572,12 +604,14 @@ class ProductController extends Controller
     public function bulkStatus(Request $request): RedirectResponse
     {
         $user = $request->user();
-        if (!$user) return redirect()->route('management.auth.login');
+        if (! $user) {
+            return redirect()->route('management.auth.login');
+        }
 
         $ids = $request->input('product_ids', []);
         $status = $request->input('status');
 
-        if (empty($ids) || !in_array($status, ['active', 'inactive'])) {
+        if (empty($ids) || ! in_array($status, ['active', 'inactive'])) {
             return back()->with('error', 'Invalid request.');
         }
 
@@ -587,12 +621,15 @@ class ProductController extends Controller
                     $q->whereIn('store_id', $user->assignedStores()->pluck('id'));
                 } else {
                     $storeIds = $this->userStoreIds($user);
-                    if (!empty($storeIds)) $q->whereIn('store_id', $storeIds);
+                    if (! empty($storeIds)) {
+                        $q->whereIn('store_id', $storeIds);
+                    }
                 }
             })
             ->update(['status' => $status]);
 
         $label = $status === 'active' ? 'activated' : 'deactivated';
+
         return back()->with('success', "{$count} product(s) {$label}.");
     }
 

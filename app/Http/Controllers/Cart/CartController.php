@@ -3,11 +3,11 @@
 namespace App\Http\Controllers\Cart;
 
 use App\Http\Controllers\Controller;
-use Illuminate\Http\Request;
-use App\Models\Store;
-use App\Models\DeliveryRoute;
-use App\Models\Vat;
 use App\Models\Cart;
+use App\Models\DeliveryRoute;
+use App\Models\Store;
+use App\Models\Vat;
+use Illuminate\Http\Request;
 
 class CartController extends Controller
 {
@@ -35,11 +35,11 @@ class CartController extends Controller
     public function proceedToCheckout(Request $request, string $store_slug)
     {
         $store = Store::where('slug', $store_slug)->firstOrFail();
-        
+
         $validated = $request->validate([
             'delivery_route_id' => [
                 'nullable',
-                'exists:delivery_routes,id,store_id,' . $store->id . ',active,1'
+                'exists:delivery_routes,id,store_id,'.$store->id.',active,1',
             ],
         ]);
 
@@ -61,54 +61,54 @@ class CartController extends Controller
 
         $cart = $query->first();
 
-        if (!$cart || $cart->items->isEmpty()) {
+        if (! $cart || $cart->items->isEmpty()) {
             return response()->json([
-                'error' => 'Your cart is empty'
+                'error' => 'Your cart is empty',
             ], 400);
         }
 
         // Validate route belongs to store
-        if (!empty($validated['delivery_route_id'])) {
-             $route = DeliveryRoute::where('id', $validated['delivery_route_id'])
+        if (! empty($validated['delivery_route_id'])) {
+            $route = DeliveryRoute::where('id', $validated['delivery_route_id'])
                 ->where('store_id', $store->id)
                 ->first();
-             if (!$route) {
-                 return response()->json(['error' => 'Invalid delivery location selected'], 422);
-             }
+            if (! $route) {
+                return response()->json(['error' => 'Invalid delivery location selected'], 422);
+            }
         }
 
         // Generate unique token
         $token = bin2hex(random_bytes(16)); // 32 chars
-        
+
         $cart->update([
             'delivery_route_id' => $validated['delivery_route_id'] ?? null,
-            'checkout_token' => $token
+            'checkout_token' => $token,
         ]);
 
         // IMPORTANT: The route parameter must use 'token' as defined in web.php (we will add this route next)
         // or we can just append it manually if route is not named yet.
         // Assuming we will name the route 'checkout.token' or similar, or modifying 'checkout.index'
-        
+
         // For now constructing URL manually to ensure it matches the pattern requested
         // http://rozypolishpetals.localhost:8000/rozypolishpetals/checkout/<temp-order-id>
-        
+
         // Generate redirect URL based on environment and context
         if ($request->routeIs('local.*')) {
             // Local development: use path prefix
             $redirectUrl = route('local.checkout.index', [
                 'store_subdomain' => $store_slug,
-                'token' => $token
+                'token' => $token,
             ]);
         } else {
             // Production subdomain: pass store_subdomain for domain pattern
             $redirectUrl = route('checkout.index', [
                 'store_subdomain' => $store_slug,
-                'token' => $token
+                'token' => $token,
             ]);
         }
-        
+
         return response()->json([
-            'redirect_url' => $redirectUrl
+            'redirect_url' => $redirectUrl,
         ]);
     }
 }

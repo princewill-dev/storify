@@ -34,8 +34,6 @@ class Otp extends Model
 
     /**
      * Check if OTP is expired.
-     *
-     * @return bool
      */
     public function isExpired(): bool
     {
@@ -44,11 +42,9 @@ class Otp extends Model
 
     /**
      * Check if OTP is valid (not expired and not verified).
-     *
-     * @return bool
      */
     public function isValid(): bool
     {
-        return !$this->isExpired() && !$this->is_verified;
+        return ! $this->isExpired() && ! $this->is_verified;
     }
 }

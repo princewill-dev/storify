@@ -18,7 +18,9 @@ class SyncStockLocationsSeeder extends Seeder
 
         foreach ($products as $product) {
             $section = Section::find($product->section_id);
-            if (!$section || !$section->warehouse_id) continue;
+            if (! $section || ! $section->warehouse_id) {
+                continue;
+            }
 
             $location = StockLocation::firstOrCreate(
                 [

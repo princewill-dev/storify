@@ -33,6 +33,7 @@ enum TransferStatus: string
         foreach (self::cases() as $status) {
             $data[$status->value] = ['label' => $status->label()];
         }
+
         return $data;
     }
 

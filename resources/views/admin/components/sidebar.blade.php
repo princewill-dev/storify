@@ -33,17 +33,17 @@
                 </a>
 
                 {{-- Businesses --}}
-                <div x-data="{ open: {{ request()->routeIs('admin.vendors.*', 'admin.vendor-kyc.*', 'admin.early-access.*') ? 'true' : 'false' }} }">
+                <div x-data="{ open: {{ request()->routeIs('admin.businesses.*', 'admin.business-kyc.*', 'admin.early-access.*') ? 'true' : 'false' }} }">
                     <button @click="open = !open" class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors w-full text-left text-slate-300 hover:text-white hover:bg-slate-800">
                         <i class="fi fi-rr-building text-base w-5 text-center"></i>
                         <span class="flex-1">Businesses</span>
                         <i class="fi fi-rr-angle-small-down text-xs transition-transform duration-150" :class="{ 'rotate-180': open }"></i>
                     </button>
                     <div x-show="open" x-transition class="ml-4 space-y-0.5 mt-0.5">
-                        <a href="{{ route('admin.vendors.index') }}" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors {{ request()->routeIs('admin.vendors.*') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white hover:bg-slate-800' }}">
+                        <a href="{{ route('admin.businesses.index') }}" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors {{ request()->routeIs('admin.businesses.*') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white hover:bg-slate-800' }}">
                             <span>All Businesses</span>
                         </a>
-                        <a href="{{ route('admin.vendor-kyc.index') }}" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors {{ request()->routeIs('admin.vendor-kyc.*') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white hover:bg-slate-800' }}">
+                        <a href="{{ route('admin.business-kyc.index') }}" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors {{ request()->routeIs('admin.business-kyc.*') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white hover:bg-slate-800' }}">
                             <span>KYC Submissions</span>
                             @php $pendingKyc = \App\Models\KycApplication::where('status', 'submitted')->count(); @endphp
                             @if($pendingKyc)

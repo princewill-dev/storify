@@ -13,7 +13,9 @@ class VendorLoginAlert extends Mailable implements ShouldQueue
     use Queueable, SerializesModels;
 
     public User $user;
+
     public string $ipAddress;
+
     public string $userAgent;
 
     public function __construct(User $user, string $ipAddress, string $userAgent)
@@ -25,8 +27,8 @@ class VendorLoginAlert extends Mailable implements ShouldQueue
 
     public function build(): self
     {
-        return $this->subject('New login to your vendor account')
-            ->view('emails.vendor.login-alert')
+        return $this->subject('New login to your business account')
+            ->view('emails.business.login-alert')
             ->with([
                 'user' => $this->user,
                 'ipAddress' => $this->ipAddress,

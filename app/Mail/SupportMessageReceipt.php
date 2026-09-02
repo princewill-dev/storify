@@ -13,14 +13,12 @@ class SupportMessageReceipt extends Mailable implements ShouldQueue
 {
     use Queueable, SerializesModels;
 
-    public function __construct(public array $data)
-    {
-    }
+    public function __construct(public array $data) {}
 
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: 'We received your message: ' . ($this->data['subject'] ?? 'No Subject'),
+            subject: 'We received your message: '.($this->data['subject'] ?? 'No Subject'),
         );
     }
 

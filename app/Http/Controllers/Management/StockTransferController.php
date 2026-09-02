@@ -4,11 +4,13 @@ namespace App\Http\Controllers\Management;
 
 use App\Enums\TransferStatus;
 use App\Http\Controllers\Controller;
-use App\Models\StockMovement;
+use App\Models\Product;
+use App\Models\StockLocation;
 use App\Models\StockTransfer;
 use App\Models\StockTransferItem;
-use App\Models\StockLocation;
+use App\Models\Store;
 use App\Models\Warehouse;
+use App\Services\StockLedgerService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -23,14 +25,15 @@ class StockTransferController extends Controller
         $status = $request->query('status');
 
         $transfers = StockTransfer::with(['requester', 'items.product', 'fromLocation', 'toLocation'])
-            ->when($status, fn($q) => $q->where('status', $status))
-            ->tap(fn($q) => $this->forBusiness($q, $user))
+            ->when($status, fn ($q) => $q->where('status', $status))
+            ->tap(fn ($q) => $this->forBusiness($q, $user))
             ->latest()
             ->paginate(20);
 
         $statuses = TransferStatus::cases();
 
         $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Stock Adjustment']];
+
         return view('management.transfers.index', compact('user', 'transfers', 'statuses', 'status', 'breadcrumbs'));
     }
 
@@ -39,13 +42,13 @@ class StockTransferController extends Controller
         $user = $request->user();
 
         if ($user->isStaff()) {
-            $warehouseIds = \Illuminate\Support\Facades\DB::table('staff_assignments')
+            $warehouseIds = DB::table('staff_assignments')
                 ->where('user_id', $user->id)
-                ->where('assignmentable_type', \App\Models\Warehouse::class)
+                ->where('assignmentable_type', Warehouse::class)
                 ->pluck('assignmentable_id');
-            $warehouses = \App\Models\Warehouse::whereIn('id', $warehouseIds)->where('status', '!=', 'deleted')->orderBy('name')->get();
+            $warehouses = Warehouse::whereIn('id', $warehouseIds)->where('status', '!=', 'deleted')->orderBy('name')->get();
         } else {
-            $warehouses = \App\Models\Warehouse::where('user_id', $user->id)->where('status', '!=', 'deleted')->orderBy('name')->get();
+            $warehouses = Warehouse::where('user_id', $user->id)->where('status', '!=', 'deleted')->orderBy('name')->get();
         }
         $stores = ($user->isStaff() ? $user->assignedStores() : $user->stores())->where('status', '!=', 'deleted')->orderBy('name')->get();
 
@@ -54,7 +57,7 @@ class StockTransferController extends Controller
 
         // Warehouse stock
         foreach ($warehouses as $wh) {
-            $key = 'warehouse_' . $wh->id;
+            $key = 'warehouse_'.$wh->id;
             $items = collect();
 
             $locations = StockLocation::where('locationable_type', Warehouse::class)
@@ -75,7 +78,7 @@ class StockTransferController extends Controller
                 ]);
             }
 
-            $whProducts = \App\Models\Product::where('warehouse_id', $wh->id)
+            $whProducts = Product::where('warehouse_id', $wh->id)
                 ->where('quantity', '>', 0)
                 ->whereNotIn('id', $existingIds)
                 ->with('images')
@@ -96,10 +99,10 @@ class StockTransferController extends Controller
 
         // Store stock
         foreach ($stores as $store) {
-            $key = 'store_' . $store->id;
+            $key = 'store_'.$store->id;
             $items = collect();
 
-            $locations = StockLocation::where('locationable_type', \App\Models\Store::class)
+            $locations = StockLocation::where('locationable_type', Store::class)
                 ->where('locationable_id', $store->id)
                 ->where('quantity', '>', 0)
                 ->with('product.images')
@@ -117,7 +120,7 @@ class StockTransferController extends Controller
                 ]);
             }
 
-            $storeProducts = \App\Models\Product::where('store_id', $store->id)
+            $storeProducts = Product::where('store_id', $store->id)
                 ->where('status', 'active')
                 ->where('quantity', '>', 0)
                 ->whereNotIn('id', $existingIds)
@@ -148,10 +151,11 @@ class StockTransferController extends Controller
         }
 
         // Simple arrays for JS
-        $warehouseList = $warehouses->map(fn($w) => ['id' => (string) $w->id, 'name' => $w->name, 'code' => $w->warehouse_code])->values()->toArray();
-        $storeList = $stores->map(fn($s) => ['id' => (string) $s->id, 'name' => $s->name, 'code' => $s->store_code])->values()->toArray();
+        $warehouseList = $warehouses->map(fn ($w) => ['id' => (string) $w->id, 'name' => $w->name, 'code' => $w->warehouse_code])->values()->toArray();
+        $storeList = $stores->map(fn ($s) => ['id' => (string) $s->id, 'name' => $s->name, 'code' => $s->store_code])->values()->toArray();
 
         $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Transfers', 'url' => route('management.transfers.index')], ['label' => 'Create']];
+
         return view('management.transfers.create', compact(
             'user', 'warehouses', 'stores', 'allStockData', 'warehouseList', 'storeList',
             'preSelectFromWarehouseId', 'preSelectToWarehouseId', 'breadcrumbs'
@@ -174,8 +178,8 @@ class StockTransferController extends Controller
             'submitted' => 'nullable|boolean',
         ]);
 
-        $fromType = $validated['from_location_type'] === 'warehouse' ? Warehouse::class : \App\Models\Store::class;
-        $toType = $validated['to_location_type'] === 'warehouse' ? Warehouse::class : \App\Models\Store::class;
+        $fromType = $validated['from_location_type'] === 'warehouse' ? Warehouse::class : Store::class;
+        $toType = $validated['to_location_type'] === 'warehouse' ? Warehouse::class : Store::class;
 
         // Validate source exists and belongs to user
         if ($fromType === Warehouse::class) {
@@ -267,12 +271,13 @@ class StockTransferController extends Controller
         $transfer->load(['requester', 'approver', 'dispatcher', 'receiver', 'items.product', 'items.variant']);
 
         $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Transfers', 'url' => route('management.transfers.index')], ['label' => $transfer->transfer_code]];
+
         return view('management.transfers.show', compact('user', 'transfer', 'breadcrumbs'));
     }
 
     public function submit(Request $request, StockTransfer $transfer): RedirectResponse
     {
-        if (!$transfer->canBeSubmitted()) {
+        if (! $transfer->canBeSubmitted()) {
             return back()->with('error', 'This transfer cannot be submitted.');
         }
 
@@ -285,7 +290,7 @@ class StockTransferController extends Controller
 
     public function approve(Request $request, StockTransfer $transfer): RedirectResponse
     {
-        if (!$transfer->canBeApproved()) {
+        if (! $transfer->canBeApproved()) {
             return back()->with('error', 'This transfer cannot be approved.');
         }
 
@@ -329,13 +334,14 @@ class StockTransferController extends Controller
 
         } catch (\Throwable $e) {
             DB::rollBack();
+
             return back()->with('error', 'Failed to approve transfer.');
         }
     }
 
     public function acknowledge(Request $request, StockTransfer $transfer): RedirectResponse
     {
-        if (!$transfer->canBeAcknowledged()) {
+        if (! $transfer->canBeAcknowledged()) {
             return back()->with('error', 'This transfer is not awaiting acknowledgement.');
         }
 
@@ -351,7 +357,7 @@ class StockTransferController extends Controller
 
     public function dispatch(Request $request, StockTransfer $transfer): RedirectResponse
     {
-        if (!$transfer->canBeDispatched()) {
+        if (! $transfer->canBeDispatched()) {
             return back()->with('error', 'This transfer cannot be dispatched.');
         }
 
@@ -366,19 +372,19 @@ class StockTransferController extends Controller
                 $sourceStock = StockLocation::where('product_id', $item->product_id)
                     ->where('locationable_type', $transfer->from_location_type)
                     ->where('locationable_id', $transfer->from_location_id)
-                    ->when($item->product_variant_id, fn($q) => $q->where('product_variant_id', $item->product_variant_id))
+                    ->when($item->product_variant_id, fn ($q) => $q->where('product_variant_id', $item->product_variant_id))
                     ->first();
 
-                if (!$sourceStock || $sourceStock->quantity < $qty) {
+                if (! $sourceStock || $sourceStock->quantity < $qty) {
                     $available = $sourceStock?->quantity ?? 0;
                     $productName = $item->product?->name ?? 'Unknown';
                     throw new \RuntimeException("Insufficient stock for \"{$productName}\": {$available} available, {$qty} requested.");
                 }
 
-                $ledger = app(\App\Services\StockLedgerService::class);
+                $ledger = app(StockLedgerService::class);
                 $ledger->recordRemoval(
                     $sourceStock, $qty, $transfer, $user,
-                    'Transfer dispatched to ' . ($transfer->toLocation?->name ?? 'destination')
+                    'Transfer dispatched to '.($transfer->toLocation?->name ?? 'destination')
                 );
 
                 // Sync Product.quantity for source
@@ -402,13 +408,14 @@ class StockTransferController extends Controller
         } catch (\Throwable $e) {
             DB::rollBack();
             Log::error('transfer.dispatch_failed', ['transfer_id' => $transfer->id, 'error' => $e->getMessage()]);
+
             return back()->with('error', 'Failed to dispatch transfer.');
         }
     }
 
     public function receive(Request $request, StockTransfer $transfer): RedirectResponse
     {
-        if (!$transfer->canBeReceived()) {
+        if (! $transfer->canBeReceived()) {
             return back()->with('error', 'This transfer cannot be received yet.');
         }
 
@@ -433,7 +440,7 @@ class StockTransferController extends Controller
 
                 $destStock = $destQuery->first();
 
-                if (!$destStock) {
+                if (! $destStock) {
                     $destStock = StockLocation::create([
                         'business_id' => $transfer->business_id,
                         'product_id' => $item->product_id,
@@ -445,10 +452,10 @@ class StockTransferController extends Controller
                     ]);
                 }
 
-                $ledger = app(\App\Services\StockLedgerService::class);
+                $ledger = app(StockLedgerService::class);
                 $ledger->recordAddition(
                     $destStock, $qty, $transfer, $user,
-                    'Transfer received from ' . ($transfer->fromLocation?->name ?? 'source')
+                    'Transfer received from '.($transfer->fromLocation?->name ?? 'source')
                 );
 
                 // Sync Product.quantity for destination
@@ -472,13 +479,14 @@ class StockTransferController extends Controller
         } catch (\Throwable $e) {
             DB::rollBack();
             Log::error('transfer.receive_failed', ['transfer_id' => $transfer->id, 'error' => $e->getMessage()]);
+
             return back()->with('error', 'Failed to receive transfer.');
         }
     }
 
     public function reject(Request $request, StockTransfer $transfer): RedirectResponse
     {
-        if (!$transfer->canBeRejected()) {
+        if (! $transfer->canBeRejected()) {
             return back()->with('error', 'This transfer cannot be rejected.');
         }
 
@@ -503,7 +511,7 @@ class StockTransferController extends Controller
 
     public function cancel(Request $request, StockTransfer $transfer): RedirectResponse
     {
-        if (!$transfer->canBeCancelled()) {
+        if (! $transfer->canBeCancelled()) {
             return back()->with('error', 'This transfer cannot be cancelled.');
         }
 
@@ -521,7 +529,7 @@ class StockTransferController extends Controller
     {
         if ($action === 'add') {
             // Receiving: assign product to destination and increment quantity
-            $product = \App\Models\Product::find($productId);
+            $product = Product::find($productId);
             if ($product) {
                 if ($locationType === Warehouse::class) {
                     $product->update(['warehouse_id' => $locationId, 'store_id' => null]);
@@ -533,11 +541,11 @@ class StockTransferController extends Controller
         } else {
             // Dispatching: decrement source product quantity, clear location if depleted
             if ($locationType === Warehouse::class) {
-                $product = \App\Models\Product::where('id', $productId)
+                $product = Product::where('id', $productId)
                     ->where('warehouse_id', $locationId)
                     ->first();
             } else {
-                $product = \App\Models\Product::where('id', $productId)
+                $product = Product::where('id', $productId)
                     ->where('store_id', $locationId)
                     ->first();
             }

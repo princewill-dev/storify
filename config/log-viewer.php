@@ -1,5 +1,8 @@
 <?php
 
+use Opcodes\LogViewer\Http\Middleware\AuthorizeLogViewer;
+use Opcodes\LogViewer\Http\Middleware\EnsureFrontendRequestsAreStateful;
+
 // Note: Using string values instead of enum classes for production compatibility
 // Enum classes: Opcodes\LogViewer\Enums\SortingMethod, SortingOrder, Theme
 
@@ -97,7 +100,7 @@ return [
     'middleware' => [
         'web',
         'auth',
-        \Opcodes\LogViewer\Http\Middleware\AuthorizeLogViewer::class,
+        AuthorizeLogViewer::class,
     ],
 
     /*
@@ -110,9 +113,9 @@ return [
     */
 
     'api_middleware' => [
-        \Opcodes\LogViewer\Http\Middleware\EnsureFrontendRequestsAreStateful::class,
+        EnsureFrontendRequestsAreStateful::class,
         'auth',
-        \Opcodes\LogViewer\Http\Middleware\AuthorizeLogViewer::class,
+        AuthorizeLogViewer::class,
     ],
 
     'api_stateful_domains' => env('LOG_VIEWER_API_STATEFUL_DOMAINS') ? explode(',', env('LOG_VIEWER_API_STATEFUL_DOMAINS')) : null,

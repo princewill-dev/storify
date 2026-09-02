@@ -21,8 +21,9 @@ class StoreWipe extends Command
 
         $store = Store::where('store_id', $identifier)->first();
 
-        if (!$store) {
+        if (! $store) {
             $this->error("Store [{$identifier}] not found.");
+
             return Command::FAILURE;
         }
 
@@ -31,8 +32,9 @@ class StoreWipe extends Command
         $this->warn("Store: {$store->name} ({$store->store_id})");
         $this->info("Products to wipe: {$productIds->count()}");
 
-        if (!$this->option('force') && !$this->confirm('This will PERMANENTLY delete these products. Continue?', false)) {
+        if (! $this->option('force') && ! $this->confirm('This will PERMANENTLY delete these products. Continue?', false)) {
             $this->info('Aborted.');
+
             return Command::FAILURE;
         }
 
@@ -53,6 +55,7 @@ class StoreWipe extends Command
         });
 
         $this->info("Store [{$identifier}] products wiped successfully.");
+
         return Command::SUCCESS;
     }
 }

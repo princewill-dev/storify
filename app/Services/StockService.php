@@ -6,7 +6,6 @@ use App\Models\InventoryMovement;
 use App\Models\InventoryStock;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Throwable;
 
 class StockService
 {

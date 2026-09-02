@@ -3,12 +3,12 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
-use App\Models\Store;
 use App\Models\Product;
+use App\Models\Store;
 use App\Models\StorefrontSlide;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
 class StorefrontSlideController extends Controller
@@ -19,8 +19,9 @@ class StorefrontSlideController extends Controller
             ->with(['product.images'])
             ->orderBy('position')
             ->get();
-        $products = Product::where('store_id', $store->id)->orderBy('name')->get(['id','name','product_code','slug','amount']);
-        return view('admin.storefront_slides.index', compact('store','slides','products'));
+        $products = Product::where('store_id', $store->id)->orderBy('name')->get(['id', 'name', 'product_code', 'slug', 'amount']);
+
+        return view('admin.storefront_slides.index', compact('store', 'slides', 'products'));
     }
 
     public function store(Request $request, Store $store)
@@ -32,6 +33,7 @@ class StorefrontSlideController extends Controller
         $data['store_id'] = $store->id;
         $data['position'] = (int) (StorefrontSlide::where('store_id', $store->id)->max('position') + 1);
         StorefrontSlide::create($data);
+
         return back()->with('success', 'Slide created');
     }
 
@@ -43,6 +45,7 @@ class StorefrontSlideController extends Controller
             'status' => 'required|string|max:50',
         ]);
         $slide->update($data);
+
         return back()->with('success', 'Slide updated');
     }
 
@@ -50,6 +53,7 @@ class StorefrontSlideController extends Controller
     {
         abort_unless($slide->store_id === $store->id, 404);
         $slide->delete();
+
         return back()->with('success', 'Slide deleted');
     }
 
@@ -60,13 +64,14 @@ class StorefrontSlideController extends Controller
         $query = Product::where('store_id', $store->id)
             ->orderBy('name');
         if ($q !== '') {
-            $query->where(function($x) use ($q) {
+            $query->where(function ($x) use ($q) {
                 $x->where('name', 'like', "%$q%")
-                  ->orWhere('product_code', 'like', "%$q%")
-                  ->orWhere('slug', 'like', "%$q%");
+                    ->orWhere('product_code', 'like', "%$q%")
+                    ->orWhere('slug', 'like', "%$q%");
             });
         }
-        $products = $query->take($limit)->get(['id','name','product_code','slug','amount','status']);
+        $products = $query->take($limit)->get(['id', 'name', 'product_code', 'slug', 'amount', 'status']);
+
         return response()->json($products);
     }
 
@@ -84,6 +89,7 @@ class StorefrontSlideController extends Controller
         foreach ($data['order'] as $slideId) {
             StorefrontSlide::where('id', $slideId)->where('store_id', $store->id)->update(['position' => $position++]);
         }
+
         return response()->json(['ok' => true]);
     }
 
@@ -94,21 +100,22 @@ class StorefrontSlideController extends Controller
         $perPage = (int) min(max((int) $request->query('per_page', 20), 5), 50);
         $query = Product::where('store_id', $store->id)->with(['images'])->orderBy('name');
         if ($q !== '') {
-            $query->where(function($x) use ($q) {
+            $query->where(function ($x) use ($q) {
                 $x->where('name', 'like', "%$q%")
-                  ->orWhere('product_code', 'like', "%$q%")
-                  ->orWhere('slug', 'like', "%$q%");
+                    ->orWhere('product_code', 'like', "%$q%")
+                    ->orWhere('slug', 'like', "%$q%");
             });
         }
-        $paginator = $query->paginate($perPage, ['id','name','product_code','slug','amount','status']);
+        $paginator = $query->paginate($perPage, ['id', 'name', 'product_code', 'slug', 'amount', 'status']);
         Log::info('API list products for slides', [
             'store_id' => $store->id,
-            'q' => $q ? str(substr($q,0,50)) : null,
+            'q' => $q ? str(substr($q, 0, 50)) : null,
             'page' => $request->query('page', 1),
             'per_page' => $perPage,
         ]);
-        $data = $paginator->getCollection()->map(function(Product $p){
+        $data = $paginator->getCollection()->map(function (Product $p) {
             $primary = $p->primaryImage();
+
             return [
                 'id' => $p->id,
                 'name' => $p->name,
@@ -119,6 +126,7 @@ class StorefrontSlideController extends Controller
                 'primary_image_path' => $primary?->path,
             ];
         });
+
         return response()->json([
             'data' => $data,
             'current_page' => $paginator->currentPage(),
@@ -143,7 +151,7 @@ class StorefrontSlideController extends Controller
                 'product_ids.*' => 'integer|exists:products,id',
                 'status' => 'required|string|max:50',
             ]);
-        } catch (\Illuminate\Validation\ValidationException $ve) {
+        } catch (ValidationException $ve) {
             Log::warning('API bulk add slides validation failed', [
                 'store_id' => $store->id,
                 'errors' => $ve->errors(),
@@ -161,7 +169,11 @@ class StorefrontSlideController extends Controller
         $skipped = [];
         $productIds = Product::whereIn('id', $data['product_ids'])->where('store_id', $store->id)->pluck('id')->all();
         foreach ($data['product_ids'] as $pid) {
-            if (!in_array($pid, $productIds, true)) { $skipped[] = $pid; continue; }
+            if (! in_array($pid, $productIds, true)) {
+                $skipped[] = $pid;
+
+                continue;
+            }
             $currentMax++;
             try {
                 $created[] = StorefrontSlide::create([
@@ -182,6 +194,7 @@ class StorefrontSlideController extends Controller
             'created_count' => count($created),
             'skipped_count' => count($skipped),
         ]);
+
         return response()->json(['ok' => true, 'created_ids' => $created, 'skipped' => $skipped]);
     }
 }

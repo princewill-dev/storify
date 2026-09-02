@@ -56,7 +56,7 @@ class CompanyServiceSeeder extends Seeder
 
         foreach ($items as $data) {
             CompanyService::updateOrCreate(
-                ['title' => $data['title']], 
+                ['title' => $data['title']],
                 $data
             );
         }

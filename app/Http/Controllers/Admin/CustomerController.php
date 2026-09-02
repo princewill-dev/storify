@@ -3,16 +3,16 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
-use App\Models\Customer;
-use App\Models\User;
-use App\Models\ActivityLog;
-use App\Mail\CustomerAccountSuspendedMail;
 use App\Mail\CustomerAccountActivatedMail;
+use App\Mail\CustomerAccountSuspendedMail;
+use App\Models\ActivityLog;
+use App\Models\Customer;
+use App\Models\Transaction;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Mail;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\Rule;
 
 class CustomerController extends Controller
@@ -27,12 +27,12 @@ class CustomerController extends Controller
         // Search
         if ($request->filled('search')) {
             $search = $request->search;
-            $query->where(function($q) use ($search) {
+            $query->where(function ($q) use ($search) {
                 $q->where('first_name', 'like', "%{$search}%")
-                  ->orWhere('last_name', 'like', "%{$search}%")
-                  ->orWhere('email', 'like', "%{$search}%")
-                  ->orWhere('phone', 'like', "%{$search}%")
-                  ->orWhere('account_id', 'like', "%{$search}%");
+                    ->orWhere('last_name', 'like', "%{$search}%")
+                    ->orWhere('email', 'like', "%{$search}%")
+                    ->orWhere('phone', 'like', "%{$search}%")
+                    ->orWhere('account_id', 'like', "%{$search}%");
             });
         }
 
@@ -45,7 +45,7 @@ class CustomerController extends Controller
         // Filter by country
         if ($request->filled('country')) {
             $country = $request->country;
-            $query->whereHas('deliveryAddresses.deliveryRoute', function($q) use ($country) {
+            $query->whereHas('deliveryAddresses.deliveryRoute', function ($q) use ($country) {
                 $q->where('country', $country);
             });
         }
@@ -93,25 +93,25 @@ class CustomerController extends Controller
     {
         $customer->load([
             'deliveryAddresses',
-            'orders' => function($query) {
+            'orders' => function ($query) {
                 $query->with(['store', 'items'])
-                      ->latest()
-                      ->limit(10);
-            }
+                    ->latest()
+                    ->limit(10);
+            },
         ]);
 
         // Get customer statistics
         $stats = [
             'total_orders' => $customer->orders()->count(),
             'completed_orders' => $customer->orders()->where('status', 'completed')->count(),
-            'total_spent' => $customer->orders()->whereHas('transactions', fn($q) => $q->where('status', 'confirmed'))->sum('total'),
+            'total_spent' => $customer->orders()->whereHas('transactions', fn ($q) => $q->where('status', 'confirmed'))->sum('total'),
             'pending_orders' => $customer->orders()->where('status', 'pending')->count(),
         ];
 
         // Get recent transactions
-        $transactions = \App\Models\Transaction::whereHas('order', function($q) use ($customer) {
-                $q->where('customer_id', $customer->id);
-            })
+        $transactions = Transaction::whereHas('order', function ($q) use ($customer) {
+            $q->where('customer_id', $customer->id);
+        })
             ->with(['order', 'paymentMethod'])
             ->latest()
             ->limit(10)
@@ -161,7 +161,7 @@ class CustomerController extends Controller
         $customer->fill($data);
 
         if ($data['status'] === Customer::STATUS_ACTIVE) {
-            if (!$customer->hasVerifiedEmail()) {
+            if (! $customer->hasVerifiedEmail()) {
                 $customer->markEmailAsVerified();
             } else {
                 $customer->save();
@@ -219,7 +219,7 @@ class CustomerController extends Controller
             // Send email notification
             try {
                 Mail::to($customer->email)->send(new CustomerAccountSuspendedMail($customer, $request->reason));
-                
+
                 Log::info('customer_suspension_email_sent', [
                     'customer_id' => $customer->id,
                     'email' => $customer->email,
@@ -237,7 +237,7 @@ class CustomerController extends Controller
 
         } catch (\Exception $e) {
             DB::rollBack();
-            
+
             Log::error('customer_suspension_failed', [
                 'customer_id' => $customer->id,
                 'error' => $e->getMessage(),
@@ -261,7 +261,7 @@ class CustomerController extends Controller
 
             $oldVerifiedAt = $customer->email_verified_at;
             $customer->status = Customer::STATUS_ACTIVE;
-            if (!$customer->hasVerifiedEmail()) {
+            if (! $customer->hasVerifiedEmail()) {
                 $customer->markEmailAsVerified();
             } else {
                 $customer->save();
@@ -288,7 +288,7 @@ class CustomerController extends Controller
             // Send email notification
             try {
                 Mail::to($customer->email)->send(new CustomerAccountActivatedMail($customer));
-                
+
                 Log::info('customer_activation_email_sent', [
                     'customer_id' => $customer->id,
                     'email' => $customer->email,
@@ -306,7 +306,7 @@ class CustomerController extends Controller
 
         } catch (\Exception $e) {
             DB::rollBack();
-            
+
             Log::error('customer_activation_failed', [
                 'customer_id' => $customer->id,
                 'error' => $e->getMessage(),

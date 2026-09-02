@@ -2,9 +2,9 @@
 
 namespace App\Http\Controllers\Payment;
 
+use App\Enums\TransactionStatus;
 use App\Http\Controllers\Controller;
-use App\Models\Order;
-use App\Models\Payment;
+use App\Models\PaymentMethod;
 use App\Models\Transaction;
 use App\Services\PaystackService;
 use Illuminate\Http\Request;
@@ -24,20 +24,21 @@ class PaystackWebhookController extends Controller
         $payload = $request->getContent();
         $signature = $request->header('x-paystack-signature');
 
-        if (!$signature) {
+        if (! $signature) {
             return response()->json(['status' => 'missing signature'], 400);
         }
 
         $gateway = $this->verifySignature($payload, $signature);
 
-        if (!$gateway) {
+        if (! $gateway) {
             Log::warning('paystack.webhook.unverified_signature', ['ip' => $request->ip()]);
+
             return response()->json(['status' => 'unverified'], 401);
         }
 
         $event = json_decode($payload);
 
-        if (!$event || !isset($event->event)) {
+        if (! $event || ! isset($event->event)) {
             return response()->json(['status' => 'invalid payload'], 400);
         }
 
@@ -57,21 +58,22 @@ class PaystackWebhookController extends Controller
         $data = $event->data;
         $reference = $data->reference ?? null;
 
-        if (!$reference) {
+        if (! $reference) {
             return response()->json(['status' => 'no reference']);
         }
 
         $transaction = Transaction::where('reference', $reference)->first();
 
-        if (!$transaction) {
+        if (! $transaction) {
             Log::warning('paystack.webhook.transaction_not_found', [
                 'reference' => $reference,
                 'business_id' => $gateway->business_id,
             ]);
+
             return response()->json(['status' => 'transaction not found'], 404);
         }
 
-        $transactionStatus = $transaction->status instanceof \App\Enums\TransactionStatus
+        $transactionStatus = $transaction->status instanceof TransactionStatus
             ? $transaction->status->value
             : $transaction->status;
 
@@ -133,22 +135,24 @@ class PaystackWebhookController extends Controller
      */
     private function verifySignature(string $payload, string $signature): ?object
     {
-        $paystackId = \App\Models\PaymentMethod::where('code', 'paystack')->value('id');
-        $rows = \Illuminate\Support\Facades\DB::table('business_payment_method')
+        $paystackId = PaymentMethod::where('code', 'paystack')->value('id');
+        $rows = DB::table('business_payment_method')
             ->where('payment_method_id', $paystackId)->where('is_active', true)->get();
 
         foreach ($rows as $row) {
             $config = json_decode($row->config, true);
             $secretKey = $config['secret_key'] ?? null;
-            if (!$secretKey) {
+            if (! $secretKey) {
                 continue;
             }
 
             $computed = hash_hmac('sha512', $payload, $secretKey);
 
             if (hash_equals($computed, $signature)) {
-                $gw = (object)['public_key' => $config['public_key'] ?? '', 'secret_key' => $secretKey, 'id' => $row->id, 'business_id' => $row->business_id];
-                $gw->id = $row->id; $gw->business_id = $row->business_id;
+                $gw = (object) ['public_key' => $config['public_key'] ?? '', 'secret_key' => $secretKey, 'id' => $row->id, 'business_id' => $row->business_id];
+                $gw->id = $row->id;
+                $gw->business_id = $row->business_id;
+
                 return $gw;
             }
         }

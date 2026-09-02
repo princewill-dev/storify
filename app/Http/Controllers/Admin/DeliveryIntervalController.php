@@ -15,7 +15,7 @@ class DeliveryIntervalController extends Controller
     public function index()
     {
         $intervals = DeliveryInterval::orderBy('sort_order')->get();
-        
+
         return view('admin.settings.delivery_intervals', compact('intervals'));
     }
 
@@ -83,13 +83,13 @@ class DeliveryIntervalController extends Controller
     public function toggle($id)
     {
         $interval = DeliveryInterval::findOrFail($id);
-        
+
         $interval->update([
-            'is_active' => !$interval->is_active,
+            'is_active' => ! $interval->is_active,
         ]);
 
         $status = $interval->is_active ? 'activated' : 'deactivated';
-        
+
         return back()->with('success', "Delivery interval {$status} successfully!");
     }
 

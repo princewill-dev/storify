@@ -5,8 +5,8 @@ namespace App\Http\Controllers\Management;
 use App\Http\Controllers\Controller;
 use App\Models\PosSession;
 use App\Models\Store;
-use Illuminate\Http\Request;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
 use Illuminate\View\View;
 
 class PosSessionController extends Controller
@@ -14,7 +14,7 @@ class PosSessionController extends Controller
     public function index(Request $request, Store $store): View
     {
         $user = $request->user();
-        if (!$user || $store->user_id !== $user->id) {
+        if (! $user || $store->user_id !== $user->id) {
             abort(403);
         }
 
@@ -31,7 +31,7 @@ class PosSessionController extends Controller
     public function show(Request $request, Store $store, PosSession $session): View
     {
         $user = $request->user();
-        if (!$user || $store->user_id !== $user->id || $session->store_id !== $store->id) {
+        if (! $user || $store->user_id !== $user->id || $session->store_id !== $store->id) {
             abort(403);
         }
 
@@ -49,11 +49,11 @@ class PosSessionController extends Controller
     public function open(Request $request, Store $store): RedirectResponse
     {
         $user = $request->user();
-        if (!$user) {
+        if (! $user) {
             return redirect()->route('management.auth.login');
         }
 
-        if (!$store->pos_enabled) {
+        if (! $store->pos_enabled) {
             return back()->with('error', 'POS is not enabled for this store.');
         }
 
@@ -85,7 +85,7 @@ class PosSessionController extends Controller
     public function close(Request $request, Store $store): RedirectResponse
     {
         $user = $request->user();
-        if (!$user) {
+        if (! $user) {
             return redirect()->route('management.auth.login');
         }
 
@@ -94,7 +94,7 @@ class PosSessionController extends Controller
             ->latest()
             ->first();
 
-        if (!$session) {
+        if (! $session) {
             return back()->with('error', 'No open session found.');
         }
 
@@ -109,6 +109,6 @@ class PosSessionController extends Controller
         );
 
         return back()
-            ->with('success', 'POS session closed. Difference: ₦' . number_format($session->difference / 100, 2));
+            ->with('success', 'POS session closed. Difference: ₦'.number_format($session->difference / 100, 2));
     }
 }

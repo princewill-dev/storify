@@ -2,8 +2,8 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
@@ -24,9 +24,9 @@ return new class extends Migration
         // Migrate existing data
         $usedPasses = DB::table('early_passes')->where('is_used', true)->get();
         foreach ($usedPasses as $pass) {
-            if (!empty($pass->used_by_vendor_id)) {
+            if (! empty($pass->used_by_vendor_id)) {
                 $store = DB::table('stores')->where('vendor_id', $pass->used_by_vendor_id)->first();
-                
+
                 DB::table('early_pass_usages')->insert([
                     'early_pass_id' => $pass->id,
                     'vendor_id' => $pass->used_by_vendor_id,
@@ -39,7 +39,7 @@ return new class extends Migration
         }
 
         Schema::table('early_passes', function (Blueprint $table) {
-            $table->dropForeign(['used_by_vendor_id']); 
+            $table->dropForeign(['used_by_vendor_id']);
             $table->dropColumn(['is_used', 'used_by_vendor_id', 'used_at']);
         });
     }
@@ -57,14 +57,14 @@ return new class extends Migration
         });
 
         if (Schema::hasTable('early_pass_usages')) {
-             $usages = DB::table('early_pass_usages')->orderBy('used_at')->get();
-             foreach ($usages as $usage) {
-                 DB::table('early_passes')->where('id', $usage->early_pass_id)->update([
-                     'is_used' => true,
-                     'used_by_vendor_id' => $usage->vendor_id,
-                     'used_at' => $usage->used_at,
-                 ]);
-             }
+            $usages = DB::table('early_pass_usages')->orderBy('used_at')->get();
+            foreach ($usages as $usage) {
+                DB::table('early_passes')->where('id', $usage->early_pass_id)->update([
+                    'is_used' => true,
+                    'used_by_vendor_id' => $usage->vendor_id,
+                    'used_at' => $usage->used_at,
+                ]);
+            }
         }
 
         Schema::dropIfExists('early_pass_usages');

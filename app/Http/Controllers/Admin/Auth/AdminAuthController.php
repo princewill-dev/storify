@@ -22,8 +22,6 @@ class AdminAuthController extends Controller
 {
     /**
      * Show the superadmin onboard page.
-     *
-     * @return \Illuminate\View\View|\Illuminate\Http\RedirectResponse
      */
     public function onboard(): View|RedirectResponse
     {
@@ -39,9 +37,6 @@ class AdminAuthController extends Controller
 
     /**
      * Process the superadmin onboarding.
-     *
-     * @param OnboardRequest $request
-     * @return \Illuminate\Http\RedirectResponse
      */
     public function processOnboard(OnboardRequest $request): RedirectResponse
     {
@@ -61,7 +56,7 @@ class AdminAuthController extends Controller
                 'role' => 'superadmin',
             ]);
 
-            // Automatically create the first vendor account
+            // Automatically create the first business-owner account.
             try {
                 User::create([
                     'name' => $user->name,
@@ -71,7 +66,7 @@ class AdminAuthController extends Controller
                     'status' => 'active',
                 ]);
             } catch (\Throwable $ve) {
-                Log::warning('auto_vendor_create_failed_on_onboard', ['error' => $ve->getMessage()]);
+                Log::warning('auto_business_owner_create_failed_on_onboard', ['error' => $ve->getMessage()]);
             }
 
             // Log the activity
@@ -105,12 +100,12 @@ class AdminAuthController extends Controller
     /**
      * Show the login page.
      *
-     * @return \Illuminate\View\View
+     * @return View
      */
     public function login(): View|RedirectResponse
     {
         // If no superadmin exists, redirect to setup
-        if (!User::where('role', 'superadmin')->exists()) {
+        if (! User::where('role', 'superadmin')->exists()) {
             return redirect()->route('admin.setup');
         }
 
@@ -139,11 +134,12 @@ class AdminAuthController extends Controller
         ]);
 
         $user = User::where('email', $data['email'])->where('role', 'superadmin')->first();
-        if (!$user) {
+        if (! $user) {
             Log::warning('Password reset requested for non-existent/unauthorized email', [
-                'email' => substr($data['email'], 0, 3) . '***',
+                'email' => substr($data['email'], 0, 3).'***',
                 'ip_address' => $request->ip(),
             ]);
+
             return back()->withInput()->with('error', 'If the email exists, a verification code will be sent.');
         }
 
@@ -159,10 +155,12 @@ class AdminAuthController extends Controller
                 userId: $user->id
             );
             session(['reset_email' => $user->email]);
+
             return redirect()->route('admin.password.reset')
                 ->with('success', 'Verification code sent to your email.');
         } catch (\Exception $e) {
             Log::error('Password reset OTP request failed', ['error' => $e->getMessage()]);
+
             return back()->withInput()->with('error', 'Unable to process request. Please try again.');
         }
     }
@@ -172,9 +170,10 @@ class AdminAuthController extends Controller
      */
     public function showResetPassword(): View|RedirectResponse
     {
-        if (!session('reset_email')) {
+        if (! session('reset_email')) {
             return redirect()->route('admin.password.forgot')->with('error', 'Start by entering your email.');
         }
+
         return view('admin.auth.reset-password', ['email' => session('reset_email')]);
     }
 
@@ -190,13 +189,13 @@ class AdminAuthController extends Controller
         ]);
 
         $user = User::where('email', $data['email'])->where('role', 'superadmin')->first();
-        if (!$user) {
-            return back()->withInput($request->except('password','password_confirmation','otp'))->with('error', 'Invalid request.');
+        if (! $user) {
+            return back()->withInput($request->except('password', 'password_confirmation', 'otp'))->with('error', 'Invalid request.');
         }
 
         try {
-            if (!OtpService::verify($data['email'], $data['otp'], 'password_reset')) {
-                return back()->withInput($request->except('password','password_confirmation'))
+            if (! OtpService::verify($data['email'], $data['otp'], 'password_reset')) {
+                return back()->withInput($request->except('password', 'password_confirmation'))
                     ->with('error', 'Invalid or expired verification code.');
             }
 
@@ -215,16 +214,14 @@ class AdminAuthController extends Controller
             return redirect()->route('admin.login')->with('success', 'Password reset successful. You can now login.');
         } catch (\Exception $e) {
             Log::error('Password reset failed', ['error' => $e->getMessage()]);
-            return back()->withInput($request->except('password','password_confirmation'))
+
+            return back()->withInput($request->except('password', 'password_confirmation'))
                 ->with('error', 'Unable to reset password. Please try again.');
         }
     }
 
     /**
      * Process login and send OTP.
-     *
-     * @param LoginRequest $request
-     * @return \Illuminate\Http\RedirectResponse
      */
     public function processLogin(LoginRequest $request): RedirectResponse
     {
@@ -232,9 +229,9 @@ class AdminAuthController extends Controller
             // Find user by email
             $user = User::where('email', $request->email)->first();
 
-            if (!$user) {
+            if (! $user) {
                 Log::warning('Login attempt with non-existent email', [
-                    'email' => substr($request->email, 0, 3) . '***',
+                    'email' => substr($request->email, 0, 3).'***',
                     'ip_address' => $request->ip(),
                 ]);
 
@@ -244,10 +241,10 @@ class AdminAuthController extends Controller
             }
 
             // Verify password
-            if (!Hash::check($request->password, $user->password)) {
+            if (! Hash::check($request->password, $user->password)) {
                 Log::warning('Login attempt with incorrect password', [
                     'user_id' => $user->id,
-                    'email' => substr($user->email, 0, 3) . '***',
+                    'email' => substr($user->email, 0, 3).'***',
                     'ip_address' => $request->ip(),
                 ]);
 
@@ -279,7 +276,7 @@ class AdminAuthController extends Controller
 
             Log::info('Login OTP sent', [
                 'user_id' => $user->id,
-                'email' => substr($user->email, 0, 3) . '***',
+                'email' => substr($user->email, 0, 3).'***',
                 'ip_address' => $request->ip(),
             ]);
 
@@ -304,12 +301,10 @@ class AdminAuthController extends Controller
 
     /**
      * Show OTP verification page.
-     *
-     * @return \Illuminate\View\View|\Illuminate\Http\RedirectResponse
      */
     public function showVerifyOtp(): View|RedirectResponse
     {
-        if (!session('email')) {
+        if (! session('email')) {
             return redirect()->route('admin.login')
                 ->with('error', 'Please login first.');
         }
@@ -319,17 +314,14 @@ class AdminAuthController extends Controller
 
     /**
      * Verify OTP and login user.
-     *
-     * @param VerifyOtpRequest $request
-     * @return \Illuminate\Http\RedirectResponse
      */
     public function verifyOtp(VerifyOtpRequest $request): RedirectResponse
     {
         try {
             // Verify OTP
-            if (!OtpService::verify($request->email, $request->otp, 'login')) {
+            if (! OtpService::verify($request->email, $request->otp, 'login')) {
                 Log::warning('OTP verification failed', [
-                    'email' => substr($request->email, 0, 3) . '***',
+                    'email' => substr($request->email, 0, 3).'***',
                     'ip_address' => $request->ip(),
                 ]);
 
@@ -341,7 +333,7 @@ class AdminAuthController extends Controller
             // Find and login user
             $user = User::where('email', $request->email)->first();
 
-            if (!$user) {
+            if (! $user) {
                 return redirect()->route('admin.login')
                     ->with('error', 'User not found.');
             }
@@ -352,7 +344,7 @@ class AdminAuthController extends Controller
             // Log successful login
             ActivityLogger::log(
                 action: 'login_success',
-                description: "User logged in successfully",
+                description: 'User logged in successfully',
                 metadata: [
                     'auth_method' => 'otp',
                     'user_role' => $user->role,
@@ -362,7 +354,7 @@ class AdminAuthController extends Controller
 
             Log::info('User logged in successfully', [
                 'user_id' => $user->id,
-                'email' => substr($user->email, 0, 3) . '***',
+                'email' => substr($user->email, 0, 3).'***',
                 'role' => $user->role,
                 'ip_address' => $request->ip(),
             ]);
@@ -371,7 +363,7 @@ class AdminAuthController extends Controller
             session()->forget('email');
 
             return redirect()->route('admin.dashboard')
-                ->with('success', 'Welcome back, ' . $user->name . '!');
+                ->with('success', 'Welcome back, '.$user->name.'!');
 
         } catch (\Exception $e) {
             Log::error('OTP verification failed', [
@@ -389,14 +381,14 @@ class AdminAuthController extends Controller
     {
         $email = $request->input('email') ?? session('email');
 
-        if (!$email) {
+        if (! $email) {
             return redirect()->route('admin.login')
                 ->with('error', 'Please login first.');
         }
 
         $user = User::where('email', $email)->first();
 
-        if (!$user) {
+        if (! $user) {
             return redirect()->route('admin.login')
                 ->with('error', 'User not found.');
         }
@@ -405,9 +397,10 @@ class AdminAuthController extends Controller
         $lastSent = session('otp_last_sent_at');
         if ($lastSent && (time() - $lastSent) < $cooldownSeconds) {
             $remaining = $cooldownSeconds - (time() - $lastSent);
+
             return redirect()->route('admin.verify-otp')
                 ->with('email', $email)
-                ->with('error', 'Please wait ' . $remaining . ' seconds before requesting a new code.');
+                ->with('error', 'Please wait '.$remaining.' seconds before requesting a new code.');
         }
 
         try {
@@ -423,7 +416,7 @@ class AdminAuthController extends Controller
 
             Log::info('Login OTP resent', [
                 'user_id' => $user->id,
-                'email' => substr($user->email, 0, 3) . '***',
+                'email' => substr($user->email, 0, 3).'***',
                 'ip_address' => $request->ip(),
             ]);
 
@@ -447,8 +440,6 @@ class AdminAuthController extends Controller
 
     /**
      * Logout user.
-     *
-     * @return \Illuminate\Http\RedirectResponse
      */
     public function logout(): RedirectResponse
     {

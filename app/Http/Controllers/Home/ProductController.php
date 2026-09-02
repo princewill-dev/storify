@@ -3,12 +3,14 @@
 namespace App\Http\Controllers\Home;
 
 use App\Http\Controllers\Controller;
-use App\Models\Product;
-use App\Models\Store;
 use App\Models\ActivityLog;
+use App\Models\DeliveryRoute;
 use App\Models\PageStyling;
+use App\Models\Product;
+use App\Models\Service;
+use App\Models\Store;
+use App\Models\Vat;
 use Illuminate\Http\Request;
-use Illuminate\View\View;
 
 class ProductController extends Controller
 {
@@ -42,17 +44,17 @@ class ProductController extends Controller
         $status = $request->query('status');
 
         $productsQuery = Product::query()
-            ->with(['images','variants','category','store'])
+            ->with(['images', 'variants', 'category', 'store'])
             ->where('store_id', $store->id);
 
         if ($q !== '') {
-            $productsQuery->where(function($x) use ($q) {
+            $productsQuery->where(function ($x) use ($q) {
                 $x->where('name', 'like', "%$q%")
-                  ->orWhere('slug', 'like', "%$q%")
-                  ->orWhere('product_code', 'like', "%$q%");
+                    ->orWhere('slug', 'like', "%$q%")
+                    ->orWhere('product_code', 'like', "%$q%");
             });
         }
-        if (in_array(strtolower((string)$status), ['active','inactive','deleted'], true)) {
+        if (in_array(strtolower((string) $status), ['active', 'inactive', 'deleted'], true)) {
             $productsQuery->where('status', strtolower($status));
         } else {
             $productsQuery->where('status', '!=', 'deleted');
@@ -61,61 +63,68 @@ class ProductController extends Controller
         $products = $productsQuery->latest()->paginate(12, ['*'], 'p_page')->withQueryString();
 
         // Fetch Services
-        $servicesQuery = \App\Models\Service::query()
+        $servicesQuery = Service::query()
             ->with(['images', 'currency'])
             ->where('store_id', $store->id)
             ->where('status', 'active');
-            
+
         if ($q !== '') {
-            $servicesQuery->where(function($x) use ($q) {
+            $servicesQuery->where(function ($x) use ($q) {
                 $x->where('name', 'like', "%$q%")
-                  ->orWhere('service_code', 'like', "%$q%");
+                    ->orWhere('service_code', 'like', "%$q%");
             });
         }
-        
+
         $services = $servicesQuery->latest()->paginate(12, ['*'], 's_page')->withQueryString();
 
         // Currency symbols map
         $currencySymbols = [];
         try {
-            foreach (\DB::table('currencies')->select('id','symbol')->get() as $r) { $currencySymbols[$r->id] = $r->symbol; }
-        } catch (\Throwable $e) {}
+            foreach (\DB::table('currencies')->select('id', 'symbol')->get() as $r) {
+                $currencySymbols[$r->id] = $r->symbol;
+            }
+        } catch (\Throwable $e) {
+        }
         $fallbackSym = '';
-        try { $fallbackSym = (string)(\View::shared('company')->currency_symbol ?? ''); } catch (\Throwable $e) {}
+        try {
+            $fallbackSym = (string) (\View::shared('company')->currency_symbol ?? '');
+        } catch (\Throwable $e) {
+        }
 
         // Compute display prices for listing (handle variants and discounts)
-        $products->getCollection()->transform(function($p) use ($currencySymbols, $fallbackSym) {
+        $products->getCollection()->transform(function ($p) use ($currencySymbols, $fallbackSym) {
             if ($p->has_variants && $p->variants && $p->variants->count() > 0) {
                 $minVar = $p->variants->sortBy('amount')->first();
                 $sym = $currencySymbols[$minVar->currency_id ?? 0] ?? $fallbackSym;
-                $p->display_price = $sym . number_format((float)$minVar->amount, 2);
+                $p->display_price = $sym.number_format((float) $minVar->amount, 2);
                 $p->display_price_was = null;
-                $p->price_amount_numeric = (float)$minVar->amount;
+                $p->price_amount_numeric = (float) $minVar->amount;
                 $p->price_currency_symbol = $sym;
             } else {
                 $sym = $currencySymbols[$p->currency_id ?? 0] ?? $fallbackSym;
-                $amt = (float)($p->amount ?? 0);
-                $discPct = (float)($p->discount_percentage ?? 0);
+                $amt = (float) ($p->amount ?? 0);
+                $discPct = (float) ($p->discount_percentage ?? 0);
                 if ($discPct > 0) {
-                    $disc = $amt * (1 - ($discPct/100));
-                    $p->display_price = $sym . number_format($disc, 2);
-                    $p->display_price_was = $sym . number_format($amt, 2);
+                    $disc = $amt * (1 - ($discPct / 100));
+                    $p->display_price = $sym.number_format($disc, 2);
+                    $p->display_price_was = $sym.number_format($amt, 2);
                     $p->price_amount_numeric = $disc;
                     $p->price_currency_symbol = $sym;
                 } else {
-                    $p->display_price = $sym . number_format($amt, 2);
+                    $p->display_price = $sym.number_format($amt, 2);
                     $p->display_price_was = null;
                     $p->price_amount_numeric = $amt;
                     $p->price_currency_symbol = $sym;
                 }
             }
             // Prepare lightweight modal payload helpers
-            $p->modal_discount_pct = $p->has_variants ? null : (float)($p->discount_percentage ?? 0);
-            $p->modal_qty_max = (int)($p->quantity ?? 0);
+            $p->modal_discount_pct = $p->has_variants ? null : (float) ($p->discount_percentage ?? 0);
+            $p->modal_qty_max = (int) ($p->quantity ?? 0);
             $p->modal_sku = $p->product_code;
             $p->modal_category = $p->category->name ?? '';
-            $p->modal_tags = collect(explode(',', (string)($p->tags ?? '')))->map(fn($t)=>trim($t))->filter()->values()->all();
-            $p->modal_images = $p->images->map(fn($img)=> asset('storage/'.$img->path))->values()->all();
+            $p->modal_tags = collect(explode(',', (string) ($p->tags ?? '')))->map(fn ($t) => trim($t))->filter()->values()->all();
+            $p->modal_images = $p->images->map(fn ($img) => asset('storage/'.$img->path))->values()->all();
+
             return $p;
         });
 
@@ -135,7 +144,7 @@ class ProductController extends Controller
                 'action' => 'view_store_products',
                 'description' => 'Viewed store products',
                 'ip_address' => $request->ip(),
-                'user_agent' => substr((string)$request->userAgent(), 0, 255),
+                'user_agent' => substr((string) $request->userAgent(), 0, 255),
                 'metadata' => [
                     'store_id' => $store->id,
                     'store_slug' => $store->slug,
@@ -149,17 +158,18 @@ class ProductController extends Controller
 
         $store->increment('views');
 
-        return view('storefront.pages.index', compact('store','products','services','q','status'));
+        return view('storefront.pages.index', compact('store', 'products', 'services', 'q', 'status'));
     }
+
     public function show(Request $request, string $store_subdomain, string $slug, string $code)
     {
         // Get store from subdomain if present, otherwise from parameter (backward compatibility)
         $storeSlug = $store_subdomain ?? $request->route('store_slug');
-        
-        $query = Product::with(['images','store','variants']);
+
+        $query = Product::with(['images', 'store', 'variants']);
         $product = $query->where('product_code', $code)->first();
 
-        if (!$product) {
+        if (! $product) {
             \Log::warning('Product details: code lookup failed, trying slug', [
                 'requested_slug' => $slug,
                 'requested_code' => $code,
@@ -172,7 +182,7 @@ class ProductController extends Controller
             $scheme = $request->secure() ? 'https' : 'http';
             $baseDomain = config('app.main_domain', parse_url(config('app.url'), PHP_URL_HOST));
             $canonicalUrl = "{$scheme}://{$product->store->slug}.{$baseDomain}/products/{$product->slug}-{$product->product_code}";
-            
+
             return redirect($canonicalUrl);
         }
 
@@ -192,26 +202,34 @@ class ProductController extends Controller
         // Build currency symbols map
         $currencySymbols = [];
         try {
-            $currencyRows = \DB::table('currencies')->select('id','symbol')->get();
-            foreach ($currencyRows as $row) { $currencySymbols[$row->id] = $row->symbol; }
-        } catch (\Throwable $e) {}
+            $currencyRows = \DB::table('currencies')->select('id', 'symbol')->get();
+            foreach ($currencyRows as $row) {
+                $currencySymbols[$row->id] = $row->symbol;
+            }
+        } catch (\Throwable $e) {
+        }
 
         // Unit code maps (used for variant and non-variant displays)
         $sizeUnitCodes = [];
         $weightUnitCodes = [];
         try {
-            foreach (\DB::table('size_units')->select('id','code')->get() as $r) { $sizeUnitCodes[$r->id] = $r->code; }
-            foreach (\DB::table('weight_units')->select('id','code')->get() as $r) { $weightUnitCodes[$r->id] = $r->code; }
-        } catch (\Throwable $e) {}
+            foreach (\DB::table('size_units')->select('id', 'code')->get() as $r) {
+                $sizeUnitCodes[$r->id] = $r->code;
+            }
+            foreach (\DB::table('weight_units')->select('id', 'code')->get() as $r) {
+                $weightUnitCodes[$r->id] = $r->code;
+            }
+        } catch (\Throwable $e) {
+        }
 
         // Build base amount display (keep numeric on model)
         $symbolForProduct = $currencySymbols[$product->currency_id ?? 0] ?? $currency;
-        $baseAmount = (float)($product->amount ?? 0);
-        $hasDiscount = !is_null($product->discount_percentage) && (float)$product->discount_percentage > 0;
-        $discountedAmount = $hasDiscount ? ($baseAmount * (1 - ((float)$product->discount_percentage/100))) : null;
-        $displayBaseAmount = $symbolForProduct . number_format($baseAmount, 2);
-        $displayDiscountedAmount = $hasDiscount ? ($symbolForProduct . number_format((float)$discountedAmount, 2)) : null;
-        $displayDiscountPct = $hasDiscount ? rtrim(rtrim(number_format((float)$product->discount_percentage, 2, '.', ''), '0'), '.') : null;
+        $baseAmount = (float) ($product->amount ?? 0);
+        $hasDiscount = ! is_null($product->discount_percentage) && (float) $product->discount_percentage > 0;
+        $discountedAmount = $hasDiscount ? ($baseAmount * (1 - ((float) $product->discount_percentage / 100))) : null;
+        $displayBaseAmount = $symbolForProduct.number_format($baseAmount, 2);
+        $displayDiscountedAmount = $hasDiscount ? ($symbolForProduct.number_format((float) $discountedAmount, 2)) : null;
+        $displayDiscountPct = $hasDiscount ? rtrim(rtrim(number_format((float) $product->discount_percentage, 2, '.', ''), '0'), '.') : null;
 
         // If product has variants, prepare display data (attributes matrix)
         $priceInfoSymbol = null;
@@ -221,7 +239,7 @@ class ProductController extends Controller
         $variantMatrix = [];
         $defaultSelection = ['size' => null, 'weight' => null, 'color' => null];
         $baseMeta = [
-            'qty' => (int)($product->quantity ?? 0),
+            'qty' => (int) ($product->quantity ?? 0),
             'size' => null,
             'weight' => null,
             'color' => $product->color ?? null,
@@ -234,11 +252,11 @@ class ProductController extends Controller
                 $maxSym = $currencySymbols[$sortedMax->currency_id ?? 0] ?? '';
                 $min = (float) $sortedMin->amount;
                 $max = (float) $sortedMax->amount;
-                $priceInfoSymbol = $min == $max ? ($minSym . number_format($min, 2)) : ($minSym . number_format($min, 2) . ' - ' . $maxSym . number_format($max, 2));
+                $priceInfoSymbol = $min == $max ? ($minSym.number_format($min, 2)) : ($minSym.number_format($min, 2).' - '.$maxSym.number_format($max, 2));
                 // Default selection to the cheapest variant
                 $defaultSelection = [
-                    'size' => is_null($sortedMin->size) ? null : (string)$sortedMin->size,
-                    'weight' => is_null($sortedMin->weight) ? null : (string)$sortedMin->weight,
+                    'size' => is_null($sortedMin->size) ? null : (string) $sortedMin->size,
+                    'weight' => is_null($sortedMin->weight) ? null : (string) $sortedMin->weight,
                     'color' => $sortedMin->color ?: null,
                 ];
             }
@@ -248,37 +266,39 @@ class ProductController extends Controller
                 $weightKey = is_null($v->weight) ? null : (string) $v->weight;
                 $colorKey = empty($v->color) ? null : (string) $v->color;
 
-                if (!is_null($sizeKey)) {
-                    $sizeOptions[$sizeKey] = rtrim(rtrim(number_format((float)$v->size, 2, '.', ''), '0'), '.')
-                        . (isset($sizeUnitCodes[$v->size_unit_id]) ? (' ' . $sizeUnitCodes[$v->size_unit_id]) : '');
+                if (! is_null($sizeKey)) {
+                    $sizeOptions[$sizeKey] = rtrim(rtrim(number_format((float) $v->size, 2, '.', ''), '0'), '.')
+                        .(isset($sizeUnitCodes[$v->size_unit_id]) ? (' '.$sizeUnitCodes[$v->size_unit_id]) : '');
                 }
-                if (!is_null($weightKey)) {
-                    $weightOptions[$weightKey] = rtrim(rtrim(number_format((float)$v->weight, 2, '.', ''), '0'), '.')
-                        . (isset($weightUnitCodes[$v->weight_unit_id]) ? (' ' . $weightUnitCodes[$v->weight_unit_id]) : '');
+                if (! is_null($weightKey)) {
+                    $weightOptions[$weightKey] = rtrim(rtrim(number_format((float) $v->weight, 2, '.', ''), '0'), '.')
+                        .(isset($weightUnitCodes[$v->weight_unit_id]) ? (' '.$weightUnitCodes[$v->weight_unit_id]) : '');
                 }
-                if (!is_null($colorKey)) {
+                if (! is_null($colorKey)) {
                     $colorOptions[$colorKey] = $colorKey;
                 }
 
                 $sym = $currencySymbols[$v->currency_id ?? 0] ?? '';
-                $price = $sym . number_format((float)($v->amount ?? 0), 2);
-                $key = ($sizeKey ?? '') . '|' . ($weightKey ?? '') . '|' . ($colorKey ?? '');
+                $price = $sym.number_format((float) ($v->amount ?? 0), 2);
+                $key = ($sizeKey ?? '').'|'.($weightKey ?? '').'|'.($colorKey ?? '');
                 $variantMatrix[$key] = [
                     'id' => $v->id,
                     'price' => $price,
-                    'qty' => (int)($v->quantity ?? 0),
+                    'qty' => (int) ($v->quantity ?? 0),
                 ];
             }
-            ksort($sizeOptions); ksort($weightOptions); ksort($colorOptions);
+            ksort($sizeOptions);
+            ksort($weightOptions);
+            ksort($colorOptions);
         } else {
             // Prepare non-variant display meta
-            if (!is_null($product->size)) {
-                $baseMeta['size'] = rtrim(rtrim(number_format((float)$product->size, 2, '.', ''), '0'), '.')
-                    . (isset($sizeUnitCodes[$product->size_unit_id]) ? (' ' . $sizeUnitCodes[$product->size_unit_id]) : '');
+            if (! is_null($product->size)) {
+                $baseMeta['size'] = rtrim(rtrim(number_format((float) $product->size, 2, '.', ''), '0'), '.')
+                    .(isset($sizeUnitCodes[$product->size_unit_id]) ? (' '.$sizeUnitCodes[$product->size_unit_id]) : '');
             }
-            if (!is_null($product->weight)) {
-                $baseMeta['weight'] = rtrim(rtrim(number_format((float)$product->weight, 2, '.', ''), '0'), '.')
-                    . (isset($weightUnitCodes[$product->weight_unit_id]) ? (' ' . $weightUnitCodes[$product->weight_unit_id]) : '');
+            if (! is_null($product->weight)) {
+                $baseMeta['weight'] = rtrim(rtrim(number_format((float) $product->weight, 2, '.', ''), '0'), '.')
+                    .(isset($weightUnitCodes[$product->weight_unit_id]) ? (' '.$weightUnitCodes[$product->weight_unit_id]) : '');
             }
         }
 
@@ -286,12 +306,15 @@ class ProductController extends Controller
         $states = [];
         $areasByState = [];
         try {
-            $routes = \App\Models\DeliveryRoute::where('active', true)
+            $routes = DeliveryRoute::where('active', true)
                 ->orderBy('state')
                 ->orderBy('area')
-                ->get(['id','state','area','fee','delivery_days']);
+                ->get(['id', 'state', 'area', 'fee', 'delivery_days']);
             foreach ($routes as $r) {
-                if (!isset($areasByState[$r->state])) { $areasByState[$r->state] = []; $states[] = $r->state; }
+                if (! isset($areasByState[$r->state])) {
+                    $areasByState[$r->state] = [];
+                    $states[] = $r->state;
+                }
                 $areasByState[$r->state][] = [
                     'id' => $r->id,
                     'area' => $r->area,
@@ -299,21 +322,26 @@ class ProductController extends Controller
                     'days' => $r->delivery_days,
                 ];
             }
-        } catch (\Throwable $e) {}
+        } catch (\Throwable $e) {
+        }
 
         // VAT
         $vatPercentage = 0.0;
-        try { $vatPercentage = (float) (\App\Models\Vat::current()?->percentage ?? 0); } catch (\Throwable $e) {}
+        try {
+            $vatPercentage = (float) (Vat::current()?->percentage ?? 0);
+        } catch (\Throwable $e) {
+        }
 
         $gallery = $product->images ?? collect();
         $placeholder = asset('home/images/no-image.jpg');
-        $galleryItems = $gallery->map(function($img) {
-            $src = asset('storage/' . $img->path);
+        $galleryItems = $gallery->map(function ($img) {
+            $src = asset('storage/'.$img->path);
+
             return ['full' => $src, 'thumb' => $src];
         });
-        $tagsArr = collect(explode(',', (string)($product->tags ?? '')))
-            ->map(fn($t) => trim($t))
-            ->filter(fn($t) => $t !== '')
+        $tagsArr = collect(explode(',', (string) ($product->tags ?? '')))
+            ->map(fn ($t) => trim($t))
+            ->filter(fn ($t) => $t !== '')
             ->values();
 
         // Get page styling
@@ -353,12 +381,12 @@ class ProductController extends Controller
     {
         // Get store from subdomain if present, otherwise from parameter
         $storeSlug = $store_subdomain ?? $request->route('store_slug');
-        
-        $query = \App\Models\Service::with(['images','store']);
+
+        $query = Service::with(['images', 'store']);
         // Use clone to prevent $query mutation or just fresh instances
         $service = (clone $query)->where('service_code', $code)->first();
 
-        if (!$service) {
+        if (! $service) {
             $service = (clone $query)->where('slug', $slug)->firstOrFail();
         }
 
@@ -367,22 +395,23 @@ class ProductController extends Controller
             $scheme = $request->secure() ? 'https' : 'http';
             $baseDomain = config('app.main_domain', parse_url(config('app.url'), PHP_URL_HOST));
             $canonicalUrl = "{$scheme}://{$service->store->slug}.{$baseDomain}/services/{$service->slug}-{$service->service_code}";
-            
+
             return redirect($canonicalUrl);
         }
 
         $store = $service->store;
-        
+
         // Gallery
         $gallery = $service->images ?? collect();
         $placeholder = asset('home/images/no-image.jpg');
-        $galleryItems = $gallery->map(function($img) {
-            $src = asset('storage/' . $img->path);
+        $galleryItems = $gallery->map(function ($img) {
+            $src = asset('storage/'.$img->path);
+
             return ['full' => $src, 'thumb' => $src];
         });
-        
+
         // Page styling
-        $pageStyling = PageStyling::getPageStyling('product_details'); 
+        $pageStyling = PageStyling::getPageStyling('product_details');
 
         return view('storefront.pages.service-details', compact('service', 'store', 'gallery', 'placeholder', 'galleryItems', 'pageStyling'));
     }

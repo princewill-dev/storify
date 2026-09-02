@@ -3,10 +3,10 @@
 namespace App\Http\Controllers\Management;
 
 use App\Http\Controllers\Controller;
-use App\Models\User;
-use Illuminate\Http\Request;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
 use Illuminate\View\View;
+use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 
 class RoleController extends Controller
@@ -14,7 +14,7 @@ class RoleController extends Controller
     public function index(Request $request): View|RedirectResponse
     {
         $user = $request->user();
-        if (!$user) {
+        if (! $user) {
             return redirect()->route('management.auth.login');
         }
 
@@ -25,33 +25,35 @@ class RoleController extends Controller
             ->get();
 
         $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Roles']];
+
         return view('management.roles.index', compact('user', 'roles', 'breadcrumbs'));
     }
 
     public function create(Request $request): View|RedirectResponse
     {
         $user = $request->user();
-        if (!$user) {
+        if (! $user) {
             return redirect()->route('management.auth.login');
         }
 
-        $availablePermissions = \Spatie\Permission\Models\Permission::all()->groupBy(function ($p) {
+        $availablePermissions = Permission::all()->groupBy(function ($p) {
             return explode(' ', $p->name, 2)[0];
         });
 
         $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Roles', 'url' => route('management.roles.index')], ['label' => 'Create']];
+
         return view('management.roles.create', compact('user', 'availablePermissions', 'breadcrumbs'));
     }
 
     public function store(Request $request): RedirectResponse
     {
         $user = $request->user();
-        if (!$user) {
+        if (! $user) {
             return redirect()->route('management.auth.login');
         }
 
         $validated = $request->validate([
-            'name' => 'required|string|max:255|unique:roles,name,NULL,id,business_id,' . $user->business_id,
+            'name' => 'required|string|max:255|unique:roles,name,NULL,id,business_id,'.$user->business_id,
             'permissions' => 'required|array',
             'permissions.*' => 'exists:permissions,name',
         ]);
@@ -70,7 +72,7 @@ class RoleController extends Controller
     public function edit(Request $request, Role $role): View|RedirectResponse
     {
         $user = $request->user();
-        if (!$user) {
+        if (! $user) {
             return redirect()->route('management.auth.login');
         }
 
@@ -78,18 +80,19 @@ class RoleController extends Controller
             abort(404);
         }
 
-        $availablePermissions = \Spatie\Permission\Models\Permission::all()->groupBy(function ($p) {
+        $availablePermissions = Permission::all()->groupBy(function ($p) {
             return explode(' ', $p->name, 2)[0];
         });
 
         $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Roles', 'url' => route('management.roles.index')], ['label' => $role->name ?? 'Role', 'url' => route('management.roles.edit', $role)], ['label' => 'Edit']];
+
         return view('management.roles.edit', compact('user', 'role', 'availablePermissions', 'breadcrumbs'));
     }
 
     public function update(Request $request, Role $role): RedirectResponse
     {
         $user = $request->user();
-        if (!$user) {
+        if (! $user) {
             return redirect()->route('management.auth.login');
         }
 
@@ -98,7 +101,7 @@ class RoleController extends Controller
         }
 
         $validated = $request->validate([
-            'name' => 'required|string|max:255|unique:roles,name,' . $role->id . ',id,business_id,' . $user->business_id,
+            'name' => 'required|string|max:255|unique:roles,name,'.$role->id.',id,business_id,'.$user->business_id,
             'permissions' => 'required|array',
             'permissions.*' => 'exists:permissions,name',
         ]);
@@ -113,7 +116,7 @@ class RoleController extends Controller
     public function destroy(Request $request, Role $role): RedirectResponse
     {
         $user = $request->user();
-        if (!$user) {
+        if (! $user) {
             return redirect()->route('management.auth.login');
         }
 

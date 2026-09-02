@@ -3,15 +3,20 @@
 namespace App\Http\Controllers\Management;
 
 use App\Http\Controllers\Controller;
+use App\Models\Customer;
 use App\Models\Order;
 use App\Models\OrderItem;
+use App\Models\PaymentMethod;
 use App\Models\PosSession;
 use App\Models\Product;
+use App\Models\StockLocation;
 use App\Models\Store;
 use App\Models\Transaction;
+use App\Services\StockLedgerService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Illuminate\View\View;
 
 class PosController extends Controller
@@ -61,9 +66,9 @@ class PosController extends Controller
     {
         $user = $request->user();
 
-        if (!$user->isPlatformAdmin()) {
+        if (! $user->isPlatformAdmin()) {
             if ($user->isRestrictedStaff()) {
-                if (!$user->assignedStores()->where('stores.id', $store->id)->exists()) {
+                if (! $user->assignedStores()->where('stores.id', $store->id)->exists()) {
                     abort(403);
                 }
             } elseif ($store->user_id !== $user->id) {
@@ -71,18 +76,18 @@ class PosController extends Controller
             }
         }
 
-        if (!$store->pos_enabled) {
+        if (! $store->pos_enabled) {
             return redirect()->route('management.pos.index')
                 ->with('error', 'POS is not enabled for this store.');
         }
 
         $session = PosSession::where('store_id', $store->id)
-            ->when(!$user->isPlatformAdmin(), fn($q) => $q->where('staff_id', $user->id))
+            ->when(! $user->isPlatformAdmin(), fn ($q) => $q->where('staff_id', $user->id))
             ->where('status', PosSession::STATUS_OPEN)
             ->latest()
             ->first();
 
-        if (!$session) {
+        if (! $session) {
             $session = PosSession::create([
                 'store_id' => $store->id,
                 'business_id' => $store->business_id,
@@ -104,7 +109,7 @@ class PosController extends Controller
         $paystackKey = null;
         $bankAccounts = collect();
 
-        $pid = \App\Models\PaymentMethod::where('code', 'paystack')->value('id');
+        $pid = PaymentMethod::where('code', 'paystack')->value('id');
         $sid = DB::table('store_payment_method')->where('store_id', $store->id)
             ->where('payment_method_id', $pid)->where('is_active', true)->exists();
         $bizRow = DB::table('business_payment_method')->where('business_id', $store->business_id)
@@ -112,18 +117,18 @@ class PosController extends Controller
         $paystack = null;
         if ($sid && $bizRow) {
             $cfg = json_decode($bizRow->config, true);
-            $paystack = (object)['public_key' => $cfg['public_key'] ?? null];
+            $paystack = (object) ['public_key' => $cfg['public_key'] ?? null];
         } elseif ($bizRow) {
             $cfg = json_decode($bizRow->config, true);
-            $paystack = (object)['public_key' => $cfg['public_key'] ?? null];
+            $paystack = (object) ['public_key' => $cfg['public_key'] ?? null];
         }
 
-            if ($paystack) {
-                $paymentMethods[] = ['id' => 'paystack', 'label' => 'Paystack', 'icon' => 'credit-card'];
-                $paystackKey = $paystack->public_key;
-            }
+        if ($paystack) {
+            $paymentMethods[] = ['id' => 'paystack', 'label' => 'Paystack', 'icon' => 'credit-card'];
+            $paystackKey = $paystack->public_key;
+        }
 
-            if ($store->banks()->exists()) {
+        if ($store->banks()->exists()) {
             $paymentMethods[] = ['id' => 'transfer', 'label' => 'Bank Transfer', 'icon' => 'building'];
             $bankAccounts = $store->banks()->where('is_verified', true)->get();
         }
@@ -144,7 +149,7 @@ class PosController extends Controller
         $user = $request->user();
 
         if ($user->isRestrictedStaff()) {
-            if (!$user->assignedStores()->where('stores.id', $session->store->id)->exists()) {
+            if (! $user->assignedStores()->where('stores.id', $session->store->id)->exists()) {
                 abort(403);
             }
         } elseif ($session->store->user_id !== $user->id) {
@@ -181,9 +186,9 @@ class PosController extends Controller
     {
         $user = $request->user();
 
-        if (!$user->isPlatformAdmin()) {
+        if (! $user->isPlatformAdmin()) {
             if ($user->isRestrictedStaff()) {
-                if (!$user->assignedStores()->where('stores.id', $store->id)->exists()) {
+                if (! $user->assignedStores()->where('stores.id', $store->id)->exists()) {
                     abort(403);
                 }
             } elseif ($store->user_id !== $user->id) {
@@ -192,12 +197,12 @@ class PosController extends Controller
         }
 
         $session = PosSession::where('store_id', $store->id)
-            ->when(!$user->isPlatformAdmin(), fn($q) => $q->where('staff_id', $user->id))
+            ->when(! $user->isPlatformAdmin(), fn ($q) => $q->where('staff_id', $user->id))
             ->where('status', PosSession::STATUS_OPEN)
             ->latest()
             ->first();
 
-        if (!$session) {
+        if (! $session) {
             return back()->with('error', 'No active POS session. Please reopen the terminal.');
         }
 
@@ -226,7 +231,7 @@ class PosController extends Controller
 
         foreach ($validated['items'] as $item) {
             $product = $products[$item['product_id']] ?? null;
-            if (!$product) {
+            if (! $product) {
                 continue;
             }
             $price = (float) $product->amount;
@@ -250,9 +255,9 @@ class PosController extends Controller
         $customerId = null;
 
         if ($customerName !== '' || $customerPhone !== '') {
-            $customer = \App\Models\Customer::firstOrCreate(
+            $customer = Customer::firstOrCreate(
                 ['phone' => $customerPhone !== '' ? $customerPhone : null, 'business_id' => $store->business_id],
-                ['first_name' => $customerName !== '' ? $customerName : 'Walk-in', 'last_name' => '', 'email' => 'pos-' . \Illuminate\Support\Str::random(8) . '@walkin.local', 'status' => 'active', 'password' => \Illuminate\Support\Str::random(32)]
+                ['first_name' => $customerName !== '' ? $customerName : 'Walk-in', 'last_name' => '', 'email' => 'pos-'.Str::random(8).'@walkin.local', 'status' => 'active', 'password' => Str::random(32)]
             );
             $customerId = $customer->id;
         }
@@ -280,7 +285,7 @@ class PosController extends Controller
         $order->items()->saveMany($orderItems);
 
         $txnStatus = 'confirmed';
-        $txnReference = 'TXN-POS-' . strtoupper(\Illuminate\Support\Str::random(10));
+        $txnReference = 'TXN-POS-'.strtoupper(Str::random(10));
 
         if ($validated['payment_method'] === 'card' && $request->filled('paystack_reference')) {
             $txnReference = $validated['paystack_reference'];
@@ -291,7 +296,7 @@ class PosController extends Controller
             'transfer' => 'bank_transfer',
             default => 'cash',
         };
-        $paymentMethod = \App\Models\PaymentMethod::where('code', $methodCode)->first();
+        $paymentMethod = PaymentMethod::where('code', $methodCode)->first();
 
         Transaction::create([
             'reference' => $txnReference,
@@ -306,10 +311,10 @@ class PosController extends Controller
             $store->creditBalance((int) round($total * 100));
         }
 
-        $ledger = app(\App\Services\StockLedgerService::class);
+        $ledger = app(StockLedgerService::class);
 
         // Preload all stock locations for this store in a single query
-        $stockLocs = \App\Models\StockLocation::where('locationable_type', \App\Models\Store::class)
+        $stockLocs = StockLocation::where('locationable_type', Store::class)
             ->where('locationable_id', $store->id)
             ->whereIn('product_id', $productIds)
             ->get()
@@ -317,36 +322,36 @@ class PosController extends Controller
 
         foreach ($validated['items'] as $item) {
             $product = $products[$item['product_id']] ?? null;
-            if (!$product) {
+            if (! $product) {
                 continue;
             }
             $stockLoc = $stockLocs[$product->id] ?? null;
 
             if ($stockLoc && $stockLoc->quantity >= (int) $item['quantity']) {
                 $product->decrement('quantity', (int) $item['quantity']);
-                $ledger->recordRemoval($stockLoc, (int) $item['quantity'], $order, $user, 'POS sale — Order #' . $order->order_number);
+                $ledger->recordRemoval($stockLoc, (int) $item['quantity'], $order, $user, 'POS sale — Order #'.$order->order_number);
             } elseif ($product && $product->quantity >= (int) $item['quantity']) {
                 $product->decrement('quantity', (int) $item['quantity']);
-                $stockLoc = \App\Models\StockLocation::firstOrCreate([
+                $stockLoc = StockLocation::firstOrCreate([
                     'product_id' => $product->id,
-                    'locationable_type' => \App\Models\Store::class,
+                    'locationable_type' => Store::class,
                     'locationable_id' => $store->id,
                 ], ['quantity' => $product->quantity + (int) $item['quantity'], 'business_id' => $store->business_id]);
-                $ledger->recordRemoval($stockLoc, (int) $item['quantity'], $order, $user, 'POS sale — Order #' . $order->order_number);
+                $ledger->recordRemoval($stockLoc, (int) $item['quantity'], $order, $user, 'POS sale — Order #'.$order->order_number);
             }
         }
 
         return redirect()->route('management.pos.receipt', ['store' => $store, 'order' => $order])
-            ->with('success', 'Sale completed. Order #' . $order->order_number);
+            ->with('success', 'Sale completed. Order #'.$order->order_number);
     }
 
     public function receipt(Request $request, Store $store, Order $order): View
     {
         $user = $request->user();
 
-        if (!$user->isPlatformAdmin()) {
+        if (! $user->isPlatformAdmin()) {
             if ($user->isRestrictedStaff()) {
-                if (!$user->assignedStores()->where('stores.id', $store->id)->exists()) {
+                if (! $user->assignedStores()->where('stores.id', $store->id)->exists()) {
                     abort(403);
                 }
             } elseif ($store->user_id !== $user->id) {

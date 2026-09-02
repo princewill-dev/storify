@@ -1,11 +1,13 @@
 {
     "$schema": "https://getcomposer.org/schema.json",
-    "name": "laravel/laravel",
+    "name": "storify/platform",
     "type": "project",
-    "description": "The skeleton application for the Laravel framework.",
+    "description": "Multi-tenant commerce, storefront, inventory, and POS platform.",
     "keywords": [
         "laravel",
-        "framework"
+        "ecommerce",
+        "inventory",
+        "pos"
     ],
     "license": "MIT",
     "require": {
@@ -61,6 +63,7 @@
             "@php artisan config:clear --ansi",
             "@php artisan test"
         ],
+        "lint": "pint --test",
         "post-autoload-dump": [
             "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",
             "@php artisan package:discover --ansi"

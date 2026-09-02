@@ -1,37 +1,47 @@
 <?php
 
-use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Auth\BusinessAuthController;
-use App\Http\Controllers\Management\DashboardController;
-use App\Http\Controllers\Management\KycController;
-use App\Http\Controllers\Management\StoreController as VendorOnboardController;
-use App\Http\Controllers\Management\ProductController;
 use App\Http\Controllers\Management\CategoryController;
-use App\Http\Controllers\Management\StoreController;
-use App\Http\Controllers\Management\OrderController;
 use App\Http\Controllers\Management\CustomerController;
+use App\Http\Controllers\Management\DashboardController;
 use App\Http\Controllers\Management\DispatchesController;
-use App\Http\Controllers\Management\TransactionController;
-use App\Http\Controllers\Management\SubscriptionController;
-use App\Http\Controllers\Management\ServiceController;
-use App\Http\Controllers\Management\ProfileController;
-use App\Http\Controllers\Management\StoreBankController;
-use App\Http\Controllers\Management\StoreDeliveryRouteController;
-use App\Http\Controllers\Management\PaymentSettingsController;
-use App\Http\Controllers\Management\StaffController;
-use App\Http\Controllers\Management\RoleController;
-use App\Http\Controllers\Management\WarehouseController;
-use App\Http\Controllers\Management\WarehouseTransferController;
-use App\Http\Controllers\Management\SectionController;
-use App\Http\Controllers\Management\StockTransferController;
-use App\Http\Controllers\Management\SetupController;
-use App\Http\Controllers\Management\PosSessionController;
-use App\Http\Controllers\Management\PosController;
+use App\Http\Controllers\Management\EarlyPassController;
 use App\Http\Controllers\Management\InvoiceController;
+use App\Http\Controllers\Management\KycController;
+use App\Http\Controllers\Management\OrderController;
+use App\Http\Controllers\Management\PaymentSettingsController;
+use App\Http\Controllers\Management\PosController;
+use App\Http\Controllers\Management\PosSessionController;
+use App\Http\Controllers\Management\ProductController;
+use App\Http\Controllers\Management\ProfileController;
+use App\Http\Controllers\Management\RoleController;
+use App\Http\Controllers\Management\SearchController;
+use App\Http\Controllers\Management\SectionController;
+use App\Http\Controllers\Management\ServiceController;
+use App\Http\Controllers\Management\SetupController;
+use App\Http\Controllers\Management\StaffController;
+use App\Http\Controllers\Management\StockTransferController;
+use App\Http\Controllers\Management\StoreBankController;
+use App\Http\Controllers\Management\StoreController;
+use App\Http\Controllers\Management\StoreDashboardController;
+use App\Http\Controllers\Management\StoreDeliveryRouteController;
+use App\Http\Controllers\Management\StorefrontController;
+use App\Http\Controllers\Management\StoreLifecycleController;
+use App\Http\Controllers\Management\StoreSettingsController;
+use App\Http\Controllers\Management\StoreTabController;
+use App\Http\Controllers\Management\SubscriptionCouponController;
+use App\Http\Controllers\Management\SubscriptionPaymentController;
+use App\Http\Controllers\Management\SubscriptionPlanController;
+use App\Http\Controllers\Management\SupportMessageController;
+use App\Http\Controllers\Management\TransactionController;
+use App\Http\Controllers\Management\WarehouseController;
 use App\Http\Controllers\Staff\InvitationController;
+use App\Models\Store;
+use App\Models\Warehouse;
+use Illuminate\Support\Facades\Route;
 
 Route::prefix('management')->name('management.')->group(function () {
-    // Public auth routes (redirect to old vendor auth for now)
+    // Public business authentication routes.
     Route::get('/register', [BusinessAuthController::class, 'showRegister'])->name('auth.register');
     Route::post('/register', [BusinessAuthController::class, 'register'])->name('auth.register.store')->middleware('throttle:6,1');
     Route::get('/login', [BusinessAuthController::class, 'showLogin'])->name('auth.login');
@@ -50,44 +60,30 @@ Route::prefix('management')->name('management.')->group(function () {
     Route::middleware(['auth', 'team.context'])->group(function () {
         Route::post('/logout', [BusinessAuthController::class, 'logout'])->name('auth.logout');
         Route::get('/logout', [BusinessAuthController::class, 'logout'])->name('auth.logout.get');
-        
-        Route::get('/subscription', [SubscriptionController::class, 'showSubscriptionPlan'])->name('subscription.plan');
-        Route::post('/subscription/select-plan', [SubscriptionController::class, 'selectPlan'])->name('subscription.select-plan');
-        Route::get('/subscription/payment', [SubscriptionController::class, 'showPayment'])->name('subscription.payment');
-        Route::post('/subscription/process-payment', [SubscriptionController::class, 'processPayment'])->name('subscription.process-payment');
-        Route::post('/subscription/change-plan', [SubscriptionController::class, 'changePlan'])->name('subscription.change-plan');
-        Route::get('/subscription/callback', [SubscriptionController::class, 'handleCallback'])->name('subscription.callback');
-        Route::post('/subscription/check-early-pass', [SubscriptionController::class, 'checkEarlyPass'])->name('subscription.check-early-pass');
-        
-        Route::get('/plans', [SubscriptionController::class, 'showPlans'])->name('plans.index');
-        Route::get('/plans/checkout/{plan}', [SubscriptionController::class, 'showCheckout'])->name('plans.checkout');
-        Route::post('/plans/validate-coupon', [SubscriptionController::class, 'validateCoupon'])->name('plans.validate-coupon');
-        Route::post('/plans/remove-coupon', [SubscriptionController::class, 'removeCoupon'])->name('plans.remove-coupon');
-        
-        Route::get('/stores/create/onboarding', [StoreController::class, 'showStoreCreationForm'])->name('store.create');
-        Route::post('/stores/create/onboarding', [StoreController::class, 'submitOnboardingStore'])->name('store.submit');
+
+        Route::get('/subscription', [SubscriptionPlanController::class, 'index'])->name('subscription.plan');
+        Route::post('/subscription/select-plan', [SubscriptionPlanController::class, 'select'])->name('subscription.select-plan');
+        Route::get('/subscription/payment', [SubscriptionPaymentController::class, 'show'])->name('subscription.payment');
+        Route::post('/subscription/process-payment', [SubscriptionPaymentController::class, 'initialize'])->name('subscription.process-payment');
+        Route::post('/subscription/change-plan', [SubscriptionPlanController::class, 'change'])->name('subscription.change-plan');
+        Route::get('/subscription/callback', [SubscriptionPaymentController::class, 'callback'])->name('subscription.callback');
+        Route::post('/subscription/check-early-pass', [EarlyPassController::class, 'apply'])->name('subscription.check-early-pass');
+
+        Route::get('/plans', [SubscriptionPlanController::class, 'onboarding'])->name('plans.index');
+        Route::get('/plans/checkout/{plan}', [SubscriptionPlanController::class, 'checkout'])->name('plans.checkout');
+        Route::post('/plans/validate-coupon', [SubscriptionCouponController::class, 'validateCoupon'])->name('plans.validate-coupon');
+        Route::post('/plans/remove-coupon', [SubscriptionCouponController::class, 'remove'])->name('plans.remove-coupon');
+
         Route::post('/stores/check-slug', [StoreController::class, 'checkSlugAvailability'])->name('store.check-slug');
-        Route::get('/stores/create/success', [StoreController::class, 'success'])->name('stores.success');
-        
-        Route::get('/stores/set-delivery-routes', [StoreController::class, 'showDeliveryRoutesForm'])->name('delivery-routes.form');
-        Route::post('/stores/set-delivery-routes', [StoreController::class, 'saveDeliveryRoutes'])->name('delivery-routes.save');
-        
-        Route::get('/stores/set-payment-methods', [StoreController::class, 'showPaymentMethods'])->name('payment-methods.form');
-        Route::post('/stores/payment-methods/bank', [StoreController::class, 'storePaymentBank'])->name('payment-methods.bank');
-        Route::post('/stores/payment-methods/paystack', [StoreController::class, 'storePaymentPaystack'])->name('payment-methods.paystack');
-        Route::post('/stores/payment-methods/skip', [StoreController::class, 'skipPaymentMethods'])->name('payment-methods.skip');
-        
-        Route::get('/stores/get-banks', [StoreController::class, 'getBanks'])->name('store.get-banks');
-        Route::post('/stores/validate-bank', [StoreController::class, 'validateBank'])->name('store.validate-bank');
-        
+
         Route::middleware(['management.onboarding', 'management.subscription'])->group(function () {
             Route::get('/setup', [SetupController::class, 'show'])->name('setup');
             Route::post('/setup', [SetupController::class, 'store'])->name('setup.store');
 
             Route::get('/', [DashboardController::class, 'index'])->middleware('permission:dashboard view')->name('dashboard');
             Route::post('/switch-store', [DashboardController::class, 'switchStore'])->name('stores.switch');
-            Route::get('/search', \App\Http\Controllers\Management\SearchController::class)->name('search');
-            
+            Route::get('/search', SearchController::class)->name('search');
+
             Route::get('/profile', [ProfileController::class, 'index'])->name('profile.index');
             Route::put('/profile', [ProfileController::class, 'update'])->name('profile.update');
             Route::put('/profile/password', [ProfileController::class, 'updatePassword'])->name('profile.password');
@@ -102,31 +98,31 @@ Route::prefix('management')->name('management.')->group(function () {
             });
             Route::middleware('permission:stores view')->group(function () {
                 Route::get('/stores', [StoreController::class, 'index'])->name('stores.index');
-                Route::get('/stores/{store}', [StoreController::class, 'show'])->name('stores.show');
+                Route::get('/stores/{store}', [StoreDashboardController::class, 'show'])->name('stores.show');
                 Route::get('/stores/{store}/finalize', [StoreController::class, 'success'])->name('stores.success.new');
-                Route::get('/stores/{store}/web-metrics', [StoreController::class, 'webMetrics'])->name('stores.web-metrics');
+                Route::get('/stores/{store}/web-metrics', [StoreDashboardController::class, 'webMetrics'])->name('stores.web-metrics');
                 // AJAX tab endpoints for store detail page
-                Route::get('/stores/{store}/tab/{tab}', [StoreController::class, 'loadTab'])->name('stores.tab');
+                Route::get('/stores/{store}/tab/{tab}', [StoreTabController::class, 'show'])->name('stores.tab');
             });
             Route::middleware('permission:stores edit')->group(function () {
-                Route::put('/stores/{store}', [StoreController::class, 'update'])->name('stores.update');
+                Route::put('/stores/{store}', [StoreSettingsController::class, 'update'])->name('stores.update');
             });
             Route::middleware('permission:stores settings')->group(function () {
-                Route::get('/stores/{store}/settings', [StoreController::class, 'settings'])->name('stores.settings');
-                Route::patch('/stores/{store}/suspend', [StoreController::class, 'suspend'])->name('stores.suspend');
-                Route::patch('/stores/{store}/activate', [StoreController::class, 'activate'])->name('stores.activate');
-                Route::delete('/stores/{store}', [StoreController::class, 'destroy'])->name('stores.destroy');
+                Route::get('/stores/{store}/settings', [StoreSettingsController::class, 'show'])->name('stores.settings');
+                Route::patch('/stores/{store}/suspend', [StoreLifecycleController::class, 'suspend'])->name('stores.suspend');
+                Route::patch('/stores/{store}/activate', [StoreLifecycleController::class, 'activate'])->name('stores.activate');
+                Route::delete('/stores/{store}', [StoreLifecycleController::class, 'destroy'])->name('stores.destroy');
 
-                Route::post('/stores/{store}/assign-staff', [StoreController::class, 'assignStaff'])->name('stores.assign-staff');
-                Route::delete('/stores/{store}/remove-staff/{user}', [StoreController::class, 'removeStaff'])->name('stores.remove-staff');
+                Route::post('/stores/{store}/assign-staff', [StoreSettingsController::class, 'assignStaff'])->name('stores.assign-staff');
+                Route::delete('/stores/{store}/remove-staff/{user}', [StoreSettingsController::class, 'removeStaff'])->name('stores.remove-staff');
 
-                Route::post('/stores/{store}/assign-bank', [StoreController::class, 'assignBank'])->name('stores.assign-bank');
-                Route::delete('/stores/{store}/remove-bank/{bank}', [StoreController::class, 'removeBank'])->name('stores.remove-bank');
+                Route::post('/stores/{store}/assign-bank', [StoreSettingsController::class, 'assignBank'])->name('stores.assign-bank');
+                Route::delete('/stores/{store}/remove-bank/{bank}', [StoreSettingsController::class, 'removeBank'])->name('stores.remove-bank');
 
-                Route::post('/stores/{store}/pos/enable', [StoreController::class, 'enablePos'])->name('pos.enable');
-                Route::post('/stores/{store}/enable-website', [StoreController::class, 'enableWebsite'])->name('stores.enable-website');
-                Route::get('/stores/{store}/storefront/create', [StoreController::class, 'createStorefront'])->name('stores.storefront.create');
-                Route::post('/stores/{store}/storefront', [StoreController::class, 'storeStorefront'])->name('stores.storefront.store');
+                Route::post('/stores/{store}/pos/enable', [StoreSettingsController::class, 'enablePos'])->name('pos.enable');
+                Route::post('/stores/{store}/enable-website', [StorefrontController::class, 'enableWebsite'])->name('stores.enable-website');
+                Route::get('/stores/{store}/storefront/create', [StorefrontController::class, 'create'])->name('stores.storefront.create');
+                Route::post('/stores/{store}/storefront', [StorefrontController::class, 'store'])->name('stores.storefront.store');
             });
 
             Route::middleware('permission:stores settings')->group(function () {
@@ -192,8 +188,9 @@ Route::prefix('management')->name('management.')->group(function () {
             Route::middleware('permission:products view')->group(function () {
                 Route::get('/products', [ProductController::class, 'index'])->name('products.index');
                 Route::get('/products/{product}', [ProductController::class, 'show'])->name('products.show');
-                Route::get('/stores/{store}/products', function (\App\Models\Store $store) {
+                Route::get('/stores/{store}/products', function (Store $store) {
                     request()->merge(['store_id' => $store->store_id]);
+
                     return app()->call([app(ProductController::class), 'index']);
                 })->name('stores.products');
             });
@@ -236,8 +233,9 @@ Route::prefix('management')->name('management.')->group(function () {
                 Route::get('/orders', [OrderController::class, 'index'])->name('orders.index');
                 Route::get('/orders/{order}', [OrderController::class, 'show'])->name('orders.show');
                 Route::get('/orders/{order}/edit', [OrderController::class, 'edit'])->name('orders.edit');
-                Route::get('/stores/{store}/orders', function (\App\Models\Store $store) {
+                Route::get('/stores/{store}/orders', function (Store $store) {
                     request()->merge(['store_id' => $store->store_id]);
+
                     return app()->call([app(OrderController::class), 'index']);
                 })->name('stores.orders');
             });
@@ -295,10 +293,10 @@ Route::prefix('management')->name('management.')->group(function () {
 
             // Support
             Route::middleware('permission:support view_tickets')->group(function () {
-                Route::get('/support-messages', [\App\Http\Controllers\Management\SupportMessageController::class, 'index'])->name('support-messages.index');
+                Route::get('/support-messages', [SupportMessageController::class, 'index'])->name('support-messages.index');
             });
             Route::middleware('permission:support reply')->group(function () {
-                Route::post('/support-messages/{supportMessage}/reply', [\App\Http\Controllers\Management\SupportMessageController::class, 'reply'])->name('support-messages.reply');
+                Route::post('/support-messages/{supportMessage}/reply', [SupportMessageController::class, 'reply'])->name('support-messages.reply');
             });
 
             // Staff
@@ -325,7 +323,7 @@ Route::prefix('management')->name('management.')->group(function () {
 
             // Roles
             Route::middleware('permission:staff view')->group(function () {
-                Route::resource('/roles', RoleController::class)->names([
+                Route::resource('/roles', RoleController::class)->except(['show'])->names([
                     'index' => 'roles.index', 'create' => 'roles.create', 'store' => 'roles.store',
                     'edit' => 'roles.edit', 'update' => 'roles.update', 'destroy' => 'roles.destroy',
                 ]);
@@ -341,7 +339,7 @@ Route::prefix('management')->name('management.')->group(function () {
                 Route::get('/warehouses/{warehouse}', [WarehouseController::class, 'show'])->name('warehouses.show');
                 // AJAX tab endpoint for warehouse detail page
                 Route::get('/warehouses/{warehouse}/tab/{tab}', [WarehouseController::class, 'loadTab'])->name('warehouses.tab');
-                Route::get('/warehouses/{warehouse}/add', [\App\Http\Controllers\Management\ProductController::class, 'create'])->name('warehouses.products.create');
+                Route::get('/warehouses/{warehouse}/add', [ProductController::class, 'create'])->name('warehouses.products.create');
             });
             Route::middleware('permission:warehouses edit')->group(function () {
                 Route::get('/warehouses/{warehouse}/edit', [WarehouseController::class, 'edit'])->name('warehouses.edit');
@@ -369,8 +367,8 @@ Route::prefix('management')->name('management.')->group(function () {
                 Route::patch('/transfers/{transfer}/acknowledge', [StockTransferController::class, 'acknowledge'])->name('transfers.acknowledge');
 
                 // Warehouse send/receive — consolidated into transfers.create
-                Route::get('/warehouses/{warehouse}/send', fn (\App\Models\Warehouse $warehouse) => redirect()->route('management.transfers.create', ['from_warehouse' => $warehouse->warehouse_code]))->name('warehouses.send');
-                Route::get('/warehouses/{warehouse}/receive', fn (\App\Models\Warehouse $warehouse) => redirect()->route('management.transfers.create', ['to_warehouse' => $warehouse->warehouse_code]))->name('warehouses.receive');
+                Route::get('/warehouses/{warehouse}/send', fn (Warehouse $warehouse) => redirect()->route('management.transfers.create', ['from_warehouse' => $warehouse->warehouse_code]))->name('warehouses.send');
+                Route::get('/warehouses/{warehouse}/receive', fn (Warehouse $warehouse) => redirect()->route('management.transfers.create', ['to_warehouse' => $warehouse->warehouse_code]))->name('warehouses.receive');
             });
             Route::middleware('permission:transfers view')->group(function () {
                 Route::get('/transfers', [StockTransferController::class, 'index'])->name('transfers.index');

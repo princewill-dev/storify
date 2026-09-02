@@ -76,16 +76,16 @@ class Nigeria
     public static function citiesByState(string $state): array
     {
         $cities = [
-            'Lagos'       => ['Ikeja', 'Lekki', 'Victoria Island', 'Surulere', 'Yaba', 'Apapa', 'Ikorodu', 'Badagry', 'Epe', 'Agege'],
+            'Lagos' => ['Ikeja', 'Lekki', 'Victoria Island', 'Surulere', 'Yaba', 'Apapa', 'Ikorodu', 'Badagry', 'Epe', 'Agege'],
             'FCT – Abuja' => ['Garki', 'Wuse', 'Maitama', 'Asokoro', 'Gwarinpa', 'Kubwa', 'Jabi', 'Lugbe', 'Nyanya', 'Karu'],
-            'Kano'        => ['Kano Municipal', 'Nassarawa', 'Tarauni', 'Fagge', 'Gwale', 'Dala', 'Kumbotso', 'Ungogo', 'Bichi', 'Rano'],
-            'Oyo'         => ['Ibadan North', 'Ibadan South', 'Egbeda', 'Oluyole', 'Ona Ara', 'Lagelu', 'Akinyele', 'Ido', 'Oyo Town', 'Ogbomoso'],
-            'Rivers'      => ['Port Harcourt City', 'Obio-Akpor', 'Eleme', 'Okrika', 'Oyigbo', 'Bonny', 'Emohua', 'Ikwerre', 'Etche', 'Omoku'],
-            'Edo'         => ['Oredo (Benin City)', 'Ikpoba-Okha', 'Egor', 'Ovia North-East', 'Uhunmwonde', 'Ovia South-West', 'Orhionmwon', 'Esan West', 'Auchi', 'Ekpoma'],
-            'Enugu'       => ['Enugu North', 'Enugu South', 'Nsukka', 'Udi', 'Awgu', 'Oji River', 'Ezeagu', 'Igbo-Etiti', 'Nkanu West', '9th Mile'],
-            'Kaduna'      => ['Kaduna North', 'Kaduna South', 'Zaria', 'Kafanchan', 'Saminaka', 'Birnin Gwari', 'Kagoro', 'Kachia', 'Zonkwa', 'Kwoi'],
-            'Abia'        => ['Aba North', 'Aba South', 'Osisioma', 'Umuahia North', 'Umuahia South', 'Obingwa', 'Ukwa West', 'Ugwuano', 'Isiala Ngwa', 'Ohafia'],
-            'Anambra'    => ['Onitsha North', 'Onitsha South', 'Nnewi North', 'Nnewi South', 'Awka North', 'Awka South', 'Ekwusigo', 'Idemili North', 'Ogbaru', 'Ihiala'],
+            'Kano' => ['Kano Municipal', 'Nassarawa', 'Tarauni', 'Fagge', 'Gwale', 'Dala', 'Kumbotso', 'Ungogo', 'Bichi', 'Rano'],
+            'Oyo' => ['Ibadan North', 'Ibadan South', 'Egbeda', 'Oluyole', 'Ona Ara', 'Lagelu', 'Akinyele', 'Ido', 'Oyo Town', 'Ogbomoso'],
+            'Rivers' => ['Port Harcourt City', 'Obio-Akpor', 'Eleme', 'Okrika', 'Oyigbo', 'Bonny', 'Emohua', 'Ikwerre', 'Etche', 'Omoku'],
+            'Edo' => ['Oredo (Benin City)', 'Ikpoba-Okha', 'Egor', 'Ovia North-East', 'Uhunmwonde', 'Ovia South-West', 'Orhionmwon', 'Esan West', 'Auchi', 'Ekpoma'],
+            'Enugu' => ['Enugu North', 'Enugu South', 'Nsukka', 'Udi', 'Awgu', 'Oji River', 'Ezeagu', 'Igbo-Etiti', 'Nkanu West', '9th Mile'],
+            'Kaduna' => ['Kaduna North', 'Kaduna South', 'Zaria', 'Kafanchan', 'Saminaka', 'Birnin Gwari', 'Kagoro', 'Kachia', 'Zonkwa', 'Kwoi'],
+            'Abia' => ['Aba North', 'Aba South', 'Osisioma', 'Umuahia North', 'Umuahia South', 'Obingwa', 'Ukwa West', 'Ugwuano', 'Isiala Ngwa', 'Ohafia'],
+            'Anambra' => ['Onitsha North', 'Onitsha South', 'Nnewi North', 'Nnewi South', 'Awka North', 'Awka South', 'Ekwusigo', 'Idemili North', 'Ogbaru', 'Ihiala'],
         ];
 
         return $cities[$state] ?? [];

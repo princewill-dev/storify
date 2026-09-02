@@ -6,8 +6,8 @@ use App\Enums\InvoiceStatus;
 use App\Http\Controllers\Controller;
 use App\Mail\InvoicePaymentReceiptMail;
 use App\Models\Invoice;
-use App\Models\Transaction;
 use App\Models\PaymentMethod;
+use App\Models\Transaction;
 use App\Services\PaystackService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -15,6 +15,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Str;
 use Illuminate\View\View;
 
 class InvoicePaymentController extends Controller
@@ -61,7 +62,7 @@ class InvoicePaymentController extends Controller
         $reference = $this->paystack->generateReference('INV');
         $email = $invoice->recipient_email ?: $invoice->customer?->email;
 
-        if (!$email || str_contains($email, '@walkin.local')) {
+        if (! $email || str_contains($email, '@walkin.local')) {
             $email = config('mail.from.address', 'no-reply@storify.test');
         }
 
@@ -69,7 +70,7 @@ class InvoicePaymentController extends Controller
         if ($store && $store->paymentMethods()->where('code', 'paystack')->wherePivot('is_active', true)->exists()) {
             $gateway = $store->paymentMethods()->where('code', 'paystack')->first();
             $keys = $gateway?->pivot?->api_keys ?? [];
-            if (!empty($keys['secret_key'])) {
+            if (! empty($keys['secret_key'])) {
                 $this->paystack->usingGateway((object) ['secret_key' => $keys['secret_key'], 'public_key' => $keys['public_key'] ?? '']);
             }
         }
@@ -107,9 +108,10 @@ class InvoicePaymentController extends Controller
                 ],
             ]);
 
-            if (!$result['success']) {
+            if (! $result['success']) {
                 DB::rollBack();
                 Log::error('invoice_payment_initialize_failed', ['invoice_id' => $invoice->id, 'paystack_message' => $result['message']]);
+
                 return response()->json(['success' => false, 'message' => $result['message'] ?? 'Payment initialization failed.'], 500);
             }
 
@@ -124,6 +126,7 @@ class InvoicePaymentController extends Controller
         } catch (\Throwable $e) {
             DB::rollBack();
             Log::error('invoice_payment_initialize_failed', ['error' => $e->getMessage(), 'invoice_id' => $invoice->id]);
+
             return response()->json(['success' => false, 'message' => 'An error occurred.'], 500);
         }
     }
@@ -133,7 +136,7 @@ class InvoicePaymentController extends Controller
         $invoice = Invoice::where('payment_token', $token)->firstOrFail();
         $reference = $request->query('reference');
 
-        if (!$reference) {
+        if (! $reference) {
             return redirect()->route('invoice.pay', ['token' => $token])->with('error', 'Invalid payment reference.');
         }
 
@@ -141,7 +144,7 @@ class InvoicePaymentController extends Controller
             ->where('invoice_id', $invoice->id)
             ->first();
 
-        if (!$transaction) {
+        if (! $transaction) {
             return redirect()->route('invoice.pay', ['token' => $token])->with('error', 'Transaction not found.');
         }
 
@@ -151,8 +154,9 @@ class InvoicePaymentController extends Controller
 
         $verification = $this->paystack->doubleVerifyPayment($reference);
 
-        if (!$verification['success'] || strtolower($verification['data']['status'] ?? '') !== 'success') {
+        if (! $verification['success'] || strtolower($verification['data']['status'] ?? '') !== 'success') {
             $transaction->update(['status' => 'failed', 'failure_reason' => $verification['message'] ?? 'Verification failed']);
+
             return redirect()->route('invoice.pay.show', ['token' => $token])->with('error', 'Payment could not be verified.');
         }
 
@@ -205,6 +209,7 @@ class InvoicePaymentController extends Controller
         $businessName = $store?->name ?? $invoice->business?->name ?? config('app.name');
         $storeBankAccounts = collect();
         $storeHasPaystack = false;
+
         return view('storefront.pages.invoice-pay', compact('invoice', 'token', 'businessName', 'storeBankAccounts', 'storeHasPaystack', 'store'))->with('paymentSuccess', true);
     }
 
@@ -218,14 +223,14 @@ class InvoicePaymentController extends Controller
 
         $request->validate([
             'payment_slip' => 'required|file|mimes:jpeg,png,jpg,pdf|max:5120',
-            'amount' => 'required|numeric|min:1|max:' . $invoice->remainingBalance(),
+            'amount' => 'required|numeric|min:1|max:'.$invoice->remainingBalance(),
             'store_bank_id' => 'nullable|exists:store_banks,id',
         ]);
 
         $path = $request->file('payment_slip')->store('payment-slips', 'public');
 
         Transaction::create([
-            'reference' => 'INV-BT-' . strtoupper(\Illuminate\Support\Str::random(12)),
+            'reference' => 'INV-BT-'.strtoupper(Str::random(12)),
             'invoice_id' => $invoice->id,
             'business_id' => $invoice->business_id,
             'amount' => $request->amount,

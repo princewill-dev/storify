@@ -26,7 +26,7 @@ return new class extends Migration
             $table->string('zip_code')->nullable();
             $table->boolean('is_default')->default(false);
             $table->timestamps();
-            
+
             // Indexes
             $table->index('customer_id');
             $table->index('is_default');

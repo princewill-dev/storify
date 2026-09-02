@@ -2,20 +2,21 @@
 
 namespace App\Models;
 
+use App\Enums\SectionStatus;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Str;
-use App\Models\BelongsToBusiness;
-use App\Enums\SectionStatus;
 
 class Section extends Model
 {
-    use HasFactory, BelongsToBusiness;
+    use BelongsToBusiness, HasFactory;
 
     public const STATUS_ACTIVE = SectionStatus::ACTIVE->value;
+
     public const STATUS_INACTIVE = SectionStatus::INACTIVE->value;
+
     public const STATUS_DELETED = SectionStatus::DELETED->value;
 
     protected $fillable = [
@@ -31,7 +32,7 @@ class Section extends Model
         parent::boot();
         static::creating(function ($model) {
             if (empty($model->section_code)) {
-                $model->section_code = 'sec_' . Str::lower(Str::random(10));
+                $model->section_code = 'sec_'.Str::lower(Str::random(10));
             }
         });
     }

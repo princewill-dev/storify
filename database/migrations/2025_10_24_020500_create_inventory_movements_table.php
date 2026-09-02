@@ -4,7 +4,8 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-return new class extends Migration {
+return new class extends Migration
+{
     public function up(): void
     {
         Schema::create('inventory_movements', function (Blueprint $table) {
@@ -17,8 +18,8 @@ return new class extends Migration {
             $table->string('idempotency_key')->nullable();
             $table->unsignedBigInteger('performed_by')->nullable();
             $table->timestamps();
-            $table->index(['store_id','product_id']);
-            $table->unique(['store_id','idempotency_key']);
+            $table->index(['store_id', 'product_id']);
+            $table->unique(['store_id', 'idempotency_key']);
         });
     }
 

@@ -2,19 +2,19 @@
 
 namespace App\Models;
 
+use App\Enums\PosSessionStatus;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Str;
-use App\Enums\PosSessionStatus;
-use App\Models\BelongsToBusiness;
 
 class PosSession extends Model
 {
-    use HasFactory, BelongsToBusiness;
+    use BelongsToBusiness, HasFactory;
 
     public const STATUS_OPEN = PosSessionStatus::OPEN->value;
+
     public const STATUS_CLOSED = PosSessionStatus::CLOSED->value;
 
     protected $fillable = [
@@ -46,12 +46,12 @@ class PosSession extends Model
         parent::boot();
         static::creating(function (PosSession $session) {
             if (empty($session->session_code)) {
-                $session->session_code = 'pos_' . Str::lower(Str::random(10));
+                $session->session_code = 'pos_'.Str::lower(Str::random(10));
             }
-            if (!$session->opened_at) {
+            if (! $session->opened_at) {
                 $session->opened_at = now();
             }
-            if (!$session->status) {
+            if (! $session->status) {
                 $session->status = self::STATUS_OPEN;
             }
         });

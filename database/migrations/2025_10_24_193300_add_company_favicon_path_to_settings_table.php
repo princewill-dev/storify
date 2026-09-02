@@ -9,7 +9,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('settings', function (Blueprint $table) {
-            if (!Schema::hasColumn('settings', 'company_favicon_path')) {
+            if (! Schema::hasColumn('settings', 'company_favicon_path')) {
                 $table->string('company_favicon_path')->nullable()->after('company_logo_path');
             }
         });

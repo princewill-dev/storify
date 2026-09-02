@@ -3,8 +3,10 @@
 namespace App\Http\Controllers\Home;
 
 use App\Http\Controllers\Controller;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\View;
+use App\Models\Product;
+use App\Models\Store;
+use App\Models\SubscriptionPlan;
+use App\Models\Testimonial;
 
 class HomePageController extends Controller
 {
@@ -15,21 +17,21 @@ class HomePageController extends Controller
      */
     public function index()
     {
-        $stores = \App\Models\Store::where('status', 'active')
+        $stores = Store::where('status', 'active')
             ->where('has_website', true)
             ->with('user')
             ->latest()
             ->take(6)
             ->get();
 
-        $testimonials = \App\Models\Testimonial::where('status', 'active')
+        $testimonials = Testimonial::where('status', 'active')
             ->latest()
             ->take(6)
             ->get();
 
-        $storeCount = \App\Models\Store::where('status', 'active')->count();
-        $productCount = \App\Models\Product::where('status', 'active')->count();
-        $plans = \App\Models\SubscriptionPlan::active()->where('is_trial', false)->orderBy('sort_order')->get();
+        $storeCount = Store::where('status', 'active')->count();
+        $productCount = Product::where('status', 'active')->count();
+        $plans = SubscriptionPlan::active()->where('is_trial', false)->orderBy('sort_order')->get();
 
         return view('home.pages.index', compact(
             'stores', 'testimonials', 'storeCount', 'productCount', 'plans'
@@ -63,11 +65,11 @@ class HomePageController extends Controller
      */
     public function stores()
     {
-        $stores = \App\Models\Store::where('status', 'active')
+        $stores = Store::where('status', 'active')
             ->with('user')
             ->latest()
             ->get();
-            
+
         return view('home.pages.our-stores', compact('stores'));
     }
 
@@ -88,11 +90,11 @@ class HomePageController extends Controller
      */
     public function pricing()
     {
-        $plans = \App\Models\SubscriptionPlan::active()
+        $plans = SubscriptionPlan::active()
             ->where('is_trial', false)
             ->orderBy('sort_order')
             ->get();
-            
+
         return view('home.pages.pricing', compact('plans'));
     }
 }

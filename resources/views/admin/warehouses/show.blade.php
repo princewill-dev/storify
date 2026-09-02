@@ -45,7 +45,7 @@
             <div class="space-y-2 text-sm">
                 <div class="flex gap-3">
                     <span class="text-slate-400 w-20 shrink-0">Business</span>
-                    <a href="{{ route('admin.vendors.show', $warehouse->user) }}" class="text-indigo-600 hover:underline font-medium">{{ $warehouse->business->name }}</a>
+                    <a href="{{ route('admin.businesses.show', $warehouse->user) }}" class="text-indigo-600 hover:underline font-medium">{{ $warehouse->business->name }}</a>
                     <span class="text-xs text-slate-400 font-mono">{{ $warehouse->business->business_code }}</span>
                 </div>
                 <div class="flex gap-3">

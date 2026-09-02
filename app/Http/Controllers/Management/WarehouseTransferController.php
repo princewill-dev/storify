@@ -2,13 +2,14 @@
 
 namespace App\Http\Controllers\Management;
 
+use App\Enums\TransferStatus;
 use App\Http\Controllers\Controller;
 use App\Models\Product;
 use App\Models\StockLocation;
 use App\Models\StockTransfer;
 use App\Models\StockTransferItem;
+use App\Models\Store;
 use App\Models\Warehouse;
-use App\Enums\TransferStatus;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -21,8 +22,12 @@ class WarehouseTransferController extends Controller
     {
         $user = $request->user();
         if ($user->isStaff()) {
-            if (!$user->assignedWarehouses()->where('warehouses.id', $warehouse->id)->exists()) abort(403);
-        } elseif ($warehouse->user_id !== $user->id) abort(403);
+            if (! $user->assignedWarehouses()->where('warehouses.id', $warehouse->id)->exists()) {
+                abort(403);
+            }
+        } elseif ($warehouse->user_id !== $user->id) {
+            abort(403);
+        }
 
         $warehouses = Warehouse::where('business_id', $warehouse->business_id)
             ->where('id', '!=', $warehouse->id)
@@ -71,8 +76,12 @@ class WarehouseTransferController extends Controller
     {
         $user = $request->user();
         if ($user->isStaff()) {
-            if (!$user->assignedWarehouses()->where('warehouses.id', $warehouse->id)->exists()) abort(403);
-        } elseif ($warehouse->user_id !== $user->id) abort(403);
+            if (! $user->assignedWarehouses()->where('warehouses.id', $warehouse->id)->exists()) {
+                abort(403);
+            }
+        } elseif ($warehouse->user_id !== $user->id) {
+            abort(403);
+        }
 
         $warehouses = Warehouse::where('business_id', $warehouse->business_id)
             ->where('id', '!=', $warehouse->id)
@@ -87,8 +96,12 @@ class WarehouseTransferController extends Controller
     {
         $user = $request->user();
         if ($user->isStaff()) {
-            if (!$user->assignedWarehouses()->where('warehouses.id', $warehouse->id)->exists()) abort(403);
-        } elseif ($warehouse->user_id !== $user->id) abort(403);
+            if (! $user->assignedWarehouses()->where('warehouses.id', $warehouse->id)->exists()) {
+                abort(403);
+            }
+        } elseif ($warehouse->user_id !== $user->id) {
+            abort(403);
+        }
 
         $validated = $request->validate([
             'to_location_type' => 'required|in:store,warehouse',
@@ -100,10 +113,10 @@ class WarehouseTransferController extends Controller
         ]);
 
         $toLocationType = $request->input('to_location_type') === 'store'
-            ? \App\Models\Store::class
+            ? Store::class
             : Warehouse::class;
 
-        if ($toLocationType === \App\Models\Store::class) {
+        if ($toLocationType === Store::class) {
             $toLocation = ($user->isStaff() ? $user->assignedStores() : $user->stores())
                 ->where('status', '!=', 'deleted')
                 ->findOrFail($validated['to_location_id']);
@@ -148,11 +161,12 @@ class WarehouseTransferController extends Controller
             ]);
 
             return redirect()->route('management.transfers.show', $transfer)
-                ->with('success', 'Transfer initiated from ' . $warehouse->name . ' to ' . $toLocation->name . '.');
+                ->with('success', 'Transfer initiated from '.$warehouse->name.' to '.$toLocation->name.'.');
 
         } catch (\Throwable $e) {
             DB::rollBack();
             Log::error('warehouse_transfer.failed', ['error' => $e->getMessage()]);
+
             return back()->with('error', 'Failed to create transfer.')->withInput();
         }
     }
@@ -161,8 +175,12 @@ class WarehouseTransferController extends Controller
     {
         $user = $request->user();
         if ($user->isStaff()) {
-            if (!$user->assignedWarehouses()->where('warehouses.id', $warehouse->id)->exists()) abort(403);
-        } elseif ($warehouse->user_id !== $user->id) abort(403);
+            if (! $user->assignedWarehouses()->where('warehouses.id', $warehouse->id)->exists()) {
+                abort(403);
+            }
+        } elseif ($warehouse->user_id !== $user->id) {
+            abort(403);
+        }
 
         $validated = $request->validate([
             'from_warehouse_id' => 'required|exists:warehouses,id',
@@ -209,11 +227,12 @@ class WarehouseTransferController extends Controller
             ]);
 
             return redirect()->route('management.warehouses.receive', $warehouse)
-                ->with('success', 'Transfer request sent from ' . $fromWarehouse->name . ' to ' . $warehouse->name . '.');
+                ->with('success', 'Transfer request sent from '.$fromWarehouse->name.' to '.$warehouse->name.'.');
 
         } catch (\Throwable $e) {
             DB::rollBack();
             Log::error('warehouse_transfer.failed', ['error' => $e->getMessage()]);
+
             return back()->with('error', 'Failed to create transfer.')->withInput();
         }
     }
@@ -222,8 +241,12 @@ class WarehouseTransferController extends Controller
     {
         $user = $request->user();
         if ($user->isStaff()) {
-            if (!$user->assignedWarehouses()->where('warehouses.id', $warehouse->id)->exists()) abort(403);
-        } elseif ($warehouse->user_id !== $user->id) abort(403);
+            if (! $user->assignedWarehouses()->where('warehouses.id', $warehouse->id)->exists()) {
+                abort(403);
+            }
+        } elseif ($warehouse->user_id !== $user->id) {
+            abort(403);
+        }
 
         $result = collect();
 

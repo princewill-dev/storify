@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\Product;
+use App\Models\Section;
 use App\Models\Warehouse;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
@@ -21,8 +22,9 @@ class WarehouseWipe extends Command
 
         $warehouse = Warehouse::where('warehouse_code', $identifier)->first();
 
-        if (!$warehouse) {
+        if (! $warehouse) {
             $this->error("Warehouse [{$identifier}] not found.");
+
             return Command::FAILURE;
         }
 
@@ -38,8 +40,9 @@ class WarehouseWipe extends Command
             ]
         );
 
-        if (!$this->option('force') && !$this->confirm('This will PERMANENTLY delete these products and sections. Continue?', false)) {
+        if (! $this->option('force') && ! $this->confirm('This will PERMANENTLY delete these products and sections. Continue?', false)) {
             $this->info('Aborted.');
+
             return Command::FAILURE;
         }
 
@@ -57,10 +60,11 @@ class WarehouseWipe extends Command
                 Product::whereIn('id', $productIds)->delete();
             }
 
-            \App\Models\Section::whereIn('id', $sectionIds)->delete();
+            Section::whereIn('id', $sectionIds)->delete();
         });
 
         $this->info("Warehouse [{$identifier}] products and sections wiped successfully.");
+
         return Command::SUCCESS;
     }
 }

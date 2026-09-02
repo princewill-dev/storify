@@ -17,22 +17,24 @@ class SearchController extends Controller
     public function liveSearch(Request $request, string $store_slug): JsonResponse
     {
         $query = $request->input('q', '');
-        
+
         Log::info('Live search request', [
             'store_slug' => $store_slug,
             'query' => $query,
-            'query_length' => strlen($query)
+            'query_length' => strlen($query),
         ]);
-        
+
         if (strlen($query) < 2) {
             Log::info('Search query too short, returning empty results');
+
             return response()->json(['products' => []]);
         }
 
         $store = Store::where('slug', $store_slug)->first();
-        
-        if (!$store) {
+
+        if (! $store) {
             Log::warning('Store not found', ['store_slug' => $store_slug]);
+
             return response()->json(['products' => []]);
         }
 
@@ -43,14 +45,14 @@ class SearchController extends Controller
             ->where('status', 'active')
             ->where(function ($q) use ($query) {
                 $q->where('name', 'LIKE', "%{$query}%")
-                  ->orWhere('product_code', 'LIKE', "%{$query}%");
+                    ->orWhere('product_code', 'LIKE', "%{$query}%");
             })
             ->limit(10)
             ->get()
-            ->map(function ($product) use ($store) {
+            ->map(function ($product) {
                 $firstImage = optional($product->images->first())->path;
-                $imageUrl = $firstImage ? asset('storage/' . $firstImage) : null;
-                
+                $imageUrl = $firstImage ? asset('storage/'.$firstImage) : null;
+
                 return [
                     'id' => $product->id,
                     'name' => $product->name,
@@ -58,14 +60,14 @@ class SearchController extends Controller
                     'slug' => $product->slug,
                     'image' => $imageUrl,
                     'price' => $product->amount ?? 0,
-                    'url' => '/products/' . $product->slug . '-' . $product->product_code
+                    'url' => '/products/'.$product->slug.'-'.$product->product_code,
                 ];
             });
 
         Log::info('Search results', [
             'query' => $query,
             'count' => $products->count(),
-            'products' => $products->pluck('name')->toArray()
+            'products' => $products->pluck('name')->toArray(),
         ]);
 
         return response()->json(['products' => $products]);

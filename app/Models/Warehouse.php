@@ -2,21 +2,22 @@
 
 namespace App\Models;
 
+use App\Enums\WarehouseStatus;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Support\Str;
-use App\Models\BelongsToBusiness;
-use App\Enums\WarehouseStatus;
 
 class Warehouse extends Model
 {
-    use HasFactory, BelongsToBusiness;
+    use BelongsToBusiness, HasFactory;
 
     public const STATUS_ACTIVE = WarehouseStatus::ACTIVE->value;
+
     public const STATUS_INACTIVE = WarehouseStatus::INACTIVE->value;
+
     public const STATUS_DELETED = WarehouseStatus::DELETED->value;
 
     protected $fillable = [
@@ -43,7 +44,7 @@ class Warehouse extends Model
         parent::boot();
         static::creating(function (Warehouse $warehouse) {
             if (empty($warehouse->warehouse_code)) {
-                $warehouse->warehouse_code = 'whs_' . Str::lower(Str::random(10));
+                $warehouse->warehouse_code = 'whs_'.Str::lower(Str::random(10));
             }
         });
     }

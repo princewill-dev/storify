@@ -43,7 +43,7 @@
         @else
             {{-- Intermediate success - continue setup --}}
             <p class="text-muted mb-5">Yay! Your store is ready to go. Let's continue setting it up.</p>
-            <a href="{{ route('management.payment-methods.form') }}" class="btn btn-dark btn-lg px-5">Continue Setup</a>
+            <a href="{{ route('management.stores.settings', $store) }}" class="btn btn-dark btn-lg px-5">Configure Store</a>
         @endif
     </div>
 @endsection

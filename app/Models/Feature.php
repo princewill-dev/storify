@@ -14,11 +14,11 @@ class Feature extends Model
 
     public function getIconUrlAttribute(): string
     {
-        if (!$this->icon_path) {
+        if (! $this->icon_path) {
             return asset('vendor_files/assets/images/icon-solid.png');
         }
 
-        return asset('storage/' . $this->icon_path);
+        return asset('storage/'.$this->icon_path);
     }
 
     public function scopeOrdered($query)

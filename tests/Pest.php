@@ -1,5 +1,11 @@
 <?php
 
+use App\Models\Business;
+use App\Models\User;
+use Database\Seeders\SpatiePermissionSeeder;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\TestCase;
+
 /*
 |--------------------------------------------------------------------------
 | Test Case
@@ -11,8 +17,8 @@
 |
 */
 
-pest()->extend(Tests\TestCase::class)
- // ->use(Illuminate\Foundation\Testing\RefreshDatabase::class)
+pest()->extend(TestCase::class)
+    ->use(RefreshDatabase::class)
     ->in('Feature');
 
 /*
@@ -44,4 +50,33 @@ expect()->extend('toBeOne', function () {
 function something()
 {
     // ..
+}
+
+/**
+ * Build a fully authorized business owner without relying on production seed
+ * data. Feature tests can override either model with the provided attributes.
+ *
+ * @return array{0: User, 1: Business}
+ */
+function createBusinessOwner(array $userAttributes = [], array $businessAttributes = []): array
+{
+    $user = User::factory()->create(array_merge([
+        'role' => User::ROLE_BUSINESS_OWNER,
+        'status' => 'active',
+        'is_verified' => true,
+    ], $userAttributes));
+
+    $business = Business::create(array_merge([
+        'user_id' => $user->id,
+        'name' => fake()->company(),
+        'status' => 'active',
+    ], $businessAttributes));
+
+    $user->update(['business_id' => $business->id]);
+    $permissionSeeder = new SpatiePermissionSeeder;
+    $permissionSeeder->run();
+    $permissionSeeder->createRolesForBusiness($business);
+    setPermissionsTeamId($business->id);
+
+    return [$user->fresh(), $business->fresh()];
 }

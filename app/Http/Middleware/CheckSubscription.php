@@ -4,7 +4,6 @@ namespace App\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
 
 class CheckSubscription
@@ -13,7 +12,7 @@ class CheckSubscription
     {
         $user = $request->user();
 
-        if (!$user) {
+        if (! $user) {
             return redirect()->route('management.auth.login');
         }
 
@@ -21,7 +20,7 @@ class CheckSubscription
             return $next($request);
         }
 
-        if (!$user->is_verified) {
+        if (! $user->is_verified) {
             return redirect()->route('management.auth.verify-otp')
                 ->with('warning', 'Please verify your email to continue.');
         }
@@ -52,7 +51,7 @@ class CheckSubscription
                 'management.auth.logout',
             ];
 
-            if (!$request->routeIs($exemptRoutes)) {
+            if (! $request->routeIs($exemptRoutes)) {
                 return redirect()->route('management.plans.index')
                     ->with('warning', 'Please select a plan to continue.');
             }

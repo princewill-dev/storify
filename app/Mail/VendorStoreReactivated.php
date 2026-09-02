@@ -2,13 +2,13 @@
 
 namespace App\Mail;
 
-use App\Models\Store;
 use App\Models\Setting;
+use App\Models\Store;
+use App\Queue\WithQueueConfig;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Mail\Mailable;
 use Illuminate\Queue\SerializesModels;
-use App\Queue\WithQueueConfig;
 
 class VendorStoreReactivated extends Mailable implements ShouldQueue
 {
@@ -21,7 +21,7 @@ class VendorStoreReactivated extends Mailable implements ShouldQueue
         $this->initQueueConfig();
         $s = Setting::first();
         $this->company = [
-            'logo' => $s?->company_logo_path ? asset('storage/' . $s->company_logo_path) : null,
+            'logo' => $s?->company_logo_path ? asset('storage/'.$s->company_logo_path) : null,
             'name' => $s->company_name ?? config('app.name'),
             'email' => $s->support_email ?? null,
             'phone' => $s->support_phone ?? null,
@@ -32,8 +32,8 @@ class VendorStoreReactivated extends Mailable implements ShouldQueue
 
     public function build(): self
     {
-        return $this->subject('Store Reactivated: ' . $this->store->name)
-            ->view('emails.vendor.store-reactivated')
+        return $this->subject('Store Reactivated: '.$this->store->name)
+            ->view('emails.business.store-reactivated')
             ->with([
                 'store' => $this->store,
                 'reason' => $this->reason,

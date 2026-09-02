@@ -15,9 +15,14 @@ class SectionController extends Controller
     {
         $user = $request->user();
         if ($user->isStaff()) {
-            if (!$user->assignedWarehouses()->where('warehouses.id', $warehouse->id)->exists()) abort(403);
-        } elseif ($warehouse->user_id !== $user->id) abort(403);
+            if (! $user->assignedWarehouses()->where('warehouses.id', $warehouse->id)->exists()) {
+                abort(403);
+            }
+        } elseif ($warehouse->user_id !== $user->id) {
+            abort(403);
+        }
         $sections = $warehouse->sections()->withCount('products')->where('status', '!=', 'deleted')->latest()->get();
+
         return view('management.sections.index', compact('user', 'warehouse', 'sections'));
     }
 
@@ -25,8 +30,12 @@ class SectionController extends Controller
     {
         $user = $request->user();
         if ($user->isStaff()) {
-            if (!$user->assignedWarehouses()->where('warehouses.id', $warehouse->id)->exists()) abort(403);
-        } elseif ($warehouse->user_id !== $user->id) abort(403);
+            if (! $user->assignedWarehouses()->where('warehouses.id', $warehouse->id)->exists()) {
+                abort(403);
+            }
+        } elseif ($warehouse->user_id !== $user->id) {
+            abort(403);
+        }
         $breadcrumbs = [
             ['label' => 'Dashboard', 'url' => route('management.dashboard')],
             ['label' => 'Sections', 'url' => route('management.warehouses.index')],
@@ -40,8 +49,12 @@ class SectionController extends Controller
     {
         $user = $request->user();
         if ($user->isStaff()) {
-            if (!$user->assignedWarehouses()->where('warehouses.id', $warehouse->id)->exists()) abort(403);
-        } elseif ($warehouse->user_id !== $user->id) abort(403);
+            if (! $user->assignedWarehouses()->where('warehouses.id', $warehouse->id)->exists()) {
+                abort(403);
+            }
+        } elseif ($warehouse->user_id !== $user->id) {
+            abort(403);
+        }
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'description' => 'nullable|string|max:500',
@@ -52,6 +65,7 @@ class SectionController extends Controller
         $validated['status'] = $request->boolean('is_active') ? 'active' : 'inactive';
         unset($validated['is_active']);
         Section::create($validated);
+
         return redirect()->route('management.sections.index', $warehouse)->with('success', 'Section created.');
     }
 
@@ -59,8 +73,12 @@ class SectionController extends Controller
     {
         $user = $request->user();
         if ($user->isStaff()) {
-            if (!$user->assignedWarehouses()->where('warehouses.id', $warehouse->id)->exists()) abort(403);
-        } elseif ($warehouse->user_id !== $user->id) abort(403);
+            if (! $user->assignedWarehouses()->where('warehouses.id', $warehouse->id)->exists()) {
+                abort(403);
+            }
+        } elseif ($warehouse->user_id !== $user->id) {
+            abort(403);
+        }
         $section->load('products.store');
         $products = $section->products()->with('store')->latest()->paginate(50);
         $stats = [
@@ -70,6 +88,7 @@ class SectionController extends Controller
             'value' => $section->products()->sum('amount'),
             'outOfStock' => $section->products()->where('quantity', '<=', 0)->count(),
         ];
+
         return view('management.sections.show', compact('user', 'warehouse', 'section', 'products', 'stats'));
     }
 
@@ -77,8 +96,13 @@ class SectionController extends Controller
     {
         $user = $request->user();
         if ($user->isStaff()) {
-            if (!$user->assignedWarehouses()->where('warehouses.id', $warehouse->id)->exists()) abort(403);
-        } elseif ($warehouse->user_id !== $user->id) abort(403);
+            if (! $user->assignedWarehouses()->where('warehouses.id', $warehouse->id)->exists()) {
+                abort(403);
+            }
+        } elseif ($warehouse->user_id !== $user->id) {
+            abort(403);
+        }
+
         return view('management.sections.edit', compact('user', 'warehouse', 'section'));
     }
 
@@ -86,8 +110,12 @@ class SectionController extends Controller
     {
         $user = $request->user();
         if ($user->isStaff()) {
-            if (!$user->assignedWarehouses()->where('warehouses.id', $warehouse->id)->exists()) abort(403);
-        } elseif ($warehouse->user_id !== $user->id) abort(403);
+            if (! $user->assignedWarehouses()->where('warehouses.id', $warehouse->id)->exists()) {
+                abort(403);
+            }
+        } elseif ($warehouse->user_id !== $user->id) {
+            abort(403);
+        }
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'description' => 'nullable|string|max:500',
@@ -96,6 +124,7 @@ class SectionController extends Controller
         $validated['status'] = $request->boolean('is_active') ? 'active' : 'inactive';
         unset($validated['is_active']);
         $section->update($validated);
+
         return redirect()->route('management.sections.index', $warehouse)->with('success', 'Section updated.');
     }
 
@@ -103,12 +132,17 @@ class SectionController extends Controller
     {
         $user = $request->user();
         if ($user->isStaff()) {
-            if (!$user->assignedWarehouses()->where('warehouses.id', $warehouse->id)->exists()) abort(403);
-        } elseif ($warehouse->user_id !== $user->id) abort(403);
+            if (! $user->assignedWarehouses()->where('warehouses.id', $warehouse->id)->exists()) {
+                abort(403);
+            }
+        } elseif ($warehouse->user_id !== $user->id) {
+            abort(403);
+        }
         if ($section->products()->count() > 0) {
             return back()->with('error', 'Cannot delete a section with products.');
         }
         $section->update(['status' => 'deleted']);
+
         return redirect()->route('management.sections.index', $warehouse)->with('success', 'Section deleted.');
     }
 }

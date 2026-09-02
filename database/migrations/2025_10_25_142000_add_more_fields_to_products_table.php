@@ -4,7 +4,8 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-return new class extends Migration {
+return new class extends Migration
+{
     public function up(): void
     {
         Schema::table('products', function (Blueprint $table) {
@@ -42,7 +43,7 @@ return new class extends Migration {
         Schema::dropIfExists('weight_units');
         Schema::dropIfExists('size_units');
         Schema::table('products', function (Blueprint $table) {
-            $table->dropColumn(['brand','quantity','size','size_unit_id','weight','weight_unit_id','color','tags','cod_available']);
+            $table->dropColumn(['brand', 'quantity', 'size', 'size_unit_id', 'weight', 'weight_unit_id', 'color', 'tags', 'cod_available']);
         });
     }
 };

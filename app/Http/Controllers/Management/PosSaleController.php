@@ -2,16 +2,23 @@
 
 namespace App\Http\Controllers\Management;
 
+use App\Enums\TransactionStatus;
 use App\Http\Controllers\Controller;
-use App\Models\Product;
-use App\Models\Store;
+use App\Mail\PosReceiptMail;
+use App\Models\Customer;
 use App\Models\Order;
 use App\Models\OrderItem;
+use App\Models\PaymentMethod;
 use App\Models\PosSession;
+use App\Models\Product;
+use App\Models\StockLocation;
+use App\Models\Store;
 use App\Models\Transaction;
-use Illuminate\Http\Request;
-use Illuminate\Http\RedirectResponse;
+use App\Services\StockLedgerService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 use Illuminate\View\View;
 
 class PosSaleController extends Controller
@@ -19,7 +26,7 @@ class PosSaleController extends Controller
     public function searchProducts(Request $request, Store $store): JsonResponse
     {
         $user = $request->user();
-        if (!$user) {
+        if (! $user) {
             return response()->json(['error' => 'Unauthorized'], 403);
         }
 
@@ -41,7 +48,7 @@ class PosSaleController extends Controller
                     'amount' => (float) $product->amount,
                     'quantity' => (int) $product->quantity,
                     'image' => $product->primaryImage?->path
-                        ? asset('storage/' . $product->primaryImage->path)
+                        ? asset('storage/'.$product->primaryImage->path)
                         : null,
                 ];
             });
@@ -52,7 +59,7 @@ class PosSaleController extends Controller
     public function checkout(Request $request, Store $store): RedirectResponse|JsonResponse
     {
         $user = $request->user();
-        if (!$user) {
+        if (! $user) {
             return response()->json(['error' => 'Unauthorized'], 403);
         }
 
@@ -62,7 +69,7 @@ class PosSaleController extends Controller
             ->latest()
             ->first();
 
-        if (!$session) {
+        if (! $session) {
             return back()->with('error', 'Please open a POS session first.');
         }
 
@@ -96,7 +103,7 @@ class PosSaleController extends Controller
 
         foreach ($validated['items'] as $item) {
             $product = $products[$item['product_id']] ?? null;
-            if (!$product) {
+            if (! $product) {
                 continue;
             }
             $price = (float) $product->amount;
@@ -130,21 +137,21 @@ class PosSaleController extends Controller
             $customerData = [
                 'first_name' => $customerName !== '' ? $customerName : 'Walk-in',
                 'last_name' => '',
-                'email' => $customerEmail !== '' ? $customerEmail : ('pos-' . \Illuminate\Support\Str::random(8) . '@walkin.local'),
+                'email' => $customerEmail !== '' ? $customerEmail : ('pos-'.Str::random(8).'@walkin.local'),
                 'status' => 'active',
-                'password' => \Illuminate\Support\Str::random(32),
+                'password' => Str::random(32),
                 'street_address' => $customerAddress !== '' ? $customerAddress : null,
                 'city' => $customerCity !== '' ? $customerCity : null,
                 'state' => $customerState !== '' ? $customerState : null,
                 'country' => $customerCountry !== '' ? $customerCountry : 'Nigeria',
             ];
 
-            if ($customerEmail !== '' && !str_contains($customerEmail, '@walkin.local')) {
-                $customer = \App\Models\Customer::where('email', $customerEmail)->first();
+            if ($customerEmail !== '' && ! str_contains($customerEmail, '@walkin.local')) {
+                $customer = Customer::where('email', $customerEmail)->first();
             }
 
-            if (!isset($customer) || !$customer) {
-                $customer = \App\Models\Customer::firstOrCreate(
+            if (! isset($customer) || ! $customer) {
+                $customer = Customer::firstOrCreate(
                     ['phone' => $customerPhone !== '' ? $customerPhone : null, 'business_id' => $store->business_id],
                     $customerData
                 );
@@ -181,7 +188,7 @@ class PosSaleController extends Controller
         $order->items()->saveMany($orderItems);
 
         $txnStatus = 'confirmed';
-        $txnReference = 'TXN-POS-' . strtoupper(\Illuminate\Support\Str::random(10));
+        $txnReference = 'TXN-POS-'.strtoupper(Str::random(10));
         $paymentMethodId = null;
 
         if ($validated['payment_method'] === 'paystack' && $request->filled('paystack_reference')) {
@@ -189,7 +196,7 @@ class PosSaleController extends Controller
         }
 
         // Load both payment methods in a single query
-        $paymentMethods = \App\Models\PaymentMethod::whereIn('code', ['paystack', 'bank_transfer'])->get()->keyBy('code');
+        $paymentMethods = PaymentMethod::whereIn('code', ['paystack', 'bank_transfer'])->get()->keyBy('code');
         $paystackMethod = $paymentMethods->get('paystack');
         $transferMethod = $paymentMethods->get('bank_transfer');
 
@@ -221,16 +228,16 @@ class PosSaleController extends Controller
 
         if ($customerEmail !== '') {
             try {
-                \Mail::to($customerEmail)->queue(new \App\Mail\PosReceiptMail($order));
+                \Mail::to($customerEmail)->queue(new PosReceiptMail($order));
             } catch (\Throwable $e) {
                 \Log::error('pos_receipt_email_failed', ['order_id' => $order->id, 'error' => $e->getMessage()]);
             }
         }
 
-        $ledger = app(\App\Services\StockLedgerService::class);
+        $ledger = app(StockLedgerService::class);
 
         // Preload all stock locations for this store in a single query
-        $stockLocs = \App\Models\StockLocation::where('locationable_type', \App\Models\Store::class)
+        $stockLocs = StockLocation::where('locationable_type', Store::class)
             ->where('locationable_id', $store->id)
             ->whereIn('product_id', $productIds)
             ->get()
@@ -238,22 +245,22 @@ class PosSaleController extends Controller
 
         foreach ($validated['items'] as $item) {
             $product = $products[$item['product_id']] ?? null;
-            if (!$product) {
+            if (! $product) {
                 continue;
             }
             $stockLoc = $stockLocs[$product->id] ?? null;
 
             if ($stockLoc && $stockLoc->quantity >= (int) $item['quantity']) {
                 $product->decrement('quantity', (int) $item['quantity']);
-                $ledger->recordRemoval($stockLoc, (int) $item['quantity'], $order, $user, 'POS sale — Order #' . $order->order_number);
+                $ledger->recordRemoval($stockLoc, (int) $item['quantity'], $order, $user, 'POS sale — Order #'.$order->order_number);
             } elseif ($product && $product->quantity >= (int) $item['quantity']) {
                 $product->decrement('quantity', (int) $item['quantity']);
-                $stockLoc = \App\Models\StockLocation::firstOrCreate([
+                $stockLoc = StockLocation::firstOrCreate([
                     'product_id' => $product->id,
-                    'locationable_type' => \App\Models\Store::class,
+                    'locationable_type' => Store::class,
                     'locationable_id' => $store->id,
                 ], ['quantity' => $product->quantity + (int) $item['quantity'], 'business_id' => $store->business_id]);
-                $ledger->recordRemoval($stockLoc, (int) $item['quantity'], $order, $user, 'POS sale — Order #' . $order->order_number);
+                $ledger->recordRemoval($stockLoc, (int) $item['quantity'], $order, $user, 'POS sale — Order #'.$order->order_number);
             }
         }
 
@@ -279,7 +286,7 @@ class PosSaleController extends Controller
                     'change' => $validated['amount_tendered']
                         ? max(0, (int) $validated['amount_tendered'] - $total)
                         : 0,
-                    'items' => $order->items->map(fn($i) => [
+                    'items' => $order->items->map(fn ($i) => [
                         'name' => $i->product_name,
                         'qty' => $i->quantity,
                         'price' => (float) $i->unit_price,
@@ -293,13 +300,13 @@ class PosSaleController extends Controller
         }
 
         return redirect()->route('pos.receipt', ['store' => $store, 'order' => $order])
-            ->with('success', 'Sale completed. Order #' . $order->order_number);
+            ->with('success', 'Sale completed. Order #'.$order->order_number);
     }
 
     public function refund(Request $request, Store $store, Order $order): RedirectResponse
     {
         $user = $request->user();
-        if (!$user) {
+        if (! $user) {
             return redirect()->route('staff.login');
         }
 
@@ -308,7 +315,7 @@ class PosSaleController extends Controller
         }
 
         $existingTx = $order->transactions()->where('status', 'confirmed')->first();
-        if (!$existingTx) {
+        if (! $existingTx) {
             return back()->with('error', 'Only confirmed orders can be refunded.');
         }
 
@@ -323,12 +330,12 @@ class PosSaleController extends Controller
             'reason' => 'required|string|max:500',
         ]);
 
-        \App\Models\Transaction::create([
-            'reference' => 'RFND-' . strtoupper(\Illuminate\Support\Str::random(10)),
+        Transaction::create([
+            'reference' => 'RFND-'.strtoupper(Str::random(10)),
             'order_id' => $order->id,
             'payment_method_id' => $existingTx->payment_method_id,
             'amount' => $order->total,
-            'status' => \App\Enums\TransactionStatus::REFUND_PENDING->value,
+            'status' => TransactionStatus::REFUND_PENDING->value,
             'metadata' => [
                 'refund_reason' => $validated['reason'],
                 'refund_requested_by' => $user->id,
@@ -349,7 +356,7 @@ class PosSaleController extends Controller
 
     public function receipt(Request $request, Store $store, Order $order): View
     {
-        if (!$request->user()) {
+        if (! $request->user()) {
             abort(403);
         }
 

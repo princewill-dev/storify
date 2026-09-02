@@ -2,13 +2,13 @@
 
 namespace App\Mail;
 
-use App\Models\Transaction;
 use App\Models\Order;
-use App\Models\Customer;
 use App\Models\Store;
+use App\Models\Transaction;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Mail\Mailable;
+use Illuminate\Mail\Mailables\Attachment;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Queue\SerializesModels;
@@ -18,8 +18,11 @@ class PaymentConfirmedMail extends Mailable implements ShouldQueue
     use Queueable, SerializesModels;
 
     public Transaction $transaction;
+
     public Order $order;
+
     public $recipient;
+
     public Store $store;
 
     /**
@@ -62,7 +65,7 @@ class PaymentConfirmedMail extends Mailable implements ShouldQueue
     /**
      * Get the attachments for the message.
      *
-     * @return array<int, \Illuminate\Mail\Mailables\Attachment>
+     * @return array<int, Attachment>
      */
     public function attachments(): array
     {

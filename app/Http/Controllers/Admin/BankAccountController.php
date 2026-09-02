@@ -5,8 +5,8 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\BankAccount;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 
 class BankAccountController extends Controller
 {
@@ -16,6 +16,7 @@ class BankAccountController extends Controller
     public function index()
     {
         $bankAccounts = BankAccount::orderBy('sort_order')->paginate(15);
+
         return view('admin.bank-accounts.index', compact('bankAccounts'));
     }
 
@@ -131,7 +132,7 @@ class BankAccountController extends Controller
      */
     public function toggleActive(BankAccount $bankAccount)
     {
-        $bankAccount->update(['is_active' => !$bankAccount->is_active]);
+        $bankAccount->update(['is_active' => ! $bankAccount->is_active]);
 
         return redirect()->back()
             ->with('success', 'Bank account status updated successfully.');

@@ -2,24 +2,28 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Enums\OrderStatus;
+use App\Enums\TransactionStatus;
 use App\Http\Controllers\Controller;
+use App\Mail\AdminStoreCreated;
+use App\Mail\StoreActivated;
+use App\Mail\StoreReactivated;
+use App\Mail\StoreSuspended;
 use App\Models\Business;
-use App\Models\Store;
-use App\Models\User;
-use App\Models\OwnershipType;
 use App\Models\BusinessType;
-use App\Models\Product;
 use App\Models\Category;
+use App\Models\Order;
+use App\Models\OwnershipType;
 use App\Models\Pack;
+use App\Models\Product;
+use App\Models\Setting;
+use App\Models\Store;
+use App\Models\Transaction;
+use App\Models\User;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
-use App\Mail\AdminStoreCreated;
-use App\Mail\VendorStoreCreated;
-use App\Mail\VendorStoreSuspended;
-use App\Mail\VendorStoreReactivated;
-use App\Models\Setting;
+use Illuminate\Support\Facades\Storage;
 
 class StoreController extends Controller
 {
@@ -29,6 +33,7 @@ class StoreController extends Controller
         if (empty($emails) && config('mail.from.address')) {
             $emails = [config('mail.from.address')];
         }
+
         return $emails;
     }
 
@@ -42,14 +47,16 @@ class StoreController extends Controller
 
         $storesQuery = Store::query()->with(['user', 'business', 'ownershipType', 'businessType'])
             ->where('status', '!=', 'deleted');
-        if (in_array(strtolower((string)$status), ['active','inactive','suspended','deleted'], true)) {
+        if (in_array(strtolower((string) $status), ['active', 'inactive', 'suspended', 'deleted'], true)) {
             $storesQuery->where('status', strtolower($status));
         }
         if ($q !== '') {
-            $storesQuery->where(function($x) use ($q) {
+            $storesQuery->where(function ($x) use ($q) {
                 $x->where('name', 'like', "%$q%")
-                  ->orWhere('store_id', 'like', "%$q%")
-                  ->orWhereHas('user', function($v) use ($q) { $v->where('name', 'like', "%$q%"); });
+                    ->orWhere('store_id', 'like', "%$q%")
+                    ->orWhereHas('user', function ($v) use ($q) {
+                        $v->where('name', 'like', "%$q%");
+                    });
             });
         }
         if ($from || $to) {
@@ -70,7 +77,8 @@ class StoreController extends Controller
         $businesses = Business::with('owner')->orderBy('name')->get();
         $ownershipTypes = OwnershipType::orderBy('name')->get();
         $businessTypes = BusinessType::orderBy('name')->get();
-        return view('admin.stores.index', compact('stores','mainStoreId','status','q','from','to','businesses','ownershipTypes','businessTypes'))
+
+        return view('admin.stores.index', compact('stores', 'mainStoreId', 'status', 'q', 'from', 'to', 'businesses', 'ownershipTypes', 'businessTypes'))
             ->with('storeStatusBadgeData', Store::statusBadgeData());
     }
 
@@ -86,7 +94,8 @@ class StoreController extends Controller
         $businesses = Business::with('owner')->orderBy('name')->get();
         $ownershipTypes = OwnershipType::orderBy('name')->get();
         $businessTypes = BusinessType::orderBy('name')->get();
-        return view('admin.stores.show', compact('store','productCount','recentProducts','categories','packs','businesses','ownershipTypes','businessTypes'));
+
+        return view('admin.stores.show', compact('store', 'productCount', 'recentProducts', 'categories', 'packs', 'businesses', 'ownershipTypes', 'businessTypes'));
     }
 
     public function create()
@@ -94,22 +103,25 @@ class StoreController extends Controller
         Log::info('store_create_viewed', ['user_id' => auth()->id()]);
         $mainStoreId = Setting::value('main_store_id');
         $allow = (int) env('ALLOW_MS_SETUP', 0) === 1;
-        if ($mainStoreId && !$allow) {
-            return redirect()->back()->with('error', 'multi-vendor crontrols is incomplete');
+        if ($mainStoreId && ! $allow) {
+            return redirect()->back()->with('error', 'Multi-business controls are disabled.');
         }
-        $lockVendor = false;
-        $lockedVendor = null;
-        if (!$allow) {
+        $lockBusinessOwner = false;
+        $lockedBusinessOwner = null;
+        if (! $allow) {
             $superadmin = User::where('role', 'superadmin')->orderBy('id')->first();
             if ($superadmin) {
-                $lockedVendor = User::where('email', $superadmin->email)->first();
-                if ($lockedVendor) { $lockVendor = true; }
+                $lockedBusinessOwner = User::where('email', $superadmin->email)->first();
+                if ($lockedBusinessOwner) {
+                    $lockBusinessOwner = true;
+                }
             }
         }
         $businesses = Business::with('owner')->orderBy('name')->get();
         $ownershipTypes = OwnershipType::orderBy('name')->get();
         $businessTypes = BusinessType::orderBy('name')->get();
-        return view('admin.stores.create', compact('businesses','ownershipTypes','businessTypes','lockVendor','lockedVendor'));
+
+        return view('admin.stores.create', compact('businesses', 'ownershipTypes', 'businessTypes', 'lockBusinessOwner', 'lockedBusinessOwner'));
     }
 
     public function store(Request $request)
@@ -118,8 +130,8 @@ class StoreController extends Controller
         // Guard: if main store already exists and ALLOW_MS_SETUP != 1, refuse creation
         $allow = (int) env('ALLOW_MS_SETUP', 0) === 1;
         $mainStoreId = Setting::value('main_store_id');
-        if ($mainStoreId && !$allow) {
-            return redirect()->route('admin.stores.index')->with('error', 'multi-vendor crontrols is incomplete');
+        if ($mainStoreId && ! $allow) {
+            return redirect()->route('admin.stores.index')->with('error', 'Multi-business controls are disabled.');
         }
         $data = $request->validate([
             'business_id' => 'required|exists:businesses,id',
@@ -139,7 +151,7 @@ class StoreController extends Controller
             'status' => 'required|string|max:50',
         ]);
         // Normalize slug if provided; otherwise generated in model
-        if (!empty($data['slug']) || !empty($data['name'])) {
+        if (! empty($data['slug']) || ! empty($data['name'])) {
             $base = strtolower(str_replace(' ', '_', $data['slug'] ?? $data['name']));
             $data['slug'] = $base;
         }
@@ -151,12 +163,14 @@ class StoreController extends Controller
         $business = Business::find($data['business_id']);
         $data['user_id'] = $business?->user_id;
         unset($data['business_id']);
-        // If multi-vendor setup not allowed, always attach superadmin's vendor
-        if (!$allow) {
+        // If multi-business setup is disabled, always attach the superadmin's business owner.
+        if (! $allow) {
             $superadmin = User::where('role', 'superadmin')->orderBy('id')->first();
             if ($superadmin) {
-                $saVendor = User::where('email', $superadmin->email)->first();
-                if ($saVendor) { $data['user_id'] = $saVendor->id; }
+                $superadminBusinessOwner = User::where('email', $superadmin->email)->first();
+                if ($superadminBusinessOwner) {
+                    $data['user_id'] = $superadminBusinessOwner->id;
+                }
             }
         }
         $store = Store::create($data);
@@ -167,7 +181,9 @@ class StoreController extends Controller
             $actorRole = auth()->user()?->role;
             if ($actorRole === 'superadmin') {
                 $settings = Setting::query()->first();
-                if (!$settings) { $settings = new Setting(); }
+                if (! $settings) {
+                    $settings = new Setting;
+                }
                 if (empty($settings->main_store_id)) {
                     $settings->main_store_id = $store->id;
                     $settings->save();
@@ -181,7 +197,7 @@ class StoreController extends Controller
         // Queue emails per workflow (background queues)
         try {
             $admins = $this->adminRecipients();
-            if (!empty($admins)) {
+            if (! empty($admins)) {
                 Mail::to($admins)->queue(new AdminStoreCreated($store));
             }
         } catch (\Throwable $e) {
@@ -190,11 +206,12 @@ class StoreController extends Controller
         try {
             $userEmail = User::find($store->user_id)?->email;
             if ($userEmail) {
-                Mail::to($userEmail)->queue(new VendorStoreCreated($store));
+                Mail::to($userEmail)->queue(new StoreActivated($store));
             }
         } catch (\Throwable $e) {
-            Log::error('store_created_vendor_mail_queue_failed', ['store_id' => $store->id, 'error' => $e->getMessage()]);
+            Log::error('store_created_business_mail_queue_failed', ['store_id' => $store->id, 'error' => $e->getMessage()]);
         }
+
         return redirect()->route('admin.stores.index')->with('success', 'Store created');
     }
 
@@ -204,7 +221,8 @@ class StoreController extends Controller
         $businesses = Business::with('owner')->orderBy('name')->get();
         $ownershipTypes = OwnershipType::orderBy('name')->get();
         $businessTypes = BusinessType::orderBy('name')->get();
-        return view('admin.stores.edit', compact('store','businesses','ownershipTypes','businessTypes'));
+
+        return view('admin.stores.edit', compact('store', 'businesses', 'ownershipTypes', 'businessTypes'));
     }
 
     public function update(Request $request, Store $store)
@@ -228,19 +246,21 @@ class StoreController extends Controller
             'status' => 'required|string|max:50',
         ]);
         // Normalize and ensure unique slug on update
-        if (empty($data['slug']) && !empty($data['name'])) {
+        if (empty($data['slug']) && ! empty($data['name'])) {
             $data['slug'] = strtolower(str_replace(' ', '_', $data['name']));
-        } else if (!empty($data['slug'])) {
+        } elseif (! empty($data['slug'])) {
             $data['slug'] = strtolower(str_replace(' ', '_', $data['slug']));
         }
-        if (!empty($data['slug'])) {
+        if (! empty($data['slug'])) {
             $base = $data['slug'];
             $slug = $base;
             $tries = 0;
             while (Store::where('slug', $slug)->where('id', '!=', $store->id)->exists()) {
-                $suffix = '-' . str_pad((string)random_int(0, 999), 3, '0', STR_PAD_LEFT);
-                $slug = $base . $suffix;
-                if (++$tries > 10) { break; }
+                $suffix = '-'.str_pad((string) random_int(0, 999), 3, '0', STR_PAD_LEFT);
+                $slug = $base.$suffix;
+                if (++$tries > 10) {
+                    break;
+                }
             }
             $data['slug'] = $slug;
         }
@@ -261,9 +281,9 @@ class StoreController extends Controller
         unset($data['business_id']);
         // Prevent inactivating/suspending the main homepage store via edit form
         $blockedStatusChange = false;
-        if (isset($data['status']) && in_array(strtolower($data['status']), ['inactive','suspended'], true)) {
+        if (isset($data['status']) && in_array(strtolower($data['status']), ['inactive', 'suspended'], true)) {
             $mainStoreId = Setting::value('main_store_id');
-            if ($mainStoreId && (int)$store->id === (int)$mainStoreId) {
+            if ($mainStoreId && (int) $store->id === (int) $mainStoreId) {
                 unset($data['status']);
                 $blockedStatusChange = true;
                 Log::warning('store_status_change_blocked_main_store', [
@@ -278,15 +298,15 @@ class StoreController extends Controller
         $store->update($data);
         Log::info('store_updated', ['user_id' => auth()->id(), 'store_id' => $store->id]);
 
-        // If status changed to a suspended-like state, notify vendor
-        if ($oldStatus !== $store->status && in_array(strtolower($store->status), ['inactive','suspended'], true)) {
+        // If status changed to a suspended-like state, notify the business owner.
+        if ($oldStatus !== $store->status && in_array(strtolower($store->status), ['inactive', 'suspended'], true)) {
             try {
                 $userEmail = User::find($store->user_id)?->email;
                 if ($userEmail) {
-                    Mail::to($userEmail)->queue(new VendorStoreSuspended($store));
+                    Mail::to($userEmail)->queue(new StoreSuspended($store));
                 }
             } catch (\Throwable $e) {
-                Log::error('store_suspension_vendor_mail_queue_failed', ['store_id' => $store->id, 'error' => $e->getMessage()]);
+                Log::error('store_suspension_business_mail_queue_failed', ['store_id' => $store->id, 'error' => $e->getMessage()]);
             }
         }
         // Determine redirect target: prefer explicit redirect_to when present
@@ -299,6 +319,7 @@ class StoreController extends Controller
         if ($blockedStatusChange) {
             $redirect->with('warning', 'This store is configured as the homepage store and cannot be set to inactive. Other details were updated.');
         }
+
         return $redirect;
     }
 
@@ -308,45 +329,49 @@ class StoreController extends Controller
 
         // Check if this is the main store
         $mainStoreId = Setting::value('main_store_id');
-        if ($mainStoreId && (int)$store->id === (int)$mainStoreId) {
+        if ($mainStoreId && (int) $store->id === (int) $mainStoreId) {
             Log::warning('store_delete_blocked_main_store', ['user_id' => auth()->id(), 'store_id' => $store->id, 'main_store_id' => $mainStoreId]);
+
             return back()->with('error', 'This is the main store and cannot be deleted.');
         }
 
         // Check if any order associated with the store is not completed
-        $incompleteOrders = \App\Models\Order::where('store_id', $store->id)
-            ->where('status', '!=', \App\Enums\OrderStatus::COMPLETED->value)
+        $incompleteOrders = Order::where('store_id', $store->id)
+            ->where('status', '!=', OrderStatus::COMPLETED->value)
             ->exists();
 
         if ($incompleteOrders) {
             Log::warning('store_delete_rejected_incomplete_orders', [
                 'user_id' => auth()->id(),
                 'store_id' => $store->id,
-                'store_name' => $store->name
+                'store_name' => $store->name,
             ]);
+
             return back()->with('error', "Deletion rejected: {$store->name} has an incomplete order");
         }
 
         // Check if any transaction associated with the store is not completed
-        $incompleteTransactions = \App\Models\Transaction::whereHas('order', function($q) use ($store) {
-                $q->where('store_id', $store->id);
-            })
-            ->where('status', '!=', \App\Enums\TransactionStatus::CONFIRMED->value)
+        $incompleteTransactions = Transaction::whereHas('order', function ($q) use ($store) {
+            $q->where('store_id', $store->id);
+        })
+            ->where('status', '!=', TransactionStatus::CONFIRMED->value)
             ->exists();
 
         if ($incompleteTransactions) {
             Log::warning('store_delete_rejected_incomplete_transactions', [
                 'user_id' => auth()->id(),
                 'store_id' => $store->id,
-                'store_name' => $store->name
+                'store_name' => $store->name,
             ]);
+
             return back()->with('error', "Deletion rejected: {$store->name} has an incomplete transaction");
         }
 
         // If all orders and transactions are completed, mark store as deleted
         $store->update(['status' => 'deleted']);
-        
+
         Log::info('store_deleted', ['user_id' => auth()->id(), 'store_id' => $store->id]);
+
         return back()->with('success', "Store '{$store->name}' has been deleted successfully.");
     }
 
@@ -356,8 +381,9 @@ class StoreController extends Controller
             'reason' => 'required|string|max:2000',
         ]);
         $mainStoreId = Setting::value('main_store_id');
-        if ($mainStoreId && (int)$store->id === (int)$mainStoreId) {
+        if ($mainStoreId && (int) $store->id === (int) $mainStoreId) {
             Log::warning('store_suspend_blocked_main_store', ['user_id' => auth()->id(), 'store_id' => $store->id, 'main_store_id' => $mainStoreId]);
+
             return back()->with('error', 'This is the main store and cannot be suspended.');
         }
         Log::info('store_suspend_requested', ['user_id' => auth()->id(), 'store_id' => $store->id, 'reason' => $data['reason']]);
@@ -366,13 +392,14 @@ class StoreController extends Controller
         try {
             $userEmail = User::find($store->user_id)?->email;
             if ($userEmail) {
-                Mail::to($userEmail)->queue(new VendorStoreSuspended($store, $data['reason']));
+                Mail::to($userEmail)->queue(new StoreSuspended($store, $data['reason']));
             }
         } catch (\Throwable $e) {
-            Log::error('store_suspended_vendor_mail_queue_failed', ['store_id' => $store->id, 'error' => $e->getMessage()]);
+            Log::error('store_suspended_business_mail_queue_failed', ['store_id' => $store->id, 'error' => $e->getMessage()]);
         }
 
         Log::info('store_suspended', ['user_id' => auth()->id(), 'store_id' => $store->id]);
+
         return back()->with('success', 'Store suspended');
     }
 
@@ -387,13 +414,14 @@ class StoreController extends Controller
         try {
             $userEmail = User::find($store->user_id)?->email;
             if ($userEmail) {
-                Mail::to($userEmail)->queue(new VendorStoreReactivated($store, $data['reason']));
+                Mail::to($userEmail)->queue(new StoreReactivated($store, $data['reason']));
             }
         } catch (\Throwable $e) {
-            Log::error('store_reactivated_vendor_mail_queue_failed', ['store_id' => $store->id, 'error' => $e->getMessage()]);
+            Log::error('store_reactivated_business_mail_queue_failed', ['store_id' => $store->id, 'error' => $e->getMessage()]);
         }
 
         Log::info('store_activated', ['user_id' => auth()->id(), 'store_id' => $store->id]);
+
         return back()->with('success', 'Store activated');
     }
 }

@@ -2,22 +2,25 @@
 
 namespace App\Models;
 
+use App\Enums\StoreStatus;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\Relations\MorphToMany;
-use App\Enums\StoreStatus;
-use App\Models\BelongsToBusiness;
 
 class Store extends Model
 {
-    use HasFactory, BelongsToBusiness;
+    use BelongsToBusiness, HasFactory;
 
     public const STATUS_PENDING = StoreStatus::PENDING->value;
+
     public const STATUS_ACTIVE = StoreStatus::ACTIVE->value;
+
     public const STATUS_SUSPENDED = StoreStatus::SUSPENDED->value;
+
     public const STATUS_DELETED = StoreStatus::DELETED->value;
 
     protected $fillable = [
@@ -53,16 +56,18 @@ class Store extends Model
         parent::boot();
         static::creating(function ($model) {
             if (empty($model->store_id)) {
-                $model->store_id = 'st_' . str_pad((string) random_int(0, 9999999999), 10, '0', STR_PAD_LEFT);
+                $model->store_id = 'st_'.str_pad((string) random_int(0, 9999999999), 10, '0', STR_PAD_LEFT);
             }
-            if (empty($model->slug) && !empty($model->name)) {
+            if (empty($model->slug) && ! empty($model->name)) {
                 $base = strtolower(str_replace(' ', '_', $model->name));
                 $slug = $base;
                 $tries = 0;
                 while (Store::where('slug', $slug)->exists()) {
-                    $suffix = '-' . str_pad((string)random_int(0, 999), 3, '0', STR_PAD_LEFT);
-                    $slug = $base . $suffix;
-                    if (++$tries > 10) { break; }
+                    $suffix = '-'.str_pad((string) random_int(0, 999), 3, '0', STR_PAD_LEFT);
+                    $slug = $base.$suffix;
+                    if (++$tries > 10) {
+                        break;
+                    }
                 }
                 $model->slug = $slug;
             }
@@ -107,15 +112,15 @@ class Store extends Model
         return $this->hasMany(StoreBank::class, 'business_id', 'business_id');
     }
 
-    public function assignedBanks(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
+    public function assignedBanks(): BelongsToMany
     {
         return $this->belongsToMany(StoreBank::class, 'store_bank', 'store_id', 'store_bank_id')
             ->withTimestamps()->withPivot('is_active');
     }
 
-    public function paymentMethods(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
+    public function paymentMethods(): BelongsToMany
     {
-        return $this->belongsToMany(\App\Models\PaymentMethod::class, 'store_payment_method', 'store_id', 'payment_method_id')
+        return $this->belongsToMany(PaymentMethod::class, 'store_payment_method', 'store_id', 'payment_method_id')
             ->withPivot('is_active')->withTimestamps();
     }
 
@@ -171,61 +176,58 @@ class Store extends Model
 
     /**
      * Atomically credit the store balance
-     * 
-     * @param int $amountInKobo Amount to credit in kobo
-     * @return bool
+     *
+     * @param  int  $amountInKobo  Amount to credit in kobo
+     *
      * @throws \Exception
      */
     public function creditBalance(int $amountInKobo): bool
     {
-        if ($amountInKobo < 0) {
+        if ($amountInKobo <= 0) {
             throw new \Exception('Credit amount must be positive');
         }
 
         return \DB::transaction(function () use ($amountInKobo) {
-            // Lock the row for update to prevent concurrent modifications
-            $this->lockForUpdate();
-            
-            // Use increment for atomic database operation
-            $this->increment('balance', $amountInKobo);
-            
+            $store = Store::query()->lockForUpdate()->findOrFail($this->id);
+            $store->increment('balance', $amountInKobo);
+            $this->refresh();
+
             return true;
         });
     }
 
     /**
      * Atomically debit the store balance
-     * 
-     * @param int $amountInKobo Amount to debit in kobo
-     * @return bool
+     *
+     * @param  int  $amountInKobo  Amount to debit in kobo
+     *
      * @throws \Exception
      */
     public function debitBalance(int $amountInKobo): bool
     {
-        if ($amountInKobo < 0) {
+        if ($amountInKobo <= 0) {
             throw new \Exception('Debit amount must be positive');
         }
 
         return \DB::transaction(function () use ($amountInKobo) {
             // Lock the row for update
-            $store = Store::where('id', $this->id)->lockForUpdate()->first();
-            
+            $store = Store::query()->lockForUpdate()->findOrFail($this->id);
+
             // Check sufficient funds
             if ($store->balance < $amountInKobo) {
                 throw new \Exception('Insufficient balance');
             }
-            
+
             // Use decrement for atomic database operation
-            $this->decrement('balance', $amountInKobo);
-            
+            $store->decrement('balance', $amountInKobo);
+            $this->refresh();
+
             return true;
         });
     }
 
     /**
      * Get balance in Naira (conversion from kobo)
-     * 
-     * @return float
      */
     public function getBalanceInNaira(): float
     {
@@ -234,19 +236,18 @@ class Store extends Model
 
     /**
      * Get formatted balance for display
-     * 
-     * @return string
      */
     public function getFormattedBalance(): string
     {
-        return '₦' . number_format($this->getBalanceInNaira(), 2);
+        return '₦'.number_format($this->getBalanceInNaira(), 2);
     }
 
     public function logoUrl(): ?string
     {
         if ($this->logo_path) {
-            return asset('storage/' . $this->logo_path);
+            return asset('storage/'.$this->logo_path);
         }
+
         return null;
     }
 

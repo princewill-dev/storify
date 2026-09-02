@@ -2,21 +2,23 @@
 
 namespace App\Models;
 
+use App\Enums\StockMovementType;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Support\Str;
-use App\Enums\StockMovementType;
-use App\Models\BelongsToBusiness;
 
 class StockMovement extends Model
 {
-    use HasFactory, BelongsToBusiness;
+    use BelongsToBusiness, HasFactory;
 
     public const TYPE_ADDED = StockMovementType::ADDED->value;
+
     public const TYPE_REMOVED = StockMovementType::REMOVED->value;
+
     public const TYPE_TRANSFERRED = StockMovementType::TRANSFERRED->value;
+
     public const TYPE_ADJUSTED = StockMovementType::ADJUSTED->value;
 
     protected $fillable = [
@@ -52,7 +54,7 @@ class StockMovement extends Model
         parent::boot();
         static::creating(function (StockMovement $movement) {
             if (empty($movement->movement_code)) {
-                $movement->movement_code = 'stm_' . Str::upper(Str::random(10));
+                $movement->movement_code = 'stm_'.Str::upper(Str::random(10));
             }
         });
     }

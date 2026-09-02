@@ -22,6 +22,7 @@ class DeliveryAddress extends Model
         'zip_code',
         'map_link',
         'is_default',
+        'delivery_route_id',
     ];
 
     protected $casts = [
@@ -55,6 +56,7 @@ class DeliveryAddress extends Model
             $this->zip_code,
             $this->country,
         ]);
+
         return implode(', ', $parts);
     }
 
@@ -75,7 +77,7 @@ class DeliveryAddress extends Model
         static::where('customer_id', $this->customer_id)
             ->where('id', '!=', $this->id)
             ->update(['is_default' => false]);
-        
+
         // Set this as default
         $this->update(['is_default' => true]);
     }

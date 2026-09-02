@@ -16,7 +16,7 @@ class InvitationController extends Controller
     {
         $user = User::where('invitation_token', $token)->first();
 
-        if (!$user) {
+        if (! $user) {
             return redirect()->route('management.auth.login')
                 ->with('error', 'Invalid or expired invitation link.');
         }
@@ -33,7 +33,7 @@ class InvitationController extends Controller
     {
         $user = User::where('invitation_token', $token)->first();
 
-        if (!$user) {
+        if (! $user) {
             return redirect()->route('management.auth.login')
                 ->with('error', 'Invalid or expired invitation link.');
         }
@@ -67,12 +67,14 @@ class InvitationController extends Controller
             ->with('success', 'Welcome aboard! Your account has been activated.');
     }
 
-    private function staffRedirectRoute(\App\Models\User $user): string
+    private function staffRedirectRoute(User $user): string
     {
         if ($user->hasRole('Cashier')) {
             $hasPosStore = $user->assignedStores()->where('pos_enabled', true)->exists();
+
             return $hasPosStore ? route('staff.pos') : route('staff.dashboard');
         }
+
         return route('management.dashboard');
     }
 }

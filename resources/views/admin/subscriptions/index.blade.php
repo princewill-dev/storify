@@ -36,7 +36,7 @@
                         <tr>
                             <td class="py-3 px-4">
                                 @if($sub->business)
-                                    <a href="{{ route('admin.vendors.show', $sub->business->owner) }}" class="font-semibold text-slate-700 hover:text-slate-900">{{ $sub->business->name }}</a>
+                                    <a href="{{ route('admin.businesses.show', $sub->business->owner) }}" class="font-semibold text-slate-700 hover:text-slate-900">{{ $sub->business->name }}</a>
                                     <div class="text-xs text-slate-400 font-mono">{{ $sub->business->business_code }}</div>
                                 @else
                                     <span class="text-slate-400">&mdash;</span>

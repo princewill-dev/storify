@@ -31,6 +31,7 @@ trait WithQueueConfig
         }
         $parts = array_filter(array_map('trim', explode(',', (string) $raw)), fn ($v) => $v !== '');
         $nums = array_map(fn ($v) => (int) $v, $parts);
+
         return count($nums) ? $nums : [10, 30, 60];
     }
 

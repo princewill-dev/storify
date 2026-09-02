@@ -37,7 +37,7 @@ enum InvoiceStatus: string
 
     public static function badgeData(): array
     {
-        return array_reduce(self::cases(), fn($carry, $status) => $carry + [
+        return array_reduce(self::cases(), fn ($carry, $status) => $carry + [
             $status->value => ['label' => $status->label(), 'class' => $status->badgeClass()],
         ], []);
     }

@@ -6,7 +6,6 @@ use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
 use App\Models\User;
 use Illuminate\Http\Request;
-use Illuminate\Support\Carbon;
 use Illuminate\View\View;
 
 class ActivityLogController extends Controller
@@ -15,7 +14,7 @@ class ActivityLogController extends Controller
     {
         $this->authorizeAccess();
 
-        $q = trim((string)$request->get('q', ''));
+        $q = trim((string) $request->get('q', ''));
         $status = null; // placeholder for parity with other filters
         $userId = $request->get('user_id');
         $action = $request->get('action');
@@ -25,29 +24,29 @@ class ActivityLogController extends Controller
         $query = ActivityLog::query()->with(['user'])->latest();
 
         if ($q !== '') {
-            $query->where(function($qq) use ($q) {
+            $query->where(function ($qq) use ($q) {
                 $qq->where('action', 'like', "%$q%")
-                   ->orWhere('description', 'like', "%$q%")
-                   ->orWhere('ip_address', 'like', "%$q%")
-                   ->orWhere('user_agent', 'like', "%$q%");
+                    ->orWhere('description', 'like', "%$q%")
+                    ->orWhere('ip_address', 'like', "%$q%")
+                    ->orWhere('user_agent', 'like', "%$q%");
             });
         }
 
-        if (!empty($userId)) {
+        if (! empty($userId)) {
             $query->where('user_id', $userId);
         }
-        if (!empty($action)) {
+        if (! empty($action)) {
             $query->where('action', $action);
         }
-        if (!empty($from)) {
+        if (! empty($from)) {
             $query->whereDate('created_at', '>=', $from);
         }
-        if (!empty($to)) {
+        if (! empty($to)) {
             $query->whereDate('created_at', '<=', $to);
         }
 
         $logs = $query->paginate(50)->appends($request->query());
-        $users = User::orderBy('name')->get(['id','name']);
+        $users = User::orderBy('name')->get(['id', 'name']);
         $actions = ActivityLog::query()->select('action')->distinct()->orderBy('action')->pluck('action');
 
         return view('admin.activity_logs.index', compact('logs', 'users', 'actions', 'q', 'status', 'userId', 'action', 'from', 'to'));
@@ -55,7 +54,7 @@ class ActivityLogController extends Controller
 
     private function authorizeAccess(): void
     {
-        if (!auth()->check() || auth()->user()->role !== 'superadmin') {
+        if (! auth()->check() || auth()->user()->role !== 'superadmin') {
             abort(403);
         }
     }

@@ -38,6 +38,7 @@ enum StoreStatus: string
                 'class' => $status->badgeClass(),
             ];
         }
+
         return $data;
     }
 }

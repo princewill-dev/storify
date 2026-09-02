@@ -31,7 +31,7 @@ class SubmitKycRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'date_of_birth.before' => 'You must be at least 18 years old to onboard as a vendor.',
+            'date_of_birth.before' => 'You must be at least 18 years old to onboard as a business owner.',
             'identification_document.mimes' => 'Identification must be a JPG, PNG, or PDF file.',
             'identification_document.max' => 'Identification file size cannot exceed 5MB.',
             'selfie_image.mimes' => 'Selfie must be a JPG or PNG file.',

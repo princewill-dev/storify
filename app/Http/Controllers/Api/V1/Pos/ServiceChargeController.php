@@ -14,7 +14,7 @@ class ServiceChargeController extends Controller
         $charges = ServiceCharge::where('store_id', $store->id)
             ->active()
             ->get()
-            ->map(fn($c) => [
+            ->map(fn ($c) => [
                 'id' => $c->id,
                 'name' => $c->name,
                 'amount' => (float) $c->amount,

@@ -2,10 +2,10 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\MorphToMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -18,8 +18,11 @@ class User extends Authenticatable
     use HasApiTokens, HasFactory, HasRoles, Notifiable;
 
     public const ROLE_SUPERADMIN = 'superadmin';
+
     public const ROLE_ADMIN = 'admin';
+
     public const ROLE_BUSINESS_OWNER = 'business_owner';
+
     public const ROLE_USER = 'user';
 
     protected $fillable = [
@@ -41,7 +44,7 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
-        'pos_pin' => 'hashed',
+            'pos_pin' => 'hashed',
             'is_verified' => 'boolean',
             'last_login_at' => 'datetime',
             'invited_at' => 'datetime',
@@ -61,7 +64,7 @@ class User extends Authenticatable
 
             if (empty($model->account_code)) {
                 $prefix = $model->business->prefix ?? 'PL';
-                $model->account_code = $prefix . '_ACT_' . Str::upper(Str::random(8));
+                $model->account_code = $prefix.'_ACT_'.Str::upper(Str::random(8));
             }
         });
     }
@@ -89,7 +92,7 @@ class User extends Authenticatable
      * Get all stores accessible to this user — owned stores for business owners,
      * assigned stores for staff. Use this in controllers that serve both roles.
      */
-    public function accessibleStores(): \Illuminate\Database\Eloquent\Builder|\Illuminate\Database\Eloquent\Relations\MorphToMany|\Illuminate\Database\Eloquent\Relations\HasMany
+    public function accessibleStores(): Builder|MorphToMany|HasMany
     {
         if ($this->isRestrictedStaff()) {
             return $this->assignedStores();
@@ -97,13 +100,14 @@ class User extends Authenticatable
         if ($this->isPlatformAdmin()) {
             return Store::where('status', '!=', 'deleted');
         }
+
         return $this->isStaff() ? Store::where('business_id', $this->business_id)->where('status', '!=', 'deleted') : $this->stores();
     }
 
     /**
      * Get all warehouses accessible to this user.
      */
-    public function accessibleWarehouses(): \Illuminate\Database\Eloquent\Builder|\Illuminate\Database\Eloquent\Relations\MorphToMany|\Illuminate\Database\Eloquent\Relations\HasMany
+    public function accessibleWarehouses(): Builder|MorphToMany|HasMany
     {
         if ($this->isRestrictedStaff()) {
             return $this->assignedWarehouses();
@@ -111,6 +115,7 @@ class User extends Authenticatable
         if ($this->isPlatformAdmin()) {
             return Warehouse::where('status', '!=', 'deleted');
         }
+
         return $this->isStaff() ? Warehouse::where('business_id', $this->business_id)->where('status', '!=', 'deleted') : $this->warehouses();
     }
 
@@ -166,7 +171,7 @@ class User extends Authenticatable
 
     public function getFormattedTotalBalance(): string
     {
-        return '₦' . number_format($this->getTotalBalanceInNaira(), 2);
+        return '₦'.number_format($this->getTotalBalanceInNaira(), 2);
     }
 
     public function getOnboardingProgress(): array
@@ -199,7 +204,7 @@ class User extends Authenticatable
      */
     public function isRestrictedStaff(): bool
     {
-        return $this->isStaff() && !$this->can('transactions view');
+        return $this->isStaff() && ! $this->can('transactions view');
     }
 
     public function isPlatformAdmin(): bool
@@ -217,21 +222,22 @@ class User extends Authenticatable
     {
         return $this->trial_ends_at !== null
             && $this->trial_ends_at->isFuture()
-            && !$this->business?->hasActiveSubscription();
+            && ! $this->business?->hasActiveSubscription();
     }
 
     public function trialHasExpired(): bool
     {
         return $this->trial_ends_at !== null
             && $this->trial_ends_at->isPast()
-            && !$this->business?->hasActiveSubscription();
+            && ! $this->business?->hasActiveSubscription();
     }
 
     public function daysLeftOnTrial(): ?int
     {
-        if (!$this->trial_ends_at) {
+        if (! $this->trial_ends_at) {
             return null;
         }
+
         return max(0, (int) now()->diffInDays($this->trial_ends_at, false));
     }
 
@@ -248,11 +254,12 @@ class User extends Authenticatable
     public function photoUrl(): string
     {
         if ($this->photo_path) {
-            return asset('storage/' . $this->photo_path);
+            return asset('storage/'.$this->photo_path);
         }
 
         $hash = md5($this->email ?: $this->name);
-        return 'https://www.gravatar.com/avatar/' . $hash . '?d=mp&s=200';
+
+        return 'https://www.gravatar.com/avatar/'.$hash.'?d=mp&s=200';
     }
 
     /**

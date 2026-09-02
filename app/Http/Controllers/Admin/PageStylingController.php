@@ -15,6 +15,7 @@ class PageStylingController extends Controller
     public function index()
     {
         $stylings = PageStyling::orderBy('page_label')->get();
+
         return view('admin.styling.index', compact('stylings'));
     }
 
@@ -71,7 +72,7 @@ class PageStylingController extends Controller
     public function update(Request $request, PageStyling $styling)
     {
         $validator = Validator::make($request->all(), [
-            'page_name' => 'required|string|max:255|unique:page_stylings,page_name,' . $styling->id,
+            'page_name' => 'required|string|max:255|unique:page_stylings,page_name,'.$styling->id,
             'page_label' => 'required|string|max:255',
             'background_color' => 'nullable|string|max:7',
             'custom_css' => 'nullable|string',

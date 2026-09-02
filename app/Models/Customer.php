@@ -2,21 +2,20 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Model;
+use App\Enums\CustomerStatus;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Str;
-use App\Enums\CustomerStatus;
-use Illuminate\Database\Eloquent\Relations\HasOne;
-use App\Models\BelongsToBusiness;
 
 class Customer extends Authenticatable
 {
-    use Notifiable, BelongsToBusiness;
+    use BelongsToBusiness, Notifiable;
 
     public const STATUS_ACTIVE = CustomerStatus::ACTIVE->value;
+
     public const STATUS_SUSPENDED = CustomerStatus::SUSPENDED->value;
+
     public const STATUS_DELETED = CustomerStatus::DELETED->value;
 
     protected $fillable = [
@@ -54,10 +53,10 @@ class Customer extends Authenticatable
     protected static function boot()
     {
         parent::boot();
-        
+
         static::creating(function ($customer) {
             if (empty($customer->account_id)) {
-                $customer->account_id = 'cus_' . strtoupper(Str::random(8));
+                $customer->account_id = 'cus_'.strtoupper(Str::random(8));
             }
 
             if (empty($customer->status)) {
@@ -127,7 +126,7 @@ class Customer extends Authenticatable
      */
     public function hasVerifiedEmail(): bool
     {
-        return !is_null($this->email_verified_at);
+        return ! is_null($this->email_verified_at);
     }
 
     /**

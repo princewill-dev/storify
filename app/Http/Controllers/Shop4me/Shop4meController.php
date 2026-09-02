@@ -3,15 +3,15 @@
 namespace App\Http\Controllers\Shop4me;
 
 use App\Http\Controllers\Controller;
-use App\Http\Requests\Shop4me\Shop4meDeliveryRequest;
 use App\Http\Requests\Shop4me\Shop4meSubmitRequest;
 use App\Mail\Shop4meListSubmitted;
-use App\Models\Shop4meItem;
-use App\Models\Shop4meRequest;
-use App\Models\CompanyService;
-use App\Models\Store;
 use App\Models\Cart;
 use App\Models\CartItem;
+use App\Models\CompanyService;
+use App\Models\Shop4meEvent;
+use App\Models\Shop4meItem;
+use App\Models\Shop4meRequest;
+use App\Models\Store;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cookie;
 use Illuminate\Support\Facades\DB;
@@ -26,11 +26,13 @@ class Shop4meController extends Controller
     {
         // Load the SHOP4ME company service to show its marketing card on the page
         $service = CompanyService::where('title', 'SHOP4ME')->first();
+
         return view('home.pages.shop4me.page', [
             'store_slug' => $store_slug,
             'service' => $service,
         ]);
     }
+
     // POST /shop4me/requests
     public function storeRequest(Shop4meSubmitRequest $request, string $store_slug)
     {
@@ -39,7 +41,9 @@ class Shop4meController extends Controller
 
         // Server-side compute sum to persist (trust server only)
         $computedTotal = 0.0;
-        foreach ($data['items'] as $it) { $computedTotal += (float)($it['amount_hint'] ?? 0); }
+        foreach ($data['items'] as $it) {
+            $computedTotal += (float) ($it['amount_hint'] ?? 0);
+        }
         $computedTotalFormatted = number_format($computedTotal, 2, '.', '');
 
         $req = null;
@@ -76,7 +80,9 @@ class Shop4meController extends Controller
         // Notify admin (queued)
         try {
             $to = config('mail.from.address');
-            if ($to) Mail::to($to)->queue(new Shop4meListSubmitted($req));
+            if ($to) {
+                Mail::to($to)->queue(new Shop4meListSubmitted($req));
+            }
         } catch (\Throwable $e) {
             Log::warning('email.shop4me_list_submitted.failed', ['error' => $e->getMessage()]);
         }
@@ -97,7 +103,7 @@ class Shop4meController extends Controller
             'next' => $next,
         ]);
 
-        if (!$request->cookie('guest_token')) {
+        if (! $request->cookie('guest_token')) {
             $response->withCookie(cookie('guest_token', $cart->guest_token, 60 * 24 * 30));
         }
 
@@ -108,7 +114,8 @@ class Shop4meController extends Controller
     public function track(string $list)
     {
         $req = Shop4meRequest::where('list_id', $list)->firstOrFail();
-        $events = \App\Models\Shop4meEvent::where('shop4me_request_id', $req->id)->latest()->get();
+        $events = Shop4meEvent::where('shop4me_request_id', $req->id)->latest()->get();
+
         return view('home.pages.tracking.order_status', ['request' => $req, 'events' => $events]);
     }
 
@@ -118,7 +125,7 @@ class Shop4meController extends Controller
         $shop4meRequest = Shop4meRequest::with('store')->where('list_id', $list)->firstOrFail();
         $store = $shop4meRequest->store ?? ($shop4meRequest->store_id ? Store::find($shop4meRequest->store_id) : null);
 
-        if (!$store) {
+        if (! $store) {
             abort(404, 'Store not found for this SHOP4ME request.');
         }
 
@@ -131,7 +138,7 @@ class Shop4meController extends Controller
         ]);
 
         // Ensure authenticated customer
-        if (!auth()->guard('customer')->check()) {
+        if (! auth()->guard('customer')->check()) {
             return redirect()->route('account.login')->with('error', 'Please login to continue');
         }
 
@@ -154,7 +161,7 @@ class Shop4meController extends Controller
     private function prepareCartFromRequest(Request $request, Shop4meRequest $shop4meRequest, Store $store): Cart
     {
         $token = (string) $request->cookie('guest_token');
-        if (!$token) {
+        if (! $token) {
             $token = Str::uuid()->toString();
             Cookie::queue('guest_token', $token, 60 * 24 * 30);
         }
@@ -171,7 +178,7 @@ class Shop4meController extends Controller
             $cart = $cartQuery->where('guest_token', $token)->whereNull('user_id')->first();
         }
 
-        if (!$cart) {
+        if (! $cart) {
             $cart = Cart::create([
                 'store_id' => $store->id,
                 'user_id' => $customerId,
@@ -185,7 +192,7 @@ class Shop4meController extends Controller
             $meta['source'] = 'shop4me';
             $meta['shop4me_request_id'] = $shop4meRequest->id;
             $cart->meta = $meta;
-            if ($customerId && !$cart->user_id) {
+            if ($customerId && ! $cart->user_id) {
                 $cart->user_id = $customerId;
                 $cart->guest_token = null;
             }
@@ -211,7 +218,7 @@ class Shop4meController extends Controller
             CartItem::create([
                 'cart_id' => $cart->id,
                 'product_id' => $item->product_id,
-                'variant_key' => $item->product_variant_id ? (string)$item->product_variant_id : null,
+                'variant_key' => $item->product_variant_id ? (string) $item->product_variant_id : null,
                 'name' => $item->name ?: 'Custom Item',
                 'unit_amount' => $unitAmountInt,
                 'qty' => $qty,

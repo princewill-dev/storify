@@ -13,7 +13,7 @@ class BankController extends Controller
         $banks = $store->assignedBanks()
             ->where('is_verified', true)
             ->get()
-            ->map(fn($bank) => [
+            ->map(fn ($bank) => [
                 'id' => $bank->id,
                 'bank_name' => $bank->bank_name,
                 'account_name' => $bank->account_name,

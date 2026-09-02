@@ -4,7 +4,8 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-return new class extends Migration {
+return new class extends Migration
+{
     public function up(): void
     {
         Schema::create('products', function (Blueprint $table) {
@@ -18,8 +19,8 @@ return new class extends Migration {
             $table->decimal('amount', 12, 2);
             $table->string('status')->default('active');
             $table->timestamps();
-            $table->unique(['store_id','slug']);
-            $table->index(['store_id','category_id']);
+            $table->unique(['store_id', 'slug']);
+            $table->index(['store_id', 'category_id']);
         });
     }
 

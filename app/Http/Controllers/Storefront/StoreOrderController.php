@@ -5,8 +5,8 @@ namespace App\Http\Controllers\Storefront;
 use App\Http\Controllers\Controller;
 use App\Models\Order;
 use App\Models\Store;
-use Illuminate\Http\Request;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
 use Illuminate\View\View;
 
 class StoreOrderController extends Controller
@@ -18,7 +18,8 @@ class StoreOrderController extends Controller
         }
         $host = $request->getHost();
         $mainDomain = config('app.main_domain', parse_url(config('app.url'), PHP_URL_HOST));
-        $subdomain = str_replace('.' . $mainDomain, '', $host);
+        $subdomain = str_replace('.'.$mainDomain, '', $host);
+
         return Store::where('slug', $subdomain)->firstOrFail();
     }
 
@@ -26,27 +27,27 @@ class StoreOrderController extends Controller
     {
         $store = $this->resolveStore($request, $store_subdomain);
         $orderNumber = $request->query('orderNumber');
-        
+
         if ($orderNumber) {
             $order = Order::where('store_id', $store->id)
                 ->where('order_number', strtoupper(trim($orderNumber)))
                 ->with(['items'])
                 ->first();
-            
-            if (!$order) {
+
+            if (! $order) {
                 return back()->with('error', 'Order not found. Please check the order number and try again.');
             }
-            
+
             return view('storefront.pages.track-order', compact('store', 'order'));
         }
-        
+
         return view('storefront.pages.track-order', compact('store'));
     }
 
     public function findOrder(Request $request, ?string $store_subdomain = null): View|RedirectResponse
     {
         $store = $this->resolveStore($request, $store_subdomain);
-        
+
         $request->validate(['order_number' => 'required|string']);
         $orderNumber = trim($request->input('order_number'));
 
@@ -55,7 +56,7 @@ class StoreOrderController extends Controller
             ->with(['items'])
             ->first();
 
-        if (!$order) {
+        if (! $order) {
             return back()->with('error', 'Order not found. Please check the order number and try again.')->withInput();
         }
 

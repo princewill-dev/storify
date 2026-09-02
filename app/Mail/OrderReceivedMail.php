@@ -7,6 +7,7 @@ use App\Queue\WithQueueConfig;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Mail\Mailable;
+use Illuminate\Mail\Mailables\Attachment;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Queue\SerializesModels;
@@ -30,7 +31,7 @@ class OrderReceivedMail extends Mailable implements ShouldQueue
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: 'Order Confirmation - ' . $this->order->order_number,
+            subject: 'Order Confirmation - '.$this->order->order_number,
         );
     }
 
@@ -40,7 +41,7 @@ class OrderReceivedMail extends Mailable implements ShouldQueue
     public function content(): Content
     {
         $items = $this->order->items;
-        $subtotal = $items->sum(fn($item) => $item->subtotal);
+        $subtotal = $items->sum(fn ($item) => $item->subtotal);
 
         return new Content(
             view: 'emails.order.order-received',
@@ -58,7 +59,7 @@ class OrderReceivedMail extends Mailable implements ShouldQueue
     /**
      * Get the attachments for the message.
      *
-     * @return array<int, \Illuminate\Mail\Mailables\Attachment>
+     * @return array<int, Attachment>
      */
     public function attachments(): array
     {

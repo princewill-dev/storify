@@ -2,24 +2,27 @@
 
 namespace App\Http\Controllers\Management;
 
+use App\Enums\OrderStatus;
+use App\Enums\TransactionStatus;
 use App\Http\Controllers\Controller;
+use App\Mail\OrderStatusUpdatedMail;
 use App\Models\ActivityLog;
 use App\Models\Order;
 use App\Models\OrderDelivery;
+use App\Models\PaymentMethod;
 use App\Models\StockLocation;
+use App\Models\Store;
 use App\Models\User;
-use App\Enums\OrderStatus;
 use App\Services\StockLedgerService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Illuminate\View\View;
 
 class OrderController extends Controller
 {
-
-
     public function index(Request $request): View|RedirectResponse
     {
         $user = $request->user();
@@ -91,7 +94,7 @@ class OrderController extends Controller
         ];
 
         $stores = $user->accessibleStores()->where('status', '!=', 'deleted')->orderBy('name')->get();
-        $statusOptions = \App\Enums\OrderStatus::cases();
+        $statusOptions = OrderStatus::cases();
         $activeFilters = $request->only(['search', 'status', 'store_id', 'source', 'date_from', 'date_to']);
 
         $breadcrumbs = [
@@ -105,7 +108,7 @@ class OrderController extends Controller
     public function show(Request $request, Order $order): View|RedirectResponse
     {
         $user = $request->user();
-        if (!$user || $order->user_id !== $user->id) {
+        if (! $user || $order->user_id !== $user->id) {
             return redirect()->route('management.auth.login');
         }
 
@@ -134,7 +137,7 @@ class OrderController extends Controller
     public function edit(Request $request, Order $order): View|RedirectResponse
     {
         $user = $request->user();
-        if (!$user || $order->user_id !== $user->id) {
+        if (! $user || $order->user_id !== $user->id) {
             return redirect()->route('management.auth.login');
         }
 
@@ -153,7 +156,7 @@ class OrderController extends Controller
     public function update(Request $request, Order $order): RedirectResponse
     {
         $user = $request->user();
-        if (!$user || $order->user_id !== $user->id) {
+        if (! $user || $order->user_id !== $user->id) {
             return redirect()->route('management.auth.login');
         }
 
@@ -166,7 +169,7 @@ class OrderController extends Controller
         $order->shipping_fee = $data['shipping_fee'];
         $order->tax = $data['tax'];
         $order->notes = $data['notes'] ?? null;
-        $order->total = (float)$order->subtotal + $order->shipping_fee + $order->tax;
+        $order->total = (float) $order->subtotal + $order->shipping_fee + $order->tax;
         $order->save();
 
         return back()->with('success', 'Order updated.');
@@ -175,7 +178,7 @@ class OrderController extends Controller
     public function updateStatus(Request $request, Order $order): RedirectResponse
     {
         $user = $request->user();
-        if (!$user || $order->user_id !== $user->id) {
+        if (! $user || $order->user_id !== $user->id) {
             return redirect()->route('management.auth.login');
         }
 
@@ -189,49 +192,49 @@ class OrderController extends Controller
     public function updatePaymentStatus(Request $request, Order $order): RedirectResponse
     {
         $user = $request->user();
-        if (!$user || $order->user_id !== $user->id) {
+        if (! $user || $order->user_id !== $user->id) {
             return redirect()->route('management.auth.login');
         }
 
         $data = $request->validate(['payment_status' => ['required', 'string']]);
-        
+
         // Find existing transaction or create new one
         $transaction = $order->transaction()->first(); // Check accessor logic, but here direct relation
-        
+
         // Map selected payment status to TransactionStatus
-        $newStatus = match($data['payment_status']) {
-            'pending' => \App\Enums\TransactionStatus::PENDING,
-            'paid' => \App\Enums\TransactionStatus::CONFIRMED,
-            'refunded' => \App\Enums\TransactionStatus::REFUNDED,
-            'failed' => \App\Enums\TransactionStatus::CANCELED,
+        $newStatus = match ($data['payment_status']) {
+            'pending' => TransactionStatus::PENDING,
+            'paid' => TransactionStatus::CONFIRMED,
+            'refunded' => TransactionStatus::REFUNDED,
+            'failed' => TransactionStatus::CANCELED,
             'unpaid' => null, // Special handling
-            default => \App\Enums\TransactionStatus::PENDING,
+            default => TransactionStatus::PENDING,
         };
 
         if ($data['payment_status'] === 'unpaid') {
-            // Option 1: Delete transaction? 
+            // Option 1: Delete transaction?
             // Option 2: Set to pending?
-            // Decision: If manually marking unpaid, maybe we delete the transaction or set to pending. 
+            // Decision: If manually marking unpaid, maybe we delete the transaction or set to pending.
             // For now, let's just set it to pending if it exists, or do nothing.
-             if ($transaction) {
-                 $transaction->delete(); // Or set to pending
-             }
+            if ($transaction) {
+                $transaction->delete(); // Or set to pending
+            }
         } elseif ($newStatus) {
-             if ($transaction) {
+            if ($transaction) {
                 $transaction->update(['status' => $newStatus]);
-             } else {
+            } else {
                 // Create a catch-all transaction method (e.g. Cash/Manual)
-                $paymentMethod = \App\Models\PaymentMethod::where('code', 'cash')->first() 
-                    ?? \App\Models\PaymentMethod::first();
-                
+                $paymentMethod = PaymentMethod::where('code', 'cash')->first()
+                    ?? PaymentMethod::first();
+
                 $order->transactions()->create([
                     'payment_method_id' => $paymentMethod?->id,
                     'amount' => $order->total,
                     'currency' => 'NGN', // Default
                     'status' => $newStatus,
-                    'reference' => 'MAN-' . strtoupper(\Illuminate\Support\Str::random(10)),
+                    'reference' => 'MAN-'.strtoupper(Str::random(10)),
                 ]);
-             }
+            }
         }
 
         return back()->with('success', 'Payment status updated.');
@@ -249,7 +252,7 @@ class OrderController extends Controller
 
         $this->notifyOrderUpdate($order, 'accepted');
 
-        return back()->with('success', 'Order #' . $order->order_number . ' has been accepted.');
+        return back()->with('success', 'Order #'.$order->order_number.' has been accepted.');
     }
 
     public function processOrder(Request $request, Order $order): RedirectResponse
@@ -264,7 +267,7 @@ class OrderController extends Controller
 
         $this->notifyOrderUpdate($order, 'processing');
 
-        return back()->with('success', 'Order #' . $order->order_number . ' is now being processed.');
+        return back()->with('success', 'Order #'.$order->order_number.' is now being processed.');
     }
 
     public function dispatchOrder(Request $request, Order $order): RedirectResponse
@@ -307,7 +310,7 @@ class OrderController extends Controller
 
         $this->notifyOrderUpdate($order, 'dispatched');
 
-        return back()->with('success', 'Order #' . $order->order_number . ' has been dispatched. Stock adjusted.');
+        return back()->with('success', 'Order #'.$order->order_number.' has been dispatched. Stock adjusted.');
     }
 
     public function deliverOrder(Request $request, Order $order): RedirectResponse
@@ -331,7 +334,7 @@ class OrderController extends Controller
 
         $this->notifyOrderUpdate($order, 'delivered');
 
-        return back()->with('success', 'Order #' . $order->order_number . ' marked as delivered.');
+        return back()->with('success', 'Order #'.$order->order_number.' marked as delivered.');
     }
 
     public function completeOrder(Request $request, Order $order): RedirectResponse
@@ -346,13 +349,13 @@ class OrderController extends Controller
 
         $this->notifyOrderUpdate($order, 'completed');
 
-        return back()->with('success', 'Order #' . $order->order_number . ' has been completed.');
+        return back()->with('success', 'Order #'.$order->order_number.' has been completed.');
     }
 
     public function cancelOrder(Request $request, Order $order): RedirectResponse
     {
         $user = $this->authorizeOrderAccess($request, $order);
-        if (!in_array($order->status, [OrderStatus::PENDING, OrderStatus::ACCEPTED])) {
+        if (! in_array($order->status, [OrderStatus::PENDING, OrderStatus::ACCEPTED])) {
             return back()->with('error', 'Only pending or accepted orders can be cancelled.');
         }
 
@@ -362,20 +365,20 @@ class OrderController extends Controller
 
         $order->update([
             'status' => OrderStatus::CANCELLED,
-            'notes' => $order->notes ? $order->notes . "\nCancellation reason: " . ($validated['reason'] ?? 'No reason provided') : 'Cancellation reason: ' . ($validated['reason'] ?? 'No reason provided'),
+            'notes' => $order->notes ? $order->notes."\nCancellation reason: ".($validated['reason'] ?? 'No reason provided') : 'Cancellation reason: '.($validated['reason'] ?? 'No reason provided'),
         ]);
 
         $this->logActivity($order, $user, 'cancelled', $validated['reason'] ?? 'Order cancelled');
 
         $this->notifyOrderUpdate($order, 'cancelled', $validated['reason'] ?? null);
 
-        return back()->with('success', 'Order #' . $order->order_number . ' has been cancelled.');
+        return back()->with('success', 'Order #'.$order->order_number.' has been cancelled.');
     }
 
     public function returnOrder(Request $request, Order $order): RedirectResponse
     {
         $user = $this->authorizeOrderAccess($request, $order);
-        if (!in_array($order->status, [OrderStatus::DELIVERED, OrderStatus::COMPLETED])) {
+        if (! in_array($order->status, [OrderStatus::DELIVERED, OrderStatus::COMPLETED])) {
             return back()->with('error', 'Only delivered or completed orders can be returned.');
         }
 
@@ -389,9 +392,11 @@ class OrderController extends Controller
             // Restore stock for returned items
             $ledger = app(StockLedgerService::class);
             foreach ($order->items as $item) {
-                if (!$item->product_id) continue;
+                if (! $item->product_id) {
+                    continue;
+                }
 
-                $stockLoc = StockLocation::where('locationable_type', \App\Models\Store::class)
+                $stockLoc = StockLocation::where('locationable_type', Store::class)
                     ->where('locationable_id', $order->store_id)
                     ->where('product_id', $item->product_id)
                     ->first();
@@ -402,7 +407,7 @@ class OrderController extends Controller
                         (int) $item->quantity,
                         $order,
                         $user,
-                        'Return — Order #' . $order->order_number
+                        'Return — Order #'.$order->order_number
                     );
                 }
             }
@@ -421,21 +426,22 @@ class OrderController extends Controller
 
         $this->notifyOrderUpdate($order, 'returned', $validated['reason'] ?? null);
 
-        return back()->with('success', 'Order #' . $order->order_number . ' has been returned. Stock restored.');
+        return back()->with('success', 'Order #'.$order->order_number.' has been returned. Stock restored.');
     }
 
     protected function authorizeOrderAccess(Request $request, Order $order): User
     {
         $user = $request->user();
-        if (!$user) {
+        if (! $user) {
             abort(401);
         }
 
         if ($user->isRestrictedStaff()) {
             $storeIds = $user->assignedStores()->pluck('id')->toArray();
-            if (!in_array($order->store_id, $storeIds)) {
+            if (! in_array($order->store_id, $storeIds)) {
                 abort(403, 'You do not have access to this order.');
             }
+
             return $user;
         }
 
@@ -470,22 +476,22 @@ class OrderController extends Controller
             // Email to customer
             if ($customer && $customer->email) {
                 \Mail::to($customer->email)->queue(
-                    new \App\Mail\OrderStatusUpdatedMail($order, $order->status->value, $newStatus)
+                    new OrderStatusUpdatedMail($order, $order->status->value, $newStatus)
                 );
             }
 
             // Email to store owner
-            if ($storeOwner && $storeOwner->email && (!$customer || $storeOwner->email !== $customer->email)) {
+            if ($storeOwner && $storeOwner->email && (! $customer || $storeOwner->email !== $customer->email)) {
                 \Mail::to($storeOwner->email)->queue(
-                    new \App\Mail\OrderStatusUpdatedMail($order, $order->status->value, $newStatus)
+                    new OrderStatusUpdatedMail($order, $order->status->value, $newStatus)
                 );
             }
 
             // Email to platform admin
             $adminEmail = config('mail.admin_email', env('ADMIN_EMAIL'));
-            if ($adminEmail && (!$customer || $adminEmail !== $customer->email) && (!$storeOwner || $adminEmail !== $storeOwner->email)) {
+            if ($adminEmail && (! $customer || $adminEmail !== $customer->email) && (! $storeOwner || $adminEmail !== $storeOwner->email)) {
                 \Mail::to($adminEmail)->queue(
-                    new \App\Mail\OrderStatusUpdatedMail($order, $order->status->value, $newStatus)
+                    new OrderStatusUpdatedMail($order, $order->status->value, $newStatus)
                 );
             }
 
@@ -505,7 +511,7 @@ class OrderController extends Controller
     public function destroy(Request $request, Order $order): RedirectResponse
     {
         $user = $request->user();
-        if (!$user || $order->user_id !== $user->id) {
+        if (! $user || $order->user_id !== $user->id) {
             return redirect()->route('management.auth.login');
         }
 

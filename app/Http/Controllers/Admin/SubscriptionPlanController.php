@@ -15,6 +15,7 @@ class SubscriptionPlanController extends Controller
     public function index()
     {
         $plans = SubscriptionPlan::orderBy('sort_order')->paginate(15);
+
         return view('admin.subscription_fee.index', compact('plans'));
     }
 
@@ -37,7 +38,7 @@ class SubscriptionPlanController extends Controller
         ]);
 
         // Parse features from textarea (one per line)
-        if (!empty($validated['features'])) {
+        if (! empty($validated['features'])) {
             $validated['features'] = array_values(array_filter(
                 array_map('trim', explode("\n", $validated['features']))
             ));
@@ -46,7 +47,7 @@ class SubscriptionPlanController extends Controller
         }
 
         // If setting as default, unset other defaults
-        if (!empty($validated['is_default'])) {
+        if (! empty($validated['is_default'])) {
             SubscriptionPlan::where('is_default', true)->update(['is_default' => false]);
         }
 
@@ -81,7 +82,7 @@ class SubscriptionPlanController extends Controller
         ]);
 
         // Parse features from textarea
-        if (!empty($validated['features'])) {
+        if (! empty($validated['features'])) {
             $validated['features'] = array_values(array_filter(
                 array_map('trim', explode("\n", $validated['features']))
             ));
@@ -90,7 +91,7 @@ class SubscriptionPlanController extends Controller
         }
 
         // If setting as default, unset other defaults
-        if (!empty($validated['is_default'])) {
+        if (! empty($validated['is_default'])) {
             SubscriptionPlan::where('is_default', true)
                 ->where('id', '!=', $subscriptionPlan->id)
                 ->update(['is_default' => false]);
@@ -114,8 +115,8 @@ class SubscriptionPlanController extends Controller
      */
     public function destroy(SubscriptionPlan $subscriptionPlan)
     {
-        // Prevent deleting if vendors are actively subscribed
-        if ($subscriptionPlan->vendorSubscriptions()->where('status', 'active')->exists()) {
+        // Prevent deletion while businesses are actively subscribed.
+        if ($subscriptionPlan->subscriptions()->where('status', 'active')->exists()) {
             return redirect()->route('admin.subscription-plans.index')
                 ->with('error', 'Cannot delete a plan with active subscriptions. Deactivate it instead.');
         }

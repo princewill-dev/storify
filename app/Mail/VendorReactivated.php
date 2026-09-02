@@ -13,7 +13,9 @@ class VendorReactivated extends Mailable
     use Queueable, SerializesModels;
 
     public User $user;
+
     public string $reason;
+
     public array $company;
 
     public function __construct(User $user, string $reason)
@@ -22,7 +24,7 @@ class VendorReactivated extends Mailable
         $this->reason = $reason;
         $s = Setting::first();
         $this->company = [
-            'logo' => $s?->company_logo_path ? asset('storage/' . $s->company_logo_path) : null,
+            'logo' => $s?->company_logo_path ? asset('storage/'.$s->company_logo_path) : null,
             'name' => $s->company_name ?? config('app.name'),
             'email' => $s->support_email ?? null,
             'phone' => $s->support_phone ?? null,
@@ -33,8 +35,8 @@ class VendorReactivated extends Mailable
 
     public function build(): self
     {
-        return $this->subject('Vendor Account Reactivated')
-            ->view('emails.vendor.reactivated')
+        return $this->subject('Business Account Reactivated')
+            ->view('emails.business.reactivated')
             ->with([
                 'user' => $this->user,
                 'reason' => $this->reason,

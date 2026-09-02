@@ -4,7 +4,8 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-return new class extends Migration {
+return new class extends Migration
+{
     public function up(): void
     {
         Schema::create('services', function (Blueprint $table) {
@@ -18,7 +19,7 @@ return new class extends Migration {
             $table->foreignId('currency_id')->nullable()->constrained('currencies')->nullOnDelete();
             $table->string('status')->default('active');
             $table->timestamps();
-            $table->unique(['store_id','slug']);
+            $table->unique(['store_id', 'slug']);
         });
     }
 

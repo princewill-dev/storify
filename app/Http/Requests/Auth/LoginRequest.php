@@ -23,7 +23,7 @@ class LoginRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'email.required' => 'Enter the email address for your vendor account.',
+            'email.required' => 'Enter the email address for your business account.',
             'password.required' => 'Enter your password to continue.',
         ];
     }

@@ -11,16 +11,16 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('businesses', function (Blueprint $table) {
-            if (!Schema::hasColumn('businesses', 'prefix')) {
+            if (! Schema::hasColumn('businesses', 'prefix')) {
                 $table->string('prefix', 6)->nullable()->after('name');
             }
-            if (!Schema::hasColumn('businesses', 'business_code')) {
+            if (! Schema::hasColumn('businesses', 'business_code')) {
                 $table->string('business_code', 30)->nullable()->unique()->after('prefix');
             }
         });
 
         Schema::table('users', function (Blueprint $table) {
-            if (Schema::hasColumn('users', 'user_code') && !Schema::hasColumn('users', 'account_code')) {
+            if (Schema::hasColumn('users', 'user_code') && ! Schema::hasColumn('users', 'account_code')) {
                 $table->renameColumn('user_code', 'account_code');
             }
         });
@@ -31,7 +31,7 @@ return new class extends Migration
 
     private function backfillBusinessCodes(): void
     {
-        if (!Schema::hasColumn('businesses', 'prefix')) {
+        if (! Schema::hasColumn('businesses', 'prefix')) {
             return;
         }
 
@@ -42,20 +42,20 @@ return new class extends Migration
             $prefix = collect($words)->filter()->count() === 1
                 ? strtoupper(substr($words[0], 0, 2))
                 : strtoupper(implode('', array_map(
-                    fn($w) => $w[0] ?? '',
+                    fn ($w) => $w[0] ?? '',
                     array_slice(array_filter($words), 0, 3)
                 )));
 
             DB::table('businesses')->where('id', $b->id)->update([
                 'prefix' => $prefix ?: 'ST',
-                'business_code' => $prefix . '_BIZ_' . Str::upper(Str::random(8)),
+                'business_code' => $prefix.'_BIZ_'.Str::upper(Str::random(8)),
             ]);
         }
     }
 
     private function backfillAccountCodes(): void
     {
-        if (!Schema::hasColumn('users', 'account_code')) {
+        if (! Schema::hasColumn('users', 'account_code')) {
             return;
         }
 
@@ -72,7 +72,7 @@ return new class extends Migration
             }
 
             DB::table('users')->where('id', $u->id)->update([
-                'account_code' => $prefix . '_ACT_' . Str::upper(Str::random(8)),
+                'account_code' => $prefix.'_ACT_'.Str::upper(Str::random(8)),
             ]);
         }
     }
@@ -84,7 +84,7 @@ return new class extends Migration
         });
 
         Schema::table('users', function (Blueprint $table) {
-            if (Schema::hasColumn('users', 'account_code') && !Schema::hasColumn('users', 'user_code')) {
+            if (Schema::hasColumn('users', 'account_code') && ! Schema::hasColumn('users', 'user_code')) {
                 $table->renameColumn('account_code', 'user_code');
             }
         });

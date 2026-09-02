@@ -8,6 +8,7 @@ use App\Models\Order;
 use App\Models\PosSession;
 use App\Models\Product;
 use App\Models\StockLocation;
+use App\Models\StockTransfer;
 use App\Models\Store;
 use App\Models\Transaction;
 use App\Models\User;
@@ -15,9 +16,6 @@ use App\Models\Warehouse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Log;
 use Illuminate\View\View;
 
 class DashboardController extends Controller
@@ -27,11 +25,11 @@ class DashboardController extends Controller
         /** @var User|null $user */
         $user = $request->user();
 
-        if (!$user) {
+        if (! $user) {
             return redirect()->route('management.auth.login');
         }
 
-        if (!$user->is_verified) {
+        if (! $user->is_verified) {
             return redirect()->route('management.auth.verify-otp')
                 ->with('warning', 'Verify your email first to continue.');
         }
@@ -78,8 +76,8 @@ class DashboardController extends Controller
         $transactionsQuery = Transaction::query()->where('business_id', $user->business_id);
         if ($activeStoreId) {
             $transactionsQuery->where(function ($q) use ($activeStoreId) {
-                $q->whereHas('order', fn($o) => $o->where('store_id', $activeStoreId))
-                  ->orWhereHas('invoice', fn($i) => $i->where('store_id', $activeStoreId));
+                $q->whereHas('order', fn ($o) => $o->where('store_id', $activeStoreId))
+                    ->orWhereHas('invoice', fn ($i) => $i->where('store_id', $activeStoreId));
             });
         }
 
@@ -104,12 +102,16 @@ class DashboardController extends Controller
         // ── Customers ──
         $totalCustomers = Customer::whereHas('orders', function ($q) use ($user, $activeStoreId) {
             $q->where('user_id', $user->id);
-            if ($activeStoreId) $q->where('store_id', $activeStoreId);
+            if ($activeStoreId) {
+                $q->where('store_id', $activeStoreId);
+            }
         })->count();
 
         $activeCustomers = Customer::whereHas('orders', function ($q) use ($user, $activeStoreId, $recentActivityThreshold) {
             $q->where('user_id', $user->id)->where('created_at', '>=', $recentActivityThreshold);
-            if ($activeStoreId) $q->where('store_id', $activeStoreId);
+            if ($activeStoreId) {
+                $q->where('store_id', $activeStoreId);
+            }
         })->count();
 
         // ── Stores ──
@@ -137,16 +139,16 @@ class DashboardController extends Controller
             ->where('products.status', 'active')
             ->where('stock_locations.quantity', '>', 0)
             ->where(function ($q) use ($effectiveStoreIds, $warehouseIds) {
-                if (!empty($effectiveStoreIds)) {
+                if (! empty($effectiveStoreIds)) {
                     $q->orWhere(function ($sq) use ($effectiveStoreIds) {
                         $sq->where('stock_locations.locationable_type', Store::class)
-                           ->whereIn('stock_locations.locationable_id', $effectiveStoreIds);
+                            ->whereIn('stock_locations.locationable_id', $effectiveStoreIds);
                     });
                 }
-                if (!empty($warehouseIds)) {
+                if (! empty($warehouseIds)) {
                     $q->orWhere(function ($wq) use ($warehouseIds) {
                         $wq->where('stock_locations.locationable_type', Warehouse::class)
-                           ->whereIn('stock_locations.locationable_id', $warehouseIds);
+                            ->whereIn('stock_locations.locationable_id', $warehouseIds);
                     });
                 }
             });
@@ -201,14 +203,14 @@ class DashboardController extends Controller
         $warehouseTotalStock = $warehouses->sum('stock_locations_count');
 
         // ── Stock Transfers ──
-        $pendingTransfersQuery = \App\Models\StockTransfer::whereIn('status', ['pending', 'approved'])
+        $pendingTransfersQuery = StockTransfer::whereIn('status', ['pending', 'approved'])
             ->where(function ($q) use ($storeIds, $warehouseIds) {
                 $q->where(function ($sq) use ($storeIds, $warehouseIds) {
                     $sq->where('from_location_type', Store::class)->whereIn('from_location_id', $storeIds)
-                       ->orWhere('from_location_type', Warehouse::class)->whereIn('from_location_id', $warehouseIds);
+                        ->orWhere('from_location_type', Warehouse::class)->whereIn('from_location_id', $warehouseIds);
                 })->orWhere(function ($sq) use ($storeIds, $warehouseIds) {
                     $sq->where('to_location_type', Store::class)->whereIn('to_location_id', $storeIds)
-                       ->orWhere('to_location_type', Warehouse::class)->whereIn('to_location_id', $warehouseIds);
+                        ->orWhere('to_location_type', Warehouse::class)->whereIn('to_location_id', $warehouseIds);
                 });
             });
 
@@ -234,7 +236,7 @@ class DashboardController extends Controller
             ->orderBy('year')
             ->orderBy('month')
             ->get()
-            ->map(fn($row) => ['month' => Carbon::create($row->year, $row->month, 1)->format('M'), 'count' => $row->count]);
+            ->map(fn ($row) => ['month' => Carbon::create($row->year, $row->month, 1)->format('M'), 'count' => $row->count]);
 
         $monthlyRevenue = (clone $transactionsQuery)->whereIn('status', $completedStatuses)
             ->selectRaw('YEAR(created_at) year, MONTH(created_at) month, SUM(amount) total')
@@ -243,7 +245,7 @@ class DashboardController extends Controller
             ->orderBy('year')
             ->orderBy('month')
             ->get()
-            ->map(fn($row) => ['month' => Carbon::create($row->year, $row->month, 1)->format('M'), 'total' => (float) $row->total]);
+            ->map(fn ($row) => ['month' => Carbon::create($row->year, $row->month, 1)->format('M'), 'total' => (float) $row->total]);
 
         $stats = [
             'total_revenue' => (float) $totalRevenue,
@@ -349,8 +351,9 @@ class DashboardController extends Controller
         $user = $request->user();
 
         // Clear store filter to show all stores combined
-        if (!$request->filled('store_id')) {
+        if (! $request->filled('store_id')) {
             session()->forget('active_store_id');
+
             return redirect()->route('management.dashboard')
                 ->with('success', 'Showing all stores.');
         }
@@ -358,11 +361,12 @@ class DashboardController extends Controller
         $request->validate(['store_id' => 'exists:stores,id']);
 
         $storeRelation = $user->isRestrictedStaff() ? $user->assignedStores() : $user->accessibleStores();
-        if (!$storeRelation->where('status', '!=', 'deleted')->where('id', $request->store_id)->exists()) {
+        if (! $storeRelation->where('status', '!=', 'deleted')->where('id', $request->store_id)->exists()) {
             return back()->with('error', 'Unauthorized store access.');
         }
 
         session(['active_store_id' => $request->store_id]);
+
         return redirect()->route('management.dashboard')
             ->with('success', 'Store switched successfully.');
     }

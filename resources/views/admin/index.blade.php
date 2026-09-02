@@ -110,7 +110,7 @@
     <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
         <p class="text-[11px] font-semibold text-slate-400 uppercase">KYC Pending</p>
         <p class="text-xl font-bold text-amber-600 mt-1">{{ number_format($stats['kyc_pending'] ?? 0) }}</p>
-        <a href="{{ route('admin.vendor-kyc.index', ['status' => 'submitted']) }}" class="text-[10px] text-blue-600 hover:underline">Review →</a>
+        <a href="{{ route('admin.business-kyc.index', ['status' => 'submitted']) }}" class="text-[10px] text-blue-600 hover:underline">Review →</a>
     </div>
 </div>
 

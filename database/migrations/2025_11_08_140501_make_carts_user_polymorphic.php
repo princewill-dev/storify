@@ -27,11 +27,11 @@ return new class extends Migration
             }
 
             // Add user_type column for polymorphic relationship
-            if (!Schema::hasColumn('carts', 'user_type')) {
+            if (! Schema::hasColumn('carts', 'user_type')) {
                 $table->string('user_type')->nullable()->after('user_id');
             }
         });
-        
+
         // Update existing records to set user_type
         DB::table('carts')
             ->whereNotNull('user_id')

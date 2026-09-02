@@ -2,8 +2,8 @@
 
 namespace Database\Seeders;
 
-use Illuminate\Database\Seeder;
 use App\Models\OwnershipType;
+use Illuminate\Database\Seeder;
 
 class OwnershipTypeSeeder extends Seeder
 {

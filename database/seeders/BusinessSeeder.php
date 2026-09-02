@@ -4,7 +4,6 @@ namespace Database\Seeders;
 
 use App\Models\Business;
 use App\Models\Store;
-use App\Models\Subscription;
 use App\Models\SubscriptionPlan;
 use App\Models\User;
 use App\Models\Warehouse;
@@ -116,7 +115,7 @@ class BusinessSeeder extends Seeder
                 'city' => 'Lagos',
                 'state' => 'Lagos',
                 'country' => 'Nigeria',
-                'status' => \App\Models\Warehouse::STATUS_ACTIVE,
+                'status' => Warehouse::STATUS_ACTIVE,
             ]);
         }
 

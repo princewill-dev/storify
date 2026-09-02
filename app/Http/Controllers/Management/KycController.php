@@ -5,14 +5,10 @@ namespace App\Http\Controllers\Management;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Management\SubmitKycRequest;
 use App\Mail\AdminKycSubmitted;
-use App\Mail\VendorKycSubmitted;
-use App\Models\DeliveryRoute;
-use App\Models\KycDocumentType;
-use App\Models\Store;
-use App\Models\User;
+use App\Mail\BusinessKycSubmitted;
 use App\Models\KycApplication;
-use App\Models\OwnershipType;
-use App\Models\BusinessType;
+use App\Models\KycDocumentType;
+use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -48,9 +44,7 @@ class KycController extends Controller
         /** @var User $user */
         $user = $request->user();
 
-        
-
-        if (!$user->is_verified) {
+        if (! $user->is_verified) {
             return redirect()->route('management.auth.verify-otp')
                 ->with('warning', 'Verify your email before submitting your KYC information.');
         }
@@ -68,7 +62,7 @@ class KycController extends Controller
 
         $data = $request->validated();
 
-        Log::info('vendor.kyc.submission_received', [
+        Log::info('business.kyc.submission_received', [
             'user_id' => $user->id,
             'account_id' => $user->account_id,
             'data' => [
@@ -84,14 +78,14 @@ class KycController extends Controller
             ],
         ]);
 
-        $application = new KycApplication();
+        $application = new KycApplication;
 
         if ($request->hasFile('identification_document')) {
             if ($application->identification_document_path) {
                 try {
                     Storage::disk('public')->delete($application->identification_document_path);
                 } catch (\Throwable $e) {
-                    Log::warning('vendor.kyc.delete_old_document_failed', [
+                    Log::warning('business.kyc.delete_old_document_failed', [
                         'user_id' => $user->id,
                         'path' => $application->identification_document_path,
                         'error' => $e->getMessage(),
@@ -108,7 +102,7 @@ class KycController extends Controller
                 try {
                     Storage::disk('public')->delete($application->selfie_image_path);
                 } catch (\Throwable $e) {
-                    Log::warning('vendor.kyc.delete_old_selfie_failed', [
+                    Log::warning('business.kyc.delete_old_selfie_failed', [
                         'user_id' => $user->id,
                         'path' => $application->selfie_image_path,
                         'error' => $e->getMessage(),
@@ -153,12 +147,12 @@ class KycController extends Controller
             'status' => 'pending',
         ])->save();
 
-        Log::info('vendor.kyc.submitted', [
+        Log::info('business.kyc.submitted', [
             'user_id' => $user->id,
             'application_id' => $application->id,
         ]);
 
-        $this->queueVendorNotification($user, $application);
+        $this->queueBusinessNotification($user, $application);
         $this->queueAdminNotification($application);
 
         return redirect()->route('management.kyc.show')
@@ -180,20 +174,20 @@ class KycController extends Controller
         };
     }
 
-    private function queueVendorNotification(User $user, KycApplication $application): void
+    private function queueBusinessNotification(User $user, KycApplication $application): void
     {
         if (empty($user->email)) {
             return;
         }
 
         try {
-            Mail::to($user->email)->queue(new VendorKycSubmitted($user, $application));
-            Log::info('vendor.kyc.vendor_mail_queued', [
+            Mail::to($user->email)->queue(new BusinessKycSubmitted($user, $application));
+            Log::info('business.kyc.business_mail_queued', [
                 'user_id' => $user->id,
                 'application_id' => $application->id,
             ]);
         } catch (\Throwable $e) {
-            Log::error('vendor.kyc.vendor_mail_queue_failed', [
+            Log::error('business.kyc.business_mail_queue_failed', [
                 'user_id' => $user->id,
                 'application_id' => $application->id,
                 'error' => $e->getMessage(),
@@ -205,21 +199,22 @@ class KycController extends Controller
     {
         $admins = $this->adminRecipients();
         if (empty($admins)) {
-            Log::warning('vendor.kyc.admin_mail_skipped', [
+            Log::warning('business.kyc.admin_mail_skipped', [
                 'application_id' => $application->id,
                 'reason' => 'no_admin_recipients',
             ]);
+
             return;
         }
 
         try {
             Mail::to($admins)->queue(new AdminKycSubmitted($application));
-            Log::info('vendor.kyc.admin_mail_queued', [
+            Log::info('business.kyc.admin_mail_queued', [
                 'application_id' => $application->id,
                 'admin_count' => count($admins),
             ]);
         } catch (\Throwable $e) {
-            Log::error('vendor.kyc.admin_mail_queue_failed', [
+            Log::error('business.kyc.admin_mail_queue_failed', [
                 'application_id' => $application->id,
                 'admin_count' => count($admins),
                 'error' => $e->getMessage(),

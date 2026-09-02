@@ -16,7 +16,7 @@ return new class extends Migration
             $table->unsignedBigInteger('subject_id')->nullable()->after('subject_type');
             $table->json('old_values')->nullable()->after('description');
             $table->json('new_values')->nullable()->after('old_values');
-            
+
             // Add index for polymorphic relationship
             $table->index(['subject_type', 'subject_id']);
         });

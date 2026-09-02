@@ -7,6 +7,7 @@ use App\Queue\WithQueueConfig;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Mail\Mailable;
+use Illuminate\Mail\Mailables\Attachment;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Queue\SerializesModels;
@@ -30,7 +31,7 @@ class NewOrderAdminMail extends Mailable implements ShouldQueue
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: '[New Order] ' . $this->order->order_number . ' - ₦' . number_format($this->order->total, 2),
+            subject: '[New Order] '.$this->order->order_number.' - ₦'.number_format($this->order->total, 2),
         );
     }
 
@@ -48,7 +49,7 @@ class NewOrderAdminMail extends Mailable implements ShouldQueue
                 'items' => $this->order->items,
                 'appName' => config('app.name', 'Ecom'),
                 'appUrl' => config('app.url'),
-                'adminUrl' => config('app.url') . '/admin/orders/' . $this->order->id,
+                'adminUrl' => config('app.url').'/admin/orders/'.$this->order->id,
             ],
         );
     }
@@ -56,7 +57,7 @@ class NewOrderAdminMail extends Mailable implements ShouldQueue
     /**
      * Get the attachments for the message.
      *
-     * @return array<int, \Illuminate\Mail\Mailables\Attachment>
+     * @return array<int, Attachment>
      */
     public function attachments(): array
     {

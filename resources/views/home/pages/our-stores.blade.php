@@ -10,7 +10,7 @@
             <div class="col-md-10 col-lg-8 offset-md-1 offset-lg-2">
                 <div class="hero-5-txt text-center white-color">
                     <h2 class="h2-xl">Discover Our Stores</h2>
-                    <p class="p-xl">Browse through our collection of verified vendors and find the perfect store for your needs</p>
+                    <p class="p-xl">Browse our collection of verified businesses and find the right store for your needs.</p>
                 </div>
             </div>
         </div>

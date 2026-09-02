@@ -26,7 +26,7 @@
           </tr>
           <tr>
             <td style="padding:0 32px 16px;">
-              <p style="margin:0;color:#334155;font-size:14px;line-height:20px;">{{ $user?->name ?? 'A vendor' }} just submitted KYC information. Review and take action when you can.</p>
+              <p style="margin:0;color:#334155;font-size:14px;line-height:20px;">{{ $user?->name ?? 'A business owner' }} just submitted KYC information. Review and take action when you can.</p>
             </td>
           </tr>
           <tr>
@@ -34,7 +34,7 @@
               <div style="background:#f1f5f9;border-radius:10px;padding:16px;">
                 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;color:#0f172a;">
                   <tr>
-                    <td style="padding:6px 0;width:170px;color:#64748b;">Vendor</td>
+                    <td style="padding:6px 0;width:170px;color:#64748b;">Business</td>
                     <td style="padding:6px 0;">{{ $user?->name ?? '—' }}</td>
                   </tr>
                   <tr>
@@ -57,7 +57,7 @@
               </div>
             </td>
           </tr>
-          @php($reviewUrl = app('router')->has('admin.vendor-kyc.show') ? route('admin.vendor-kyc.show', $application) : url('/superadmin/kyc/' . $application->id))
+          @php($reviewUrl = app('router')->has('admin.business-kyc.show') ? route('admin.business-kyc.show', $application) : url('/superadmin/kyc/' . $application->id))
           <tr>
             <td style="padding:0 32px 28px;">
               <a href="{{ $reviewUrl }}" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;border-radius:8px;padding:10px 16px;font-weight:600;font-size:14px;">Review submission</a>

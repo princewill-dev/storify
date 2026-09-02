@@ -9,6 +9,7 @@ use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class StoreBankController extends Controller
 {
@@ -20,7 +21,7 @@ class StoreBankController extends Controller
         \Log::info('[Bank Store] Request received', [
             'user_id' => $user->id,
             'store_id' => $store->id,
-            'request_data' => $request->all()
+            'request_data' => $request->all(),
         ]);
 
         try {
@@ -31,7 +32,7 @@ class StoreBankController extends Controller
                 'account_name' => 'required|string|max:255',
                 'is_primary' => 'nullable|in:on,1,true',
             ]);
-            
+
             \Log::info('[Bank Store] Validation passed', ['validated' => $validated]);
 
             // Convert checkbox value to boolean
@@ -40,7 +41,7 @@ class StoreBankController extends Controller
 
             DB::transaction(function () use ($store, $validated, $isPrimary) {
                 \Log::info('[Bank Store] Starting DB transaction');
-                
+
                 if ($isPrimary) {
                     $updated = $store->banks()->update(['is_primary' => false]);
                     \Log::info('[Bank Store] Reset existing primary banks', ['count' => $updated]);
@@ -49,7 +50,7 @@ class StoreBankController extends Controller
                 // If no banks exist, the first one should be primary
                 $bankCount = $store->banks()->count();
                 \Log::info('[Bank Store] Existing bank count', ['count' => $bankCount]);
-                
+
                 if ($bankCount === 0) {
                     $isPrimary = true;
                     \Log::info('[Bank Store] First bank, setting as primary');
@@ -57,26 +58,29 @@ class StoreBankController extends Controller
 
                 $bankData = array_merge($validated, ['is_primary' => $isPrimary, 'is_verified' => true]);
                 \Log::info('[Bank Store] Creating bank with data', $bankData);
-                
+
                 $bank = $store->banks()->create($bankData);
                 \Log::info('[Bank Store] Bank created successfully', ['bank_id' => $bank->id]);
             });
 
             \Log::info('[Bank Store] Transaction committed successfully');
+
             return redirect()->back()->with('success', 'Bank account added successfully.');
-            
-        } catch (\Illuminate\Validation\ValidationException $e) {
+
+        } catch (ValidationException $e) {
             \Log::error('[Bank Store] Validation failed', [
-                'errors' => $e->errors()
+                'errors' => $e->errors(),
             ]);
+
             return redirect()->back()->withErrors($e->errors())->withInput();
-            
+
         } catch (\Exception $e) {
             \Log::error('[Bank Store] Exception occurred', [
                 'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
+                'trace' => $e->getTraceAsString(),
             ]);
-            return redirect()->back()->with('error', 'Failed to add bank account: ' . $e->getMessage());
+
+            return redirect()->back()->with('error', 'Failed to add bank account: '.$e->getMessage());
         }
     }
 

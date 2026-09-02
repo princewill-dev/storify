@@ -35,6 +35,7 @@ enum CustomerStatus: string
                 'class' => $status->badgeClass(),
             ];
         }
+
         return $data;
     }
 }

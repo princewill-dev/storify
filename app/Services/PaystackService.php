@@ -2,14 +2,16 @@
 
 namespace App\Services;
 
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Cache;
 
 class PaystackService
 {
     protected string $secretKey;
+
     protected string $publicKey;
+
     protected string $baseUrl;
 
     public function __construct()
@@ -45,7 +47,7 @@ class PaystackService
                 'message' => $result['message'] ?? null,
             ]);
 
-            if (!$response->successful() || !($result['status'] ?? false)) {
+            if (! $response->successful() || ! ($result['status'] ?? false)) {
                 return [
                     'success' => false,
                     'message' => $result['message'] ?? 'Failed to initialize payment',
@@ -89,7 +91,7 @@ class PaystackService
                 'success' => $result['status'] ?? false,
             ]);
 
-            if (!$response->successful() || !($result['status'] ?? false)) {
+            if (! $response->successful() || ! ($result['status'] ?? false)) {
                 return [
                     'success' => false,
                     'message' => $result['message'] ?? 'Payment verification failed',
@@ -125,7 +127,7 @@ class PaystackService
             // First verification
             $firstVerify = $this->verifyPayment($reference);
 
-            if (!$firstVerify['success']) {
+            if (! $firstVerify['success']) {
                 return $firstVerify;
             }
 
@@ -144,7 +146,7 @@ class PaystackService
                 'first_verify_status' => $firstVerify['data']['status'] ?? null,
             ]);
 
-            if (!$response->successful() || !($result['status'] ?? false)) {
+            if (! $response->successful() || ! ($result['status'] ?? false)) {
                 return [
                     'success' => false,
                     'message' => $result['message'] ?? 'Second verification failed',
@@ -163,7 +165,7 @@ class PaystackService
                 }
             }
 
-            if (!$transaction) {
+            if (! $transaction) {
                 return [
                     'success' => false,
                     'message' => 'Transaction not found in second verification',
@@ -215,7 +217,7 @@ class PaystackService
      */
     public function getBanks(string $country = 'nigeria'): array
     {
-        return Cache::remember('paystack_banks_' . $country, now()->addDay(), function () use ($country) {
+        return Cache::remember('paystack_banks_'.$country, now()->addDay(), function () use ($country) {
             try {
                 $response = Http::withToken($this->secretKey)
                     ->timeout(20) // Set a reasonable timeout
@@ -225,11 +227,12 @@ class PaystackService
 
                 $result = $response->json();
 
-                if (!$response->successful() || !($result['status'] ?? false)) {
-                     Log::warning('paystack.get_banks.failed', [
+                if (! $response->successful() || ! ($result['status'] ?? false)) {
+                    Log::warning('paystack.get_banks.failed', [
                         'status' => $response->status(),
-                        'result' => $result
+                        'result' => $result,
                     ]);
+
                     return [
                         'success' => false,
                         'data' => [],
@@ -258,7 +261,7 @@ class PaystackService
      */
     public function generateReference(string $prefix = 'PST'): string
     {
-        return $prefix . '_' . time() . '_' . strtoupper(substr(md5(uniqid()), 0, 8));
+        return $prefix.'_'.time().'_'.strtoupper(substr(md5(uniqid()), 0, 8));
     }
 
     /**
@@ -267,6 +270,7 @@ class PaystackService
     public function verifyWebhookSignature(string $payload, string $signature): bool
     {
         $hash = hash_hmac('sha512', $payload, $this->secretKey);
+
         return hash_equals($hash, $signature);
     }
 
@@ -298,7 +302,7 @@ class PaystackService
             Log::info('paystack.resolve_account.request', [
                 'url' => $url,
                 'params' => [
-                    'account_number' => substr($accountNumber, 0, 4) . '****' . substr($accountNumber, -2),
+                    'account_number' => substr($accountNumber, 0, 4).'****'.substr($accountNumber, -2),
                     'bank_code' => $bankCode,
                 ],
             ]);
@@ -311,10 +315,10 @@ class PaystackService
                 'status' => $response->status(),
                 'headers' => $response->headers(),
                 'body' => $response->body(),
-                'result' => $result
+                'result' => $result,
             ]);
 
-            if (!$response->successful() || !($result['status'] ?? false)) {
+            if (! $response->successful() || ! ($result['status'] ?? false)) {
                 return [
                     'success' => false,
                     'message' => $result['message'] ?? 'Could not verify account number',
@@ -332,7 +336,7 @@ class PaystackService
             ];
         } catch (\Throwable $e) {
             Log::error('paystack.resolve_account.error', [
-                'account_number' => substr($accountNumber, 0, 4) . '****',
+                'account_number' => substr($accountNumber, 0, 4).'****',
                 'bank_code' => $bankCode,
                 'error' => $e->getMessage(),
             ]);
@@ -344,7 +348,7 @@ class PaystackService
             ];
         } catch (\Throwable $e) {
             Log::error('paystack.resolve_account.error', [
-                'account_number' => substr($accountNumber, 0, 4) . '****',
+                'account_number' => substr($accountNumber, 0, 4).'****',
                 'bank_code' => $bankCode,
                 'error' => $e->getMessage(),
             ]);
@@ -361,7 +365,7 @@ class PaystackService
      * Test API keys validity by making a test API call
      * This verifies both public and secret keys work correctly
      */
-    public function testApiKeys(string $secretKey, string $publicKey = null): array
+    public function testApiKeys(string $secretKey, ?string $publicKey = null): array
     {
         try {
             Log::info('paystack.test_api_keys.started', [
@@ -386,7 +390,7 @@ class PaystackService
             ]);
 
             // Check if request was successful
-            if (!$response->successful()) {
+            if (! $response->successful()) {
                 Log::warning('paystack.test_api_keys.failed', [
                     'status_code' => $response->status(),
                     'error_message' => $result['message'] ?? 'Unknown error',
@@ -400,7 +404,7 @@ class PaystackService
             }
 
             // Check Paystack's status field
-            if (!($result['status'] ?? false)) {
+            if (! ($result['status'] ?? false)) {
                 Log::warning('paystack.test_api_keys.invalid_response', [
                     'result' => $result,
                 ]);
@@ -447,6 +451,7 @@ class PaystackService
     {
         $this->secretKey = $gateway->secret_key;
         $this->publicKey = $gateway->public_key;
+
         return $this;
     }
 
@@ -475,7 +480,7 @@ class PaystackService
         } catch (\Exception $e) {
             return [
                 'success' => false,
-                'message' => 'Unable to connect to Paystack. ' . $e->getMessage(),
+                'message' => 'Unable to connect to Paystack. '.$e->getMessage(),
             ];
         }
     }

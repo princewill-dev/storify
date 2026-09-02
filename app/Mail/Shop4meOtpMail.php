@@ -11,6 +11,7 @@ class Shop4meOtpMail extends Mailable
     use Queueable, SerializesModels;
 
     public string $listId;
+
     public string $otp;
 
     public function __construct(string $listId, string $otp)

@@ -1,14 +1,14 @@
 <?php
 
-use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Cart\CartApiController;
+use Illuminate\Support\Facades\Route;
 
 // Local dev bypass
 if (config('app.env') === 'local') {
     Route::prefix('{store_subdomain}')
         ->where(['store_subdomain' => '(?!api|admin|vendor|storage|livewire|cart|checkout|products|services|search|support|international-supply)[A-Za-z0-9_\-]+'])
         ->group(function () {
-            
+
             // Cart JSON API
             Route::get('/cart/json', [CartApiController::class, 'get']);
             Route::post('/cart/add', [CartApiController::class, 'add']);
@@ -20,10 +20,10 @@ if (config('app.env') === 'local') {
 }
 
 // Subdomain routes
-Route::domain('{store_subdomain}.' . config('app.main_domain', parse_url(config('app.url'), PHP_URL_HOST)))
+Route::domain('{store_subdomain}.'.config('app.main_domain', parse_url(config('app.url'), PHP_URL_HOST)))
     ->where(['store_subdomain' => '(?!www)[A-Za-z0-9_\-]+'])
     ->group(function () {
-        
+
         // Cart JSON API
         Route::get('/cart/json', [CartApiController::class, 'get']);
         Route::post('/cart/add', [CartApiController::class, 'add']);

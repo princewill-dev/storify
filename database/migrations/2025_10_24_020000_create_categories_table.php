@@ -4,7 +4,8 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-return new class extends Migration {
+return new class extends Migration
+{
     public function up(): void
     {
         Schema::create('categories', function (Blueprint $table) {
@@ -15,8 +16,8 @@ return new class extends Migration {
             $table->string('slug');
             $table->string('status')->default('active');
             $table->timestamps();
-            $table->unique(['store_id','slug']);
-            $table->index(['store_id','parent_id']);
+            $table->unique(['store_id', 'slug']);
+            $table->index(['store_id', 'parent_id']);
         });
     }
 

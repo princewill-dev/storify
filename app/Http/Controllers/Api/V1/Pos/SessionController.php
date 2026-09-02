@@ -37,7 +37,7 @@ class SessionController extends Controller
     {
         $user = $request->user();
 
-        if (!$store->pos_enabled) {
+        if (! $store->pos_enabled) {
             return response()->json(['success' => false, 'message' => 'POS is not enabled for this store.'], 400);
         }
 
@@ -85,7 +85,7 @@ class SessionController extends Controller
             ->latest()
             ->first();
 
-        if (!$session) {
+        if (! $session) {
             return response()->json(['success' => false, 'message' => 'No open session found.'], 400);
         }
 

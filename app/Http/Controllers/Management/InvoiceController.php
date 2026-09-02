@@ -8,13 +8,15 @@ use App\Http\Controllers\Controller;
 use App\Mail\InvoiceMail;
 use App\Models\Customer;
 use App\Models\Invoice;
-use App\Models\InvoiceItem;
-use App\Models\User;
+use App\Models\Transaction;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Str;
 use Illuminate\View\View;
 
 class InvoiceController extends Controller
@@ -38,7 +40,7 @@ class InvoiceController extends Controller
                 $x->where('invoice_number', 'like', "%{$q}%")
                     ->orWhere('recipient_name', 'like', "%{$q}%")
                     ->orWhere('recipient_email', 'like', "%{$q}%")
-                    ->orWhereHas('customer', fn($c) => $c->whereRaw("CONCAT(first_name, ' ', last_name) like ?", ["%{$q}%"]));
+                    ->orWhereHas('customer', fn ($c) => $c->whereRaw("CONCAT(first_name, ' ', last_name) like ?", ["%{$q}%"]));
             });
         }
 
@@ -57,7 +59,7 @@ class InvoiceController extends Controller
         $user = $request->user();
         $customers = Customer::where('business_id', $user->business_id)->orderBy('first_name')->get();
         $stores = $user->accessibleStores()->where('status', 'active')->orderBy('name')->get();
-        $invoice = new Invoice();
+        $invoice = new Invoice;
 
         $breadcrumbs = [
             ['label' => 'Dashboard', 'url' => route('management.dashboard')],
@@ -98,7 +100,9 @@ class InvoiceController extends Controller
             ]);
 
             foreach ($validated['items'] as $i => $item) {
-                if (empty($item['description'])) continue;
+                if (empty($item['description'])) {
+                    continue;
+                }
                 $invoice->items()->create([
                     'description' => $item['description'],
                     'quantity' => (int) ($item['quantity'] ?? 1),
@@ -108,7 +112,7 @@ class InvoiceController extends Controller
                 ]);
             }
 
-            if (!empty($validated['recipient_email']) && empty($validated['customer_id']) && $request->has('save_customer')) {
+            if (! empty($validated['recipient_email']) && empty($validated['customer_id']) && $request->has('save_customer')) {
                 $nameParts = explode(' ', trim($validated['recipient_name'] ?? ''), 2);
                 Customer::create([
                     'business_id' => $user->business_id,
@@ -132,9 +136,11 @@ class InvoiceController extends Controller
     public function show(Request $request, Invoice $invoice): View
     {
         $user = $request->user();
-        if ($invoice->business_id !== $user->business_id) abort(403);
+        if ($invoice->business_id !== $user->business_id) {
+            abort(403);
+        }
 
-        $invoice->load(['items', 'customer', 'store', 'transactions' => fn($q) => $q->latest()]);
+        $invoice->load(['items', 'customer', 'store', 'transactions' => fn ($q) => $q->latest()]);
 
         $breadcrumbs = [
             ['label' => 'Dashboard', 'url' => route('management.dashboard')],
@@ -148,8 +154,12 @@ class InvoiceController extends Controller
     public function edit(Request $request, Invoice $invoice): View
     {
         $user = $request->user();
-        if ($invoice->business_id !== $user->business_id) abort(403);
-        if (!$invoice->isDraft()) abort(403, 'Only draft invoices can be edited.');
+        if ($invoice->business_id !== $user->business_id) {
+            abort(403);
+        }
+        if (! $invoice->isDraft()) {
+            abort(403, 'Only draft invoices can be edited.');
+        }
 
         $invoice->load('items');
         $customers = Customer::where('business_id', $user->business_id)->orderBy('first_name')->get();
@@ -168,12 +178,16 @@ class InvoiceController extends Controller
     public function update(Request $request, Invoice $invoice): RedirectResponse
     {
         $user = $request->user();
-        if ($invoice->business_id !== $user->business_id) abort(403);
-        if (!$invoice->isDraft()) abort(403, 'Only draft invoices can be edited.');
+        if ($invoice->business_id !== $user->business_id) {
+            abort(403);
+        }
+        if (! $invoice->isDraft()) {
+            abort(403, 'Only draft invoices can be edited.');
+        }
 
         $validated = $this->validateInvoice($request);
 
-        DB::transaction(function () use ($user, $invoice, $validated, $request) {
+        DB::transaction(function () use ($invoice, $validated, $request) {
             $invoice->update([
                 'store_id' => $validated['store_id'] ?? null,
                 'customer_id' => $validated['customer_id'] ?? null,
@@ -196,7 +210,9 @@ class InvoiceController extends Controller
 
             $invoice->items()->delete();
             foreach ($validated['items'] as $i => $item) {
-                if (empty($item['description'])) continue;
+                if (empty($item['description'])) {
+                    continue;
+                }
                 $invoice->items()->create([
                     'description' => $item['description'],
                     'quantity' => (int) ($item['quantity'] ?? 1),
@@ -218,8 +234,12 @@ class InvoiceController extends Controller
     public function destroy(Request $request, Invoice $invoice): RedirectResponse
     {
         $user = $request->user();
-        if ($invoice->business_id !== $user->business_id) abort(403);
-        if (!$invoice->isDraft()) abort(403, 'Only draft invoices can be deleted.');
+        if ($invoice->business_id !== $user->business_id) {
+            abort(403);
+        }
+        if (! $invoice->isDraft()) {
+            abort(403, 'Only draft invoices can be deleted.');
+        }
 
         $invoice->delete();
 
@@ -230,17 +250,21 @@ class InvoiceController extends Controller
     public function send(Request $request, Invoice $invoice): RedirectResponse
     {
         $user = $request->user();
-        if ($invoice->business_id !== $user->business_id) abort(403);
+        if ($invoice->business_id !== $user->business_id) {
+            abort(403);
+        }
 
         $this->sendInvoice($invoice);
 
-        return back()->with('success', 'Invoice sent to ' . $invoice->recipient_email);
+        return back()->with('success', 'Invoice sent to '.$invoice->recipient_email);
     }
 
     public function markPaid(Request $request, Invoice $invoice): RedirectResponse
     {
         $user = $request->user();
-        if ($invoice->business_id !== $user->business_id) abort(403);
+        if ($invoice->business_id !== $user->business_id) {
+            abort(403);
+        }
 
         $invoice->update([
             'status' => InvoiceStatus::PAID,
@@ -253,7 +277,9 @@ class InvoiceController extends Controller
     public function voidInvoice(Request $request, Invoice $invoice): RedirectResponse
     {
         $user = $request->user();
-        if ($invoice->business_id !== $user->business_id) abort(403);
+        if ($invoice->business_id !== $user->business_id) {
+            abort(403);
+        }
 
         $invoice->update([
             'status' => InvoiceStatus::VOID,
@@ -266,31 +292,33 @@ class InvoiceController extends Controller
     public function recordPayment(Request $request, Invoice $invoice): RedirectResponse
     {
         $user = $request->user();
-        if ($invoice->business_id !== $user->business_id) abort(403);
+        if ($invoice->business_id !== $user->business_id) {
+            abort(403);
+        }
 
         if (in_array($invoice->status, [InvoiceStatus::PAID, InvoiceStatus::VOID])) {
-            return back()->with('error', 'Cannot record payment on a ' . $invoice->status->label() . ' invoice.');
+            return back()->with('error', 'Cannot record payment on a '.$invoice->status->label().' invoice.');
         }
 
         $validated = $request->validate([
-            'amount' => ['required', 'numeric', 'min:0.01', 'max:' . $invoice->remainingBalance()],
+            'amount' => ['required', 'numeric', 'min:0.01', 'max:'.$invoice->remainingBalance()],
             'payment_method' => ['required', 'in:gateway,bank_transfer,check'],
             'password' => ['required', function ($attribute, $value, $fail) use ($user) {
-                if (!\Illuminate\Support\Facades\Hash::check($value, $user->password)) {
+                if (! Hash::check($value, $user->password)) {
                     $fail('The password is incorrect.');
                 }
             }],
             'note' => ['nullable', 'string', 'max:500'],
         ], [
-            'amount.max' => 'Amount cannot exceed the remaining balance of ₦' . number_format($invoice->remainingBalance(), 2) . '.',
+            'amount.max' => 'Amount cannot exceed the remaining balance of ₦'.number_format($invoice->remainingBalance(), 2).'.',
         ]);
 
         DB::transaction(function () use ($invoice, $user, $validated) {
             $methodLabels = ['gateway' => 'Payment Gateway', 'bank_transfer' => 'Bank Transfer', 'check' => 'Cheque'];
             $methodLabel = $methodLabels[$validated['payment_method']] ?? $validated['payment_method'];
 
-            $transaction = \App\Models\Transaction::create([
-                'reference' => 'PMT-' . strtoupper(\Illuminate\Support\Str::random(12)),
+            $transaction = Transaction::create([
+                'reference' => 'PMT-'.strtoupper(Str::random(12)),
                 'invoice_id' => $invoice->id,
                 'business_id' => $invoice->business_id,
                 'amount' => $validated['amount'],
@@ -340,20 +368,23 @@ class InvoiceController extends Controller
             ]);
         });
 
-        return back()->with('success', 'Payment of ₦' . number_format($validated['amount'], 2)
-            . ' via ' . ucfirst(str_replace('_', ' ', $validated['payment_method']))
-            . ' recorded successfully.');
+        return back()->with('success', 'Payment of ₦'.number_format($validated['amount'], 2)
+            .' via '.ucfirst(str_replace('_', ' ', $validated['payment_method']))
+            .' recorded successfully.');
     }
 
-    public function pdf(Request $request, Invoice $invoice): \Illuminate\Http\Response
+    public function pdf(Request $request, Invoice $invoice): Response
     {
         $user = $request->user();
-        if ($invoice->business_id !== $user->business_id) abort(403);
+        if ($invoice->business_id !== $user->business_id) {
+            abort(403);
+        }
 
         $invoice->load(['items', 'store', 'customer']);
 
         $pdf = Pdf::loadView('management.invoices.pdf', compact('invoice'));
-        return $pdf->download($invoice->invoice_number . '.pdf');
+
+        return $pdf->download($invoice->invoice_number.'.pdf');
     }
 
     protected function validateInvoice(Request $request): array
@@ -386,17 +417,19 @@ class InvoiceController extends Controller
     {
         $to = $invoice->recipient_email ?: $invoice->customer?->email;
 
-        if (!$to || str_contains($to, '@walkin.local')) {
+        if (! $to || str_contains($to, '@walkin.local')) {
             $to = config('mail.from.address');
         }
 
-        if (!$to) return;
+        if (! $to) {
+            return;
+        }
 
         try {
             $invoice->load(['items', 'store']);
 
-            if (!$invoice->payment_token) {
-                $invoice->payment_token = \Illuminate\Support\Str::random(32);
+            if (! $invoice->payment_token) {
+                $invoice->payment_token = Str::random(32);
                 $invoice->save();
             }
 

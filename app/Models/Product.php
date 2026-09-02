@@ -6,14 +6,13 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
-use App\Models\BelongsToBusiness;
 
 class Product extends Model
 {
-    use HasFactory, BelongsToBusiness;
+    use BelongsToBusiness, HasFactory;
 
     protected $fillable = [
         'store_id',
@@ -47,24 +46,24 @@ class Product extends Model
     {
         parent::boot();
         static::creating(function ($model) {
-            if (empty($model->slug) && !empty($model->name)) {
-                $model->slug = Str::slug($model->name) . '-' . substr((string) Str::uuid(), 0, 8);
+            if (empty($model->slug) && ! empty($model->name)) {
+                $model->slug = Str::slug($model->name).'-'.substr((string) Str::uuid(), 0, 8);
             }
             if (empty($model->product_code)) {
-                $model->product_code = 'prd_' . strtoupper(Str::random(8));
+                $model->product_code = 'prd_'.strtoupper(Str::random(8));
             }
         });
         static::saving(function ($model) {
             // Auto-sync warehouse_id from section
             if ($model->isDirty('section_id') && $model->section_id) {
-                $section = \App\Models\Section::find($model->section_id);
+                $section = Section::find($model->section_id);
                 if ($section && $section->warehouse_id) {
                     $model->warehouse_id = $section->warehouse_id;
                 }
             }
 
             // Only validate quantity/amount when product is assigned to a store
-            if (!$model->store_id) {
+            if (! $model->store_id) {
                 return;
             }
             // When product has variants, base amount/quantity are optional
@@ -75,8 +74,8 @@ class Product extends Model
                 'quantity' => $model->quantity,
                 'amount' => $model->amount,
             ], [
-                'quantity' => ['required','integer','gt:0'],
-                'amount' => ['required','numeric','gt:0'],
+                'quantity' => ['required', 'integer', 'gt:0'],
+                'amount' => ['required', 'numeric', 'gt:0'],
             ]);
             if ($validator->fails()) {
                 throw new ValidationException($validator);
@@ -132,6 +131,7 @@ class Product extends Model
     public function primaryImage(): ?ProductImage
     {
         $img = $this->images->firstWhere('is_primary', true);
+
         return $img ?: $this->images->first();
     }
 
@@ -158,7 +158,8 @@ class Product extends Model
         if (is_null($this->stock_quantity)) {
             return 0;
         }
-        return max(0, (int)$this->stock_quantity - (int)$this->quantity);
+
+        return max(0, (int) $this->stock_quantity - (int) $this->quantity);
     }
 
     /**
@@ -166,9 +167,10 @@ class Product extends Model
      */
     public function stockPercentage(): int
     {
-        if (is_null($this->stock_quantity) || (int)$this->stock_quantity === 0) {
+        if (is_null($this->stock_quantity) || (int) $this->stock_quantity === 0) {
             return 100;
         }
-        return (int) round(((int)$this->quantity / (int)$this->stock_quantity) * 100);
+
+        return (int) round(((int) $this->quantity / (int) $this->stock_quantity) * 100);
     }
 }

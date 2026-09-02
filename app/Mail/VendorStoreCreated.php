@@ -3,11 +3,11 @@
 namespace App\Mail;
 
 use App\Models\Store;
+use App\Queue\WithQueueConfig;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Mail\Mailable;
 use Illuminate\Queue\SerializesModels;
-use App\Queue\WithQueueConfig;
 
 class VendorStoreCreated extends Mailable implements ShouldQueue
 {
@@ -21,7 +21,7 @@ class VendorStoreCreated extends Mailable implements ShouldQueue
     public function build(): self
     {
         return $this->subject('Your Store is Live: '.$this->store->name)
-            ->view('emails.vendor.store-created')
+            ->view('emails.business.store-created')
             ->with(['store' => $this->store]);
     }
 }

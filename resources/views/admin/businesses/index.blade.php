@@ -1,0 +1,336 @@
+@extends('admin.layout')
+@section('subtitle', 'Businesses')
+
+@section('content')
+<div class="flex items-center justify-between mb-6">
+    <h2 class="text-lg font-bold text-slate-900">Businesses</h2>
+    <div class="flex items-center gap-2">
+        <button onclick="openModal('filterBusinessesModal')" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50">
+            <i class="fi fi-rr-filter text-sm"></i> Filter
+        </button>
+        <button onclick="openModal('createBusinessModal')" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg bg-slate-900 text-white hover:bg-slate-800">
+            <i class="fi fi-rr-plus text-sm"></i> Add Business
+        </button>
+    </div>
+</div>
+
+<div class="bg-white rounded-xl shadow-sm border border-slate-200">
+    
+        <table class="w-full text-sm">
+            <thead class="border-b border-slate-100">
+                <tr>
+                    <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Business</th>
+                    <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Owner</th>
+                    <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Stores</th>
+                    <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Warehouses</th>
+                    <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Subscription</th>
+                    <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
+                    <th class="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider">Actions</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-50">
+                @forelse($businesses as $business)
+                    @php($owner = $business->owner)
+                    <tr class="hover:bg-slate-50/50">
+                        <td class="px-4 py-3">
+                            <a href="{{ route('admin.businesses.show', $owner) }}" class="font-medium text-slate-900 hover:text-indigo-600">{{ $business->name }}</a>
+                            <div class="text-xs text-slate-400 font-mono">{{ $business->business_code }}</div>
+                        </td>
+                        <td class="px-4 py-3">
+                            <span class="text-slate-700">{{ $owner?->name ?? '—' }}</span>
+                            <div class="text-xs text-slate-400">{{ $owner?->email ?? '' }}</div>
+                        </td>
+                        <td class="px-4 py-3">
+                            <span class="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-700">{{ $business->stores_count }}</span>
+                            @if($business->stores_count > 0)
+                                <a href="{{ route('admin.stores.index') }}?q={{ $business->name }}" class="text-xs text-indigo-600 hover:underline ml-1">view</a>
+                            @endif
+                        </td>
+                        <td class="px-4 py-3">
+                            <span class="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-700">{{ $business->warehouses_count }}</span>
+                        </td>
+                        <td class="px-4 py-3">
+                            @php($sub = $business->activeSubscription)
+                            @if($sub)
+                                <span class="inline-flex items-center rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700">{{ $sub->subscriptionPlan?->name ?? 'Active' }}</span>
+                            @else
+                                <span class="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-500">None</span>
+                            @endif
+                        </td>
+                        <td class="px-4 py-3">
+                            @php($bizBadge = $businessStatusBadgeData[strtolower($business->status)] ?? null)
+                            <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium
+                                {{ ($bizBadge['class'] ?? '') ?: 'bg-slate-100 text-slate-600' }}">
+                                {{ $bizBadge['label'] ?? ucfirst($business->status) }}
+                            </span>
+                        </td>
+                        <td class="px-4 py-3 text-right" x-data="{ open: false }">
+                            <div class="relative inline-block">
+                                <button @click="open = !open" class="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100">
+                                    <i class="fi fi-rr-menu-dots text-sm"></i>
+                                </button>
+                                <div x-show="open" @click.outside="open = false" x-transition class="absolute right-0 z-20 mt-1 w-44 bg-white rounded-lg shadow-lg border border-slate-200 py-1">
+                                    <a href="{{ route('admin.businesses.show', $owner) }}" class="flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">
+                                        <i class="fi fi-rr-eye text-slate-400"></i> View
+                                    </a>
+                                    @if($owner)
+                                    <button onclick="editBusiness('{{ route('admin.businesses.update', $owner) }}', '{{ $owner->name }}', '{{ $owner->slug }}', '{{ $owner->email }}', '{{ $owner->phone }}', '{{ $owner->status }}'); open = false" class="flex items-center gap-2 w-full px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 text-left">
+                                        <i class="fi fi-rr-pencil text-slate-400"></i> Edit Owner
+                                    </button>
+                                    <button onclick="confirmAction('activateBusinessForm', '{{ route('admin.businesses.activate', $owner) }}', '{{ $business->name }}', 'activateBusinessName'); open = false" class="flex items-center gap-2 w-full px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 text-left">
+                                        <i class="fi fi-rr-check-circle text-slate-400"></i> Activate
+                                    </button>
+                                    <button onclick="confirmAction('suspendBusinessForm', '{{ route('admin.businesses.suspend', $owner) }}', '{{ $business->name }}', 'suspendBusinessName'); open = false" class="flex items-center gap-2 w-full px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 text-left">
+                                        <i class="fi fi-rr-ban text-slate-400"></i> Suspend
+                                    </button>
+                                    <button onclick="confirmDelete('{{ route('admin.businesses.destroy', $owner) }}', '{{ $business->name }}'); open = false" class="flex items-center gap-2 w-full px-3 py-2 text-sm text-red-600 hover:bg-red-50 text-left">
+                                        <i class="fi fi-rr-trash text-red-400"></i> Delete
+                                    </button>
+                                    @endif
+                                </div>
+                            </div>
+                        </td>
+                    </tr>
+                @empty
+                    <tr>
+                        <td colspan="7" class="px-4 py-12 text-center text-slate-400">No businesses yet.</td>
+                    </tr>
+                @endforelse
+            </tbody>
+        </table>
+
+    <div class="px-4 py-3 border-t border-slate-100">
+        {{ $businesses->links() }}
+    </div>
+</div>
+
+{{-- Delete Business Modal --}}
+<div id="deleteBusinessModal" class="hidden fixed inset-0 z-50 overflow-y-auto" aria-labelledby="deleteBusinessLabel" role="dialog" aria-modal="true">
+    <div class="flex items-center justify-center min-h-screen p-4">
+        <div class="fixed inset-0 bg-slate-900/50" onclick="closeModal('deleteBusinessModal')"></div>
+        <div class="relative bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-md p-6">
+            <h5 class="text-base font-semibold text-slate-900 mb-4">Delete Business</h5>
+            <form id="deleteBusinessForm" method="POST" action="#">
+                @csrf
+                @method('DELETE')
+                <p class="text-sm text-slate-600 mb-3">You're about to delete this business:</p>
+                <input type="text" id="deleteBusinessName" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-slate-50 text-slate-500" disabled>
+                <p class="mt-3 text-xs text-red-500">This action cannot be undone.</p>
+                <div class="flex justify-end gap-2 mt-4">
+                    <button type="button" onclick="closeModal('deleteBusinessModal')" class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50">Cancel</button>
+                    <button type="submit" class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg bg-red-600 text-white hover:bg-red-700">Delete</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+{{-- Create Business Modal --}}
+<div id="createBusinessModal" class="hidden fixed inset-0 z-50 overflow-y-auto" role="dialog" aria-modal="true">
+    <div class="flex items-center justify-center min-h-screen p-4">
+        <div class="fixed inset-0 bg-slate-900/50" onclick="closeModal('createBusinessModal')"></div>
+        <div class="relative bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-md p-6">
+            <h5 class="text-base font-semibold text-slate-900 mb-4">Add Business</h5>
+            <form action="{{ route('admin.businesses.store') }}" method="POST" class="space-y-4">
+                @csrf
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Name</label>
+                    <input type="text" name="name" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" value="{{ old('name') }}" required>
+                </div>
+                <div class="hidden">
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Slug</label>
+                    <input type="text" name="slug" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" value="{{ old('slug') }}" placeholder="auto-generated from name if left blank">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Email</label>
+                    <input type="email" name="email" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" value="{{ old('email') }}">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Phone</label>
+                    <input type="text" name="phone" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" value="{{ old('phone') }}">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Status</label>
+                    <select name="status" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                        <option value="active" {{ old('status','active')=='active'?'selected':'' }}>active</option>
+                        <option value="inactive" {{ old('status')=='inactive'?'selected':'' }}>inactive</option>
+                    </select>
+                </div>
+                <div class="flex justify-end gap-2 pt-2">
+                    <button type="button" onclick="closeModal('createBusinessModal')" class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50">Cancel</button>
+                    <button type="submit" class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg bg-slate-900 text-white hover:bg-slate-800">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+{{-- Edit Business Modal --}}
+<div id="editBusinessModal" class="hidden fixed inset-0 z-50 overflow-y-auto" role="dialog" aria-modal="true">
+    <div class="flex items-center justify-center min-h-screen p-4">
+        <div class="fixed inset-0 bg-slate-900/50" onclick="closeModal('editBusinessModal')"></div>
+        <div class="relative bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-md p-6">
+            <h5 class="text-base font-semibold text-slate-900 mb-4">Edit Business</h5>
+            <form id="editBusinessForm" action="#" method="POST" class="space-y-4">
+                @csrf
+                @method('PUT')
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Name</label>
+                    <input type="text" name="name" id="editBusinessName" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" required>
+                </div>
+                <div class="hidden">
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Slug</label>
+                    <input type="text" name="slug" id="editBusinessSlug" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" placeholder="auto-generated from name if left blank">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Email</label>
+                    <input type="email" name="email" id="editBusinessEmail" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Phone</label>
+                    <input type="text" name="phone" id="editBusinessPhone" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Status</label>
+                    <select name="status" id="editBusinessStatus" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                        <option value="active">active</option>
+                        <option value="inactive">inactive</option>
+                        <option value="suspended">suspended</option>
+                        <option value="deleted">deleted</option>
+                    </select>
+                </div>
+                <div class="flex justify-end gap-2 pt-2">
+                    <button type="button" onclick="closeModal('editBusinessModal')" class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50">Cancel</button>
+                    <button type="submit" class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg bg-slate-900 text-white hover:bg-slate-800">Update</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+{{-- Filter Businesses Modal --}}
+<div id="filterBusinessesModal" class="hidden fixed inset-0 z-50 overflow-y-auto" role="dialog" aria-modal="true">
+    <div class="flex items-center justify-center min-h-screen p-4">
+        <div class="fixed inset-0 bg-slate-900/50" onclick="closeModal('filterBusinessesModal')"></div>
+        <div class="relative bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-lg p-6">
+            <h5 class="text-base font-semibold text-slate-900 mb-4">Filter Businesses</h5>
+            <form method="GET" class="space-y-4">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">Status</label>
+                        <select name="status" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                            <option value="">All</option>
+                            <option value="active" @selected(($status ?? '')==='active')>Active</option>
+                            <option value="suspended" @selected(($status ?? '')==='suspended')>Suspended</option>
+                            <option value="deleted" @selected(($status ?? '')==='deleted')>Deleted</option>
+                        </select>
+                    </div>
+                    <div class="md:col-span-2">
+                        <label class="block text-sm font-medium text-slate-700 mb-1">Search</label>
+                        <input type="text" name="q" value="{{ $q ?? '' }}" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" placeholder="Name, email or phone">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">From</label>
+                        <input type="date" name="from" value="{{ $from ?? '' }}" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">To</label>
+                        <input type="date" name="to" value="{{ $to ?? '' }}" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                    </div>
+                </div>
+                <div class="flex justify-end gap-2 pt-2">
+                    <a href="{{ route('admin.businesses.index') }}" class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50">Reset</a>
+                    <button type="submit" class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg bg-slate-900 text-white hover:bg-slate-800">Apply Filters</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+{{-- Suspend Business Modal --}}
+<div id="suspendBusinessModal" class="hidden fixed inset-0 z-50 overflow-y-auto" role="dialog" aria-modal="true">
+    <div class="flex items-center justify-center min-h-screen p-4">
+        <div class="fixed inset-0 bg-slate-900/50" onclick="closeModal('suspendBusinessModal')"></div>
+        <div class="relative bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-md p-6">
+            <h5 class="text-base font-semibold text-slate-900 mb-4">Suspend Business</h5>
+            <form id="suspendBusinessForm" method="POST" class="space-y-4">
+                @csrf
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Business</label>
+                    <input type="text" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-slate-50 text-slate-500" id="suspendBusinessName" disabled>
+                </div>
+                <div>
+                    <label for="suspendReason" class="block text-sm font-medium text-slate-700 mb-1">Reason</label>
+                    <textarea class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" id="suspendReason" name="reason" rows="4" placeholder="Provide reason for suspension" required></textarea>
+                </div>
+                <div class="flex justify-end gap-2 pt-2">
+                    <button type="button" onclick="closeModal('suspendBusinessModal')" class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50">Cancel</button>
+                    <button type="submit" class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg bg-amber-500 text-white hover:bg-amber-600">Suspend</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+{{-- Activate Business Modal --}}
+<div id="activateBusinessModal" class="hidden fixed inset-0 z-50 overflow-y-auto" role="dialog" aria-modal="true">
+    <div class="flex items-center justify-center min-h-screen p-4">
+        <div class="fixed inset-0 bg-slate-900/50" onclick="closeModal('activateBusinessModal')"></div>
+        <div class="relative bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-md p-6">
+            <h5 class="text-base font-semibold text-slate-900 mb-4">Activate Business</h5>
+            <form id="activateBusinessForm" method="POST" class="space-y-4">
+                @csrf
+                <div class="px-4 py-3 rounded-lg bg-blue-50 border border-blue-200 text-sm text-blue-700">
+                    Activating this business will also approve their KYC submission. This action means you are okay with the business's KYC submission.
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Business</label>
+                    <input type="text" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-slate-50 text-slate-500" id="activateBusinessName" disabled>
+                </div>
+                <div>
+                    <label for="activateReason" class="block text-sm font-medium text-slate-700 mb-1">Reason / Notes</label>
+                    <textarea class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" id="activateReason" name="reason" rows="4" placeholder="Provide reason for activation" required></textarea>
+                </div>
+                <div class="flex justify-end gap-2 pt-2">
+                    <button type="button" onclick="closeModal('activateBusinessModal')" class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50">Cancel</button>
+                    <button type="submit" class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg bg-emerald-600 text-white hover:bg-emerald-700">Activate</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+function confirmAction(formId, action, displayName, inputId) {
+    const form = document.getElementById(formId);
+    const input = document.getElementById(inputId);
+    if (form) form.action = action;
+    if (input) input.value = displayName || '';
+    openModal(formId === 'suspendBusinessForm' ? 'suspendBusinessModal' : 'activateBusinessModal');
+}
+
+function confirmDelete(action, displayName) {
+    const form = document.getElementById('deleteBusinessForm');
+    const input = document.getElementById('deleteBusinessName');
+    if (form) form.action = action;
+    if (input) input.value = displayName || '';
+    openModal('deleteBusinessModal');
+}
+
+function editBusiness(action, name, slug, email, phone, status) {
+    const form = document.getElementById('editBusinessForm');
+    if (form) form.action = action;
+    document.getElementById('editBusinessName').value = name || '';
+    document.getElementById('editBusinessSlug').value = slug || '';
+    document.getElementById('editBusinessEmail').value = email || '';
+    document.getElementById('editBusinessPhone').value = phone || '';
+    const statusSelect = document.getElementById('editBusinessStatus');
+    if (statusSelect) {
+        Array.from(statusSelect.options).forEach(function(opt) {
+            opt.selected = (opt.value.toLowerCase() === (status || '').toLowerCase());
+        });
+    }
+    openModal('editBusinessModal');
+}
+</script>
+@endsection

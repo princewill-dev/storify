@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Models\Product;
 use App\Models\StockLocation;
+use App\Models\StockTransfer;
 use App\Models\Warehouse;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
@@ -22,8 +23,9 @@ class WarehouseDelete extends Command
 
         $warehouse = Warehouse::where('warehouse_code', $identifier)->first();
 
-        if (!$warehouse) {
+        if (! $warehouse) {
             $this->error("Warehouse [{$identifier}] not found.");
+
             return Command::FAILURE;
         }
 
@@ -40,8 +42,9 @@ class WarehouseDelete extends Command
             ]
         );
 
-        if (!$this->option('force') && !$this->confirm('This will PERMANENTLY delete the warehouse and ALL its data. Continue?', false)) {
+        if (! $this->option('force') && ! $this->confirm('This will PERMANENTLY delete the warehouse and ALL its data. Continue?', false)) {
             $this->info('Aborted.');
+
             return Command::FAILURE;
         }
 
@@ -63,9 +66,9 @@ class WarehouseDelete extends Command
                 ->where('locationable_id', $warehouse->id)
                 ->delete();
 
-            \App\Models\StockTransfer::where(function ($q) use ($warehouse) {
+            StockTransfer::where(function ($q) use ($warehouse) {
                 $q->where('from_location_type', Warehouse::class)->where('from_location_id', $warehouse->id)
-                  ->orWhere('to_location_type', Warehouse::class)->where('to_location_id', $warehouse->id);
+                    ->orWhere('to_location_type', Warehouse::class)->where('to_location_id', $warehouse->id);
             })->delete();
 
             $warehouse->sections()->delete();
@@ -73,6 +76,7 @@ class WarehouseDelete extends Command
         });
 
         $this->info("Warehouse [{$identifier}] deleted successfully.");
+
         return Command::SUCCESS;
     }
 }

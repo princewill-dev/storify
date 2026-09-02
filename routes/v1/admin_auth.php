@@ -1,10 +1,10 @@
 <?php
 
-use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Admin\Auth\AdminAuthController;
+use Illuminate\Support\Facades\Route;
 
 // Default login route (for auth middleware redirect)
-Route::get('/login', function() {
+Route::get('/login', function () {
     return redirect()->route('admin.login');
 })->name('login');
 
@@ -12,8 +12,8 @@ Route::get('/login', function() {
 Route::get('/superadmin/setup', [AdminAuthController::class, 'onboard'])->name('admin.setup');
 Route::post('/superadmin/setup', [AdminAuthController::class, 'processOnboard'])->name('admin.setup.process');
 // Legacy onboard route
-Route::get('/superadmin/onboard', fn() => redirect()->route('admin.setup'))->name('admin.onboard');
-Route::post('/superadmin/onboard', fn() => redirect()->route('admin.setup'))->name('admin.onboard.process');
+Route::get('/superadmin/onboard', fn () => redirect()->route('admin.setup'))->name('admin.onboard');
+Route::post('/superadmin/onboard', fn () => redirect()->route('admin.setup'))->name('admin.onboard.process');
 
 // Admin Login Routes
 Route::get('/superadmin', [AdminAuthController::class, 'login'])->name('admin.login');
@@ -32,6 +32,3 @@ Route::post('/superadmin/resend-otp', [AdminAuthController::class, 'resendOtp'])
 
 // Logout Route (protected)
 Route::post('/superadmin/logout', [AdminAuthController::class, 'logout'])->name('admin.logout');
-
-
-

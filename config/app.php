@@ -53,7 +53,7 @@ return [
     */
 
     'url' => env('APP_URL', 'http://localhost'),
-    
+
     'main_domain' => env('APP_MAIN_DOMAIN', parse_url(env('APP_URL', 'http://localhost'), PHP_URL_HOST)),
 
     /*

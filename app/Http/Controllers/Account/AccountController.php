@@ -5,21 +5,19 @@ namespace App\Http\Controllers\Account;
 use App\Http\Controllers\Controller;
 use App\Mail\PasswordResetOtpMail;
 use App\Models\Cart;
-use App\Models\CartItem;
 use App\Models\Customer;
 use App\Models\Order;
 use App\Models\Transaction;
-use App\Models\User;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Cookie;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Str;
 use Illuminate\View\View;
-use Illuminate\Http\RedirectResponse;
 
 class AccountController extends Controller
 {
@@ -35,8 +33,9 @@ class AccountController extends Controller
         if (Auth::guard('web')->check()) {
             return redirect()->route('management.auth.login');
         }
-        
+
         $flow = $request->query('flow');
+
         return view('account.login', ['flow' => $flow]);
     }
 
@@ -52,24 +51,25 @@ class AccountController extends Controller
 
         if (Auth::guard('customer')->attempt($credentials, false)) {
             $request->session()->regenerate();
-            
+
             $customer = Auth::guard('customer')->user();
             Log::info('customer.login.success', ['customer_id' => $customer->id, 'email' => $customer->email]);
-            
+
             // Merge guest cart with customer cart
             $this->mergeGuestCart($request, $customer);
-            
+
             // Check if coming from checkout (URL-based, no session)
             if ($request->filled('checkout_code') && $request->filled('store')) {
                 // Guest cart may have been merged — get the customer's active cart token
-                $activeCart = \App\Models\Cart::where('user_id', $customer->id)
+                $activeCart = Cart::where('user_id', $customer->id)
                     ->where('status', 'active')
                     ->latest()->first();
-                if ($activeCart && !$activeCart->checkout_token) {
-                    $activeCart->update(['checkout_token' => \Illuminate\Support\Str::random(32)]);
+                if ($activeCart && ! $activeCart->checkout_token) {
+                    $activeCart->update(['checkout_token' => Str::random(32)]);
                 }
                 $token = $activeCart?->checkout_token ?? $request->checkout_code;
                 $storeSlug = $request->store;
+
                 return redirect()->route('checkout.index', ['store_subdomain' => $storeSlug, 'token' => $token]);
             }
 
@@ -86,6 +86,7 @@ class AccountController extends Controller
                 'email' => 'The provided credentials do not match our records.',
             ]);
         }
+
         return $redirect->withInput($request->only('email'));
     }
 
@@ -95,9 +96,10 @@ class AccountController extends Controller
     protected function mergeGuestCart(Request $request, Customer $customer): void
     {
         $guestToken = $request->cookie('guest_token');
-        
-        if (!$guestToken) {
+
+        if (! $guestToken) {
             Log::info('cart_merge.no_guest_token', ['customer_id' => $customer->id]);
+
             return;
         }
 
@@ -112,8 +114,9 @@ class AccountController extends Controller
                 if ($guestCarts->isEmpty()) {
                     Log::info('cart_merge.no_guest_carts', [
                         'customer_id' => $customer->id,
-                        'guest_token' => $guestToken
+                        'guest_token' => $guestToken,
                     ]);
+
                     return;
                 }
 
@@ -124,11 +127,11 @@ class AccountController extends Controller
                         ->where('status', 'active')
                         ->first();
 
-                    if (!$customerCart) {
+                    if (! $customerCart) {
                         $customerCart = Cart::create([
                             'store_id' => $guestCart->store_id,
                             'user_id' => $customer->id,
-                            'checkout_token' => \Illuminate\Support\Str::random(32),
+                            'checkout_token' => Str::random(32),
                             'currency' => $guestCart->currency,
                             'status' => 'active',
                             'guest_token' => null,
@@ -152,7 +155,7 @@ class AccountController extends Controller
                             // Update quantity if item already exists
                             $existingItem->qty += $guestItem->qty;
                             $existingItem->save();
-                            
+
                             Log::info('cart_merge.item_updated', [
                                 'customer_id' => $customer->id,
                                 'product_id' => $guestItem->product_id,
@@ -163,7 +166,7 @@ class AccountController extends Controller
                             // Move item to customer cart
                             $guestItem->cart_id = $customerCart->id;
                             $guestItem->save();
-                            
+
                             Log::info('cart_merge.item_moved', [
                                 'customer_id' => $customer->id,
                                 'product_id' => $guestItem->product_id,
@@ -178,7 +181,7 @@ class AccountController extends Controller
 
                     // Delete empty guest cart
                     $guestCart->delete();
-                    
+
                     Log::info('cart_merge.guest_cart_deleted', [
                         'customer_id' => $customer->id,
                         'store_id' => $guestCart->store_id,
@@ -207,7 +210,7 @@ class AccountController extends Controller
     public function logout(Request $request): RedirectResponse
     {
         Log::info('customer.logout', ['customer_id' => Auth::guard('customer')->id()]);
-        
+
         Auth::guard('customer')->logout();
         $request->session()->invalidate();
         $request->session()->regenerateToken();
@@ -232,15 +235,15 @@ class AccountController extends Controller
             'email' => ['required', 'email', 'exists:customers,email'],
         ]);
 
-        $customer = \App\Models\Customer::where('email', $request->email)->first();
+        $customer = Customer::where('email', $request->email)->first();
 
-        if (!$customer) {
+        if (! $customer) {
             return back()->withErrors(['email' => 'Customer not found.']);
         }
 
         // Generate 6-digit OTP
         $otp = (string) random_int(100000, 999999);
-        $cacheKey = 'password_reset_otp:' . $customer->email;
+        $cacheKey = 'password_reset_otp:'.$customer->email;
 
         // Store OTP for 10 minutes
         Cache::put($cacheKey, $otp, now()->addMinutes(10));
@@ -250,6 +253,7 @@ class AccountController extends Controller
             Log::info('password_reset.otp_sent', ['customer_id' => $customer->id, 'email' => $customer->email]);
         } catch (\Throwable $e) {
             Log::error('password_reset.otp_failed', ['error' => $e->getMessage()]);
+
             return back()->withErrors(['email' => 'Failed to send OTP. Please try again.']);
         }
 
@@ -263,10 +267,10 @@ class AccountController extends Controller
      */
     public function showVerifyOtp(): View
     {
-        if (!session('email')) {
+        if (! session('email')) {
             return redirect()->route('account.forgot-password');
         }
-        
+
         return view('account.verify-reset-otp');
     }
 
@@ -280,17 +284,18 @@ class AccountController extends Controller
             'otp' => ['required', 'digits:6'],
         ]);
 
-        $cacheKey = 'password_reset_otp:' . $request->email;
+        $cacheKey = 'password_reset_otp:'.$request->email;
         $storedOtp = Cache::get($cacheKey);
 
-        if (!$storedOtp || $storedOtp !== $request->otp) {
+        if (! $storedOtp || $storedOtp !== $request->otp) {
             Log::warning('password_reset.otp_invalid', ['email' => $request->email]);
+
             return back()->withErrors(['otp' => 'Invalid or expired OTP.']);
         }
 
         // OTP is valid, store token for password reset
         $token = bin2hex(random_bytes(32));
-        Cache::put('password_reset_token:' . $token, $request->email, now()->addMinutes(30));
+        Cache::put('password_reset_token:'.$token, $request->email, now()->addMinutes(30));
         Cache::forget($cacheKey); // Remove used OTP
 
         Log::info('password_reset.otp_verified', ['email' => $request->email]);
@@ -303,9 +308,9 @@ class AccountController extends Controller
      */
     public function showResetPassword(string $token): View
     {
-        $email = Cache::get('password_reset_token:' . $token);
-        
-        if (!$email) {
+        $email = Cache::get('password_reset_token:'.$token);
+
+        if (! $email) {
             abort(403, 'Invalid or expired reset token.');
         }
 
@@ -317,9 +322,9 @@ class AccountController extends Controller
      */
     public function resetPassword(Request $request, string $token): RedirectResponse
     {
-        $email = Cache::get('password_reset_token:' . $token);
-        
-        if (!$email) {
+        $email = Cache::get('password_reset_token:'.$token);
+
+        if (! $email) {
             return redirect()->route('account.forgot-password')
                 ->withErrors(['email' => 'Invalid or expired reset token.']);
         }
@@ -328,9 +333,9 @@ class AccountController extends Controller
             'password' => ['required', 'string', 'min:8', 'confirmed'],
         ]);
 
-        $customer = \App\Models\Customer::where('email', $email)->first();
+        $customer = Customer::where('email', $email)->first();
 
-        if (!$customer) {
+        if (! $customer) {
             return redirect()->route('account.forgot-password')
                 ->withErrors(['email' => 'Customer not found.']);
         }
@@ -338,7 +343,7 @@ class AccountController extends Controller
         $customer->password = Hash::make($request->password);
         $customer->save();
 
-        Cache::forget('password_reset_token:' . $token);
+        Cache::forget('password_reset_token:'.$token);
 
         Log::info('password_reset.completed', ['user_id' => $user->id, 'email' => $user->email]);
 
@@ -352,12 +357,12 @@ class AccountController extends Controller
     public function dashboard(): View
     {
         $customer = Auth::guard('customer')->user();
-        
+
         $stats = [
             'total_orders' => Order::where('customer_id', $customer->id)->count(),
             'pending_orders' => Order::where('customer_id', $customer->id)->where('status', 'pending')->count(),
             'completed_orders' => Order::where('customer_id', $customer->id)->where('status', 'completed')->count(),
-            'total_spent' => Transaction::whereHas('order', function($q) use ($customer) {
+            'total_spent' => Transaction::whereHas('order', function ($q) use ($customer) {
                 $q->where('customer_id', $customer->id);
             })->where('status', 'completed')->sum('amount'),
         ];
@@ -388,7 +393,7 @@ class AccountController extends Controller
     public function updateAccountInfo(Request $request): RedirectResponse
     {
         $customer = Auth::guard('customer')->user();
-        
+
         $validated = $request->validate([
             'first_name' => ['required', 'string', 'max:190'],
             'last_name' => ['required', 'string', 'max:190'],
@@ -424,7 +429,7 @@ class AccountController extends Controller
 
         // Search by order number
         if ($request->filled('search')) {
-            $query->where('order_number', 'like', '%' . $request->search . '%');
+            $query->where('order_number', 'like', '%'.$request->search.'%');
         }
 
         $orders = $query->latest()->paginate(10);
@@ -454,7 +459,7 @@ class AccountController extends Controller
     {
         $customer = Auth::guard('customer')->user();
 
-        $query = Transaction::whereHas('order', function($q) use ($customer) {
+        $query = Transaction::whereHas('order', function ($q) use ($customer) {
             $q->where('customer_id', $customer->id);
         })->with(['order', 'paymentMethod']);
 
@@ -476,7 +481,7 @@ class AccountController extends Controller
         $customer = Auth::guard('customer')->user();
 
         $transaction = Transaction::where('reference', $transactionId)
-            ->whereHas('order', function($q) use ($customer) {
+            ->whereHas('order', function ($q) use ($customer) {
                 $q->where('customer_id', $customer->id);
             })
             ->with(['order.customer', 'order.store', 'paymentMethod'])

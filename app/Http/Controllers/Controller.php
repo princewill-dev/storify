@@ -12,7 +12,7 @@ abstract class Controller
      */
     protected function forBusiness(Builder $query, $user): void
     {
-        if ($user && !$user->isPlatformAdmin() && $user->business_id) {
+        if ($user && ! $user->isPlatformAdmin() && $user->business_id) {
             $query->where('business_id', $user->business_id);
         }
     }

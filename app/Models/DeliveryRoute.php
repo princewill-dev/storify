@@ -5,11 +5,10 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use App\Models\BelongsToBusiness;
 
 class DeliveryRoute extends Model
 {
-    use HasFactory, BelongsToBusiness;
+    use BelongsToBusiness, HasFactory;
 
     protected $fillable = [
         'store_id',
@@ -18,7 +17,7 @@ class DeliveryRoute extends Model
         'area',
         'fee',
         'delivery_days',
-        'active'
+        'active',
     ];
 
     protected $casts = [

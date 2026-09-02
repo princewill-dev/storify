@@ -5,11 +5,10 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use App\Models\BelongsToBusiness;
 
 class Coupon extends Model
 {
-    use HasFactory, BelongsToBusiness;
+    use BelongsToBusiness, HasFactory;
 
     protected $fillable = [
         'code', 'name', 'subscription_plan_id',
@@ -35,14 +34,22 @@ class Coupon extends Model
         if ($this->subscription_plan_id === null) {
             return true;
         }
+
         return $this->subscription_plan_id === $planId;
     }
 
     public function isValid(): bool
     {
-        if (!$this->is_active) return false;
-        if ($this->expires_at && $this->expires_at->isPast()) return false;
-        if ($this->max_uses && $this->uses_count >= $this->max_uses) return false;
+        if (! $this->is_active) {
+            return false;
+        }
+        if ($this->expires_at && $this->expires_at->isPast()) {
+            return false;
+        }
+        if ($this->max_uses && $this->uses_count >= $this->max_uses) {
+            return false;
+        }
+
         return true;
     }
 
@@ -54,9 +61,10 @@ class Coupon extends Model
     public function getDiscountLabelAttribute(): string
     {
         if ($this->discount_type === 'percentage') {
-            return number_format((float) $this->discount_value, 0) . '%';
+            return number_format((float) $this->discount_value, 0).'%';
         }
-        return '₦' . number_format((float) $this->discount_value, 2);
+
+        return '₦'.number_format((float) $this->discount_value, 2);
     }
 
     public function calculateDiscount(float $amount): float
@@ -64,6 +72,7 @@ class Coupon extends Model
         if ($this->discount_type === 'percentage') {
             return round($amount * ($this->discount_value / 100), 2);
         }
+
         return min((float) $this->discount_value, $amount);
     }
 

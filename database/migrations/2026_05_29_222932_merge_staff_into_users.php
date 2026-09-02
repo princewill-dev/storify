@@ -12,16 +12,24 @@ return new class extends Migration
     {
         // 1. Add staff fields to users
         Schema::table('users', function (Blueprint $table) {
-            if (!Schema::hasColumn('users', 'invitation_token')) $table->string('invitation_token', 100)->nullable()->unique()->after('remember_token');
-            if (!Schema::hasColumn('users', 'invited_at')) $table->timestamp('invited_at')->nullable()->after('invitation_token');
-            if (!Schema::hasColumn('users', 'accepted_at')) $table->timestamp('accepted_at')->nullable()->after('invited_at');
-            if (!Schema::hasColumn('users', 'force_password_change')) $table->boolean('force_password_change')->default(false)->after('accepted_at');
+            if (! Schema::hasColumn('users', 'invitation_token')) {
+                $table->string('invitation_token', 100)->nullable()->unique()->after('remember_token');
+            }
+            if (! Schema::hasColumn('users', 'invited_at')) {
+                $table->timestamp('invited_at')->nullable()->after('invitation_token');
+            }
+            if (! Schema::hasColumn('users', 'accepted_at')) {
+                $table->timestamp('accepted_at')->nullable()->after('invited_at');
+            }
+            if (! Schema::hasColumn('users', 'force_password_change')) {
+                $table->boolean('force_password_change')->default(false)->after('accepted_at');
+            }
         });
 
         // 2. Migrate staff to users (if staff table still exists)
         $oldToNew = []; // old_staff_id => new_user_id
         if (Schema::hasTable('staff')) {
-            if (!Schema::hasTable('staff_migration_map')) {
+            if (! Schema::hasTable('staff_migration_map')) {
                 Schema::create('staff_migration_map', function (Blueprint $table) {
                     $table->unsignedBigInteger('old_staff_id');
                     $table->unsignedBigInteger('new_user_id');
@@ -75,10 +83,16 @@ return new class extends Migration
         // 3. Update staff_assignments FK (if column still named staff_id)
         if (Schema::hasTable('staff_assignments') && Schema::hasColumn('staff_assignments', 'staff_id')) {
             Schema::disableForeignKeyConstraints();
-            try { DB::statement('ALTER TABLE staff_assignments DROP FOREIGN KEY staff_assignments_staff_id_foreign'); } catch (\Throwable $e) {}
+            try {
+                DB::statement('ALTER TABLE staff_assignments DROP FOREIGN KEY staff_assignments_staff_id_foreign');
+            } catch (Throwable $e) {
+            }
             DB::statement('ALTER TABLE staff_assignments CHANGE staff_id user_id BIGINT UNSIGNED NOT NULL');
             Schema::enableForeignKeyConstraints();
-            try { Schema::table('staff_assignments', fn ($t) => $t->foreign('user_id')->references('id')->on('users')->cascadeOnDelete()); } catch (\Throwable $e) {}
+            try {
+                Schema::table('staff_assignments', fn ($t) => $t->foreign('user_id')->references('id')->on('users')->cascadeOnDelete());
+            } catch (Throwable $e) {
+            }
         }
 
         // 4. Remap staff_assignments.user_id to new user IDs
@@ -96,8 +110,14 @@ return new class extends Migration
         $staffRefTables = ['orders', 'pos_sessions'];
         foreach ($staffRefTables as $tb) {
             if (Schema::hasColumn($tb, 'staff_id')) {
-                try { DB::statement("ALTER TABLE {$tb} DROP FOREIGN KEY {$tb}_staff_id_foreign"); } catch (\Throwable $e) {}
-                try { Schema::table($tb, fn ($t) => $t->foreign('staff_id')->references('id')->on('users')->nullOnDelete()); } catch (\Throwable $e) {}
+                try {
+                    DB::statement("ALTER TABLE {$tb} DROP FOREIGN KEY {$tb}_staff_id_foreign");
+                } catch (Throwable $e) {
+                }
+                try {
+                    Schema::table($tb, fn ($t) => $t->foreign('staff_id')->references('id')->on('users')->nullOnDelete());
+                } catch (Throwable $e) {
+                }
             }
         }
         // Remap staff_id values

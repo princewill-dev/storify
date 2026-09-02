@@ -5,22 +5,22 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\SettingsUpdateRequest;
 use App\Mail\SettingsUpdated;
+use App\Models\Currency;
 use App\Models\Setting;
-use App\Models\User;
 use App\Models\Store;
+use App\Models\User;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\View\View;
-use App\Models\Currency;
 
 class AdminSettingsController extends Controller
 {
     public function edit(): View
     {
-        if (!auth()->check() || auth()->user()->role !== 'superadmin') {
+        if (! auth()->check() || auth()->user()->role !== 'superadmin') {
             abort(403);
         }
         Log::info('settings_viewed', [
@@ -36,12 +36,13 @@ class AdminSettingsController extends Controller
         $certificateUrl = $certificatePath ? asset('storage/'.$certificatePath) : null;
         $certificateIsPdf = $certificatePath ? str_ends_with(strtolower($certificatePath), '.pdf') : false;
         $ogType = old('og_type', $settings->og_type ?? 'website');
-        return view('admin.advanced.settings', compact('settings','stores','apiKeys','certificateUrl','certificateIsPdf','ogType','currencies','defaultCurrencyId'));
+
+        return view('admin.advanced.settings', compact('settings', 'stores', 'apiKeys', 'certificateUrl', 'certificateIsPdf', 'ogType', 'currencies', 'defaultCurrencyId'));
     }
 
     public function update(SettingsUpdateRequest $request): RedirectResponse
     {
-        if (!auth()->check() || auth()->user()->role !== 'superadmin') {
+        if (! auth()->check() || auth()->user()->role !== 'superadmin') {
             abort(403);
         }
         Log::info('settings_update_requested', [
@@ -58,14 +59,16 @@ class AdminSettingsController extends Controller
             $values = $request->input('api_key_values', []);
             $apiKeys = [];
             foreach ($names as $idx => $n) {
-                $key = trim((string)$n);
+                $key = trim((string) $n);
                 $val = $values[$idx] ?? '';
                 if ($key !== '' && $val !== '') {
                     $apiKeys[$key] = $val;
                 }
             }
         } else {
-            $apiKeys = $request->api_keys ? array_filter($request->api_keys, function ($v) { return $v !== null && $v !== ''; }) : null;
+            $apiKeys = $request->api_keys ? array_filter($request->api_keys, function ($v) {
+                return $v !== null && $v !== '';
+            }) : null;
         }
 
         $data = [
@@ -94,7 +97,11 @@ class AdminSettingsController extends Controller
         // Handle logo upload
         if ($request->hasFile('company_logo')) {
             if ($settings && $settings->company_logo_path) {
-                try { Storage::disk('public')->delete($settings->company_logo_path); } catch (\Throwable $e) { Log::warning('logo_delete_failed', ['msg' => $e->getMessage()]); }
+                try {
+                    Storage::disk('public')->delete($settings->company_logo_path);
+                } catch (\Throwable $e) {
+                    Log::warning('logo_delete_failed', ['msg' => $e->getMessage()]);
+                }
             }
             $path = $request->file('company_logo')->store('company', 'public');
             $data['company_logo_path'] = $path;
@@ -103,7 +110,11 @@ class AdminSettingsController extends Controller
         // Handle favicon upload
         if ($request->hasFile('company_favicon')) {
             if ($settings && $settings->company_favicon_path) {
-                try { Storage::disk('public')->delete($settings->company_favicon_path); } catch (\Throwable $e) { Log::warning('favicon_delete_failed', ['msg' => $e->getMessage()]); }
+                try {
+                    Storage::disk('public')->delete($settings->company_favicon_path);
+                } catch (\Throwable $e) {
+                    Log::warning('favicon_delete_failed', ['msg' => $e->getMessage()]);
+                }
             }
             $path = $request->file('company_favicon')->store('company', 'public');
             $data['company_favicon_path'] = $path;
@@ -112,7 +123,11 @@ class AdminSettingsController extends Controller
         // Handle certificate upload (pdf or image)
         if ($request->hasFile('company_certificate')) {
             if ($settings && $settings->company_certificate_path) {
-                try { Storage::disk('public')->delete($settings->company_certificate_path); } catch (\Throwable $e) { Log::warning('certificate_delete_failed', ['msg' => $e->getMessage()]); }
+                try {
+                    Storage::disk('public')->delete($settings->company_certificate_path);
+                } catch (\Throwable $e) {
+                    Log::warning('certificate_delete_failed', ['msg' => $e->getMessage()]);
+                }
             }
             $path = $request->file('company_certificate')->store('company', 'public');
             $data['company_certificate_path'] = $path;
@@ -121,13 +136,17 @@ class AdminSettingsController extends Controller
         // Handle OG image upload
         if ($request->hasFile('og_image')) {
             if ($settings && $settings->og_image_path) {
-                try { Storage::disk('public')->delete($settings->og_image_path); } catch (\Throwable $e) { Log::warning('og_image_delete_failed', ['msg' => $e->getMessage()]); }
+                try {
+                    Storage::disk('public')->delete($settings->og_image_path);
+                } catch (\Throwable $e) {
+                    Log::warning('og_image_delete_failed', ['msg' => $e->getMessage()]);
+                }
             }
             $path = $request->file('og_image')->store('company', 'public');
             $data['og_image_path'] = $path;
         }
 
-        if (!$settings) {
+        if (! $settings) {
             $settings = Setting::create($data);
         } else {
             $settings->update($data);
@@ -157,7 +176,7 @@ class AdminSettingsController extends Controller
                         'after' => array_keys($afterArr ?? []),
                     ];
                 }
-            } else if (($before ?? null) != ($settings->$key ?? null)) {
+            } elseif (($before ?? null) != ($settings->$key ?? null)) {
                 // Do not include full addresses or emails in logs beyond indicating change
                 $changed[$key] = true;
             }
@@ -165,7 +184,7 @@ class AdminSettingsController extends Controller
 
         Log::info('settings_updated', [
             'user_id' => auth()->id(),
-            'changed_keys' => is_array($changed) ? array_keys(array_filter($changed, fn($v) => (bool)$v)) : [],
+            'changed_keys' => is_array($changed) ? array_keys(array_filter($changed, fn ($v) => (bool) $v)) : [],
         ]);
 
         // Invalidate cached config pieces so UI reflects immediately
@@ -185,7 +204,7 @@ class AdminSettingsController extends Controller
         try {
             // Send to superadmin via queue
             $superadmin = User::where('role', 'superadmin')->first();
-            if ($superadmin && !empty($changed)) {
+            if ($superadmin && ! empty($changed)) {
                 Mail::to($superadmin->email)->queue(new SettingsUpdated($changed));
             }
         } catch (\Throwable $e) {

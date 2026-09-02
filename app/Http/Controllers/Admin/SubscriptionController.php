@@ -26,8 +26,8 @@ class SubscriptionController extends Controller
 
         if ($q !== '') {
             $query->where(function ($x) use ($q) {
-                $x->whereHas('business', fn($b) => $b->where('name', 'like', "%$q%"))
-                  ->orWhereHas('subscriptionPlan', fn($p) => $p->where('name', 'like', "%$q%"));
+                $x->whereHas('business', fn ($b) => $b->where('name', 'like', "%$q%"))
+                    ->orWhereHas('subscriptionPlan', fn ($p) => $p->where('name', 'like', "%$q%"));
             });
         }
 

@@ -2,13 +2,14 @@
 
 namespace App\Mail;
 
+use App\Queue\WithQueueConfig;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Mail\Mailable;
+use Illuminate\Mail\Mailables\Attachment;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Queue\SerializesModels;
-use App\Queue\WithQueueConfig;
 
 class OtpMail extends Mailable implements ShouldQueue
 {
@@ -30,7 +31,7 @@ class OtpMail extends Mailable implements ShouldQueue
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: 'Your ' . config('app.name') . ' verification code: ' . $this->otpCode,
+            subject: 'Your '.config('app.name').' verification code: '.$this->otpCode,
         );
     }
 
@@ -47,7 +48,7 @@ class OtpMail extends Mailable implements ShouldQueue
                 'appName' => config('app.name', 'Ecom'),
                 'appUrl' => config('app.url'),
                 'appDomain' => parse_url(config('app.url'), PHP_URL_HOST),
-                'supportUrl' => config('app.url') . '/support',
+                'supportUrl' => config('app.url').'/support',
                 'companyAddress' => 'Your Company Address, City, State, ZIP',
             ],
         );
@@ -56,7 +57,7 @@ class OtpMail extends Mailable implements ShouldQueue
     /**
      * Get the attachments for the message.
      *
-     * @return array<int, \Illuminate\Mail\Mailables\Attachment>
+     * @return array<int, Attachment>
      */
     public function attachments(): array
     {

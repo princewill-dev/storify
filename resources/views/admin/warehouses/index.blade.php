@@ -46,7 +46,7 @@
                 <td class="px-5 py-3"><code class="text-xs text-slate-500">{{ $wh->warehouse_code }}</code></td>
                 <td class="px-5 py-3">
                     @if($wh->business)
-                    <a href="{{ route('admin.vendors.show', $wh->user) }}" class="text-xs text-indigo-600 hover:underline">{{ $wh->business->name }}</a>
+                    <a href="{{ route('admin.businesses.show', $wh->user) }}" class="text-xs text-indigo-600 hover:underline">{{ $wh->business->name }}</a>
                     @else
                     <span class="text-xs text-slate-400">—</span>
                     @endif

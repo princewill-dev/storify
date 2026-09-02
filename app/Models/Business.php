@@ -11,6 +11,7 @@ use Illuminate\Support\Str;
 class Business extends Model
 {
     use HasFactory;
+
     protected $fillable = [
         'user_id',
         'name',
@@ -44,12 +45,12 @@ class Business extends Model
                 $words = array_values(array_filter($words));
                 $prefix = count($words) === 1
                     ? strtoupper(substr($words[0], 0, 2))
-                    : strtoupper(implode('', array_map(fn($w) => $w[0] ?? '', array_slice($words, 0, 3))));
+                    : strtoupper(implode('', array_map(fn ($w) => $w[0] ?? '', array_slice($words, 0, 3))));
                 $business->prefix = $prefix ?: 'ST';
             }
 
             if (empty($business->business_code)) {
-                $business->business_code = $business->prefix . '_BIZ_' . Str::upper(Str::random(8));
+                $business->business_code = $business->prefix.'_BIZ_'.Str::upper(Str::random(8));
             }
         });
     }
@@ -102,8 +103,6 @@ class Business extends Model
         return $this->hasMany(Payment::class);
     }
 
-
-
     public function kycApplications(): HasMany
     {
         return $this->hasMany(KycApplication::class);
@@ -126,7 +125,7 @@ class Business extends Model
 
     public function needsSubscription(): bool
     {
-        return !$this->hasActiveSubscription();
+        return ! $this->hasActiveSubscription();
     }
 
     public function getTotalBalance(): int

@@ -5,9 +5,11 @@ namespace App\Http\Controllers\Api\V1\Pos;
 use App\Enums\InvoiceStatus;
 use App\Enums\TransactionStatus;
 use App\Http\Controllers\Controller;
+use App\Mail\InvoiceMail;
 use App\Models\Invoice;
-use App\Models\InvoiceItem;
+use App\Models\ServiceCharge;
 use App\Models\Store;
+use App\Models\Transaction;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -39,7 +41,7 @@ class InvoiceController extends Controller
         return response()->json([
             'success' => true,
             'data' => [
-                'invoices' => $invoices->map(fn($inv) => [
+                'invoices' => $invoices->map(fn ($inv) => [
                     'id' => $inv->id,
                     'invoice_number' => $inv->invoice_number,
                     'recipient_name' => $inv->recipient_name ?? $inv->customer?->full_name,
@@ -88,13 +90,13 @@ class InvoiceController extends Controller
                     'remaining' => $invoice->remainingBalance(),
                     'notes' => $invoice->notes,
                     'created_at' => $invoice->created_at->toISOString(),
-                    'items' => $invoice->items->map(fn($i) => [
+                    'items' => $invoice->items->map(fn ($i) => [
                         'description' => $i->description,
                         'quantity' => $i->quantity,
                         'unit_price' => (float) $i->unit_price,
                         'amount' => (float) $i->amount,
                     ]),
-                    'transactions' => $invoice->transactions->where('status', '!=', 'pending')->map(fn($tx) => [
+                    'transactions' => $invoice->transactions->where('status', '!=', 'pending')->map(fn ($tx) => [
                         'reference' => $tx->reference,
                         'amount' => (float) $tx->amount,
                         'status' => $tx->status->value,
@@ -135,8 +137,10 @@ class InvoiceController extends Controller
             $total = $validated['total'];
 
             if ($validated['service_charge_id'] ?? null) {
-                $charge = \App\Models\ServiceCharge::where('store_id', $store->id)->where('is_active', true)->find($validated['service_charge_id']);
-                if ($charge) $total += (float) $charge->amount;
+                $charge = ServiceCharge::where('store_id', $store->id)->where('is_active', true)->find($validated['service_charge_id']);
+                if ($charge) {
+                    $total += (float) $charge->amount;
+                }
             }
 
             $invoice = Invoice::create([
@@ -205,20 +209,20 @@ class InvoiceController extends Controller
         }
 
         $validated = $request->validate([
-            'amount' => ['required', 'numeric', 'min:0.01', 'max:' . $invoice->remainingBalance()],
+            'amount' => ['required', 'numeric', 'min:0.01', 'max:'.$invoice->remainingBalance()],
             'payment_method' => ['required', 'in:cash,bank_transfer,cheque'],
             'pin' => $user->pos_pin ? ['required', 'string', 'size:6'] : ['nullable'],
         ]);
 
-        if ($user->pos_pin && !Hash::check($validated['pin'], $user->pos_pin)) {
+        if ($user->pos_pin && ! Hash::check($validated['pin'], $user->pos_pin)) {
             return response()->json(['success' => false, 'message' => 'Invalid PIN.'], 422);
         }
 
         DB::transaction(function () use ($invoice, $user, $validated) {
             $methodLabels = ['cash' => 'Cash', 'bank_transfer' => 'Bank Transfer', 'cheque' => 'Cheque'];
 
-            $transaction = \App\Models\Transaction::create([
-                'reference' => 'PMT-' . strtoupper(Str::random(12)),
+            $transaction = Transaction::create([
+                'reference' => 'PMT-'.strtoupper(Str::random(12)),
                 'invoice_id' => $invoice->id,
                 'business_id' => $invoice->business_id,
                 'amount' => $validated['amount'],
@@ -268,13 +272,13 @@ class InvoiceController extends Controller
             'amount_paid' => (float) $invoice->amount_paid,
             'remaining' => $invoice->remainingBalance(),
             'created_at' => $invoice->created_at->toISOString(),
-            'items' => $invoice->items->map(fn($i) => [
+            'items' => $invoice->items->map(fn ($i) => [
                 'description' => $i->description,
                 'quantity' => $i->quantity,
                 'unit_price' => (float) $i->unit_price,
                 'amount' => (float) $i->amount,
             ]),
-            'transactions' => $invoice->transactions->where('status', '!=', 'pending')->map(fn($tx) => [
+            'transactions' => $invoice->transactions->where('status', '!=', 'pending')->map(fn ($tx) => [
                 'reference' => $tx->reference,
                 'amount' => (float) $tx->amount,
                 'status' => $tx->status->value,
@@ -287,16 +291,18 @@ class InvoiceController extends Controller
     private function doSendInvoice(Invoice $invoice): void
     {
         $to = $invoice->recipient_email ?: $invoice->customer?->email;
-        if (!$to || str_contains($to, '@walkin.local')) return;
+        if (! $to || str_contains($to, '@walkin.local')) {
+            return;
+        }
 
         try {
             $invoice->load(['items', 'store']);
-            if (!$invoice->payment_token) {
+            if (! $invoice->payment_token) {
                 $invoice->payment_token = Str::random(32);
                 $invoice->save();
             }
             $paymentUrl = route('invoice.pay.show', ['token' => $invoice->payment_token]);
-            \Mail::to($to)->queue(new \App\Mail\InvoiceMail($invoice, $paymentUrl));
+            \Mail::to($to)->queue(new InvoiceMail($invoice, $paymentUrl));
 
             if ($invoice->isDraft()) {
                 $invoice->update(['status' => InvoiceStatus::SENT, 'sent_at' => now()]);

@@ -7,11 +7,10 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Str;
-use App\Models\BelongsToBusiness;
 
 class Location extends Model
 {
-    use HasFactory, BelongsToBusiness;
+    use BelongsToBusiness, HasFactory;
 
     protected $fillable = [
         'location_code', 'user_id', 'name', 'address',
@@ -25,7 +24,7 @@ class Location extends Model
         parent::boot();
         static::creating(function ($model) {
             if (empty($model->location_code)) {
-                $model->location_code = 'loc_' . Str::lower(Str::random(10));
+                $model->location_code = 'loc_'.Str::lower(Str::random(10));
             }
         });
     }

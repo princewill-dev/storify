@@ -2,26 +2,24 @@
 
 namespace App\Http\Controllers\Payment;
 
-use App\Http\Controllers\Controller;
-use App\Models\BankAccount;
-use App\Models\Order;
-use App\Models\Transaction;
-use App\Models\Store;
-use App\Models\User;
 use App\Enums\TransactionStatus;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Facades\Mail;
+use App\Http\Controllers\Controller;
+use App\Mail\BusinessOrderNotificationMail;
 use App\Mail\NewOrderAdminMail;
 use App\Mail\OrderReceivedMail;
-use App\Mail\VendorOrderNotificationMail;
+use App\Models\Order;
+use App\Models\Store;
+use App\Models\Transaction;
+use App\Models\User;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 
 class BankTransferController extends Controller
 {
     private function routeName(string $name): string
     {
-        return app()->environment('local') ? 'local.' . $name : $name;
+        return app()->environment('local') ? 'local.'.$name : $name;
     }
 
     /**
@@ -30,7 +28,7 @@ class BankTransferController extends Controller
     public function show(Request $request, $store_subdomain, Order $order)
     {
         $store = Store::where('slug', $store_subdomain)->where('status', 'active')->firstOrFail();
-        
+
         if ($order->store_id !== $store->id) {
             abort(404);
         }
@@ -49,7 +47,7 @@ class BankTransferController extends Controller
             ->latest()
             ->first();
 
-        if (!$transaction) {
+        if (! $transaction) {
             return redirect()->back()->with('error', 'Transaction not found.');
         }
 
@@ -69,7 +67,7 @@ class BankTransferController extends Controller
         ]);
 
         $store = Store::where('slug', $store_subdomain)->where('status', 'active')->firstOrFail();
-        
+
         if ($order->store_id !== $store->id) {
             abort(404);
         }
@@ -80,7 +78,7 @@ class BankTransferController extends Controller
             ->latest()
             ->first();
 
-        if (!$transaction) {
+        if (! $transaction) {
             return redirect()->back()->with('error', 'Transaction not found.');
         }
 
@@ -107,7 +105,7 @@ class BankTransferController extends Controller
         // Send email notifications
         try {
             Mail::to($order->customer->email)->send(new OrderReceivedMail($order));
-            
+
             $adminEmail = config('mail.admin_email', env('ADMIN_EMAIL', 'admin@example.com'));
             if ($adminEmail && $adminEmail !== 'admin@example.com') {
                 Mail::to($adminEmail)->send(new NewOrderAdminMail($order));
@@ -115,12 +113,12 @@ class BankTransferController extends Controller
 
             $userEmail = User::find($order->user_id)?->email;
             if ($userEmail) {
-                Mail::to($userEmail)->send(new VendorOrderNotificationMail($order));
+                Mail::to($userEmail)->send(new BusinessOrderNotificationMail($order));
             }
         } catch (\Exception $e) {
             Log::error('payment_confirmation_email_failed', [
                 'order_id' => $order->id,
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ]);
         }
 
@@ -143,7 +141,7 @@ class BankTransferController extends Controller
     public function pending(Request $request, $store_subdomain, Order $order)
     {
         $store = Store::where('slug', $store_subdomain)->where('status', 'active')->firstOrFail();
-        
+
         if ($order->store_id !== $store->id) {
             abort(404);
         }
@@ -157,7 +155,7 @@ class BankTransferController extends Controller
     public function remaining(Request $request, $store_subdomain, Order $order)
     {
         $store = Store::where('slug', $store_subdomain)->where('status', 'active')->firstOrFail();
-        
+
         if ($order->store_id !== $store->id) {
             abort(404);
         }

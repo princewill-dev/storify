@@ -50,7 +50,7 @@ class AddressController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Address added successfully',
-            'address' => $address
+            'address' => $address,
         ]);
     }
 }

@@ -18,13 +18,13 @@ return new class extends Migration
         DB::table('payment_methods')->where('code', 'bank_transfer')->update(['type' => 'traditional']);
 
         // Seed paystack if missing
-        if (!DB::table('payment_methods')->where('code', 'paystack')->exists()) {
+        if (! DB::table('payment_methods')->where('code', 'paystack')->exists()) {
             DB::table('payment_methods')->insert([
                 'code' => 'paystack', 'type' => 'gateway', 'name' => 'Paystack',
                 'description' => 'Accept card payments via Paystack', 'created_at' => now(), 'updated_at' => now(),
             ]);
         }
-        if (!DB::table('payment_methods')->where('code', 'bank_transfer')->exists()) {
+        if (! DB::table('payment_methods')->where('code', 'bank_transfer')->exists()) {
             DB::table('payment_methods')->insert([
                 'code' => 'bank_transfer', 'type' => 'traditional', 'name' => 'Bank Transfer',
                 'description' => 'Customers pay directly to your bank account', 'created_at' => now(), 'updated_at' => now(),

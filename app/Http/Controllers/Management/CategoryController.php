@@ -6,18 +6,15 @@ use App\Http\Controllers\Controller;
 use App\Models\Category;
 use App\Models\Store;
 use App\Models\User;
-use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Illuminate\View\View;
 
 class CategoryController extends Controller
 {
-
-
     private function businessStoreIds(User $user): array
     {
         return $user->accessibleStores()->where('status', '!=', 'deleted')->pluck('id')->all();
@@ -36,7 +33,7 @@ class CategoryController extends Controller
             $selectedStore = $user->accessibleStores()
                 ->where('store_id', $selectedPublicStoreId)
                 ->first();
-            
+
             if ($selectedStore) {
                 $selectedStoreId = $selectedStore->id;
             }
@@ -99,15 +96,16 @@ class CategoryController extends Controller
         ]);
 
         $storeIds = $this->businessStoreIds($user);
-        if (!in_array((int)$data['store_id'], $storeIds, true)) {
+        if (! in_array((int) $data['store_id'], $storeIds, true)) {
             if ($request->wantsJson() || $request->expectsJson()) {
                 return response()->json(['success' => false, 'message' => 'Invalid store selection.'], 422);
             }
+
             return back()->with('error', 'Invalid store selection.')->withInput();
         }
 
         $store = Store::find($data['store_id']);
-        $data['slug'] = Str::slug($data['name']) . '-' . substr((string)Str::uuid(), 0, 6);
+        $data['slug'] = Str::slug($data['name']).'-'.substr((string) Str::uuid(), 0, 6);
 
         $category = Category::create($data);
 
@@ -122,7 +120,7 @@ class CategoryController extends Controller
                     'name' => $category->name,
                     'slug' => $category->slug,
                     'status' => $category->status,
-                ]
+                ],
             ], 201);
         }
 
@@ -132,7 +130,7 @@ class CategoryController extends Controller
     public function edit(Request $request, Category $category): View|RedirectResponse
     {
         $user = $request->user();
-        if (!$user || !$this->ownsCategory($category, $user)) {
+        if (! $user || ! $this->ownsCategory($category, $user)) {
             return redirect()->route('management.auth.login');
         }
 
@@ -151,7 +149,7 @@ class CategoryController extends Controller
     public function update(Request $request, Category $category): RedirectResponse
     {
         $user = $request->user();
-        if (!$user || !$this->ownsCategory($category, $user)) {
+        if (! $user || ! $this->ownsCategory($category, $user)) {
             return redirect()->route('management.auth.login');
         }
 
@@ -162,12 +160,12 @@ class CategoryController extends Controller
         ]);
 
         $storeIds = $this->businessStoreIds($user);
-        if (!in_array((int)$data['store_id'], $storeIds, true)) {
+        if (! in_array((int) $data['store_id'], $storeIds, true)) {
             return back()->with('error', 'Invalid store selection.')->withInput();
         }
 
         if ($category->name !== $data['name']) {
-            $data['slug'] = Str::slug($data['name']) . '-' . substr((string)Str::uuid(), 0, 6);
+            $data['slug'] = Str::slug($data['name']).'-'.substr((string) Str::uuid(), 0, 6);
         }
 
         $category->update($data);
@@ -180,7 +178,7 @@ class CategoryController extends Controller
     public function destroy(Request $request, Category $category): RedirectResponse
     {
         $user = $request->user();
-        if (!$user || !$this->ownsCategory($category, $user)) {
+        if (! $user || ! $this->ownsCategory($category, $user)) {
             return redirect()->route('management.auth.login');
         }
 
@@ -193,6 +191,6 @@ class CategoryController extends Controller
 
     private function ownsCategory(Category $category, User $user): bool
     {
-        return in_array((int)$category->store_id, $this->businessStoreIds($user), true);
+        return in_array((int) $category->store_id, $this->businessStoreIds($user), true);
     }
 }

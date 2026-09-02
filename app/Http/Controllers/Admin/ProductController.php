@@ -3,20 +3,24 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Admin\ProductRequest;
+use App\Models\ActivityLog;
+use App\Models\Category;
+use App\Models\Currency;
 use App\Models\Product;
 use App\Models\ProductImage;
-use App\Models\Store;
-use App\Models\Category;
-use App\Models\User;
-use App\Models\Currency;
 use App\Models\ProductVariant;
-use App\Models\ActivityLog;
+use App\Models\Section;
+use App\Models\StockLocation;
+use App\Models\Store;
+use App\Models\User;
+use App\Models\Warehouse;
+use App\Services\StockLedgerService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Str;
-use App\Http\Requests\Admin\ProductRequest;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class ProductController extends Controller
 {
@@ -30,7 +34,7 @@ class ProductController extends Controller
         $storeFilter = $request->query('store_id');
 
         $query = Product::query()
-            ->with(['category','store','images'])
+            ->with(['category', 'store', 'images'])
             ->withMin('variants', 'amount')
             ->withMax('variants', 'amount')
             ->addSelect([
@@ -45,22 +49,28 @@ class ProductController extends Controller
                     ->orderBy('amount', 'desc')
                     ->limit(1),
             ]);
-        if (in_array(strtolower((string)$status), ['active','inactive'], true)) {
+        if (in_array(strtolower((string) $status), ['active', 'inactive'], true)) {
             $query->where('status', strtolower($status));
         }
         if ($q !== '') {
-            $query->where(function($x) use ($q) {
+            $query->where(function ($x) use ($q) {
                 $x->where('name', 'like', "%$q%")
-                  ->orWhere('product_code', 'like', "%$q%")
-                  ->orWhereHas('store', function($s) use ($q) { $s->where('name', 'like', "%$q%"); })
-                  ->orWhereHas('category', function($c) use ($q) { $c->where('name', 'like', "%$q%"); });
+                    ->orWhere('product_code', 'like', "%$q%")
+                    ->orWhereHas('store', function ($s) use ($q) {
+                        $s->where('name', 'like', "%$q%");
+                    })
+                    ->orWhereHas('category', function ($c) use ($q) {
+                        $c->where('name', 'like', "%$q%");
+                    });
             });
         }
         if ($store) {
             $query->where('store_id', $store->id);
         } elseif ($storeFilter) {
             $sf = Store::where('store_id', $storeFilter)->orWhere('id', $storeFilter)->first();
-            if ($sf) { $query->where('store_id', $sf->id); }
+            if ($sf) {
+                $query->where('store_id', $sf->id);
+            }
         }
 
         if ($from || $to) {
@@ -76,7 +86,7 @@ class ProductController extends Controller
         }
 
         $perPage = (int) $request->query('per_page', 10);
-        if (!in_array($perPage, [10, 50, 100], true)) {
+        if (! in_array($perPage, [10, 50, 100], true)) {
             $perPage = 10;
         }
         $products = $query->latest()->paginate($perPage)->withQueryString();
@@ -86,12 +96,12 @@ class ProductController extends Controller
         foreach ($products as $prod) {
             $pi = $prod->primaryImage();
             if ($pi && $pi->path) {
-                $productImages[$prod->id] = asset('storage/' . $pi->path);
+                $productImages[$prod->id] = asset('storage/'.$pi->path);
             }
         }
 
         // Currency map for fast lookup in the view
-        $currencies = Currency::query()->get(['id','code','symbol'])->keyBy('id');
+        $currencies = Currency::query()->get(['id', 'code', 'symbol'])->keyBy('id');
 
         // Build display prices (with currency symbol only) for table rendering
         $displayPrices = [];
@@ -99,26 +109,30 @@ class ProductController extends Controller
             if ($prod->has_variants) {
                 $min = $prod->variants_min_amount;
                 $max = $prod->variants_max_amount;
-                if ($min === null) { $displayPrices[$prod->id] = '—'; continue; }
+                if ($min === null) {
+                    $displayPrices[$prod->id] = '—';
+
+                    continue;
+                }
                 $minCur = ($prod->variants_min_currency_id ?? null) ? ($currencies[$prod->variants_min_currency_id] ?? null) : null;
                 $maxCur = ($prod->variants_max_currency_id ?? null) ? ($currencies[$prod->variants_max_currency_id] ?? null) : null;
-                $minStr = ($minCur->symbol ?? '') . number_format((float)$min, 2);
+                $minStr = ($minCur->symbol ?? '').number_format((float) $min, 2);
                 if ($max === null || $min == $max) {
                     $displayPrices[$prod->id] = $minStr;
                 } else {
-                    $maxStr = ($maxCur->symbol ?? '') . number_format((float)$max, 2);
-                    $displayPrices[$prod->id] = $minStr . ' - ' . $maxStr;
+                    $maxStr = ($maxCur->symbol ?? '').number_format((float) $max, 2);
+                    $displayPrices[$prod->id] = $minStr.' - '.$maxStr;
                 }
             } else {
                 $cur = $currencies[$prod->currency_id ?? 0] ?? null;
-                $amt = (float)($prod->amount ?? 0);
+                $amt = (float) ($prod->amount ?? 0);
                 $sym = $cur->symbol ?? '';
-                if (!is_null($prod->discount_percentage) && (float)$prod->discount_percentage > 0) {
-                    $disc = $amt * (1 - ((float)$prod->discount_percentage/100));
-                    $pct = rtrim(rtrim(number_format((float)$prod->discount_percentage, 2, '.', ''), '0'), '.');
-                    $displayPrices[$prod->id] = $sym . number_format($amt, 2) . ' -> ' . $sym . number_format($disc, 2) . ' (-' . $pct . '%)';
+                if (! is_null($prod->discount_percentage) && (float) $prod->discount_percentage > 0) {
+                    $disc = $amt * (1 - ((float) $prod->discount_percentage / 100));
+                    $pct = rtrim(rtrim(number_format((float) $prod->discount_percentage, 2, '.', ''), '0'), '.');
+                    $displayPrices[$prod->id] = $sym.number_format($amt, 2).' -> '.$sym.number_format($disc, 2).' (-'.$pct.'%)';
                 } else {
-                    $displayPrices[$prod->id] = $sym . number_format($amt, 2);
+                    $displayPrices[$prod->id] = $sym.number_format($amt, 2);
                 }
             }
         }
@@ -140,7 +154,7 @@ class ProductController extends Controller
     {
         Log::info('product_create_viewed', ['user_id' => auth()->id()]);
         $allow = (int) env('ALLOW_MS_SETUP', 0) === 1;
-        if (!$allow) {
+        if (! $allow) {
             $superadmin = User::where('role', 'superadmin')->orderBy('id')->first();
             if ($superadmin) {
                 $saVendor = User::where('email', $superadmin->email)->first();
@@ -167,13 +181,16 @@ class ProductController extends Controller
             $q = $request->query('store_id');
             if ($q) {
                 $qs = Store::where('store_id', $q)->orWhere('id', $q)->first();
-                if ($qs) { $selectedStoreId = $qs->id; }
+                if ($qs) {
+                    $selectedStoreId = $qs->id;
+                }
             }
         }
-        if (!$allow && !$selectedStoreId && isset($stores) && $stores->count() === 1) {
+        if (! $allow && ! $selectedStoreId && isset($stores) && $stores->count() === 1) {
             $selectedStoreId = $stores->first()->id;
         }
-        return view('admin.products.create', compact('stores','categories','sizeUnits','weightUnits','selectedStoreId','currencies','defaultCurrencyId'));
+
+        return view('admin.products.create', compact('stores', 'categories', 'sizeUnits', 'weightUnits', 'selectedStoreId', 'currencies', 'defaultCurrencyId'));
     }
 
     public function store(ProductRequest $request)
@@ -183,15 +200,15 @@ class ProductController extends Controller
 
         try {
             $product = DB::transaction(function () use ($request, $data) {
-                $product = new Product();
+                $product = new Product;
                 $allow = (int) env('ALLOW_MS_SETUP', 0) === 1;
-                if (!$allow) {
+                if (! $allow) {
                     $superadmin = User::where('role', 'superadmin')->orderBy('id')->first();
                     if ($superadmin) {
                         $saVendor = User::where('email', $superadmin->email)->first();
                         if ($saVendor) {
                             $storeIds = Store::where('user_id', $saVendor->id)->pluck('id')->all();
-                            if (!in_array($data['store_id'], $storeIds, true)) {
+                            if (! in_array($data['store_id'], $storeIds, true)) {
                                 $data['store_id'] = $storeIds[0] ?? $data['store_id'];
                             }
                         }
@@ -201,13 +218,13 @@ class ProductController extends Controller
                 $product->cod_available = $request->boolean('cod_available');
                 $product->featured = $request->boolean('featured');
                 $product->has_variants = $request->boolean('has_variants');
-                
+
                 // Bulk fields
                 if ($request->filled('bulk_quantity')) {
-                    $product->bulk_quantity = (int)$request->input('bulk_quantity');
+                    $product->bulk_quantity = (int) $request->input('bulk_quantity');
                 }
                 if ($request->filled('bulk_price')) {
-                    $product->bulk_price = (float)$request->input('bulk_price');
+                    $product->bulk_price = (float) $request->input('bulk_price');
                 }
 
                 $product->slug = null;
@@ -215,10 +232,10 @@ class ProductController extends Controller
                 $product->save();
 
                 if ($product->quantity > 0) {
-                    $ledger = app(\App\Services\StockLedgerService::class);
-                    $storeLoc = \App\Models\StockLocation::firstOrCreate([
+                    $ledger = app(StockLedgerService::class);
+                    $storeLoc = StockLocation::firstOrCreate([
                         'product_id' => $product->id,
-                        'locationable_type' => \App\Models\Store::class,
+                        'locationable_type' => Store::class,
                         'locationable_id' => $product->store_id,
                     ], [
                         'quantity' => 0,
@@ -228,12 +245,12 @@ class ProductController extends Controller
                 }
 
                 if ($product->section_id && $product->quantity > 0) {
-                    $section = \App\Models\Section::find($product->section_id);
+                    $section = Section::find($product->section_id);
                     if ($section && $section->warehouse_id) {
-                        \App\Models\StockLocation::updateOrCreate(
+                        StockLocation::updateOrCreate(
                             [
                                 'product_id' => $product->id,
-                                'locationable_type' => \App\Models\Warehouse::class,
+                                'locationable_type' => Warehouse::class,
                                 'locationable_id' => $section->warehouse_id,
                             ],
                             ['quantity' => $product->quantity, 'min_quantity' => 0]
@@ -242,8 +259,8 @@ class ProductController extends Controller
                 }
 
                 if ($product->warehouse_id && $product->quantity > 0) {
-                    \App\Models\StockLocation::firstOrCreate(
-                        ['product_id' => $product->id, 'locationable_type' => \App\Models\Warehouse::class, 'locationable_id' => $product->warehouse_id],
+                    StockLocation::firstOrCreate(
+                        ['product_id' => $product->id, 'locationable_type' => Warehouse::class, 'locationable_id' => $product->warehouse_id],
                         ['quantity' => 0, 'min_quantity' => 0, 'business_id' => $product->business_id]
                     );
                 }
@@ -252,7 +269,7 @@ class ProductController extends Controller
                     'product_id' => $product->id,
                     'bulk_quantity' => $product->bulk_quantity,
                     'bulk_price' => $product->bulk_price,
-                    'raw_input' => $request->only(['bulk_quantity', 'bulk_price'])
+                    'raw_input' => $request->only(['bulk_quantity', 'bulk_price']),
                 ]);
 
                 // Handle images
@@ -263,13 +280,15 @@ class ProductController extends Controller
                         ProductImage::create([
                             'product_id' => $product->id,
                             'path' => $path,
-                            'is_primary' => (int)$request->input('primary_image') === $idx,
+                            'is_primary' => (int) $request->input('primary_image') === $idx,
                             'position' => $pos++,
                         ]);
                     }
-                    if (!$product->images()->where('is_primary', true)->exists()) {
+                    if (! $product->images()->where('is_primary', true)->exists()) {
                         $first = $product->images()->orderBy('position')->first();
-                        if ($first) { $first->update(['is_primary' => true]); }
+                        if ($first) {
+                            $first->update(['is_primary' => true]);
+                        }
                     }
                 }
 
@@ -289,7 +308,7 @@ class ProductController extends Controller
                             'amount' => $v['amount'],
                             'currency_id' => $v['currency_id'] ?? null,
                             'status' => $v['status'] ?? 'active',
-                            'featured' => !empty($v['featured']),
+                            'featured' => ! empty($v['featured']),
                         ]);
                     }
                 }
@@ -304,22 +323,25 @@ class ProductController extends Controller
                     'action' => 'create_product',
                     'description' => 'Product created',
                     'ip_address' => $request->ip(),
-                    'user_agent' => substr((string)$request->userAgent(), 0, 255),
+                    'user_agent' => substr((string) $request->userAgent(), 0, 255),
                     'metadata' => [
                         'product_id' => $product->id,
-                        'has_variants' => (bool)$product->has_variants,
+                        'has_variants' => (bool) $product->has_variants,
                         'store_id' => $product->store_id,
                     ],
                 ]);
             } catch (\Throwable $e) {
                 Log::warning('activity_log_failed', ['context' => 'create_product', 'error' => $e->getMessage()]);
             }
+
             return redirect()->route('admin.stores.products.index', $product->store)->with('success', 'Product created');
-        } catch (\Illuminate\Validation\ValidationException $e) {
+        } catch (ValidationException $e) {
             Log::warning('product_create_validation_failed', ['errors' => $e->errors()]);
+
             return back()->withErrors($e->errors())->with('error', 'Please fix the highlighted errors.')->withInput();
         } catch (\Throwable $e) {
             Log::error('product_create_failed', ['message' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+
             return back()->with('error', 'Unable to create product. Please try again.')->withInput();
         }
     }
@@ -333,65 +355,67 @@ class ProductController extends Controller
         $weightUnits = \DB::table('weight_units')->orderBy('name')->get();
         $currencies = Currency::orderBy('name')->get();
         $defaultCurrencyId = Currency::where('is_default', true)->value('id');
-        $product->load(['images','store','variants']);
+        $product->load(['images', 'store', 'variants']);
 
         $backUrl = null;
         if ($product->store) {
             $backUrl = route('admin.stores.products.index', $product->store);
         }
 
-        return view('admin.products.edit', compact('product','stores','categories','sizeUnits','weightUnits','backUrl','currencies','defaultCurrencyId'));
+        return view('admin.products.edit', compact('product', 'stores', 'categories', 'sizeUnits', 'weightUnits', 'backUrl', 'currencies', 'defaultCurrencyId'));
     }
 
     public function show(Product $product)
     {
         Log::info('product_admin_show_viewed', ['user_id' => auth()->id(), 'product_id' => $product->id]);
-        $product->load(['images','store','category','variants']);
+        $product->load(['images', 'store', 'category', 'variants']);
         $priceInfo = null;
         $priceInfoSymbol = null;
-        $currencySymbols = Currency::query()->get(['id','symbol'])->keyBy('id');
+        $currencySymbols = Currency::query()->get(['id', 'symbol'])->keyBy('id');
         if ($product->has_variants && $product->variants->count() > 0) {
             $minVar = $product->variants->sortBy('amount')->first();
             $maxVar = $product->variants->sortByDesc('amount')->first();
             if ($minVar && $maxVar) {
                 $min = (float) $minVar->amount;
                 $max = (float) $maxVar->amount;
-                $priceInfo = $min == $max ? number_format($min, 2) : number_format($min, 2) . ' - ' . number_format($max, 2);
+                $priceInfo = $min == $max ? number_format($min, 2) : number_format($min, 2).' - '.number_format($max, 2);
                 $minSym = optional($currencySymbols[$minVar->currency_id] ?? null)->symbol ?? '';
                 $maxSym = optional($currencySymbols[$maxVar->currency_id] ?? null)->symbol ?? '';
-                $priceInfoSymbol = $min == $max ? ($minSym . number_format($min, 2)) : ($minSym . number_format($min, 2) . ' - ' . $maxSym . number_format($max, 2));
+                $priceInfoSymbol = $min == $max ? ($minSym.number_format($min, 2)) : ($minSym.number_format($min, 2).' - '.$maxSym.number_format($max, 2));
             }
         }
         $backUrl = route('admin.products.index');
-        return view('admin.products.show', compact('product','priceInfo','priceInfoSymbol','backUrl','currencySymbols'));
+
+        return view('admin.products.show', compact('product', 'priceInfo', 'priceInfoSymbol', 'backUrl', 'currencySymbols'));
     }
 
     public function showInStore(Store $store, string $code)
     {
         Log::info('product_admin_store_show_viewed', ['user_id' => auth()->id(), 'store_id' => $store->id, 'code' => $code]);
-        $product = Product::with(['images','store','category','variants'])
+        $product = Product::with(['images', 'store', 'category', 'variants'])
             ->where('store_id', $store->id)
             ->where('product_code', $code)
             ->firstOrFail();
 
         $priceInfo = null;
         $priceInfoSymbol = null;
-        $currencySymbols = Currency::query()->get(['id','symbol'])->keyBy('id');
+        $currencySymbols = Currency::query()->get(['id', 'symbol'])->keyBy('id');
         if ($product->has_variants && $product->variants->count() > 0) {
             $minVar = $product->variants->sortBy('amount')->first();
             $maxVar = $product->variants->sortByDesc('amount')->first();
             if ($minVar && $maxVar) {
                 $min = (float) $minVar->amount;
                 $max = (float) $maxVar->amount;
-                $priceInfo = $min == $max ? number_format($min, 2) : number_format($min, 2) . ' - ' . number_format($max, 2);
+                $priceInfo = $min == $max ? number_format($min, 2) : number_format($min, 2).' - '.number_format($max, 2);
                 $minSym = optional($currencySymbols[$minVar->currency_id] ?? null)->symbol ?? '';
                 $maxSym = optional($currencySymbols[$maxVar->currency_id] ?? null)->symbol ?? '';
-                $priceInfoSymbol = $min == $max ? ($minSym . number_format($min, 2)) : ($minSym . number_format($min, 2) . ' - ' . $maxSym . number_format($max, 2));
+                $priceInfoSymbol = $min == $max ? ($minSym.number_format($min, 2)) : ($minSym.number_format($min, 2).' - '.$maxSym.number_format($max, 2));
             }
         }
 
         $backUrl = route('admin.stores.products.index', $store);
-        return view('admin.products.show', compact('product','priceInfo','priceInfoSymbol','backUrl','currencySymbols'));
+
+        return view('admin.products.show', compact('product', 'priceInfo', 'priceInfoSymbol', 'backUrl', 'currencySymbols'));
     }
 
     public function update(ProductRequest $request, Product $product)
@@ -404,10 +428,10 @@ class ProductController extends Controller
                 $data['cod_available'] = $request->boolean('cod_available');
                 $data['featured'] = $request->boolean('featured');
                 $data['has_variants'] = $request->boolean('has_variants');
-                
+
                 // Bulk fields
-                $data['bulk_quantity'] = $request->filled('bulk_quantity') ? (int)$request->input('bulk_quantity') : null;
-                $data['bulk_price'] = $request->filled('bulk_price') ? (float)$request->input('bulk_price') : null;
+                $data['bulk_quantity'] = $request->filled('bulk_quantity') ? (int) $request->input('bulk_quantity') : null;
+                $data['bulk_price'] = $request->filled('bulk_price') ? (float) $request->input('bulk_price') : null;
 
                 $product->update($data);
 
@@ -415,14 +439,17 @@ class ProductController extends Controller
                     'product_id' => $product->id,
                     'bulk_quantity' => $product->bulk_quantity,
                     'bulk_price' => $product->bulk_price,
-                    'raw_input' => $request->only(['bulk_quantity', 'bulk_price'])
+                    'raw_input' => $request->only(['bulk_quantity', 'bulk_price']),
                 ]);
 
                 if ($request->filled('delete_image_ids')) {
                     $ids = $request->input('delete_image_ids');
                     $toDelete = $product->images()->whereIn('id', $ids)->get();
                     foreach ($toDelete as $img) {
-                        try { Storage::disk('public')->delete($img->path); } catch (\Throwable $e) {}
+                        try {
+                            Storage::disk('public')->delete($img->path);
+                        } catch (\Throwable $e) {
+                        }
                         $img->delete();
                     }
                 }
@@ -452,7 +479,7 @@ class ProductController extends Controller
                     $incoming = collect((array) $request->input('variants', []));
                     $keepIds = [];
                     foreach ($incoming as $v) {
-                        if (!empty($v['id'])) {
+                        if (! empty($v['id'])) {
                             $pv = ProductVariant::where('id', $v['id'])->where('product_id', $product->id)->first();
                             if ($pv) {
                                 $pv->update([
@@ -466,7 +493,7 @@ class ProductController extends Controller
                                     'amount' => $v['amount'],
                                     'currency_id' => $v['currency_id'] ?? null,
                                     'status' => $v['status'] ?? $pv->status,
-                                    'featured' => !empty($v['featured']),
+                                    'featured' => ! empty($v['featured']),
                                 ]);
                                 $keepIds[] = $pv->id;
                             }
@@ -483,13 +510,13 @@ class ProductController extends Controller
                                 'amount' => $v['amount'],
                                 'currency_id' => $v['currency_id'] ?? null,
                                 'status' => $v['status'] ?? 'active',
-                                'featured' => !empty($v['featured']),
+                                'featured' => ! empty($v['featured']),
                             ]);
                             $keepIds[] = $pv->id;
                         }
                     }
                     // Remove variants not present in payload
-                    if (!empty($keepIds)) {
+                    if (! empty($keepIds)) {
                         ProductVariant::where('product_id', $product->id)->whereNotIn('id', $keepIds)->delete();
                     }
                 } else {
@@ -505,21 +532,24 @@ class ProductController extends Controller
                     'action' => 'update_product',
                     'description' => 'Product updated',
                     'ip_address' => $request->ip(),
-                    'user_agent' => substr((string)$request->userAgent(), 0, 255),
+                    'user_agent' => substr((string) $request->userAgent(), 0, 255),
                     'metadata' => [
                         'product_id' => $product->id,
-                        'has_variants' => (bool)$product->has_variants,
+                        'has_variants' => (bool) $product->has_variants,
                     ],
                 ]);
             } catch (\Throwable $e) {
                 Log::warning('activity_log_failed', ['context' => 'update_product', 'error' => $e->getMessage()]);
             }
+
             return redirect()->route('admin.stores.products.index', $product->store)->with('success', 'Product updated');
-        } catch (\Illuminate\Validation\ValidationException $e) {
+        } catch (ValidationException $e) {
             Log::warning('product_update_validation_failed', ['errors' => $e->errors(), 'product_id' => $product->id]);
+
             return back()->withErrors($e->errors())->with('error', 'Please fix the highlighted errors.')->withInput();
         } catch (\Throwable $e) {
             Log::error('product_update_failed', ['message' => $e->getMessage(), 'product_id' => $product->id, 'trace' => $e->getTraceAsString()]);
+
             return back()->with('error', 'Unable to update product. Please try again.')->withInput();
         }
     }
@@ -531,14 +561,24 @@ class ProductController extends Controller
         $perPage = request()->input('per_page');
         $page = request()->input('page');
         foreach ($product->images as $img) {
-            try { Storage::disk('public')->delete($img->path); } catch (\Throwable $e) {}
+            try {
+                Storage::disk('public')->delete($img->path);
+            } catch (\Throwable $e) {
+            }
         }
         $product->delete();
         $url = route('admin.stores.products.index', $store);
         $qs = [];
-        if ($perPage) { $qs['per_page'] = $perPage; }
-        if ($page) { $qs['page'] = $page; }
-        if (!empty($qs)) { $url .= ('?' . http_build_query($qs)); }
+        if ($perPage) {
+            $qs['per_page'] = $perPage;
+        }
+        if ($page) {
+            $qs['page'] = $page;
+        }
+        if (! empty($qs)) {
+            $url .= ('?'.http_build_query($qs));
+        }
+
         return redirect()->to($url)->with('success', 'Product deleted');
     }
 
@@ -553,9 +593,16 @@ class ProductController extends Controller
         $page = $request->input('page');
         $url = route('admin.stores.products.index', $product->store);
         $qs = [];
-        if ($perPage) { $qs['per_page'] = $perPage; }
-        if ($page) { $qs['page'] = $page; }
-        if (!empty($qs)) { $url .= ('?' . http_build_query($qs)); }
+        if ($perPage) {
+            $qs['per_page'] = $perPage;
+        }
+        if ($page) {
+            $qs['page'] = $page;
+        }
+        if (! empty($qs)) {
+            $url .= ('?'.http_build_query($qs));
+        }
+
         return redirect()->to($url)->with('success', $msg);
     }
 }

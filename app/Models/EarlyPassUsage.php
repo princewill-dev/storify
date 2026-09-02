@@ -23,7 +23,7 @@ class EarlyPassUsage extends Model
         return $this->belongsTo(EarlyPass::class);
     }
 
-    public function vendor(): BelongsTo
+    public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
     }

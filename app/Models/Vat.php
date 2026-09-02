@@ -9,14 +9,17 @@ class Vat extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['percentage','active','effective_at'];
+    protected $fillable = ['percentage', 'active', 'effective_at'];
 
     protected $casts = [
         'active' => 'boolean',
         'effective_at' => 'datetime',
     ];
 
-    public function scopeActive($q){ return $q->where('active', true); }
+    public function scopeActive($q)
+    {
+        return $q->where('active', true);
+    }
 
     public static function current(): ?self
     {

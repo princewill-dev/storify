@@ -26,7 +26,7 @@ class CustomerOrderStatusUpdatedMail extends Mailable implements ShouldQueue
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: 'Order Status Update - ' . $this->order->order_number,
+            subject: 'Order Status Update - '.$this->order->order_number,
         );
     }
 
@@ -49,7 +49,7 @@ class CustomerOrderStatusUpdatedMail extends Mailable implements ShouldQueue
                     'branch_address' => config('app.branch_address', ''),
                 ],
                 'appUrl' => config('app.url'),
-                'supportUrl' => config('app.url') . '/support',
+                'supportUrl' => config('app.url').'/support',
             ],
         );
     }

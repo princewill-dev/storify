@@ -32,6 +32,7 @@ enum PosSessionStatus: string
                 'class' => $status->badgeClass(),
             ];
         }
+
         return $data;
     }
 }

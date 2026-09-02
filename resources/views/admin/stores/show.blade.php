@@ -86,7 +86,7 @@
                     <div class="text-xs text-slate-500 mb-0.5">Business</div>
                     <div class="text-sm">
                         @if($store->business)
-                            <a href="{{ route('admin.vendors.show', $store->user) }}" class="text-indigo-600 hover:underline">{{ $store->business->name }}</a>
+                            <a href="{{ route('admin.businesses.show', $store->user) }}" class="text-indigo-600 hover:underline">{{ $store->business->name }}</a>
                         @else
                             <span class="text-slate-400">—</span>
                         @endif
@@ -144,7 +144,7 @@
                 <div class="text-xs text-slate-500">Phone: {{ $store->user->phone ?? '—' }}</div>
                 <div class="mt-3 px-4 py-3 rounded-lg bg-amber-50 border border-amber-200 text-sm text-amber-700">No Business record found.</div>
             @else
-                <p class="text-sm text-slate-400">No business or vendor assigned.</p>
+                <p class="text-sm text-slate-400">No business assigned.</p>
             @endif
         </div>
     </div>

@@ -14,7 +14,9 @@ class Shop4meItemResponseMail extends Mailable
     use Queueable, SerializesModels;
 
     public Shop4meRequest $requestModel;
+
     public Shop4meItem $item;
+
     public Shop4meItemResponse $responseModel;
 
     public function __construct(Shop4meRequest $requestModel, Shop4meItem $item, Shop4meItemResponse $responseModel)

@@ -24,7 +24,8 @@ class CouponController extends Controller
     public function create(): View
     {
         $plans = SubscriptionPlan::orderBy('sort_order')->get(['id', 'name', 'interval']);
-        return view('admin.coupons.form', ['coupon' => new Coupon(), 'plans' => $plans]);
+
+        return view('admin.coupons.form', ['coupon' => new Coupon, 'plans' => $plans]);
     }
 
     public function store(Request $request): RedirectResponse
@@ -48,6 +49,7 @@ class CouponController extends Controller
     public function edit(Coupon $coupon): View
     {
         $plans = SubscriptionPlan::orderBy('sort_order')->get(['id', 'name', 'interval']);
+
         return view('admin.coupons.form', compact('coupon', 'plans'));
     }
 
@@ -71,10 +73,10 @@ class CouponController extends Controller
 
     public function toggleActive(Coupon $coupon): RedirectResponse
     {
-        $coupon->update(['is_active' => !$coupon->is_active]);
+        $coupon->update(['is_active' => ! $coupon->is_active]);
 
         return redirect()->route('admin.coupons.index')
-            ->with('success', "Coupon \"{$coupon->code}\" " . ($coupon->is_active ? 'activated' : 'deactivated') . '.');
+            ->with('success', "Coupon \"{$coupon->code}\" ".($coupon->is_active ? 'activated' : 'deactivated').'.');
     }
 
     public function destroy(Coupon $coupon): RedirectResponse
@@ -97,7 +99,7 @@ class CouponController extends Controller
             'name' => 'nullable|string|max:255',
             'code' => [
                 'required', 'string', 'max:50',
-                'unique:coupons,code' . ($ignoreId ? ",{$ignoreId}" : ''),
+                'unique:coupons,code'.($ignoreId ? ",{$ignoreId}" : ''),
             ],
             'subscription_plan_id' => 'nullable|exists:subscription_plans,id',
             'discount_type' => 'required|in:percentage,fixed',

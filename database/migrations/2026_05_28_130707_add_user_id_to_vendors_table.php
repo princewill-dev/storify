@@ -41,7 +41,7 @@ return new class extends Migration
                     'last_login_at' => $vendor->last_login ?? null,
                     'location' => $vendor->location ?? null,
                     'ip_address' => $vendor->ip_address ?? null,
-                    'password' => $vendor->password ?? bcrypt('temporary_' . Str::random(16)),
+                    'password' => $vendor->password ?? bcrypt('temporary_'.Str::random(16)),
                     'created_at' => $vendor->created_at ?? now(),
                     'updated_at' => $vendor->updated_at ?? now(),
                 ]);

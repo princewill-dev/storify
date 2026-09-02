@@ -48,7 +48,7 @@ return new class extends Migration
     public function up(): void
     {
         foreach ($this->tables as $table) {
-            if (Schema::hasTable($table) && !Schema::hasColumn($table, 'business_id')) {
+            if (Schema::hasTable($table) && ! Schema::hasColumn($table, 'business_id')) {
                 Schema::table($table, function (Blueprint $table) {
                     $table->foreignId('business_id')->after('id')->nullable()->constrained('businesses')->cascadeOnDelete();
                 });
@@ -62,7 +62,7 @@ return new class extends Migration
     private function modifyUsersTable(): void
     {
         Schema::table('users', function (Blueprint $table) {
-            if (!Schema::hasColumn('users', 'business_id')) {
+            if (! Schema::hasColumn('users', 'business_id')) {
                 $table->foreignId('business_id')->nullable()->after('id')->constrained('businesses')->nullOnDelete();
             }
         });
@@ -82,8 +82,14 @@ return new class extends Migration
         }
 
         if (Schema::hasColumn('users', 'slug')) {
-            try { Schema::table('users', fn($t) => $t->dropUnique('users_slug_unique')); } catch (\Exception $e) {}
-            try { Schema::table('users', fn($t) => $t->dropUnique('slug')); } catch (\Exception $e) {}
+            try {
+                Schema::table('users', fn ($t) => $t->dropUnique('users_slug_unique'));
+            } catch (Exception $e) {
+            }
+            try {
+                Schema::table('users', fn ($t) => $t->dropUnique('slug'));
+            } catch (Exception $e) {
+            }
             Schema::table('users', function (Blueprint $table) {
                 $table->dropColumn('slug');
             });
@@ -106,7 +112,7 @@ return new class extends Migration
         $spatieTables = ['roles', 'model_has_permissions', 'model_has_roles'];
 
         foreach ($spatieTables as $table) {
-            if (Schema::hasTable($table) && !Schema::hasColumn($table, 'business_id')) {
+            if (Schema::hasTable($table) && ! Schema::hasColumn($table, 'business_id')) {
                 Schema::table($table, function (Blueprint $table) {
                     $table->foreignId('business_id')->nullable()->after('id')->constrained('businesses')->nullOnDelete();
                 });

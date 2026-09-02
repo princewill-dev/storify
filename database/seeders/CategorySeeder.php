@@ -12,7 +12,7 @@ class CategorySeeder extends Seeder
     public function run(): void
     {
         $defaults = [
-            'Electronics', 'Fashion', 'Home & Kitchen', 'Beauty & Health', 'Sports & Outdoors'
+            'Electronics', 'Fashion', 'Home & Kitchen', 'Beauty & Health', 'Sports & Outdoors',
         ];
 
         $stores = Store::all();

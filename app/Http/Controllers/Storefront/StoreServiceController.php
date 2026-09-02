@@ -3,9 +3,9 @@
 namespace App\Http\Controllers\Storefront;
 
 use App\Http\Controllers\Controller;
+use App\Models\ActivityLog;
 use App\Models\Service;
 use App\Models\Store;
-use App\Models\ActivityLog;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\View;
 
@@ -20,7 +20,7 @@ class StoreServiceController extends Controller
 
         // Check pending status
         if ($store->status === 'pending') {
-             return redirect()->route('home.store.products.index', ['store_subdomain' => $store->slug]);
+            return redirect()->route('home.store.products.index', ['store_subdomain' => $store->slug]);
         }
 
         if ($store->status !== 'active') {
@@ -29,16 +29,16 @@ class StoreServiceController extends Controller
 
         // Filters
         $q = trim((string) $request->query('q', ''));
-        
+
         $servicesQuery = Service::query()
             ->with(['images', 'currency', 'store'])
             ->where('store_id', $store->id)
             ->where('status', 'active');
 
         if ($q !== '') {
-            $servicesQuery->where(function($x) use ($q) {
+            $servicesQuery->where(function ($x) use ($q) {
                 $x->where('name', 'like', "%$q%")
-                  ->orWhere('service_code', 'like', "%$q%");
+                    ->orWhere('service_code', 'like', "%$q%");
             });
         }
 
@@ -46,18 +46,19 @@ class StoreServiceController extends Controller
 
         // Log view
         try {
-             ActivityLog::create([
+            ActivityLog::create([
                 'user_id' => auth()->id(),
                 'action' => 'view_store_services_page',
                 'description' => 'Viewed store services page',
                 'ip_address' => $request->ip(),
-                'user_agent' => substr((string)$request->userAgent(), 0, 255),
+                'user_agent' => substr((string) $request->userAgent(), 0, 255),
                 'metadata' => [
                     'store_id' => $store->id,
                     'q' => $q,
                 ],
             ]);
-        } catch (\Throwable $e) {}
+        } catch (\Throwable $e) {
+        }
 
         return view('storefront.pages.services', compact('store', 'services', 'q'));
     }

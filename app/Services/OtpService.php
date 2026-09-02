@@ -11,10 +11,9 @@ class OtpService
     /**
      * Generate a 6-digit OTP code.
      *
-     * @param string $identifier Email or phone
-     * @param string $type Type of OTP (login, password_reset, etc.)
-     * @param int $expiryMinutes Expiry time in minutes (default 10)
-     * @return Otp
+     * @param  string  $identifier  Email or phone
+     * @param  string  $type  Type of OTP (login, password_reset, etc.)
+     * @param  int  $expiryMinutes  Expiry time in minutes (default 10)
      */
     public static function generate(
         string $identifier,
@@ -54,10 +53,9 @@ class OtpService
     /**
      * Verify an OTP code.
      *
-     * @param string $identifier Email or phone
-     * @param string $code The OTP code to verify
-     * @param string $type Type of OTP
-     * @return bool
+     * @param  string  $identifier  Email or phone
+     * @param  string  $code  The OTP code to verify
+     * @param  string  $type  Type of OTP
      */
     public static function verify(
         string $identifier,
@@ -70,12 +68,13 @@ class OtpService
             ->where('is_verified', false)
             ->first();
 
-        if (!$otp) {
+        if (! $otp) {
             Log::warning('OTP verification failed - code not found', [
                 'identifier' => self::maskIdentifier($identifier),
                 'type' => $type,
                 'ip_address' => Request::ip(),
             ]);
+
             return false;
         }
 
@@ -86,6 +85,7 @@ class OtpService
                 'expired_at' => $otp->expires_at->toDateTimeString(),
                 'ip_address' => Request::ip(),
             ]);
+
             return false;
         }
 
@@ -106,9 +106,6 @@ class OtpService
 
     /**
      * Mask identifier for logging (hide sensitive parts).
-     *
-     * @param string $identifier
-     * @return string
      */
     protected static function maskIdentifier(string $identifier): string
     {
@@ -117,16 +114,17 @@ class OtpService
             $parts = explode('@', $identifier);
             $localPart = $parts[0];
             $domain = $parts[1] ?? '';
-            
+
             if (strlen($localPart) > 2) {
-                $masked = substr($localPart, 0, 2) . str_repeat('*', strlen($localPart) - 2);
-                return $masked . '@' . $domain;
+                $masked = substr($localPart, 0, 2).str_repeat('*', strlen($localPart) - 2);
+
+                return $masked.'@'.$domain;
             }
         }
 
         // For phone or other: show first 3 and last 2
         if (strlen($identifier) > 5) {
-            return substr($identifier, 0, 3) . str_repeat('*', strlen($identifier) - 5) . substr($identifier, -2);
+            return substr($identifier, 0, 3).str_repeat('*', strlen($identifier) - 5).substr($identifier, -2);
         }
 
         return str_repeat('*', strlen($identifier));
@@ -140,7 +138,7 @@ class OtpService
     public static function cleanupExpired(): int
     {
         $deleted = Otp::where('expires_at', '<', now()->subDay())->delete();
-        
+
         if ($deleted > 0) {
             Log::info("Cleaned up {$deleted} expired OTP records");
         }

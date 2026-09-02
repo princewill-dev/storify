@@ -2,11 +2,11 @@
 
 namespace App\Http\Controllers\Home;
 
+use App\Enums\OrderStatus;
 use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
 use App\Models\Order;
 use Illuminate\Http\Request;
-use App\Enums\OrderStatus;
 
 class TrackingController extends Controller
 {
@@ -38,7 +38,6 @@ class TrackingController extends Controller
         $order->load([
             'customer',
             'store',
-            'vendor',
             'items.product',
             'transactions.paymentMethod',
             'deliveryAddress',
@@ -98,7 +97,7 @@ class TrackingController extends Controller
     {
         // Convert enum to string value if needed
         $statusValue = $status instanceof OrderStatus ? $status->value : $status;
-        
+
         $sequence = [
             'pending',
             'accepted',

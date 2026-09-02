@@ -2,11 +2,20 @@
 
 namespace App\Http\Controllers\Management;
 
+use App\Data\Nigeria;
+use App\Enums\TransferStatus;
 use App\Http\Controllers\Controller;
-use App\Models\Warehouse;
+use App\Models\Product;
+use App\Models\StockLocation;
+use App\Models\StockMovement;
+use App\Models\StockTransfer;
+use App\Models\StockTransferItem;
+use App\Models\Store;
 use App\Models\User;
-use Illuminate\Http\Request;
+use App\Models\Warehouse;
+use App\Services\StockLedgerService;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
 
@@ -15,31 +24,39 @@ class WarehouseController extends Controller
     public function index(Request $request): View|RedirectResponse
     {
         $user = $request->user();
-        if (!$user) return redirect()->route('management.auth.login');
+        if (! $user) {
+            return redirect()->route('management.auth.login');
+        }
 
         $warehouses = ($user->isStaff() ? $user->assignedWarehouses() : $user->warehouses())
             ->with(['stockLocations.product', 'sections', 'assignedStaff'])->latest()->paginate(20)->withQueryString();
         $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Warehouses']];
+
         return view('management.warehouses.index', compact('user', 'warehouses', 'breadcrumbs'));
     }
 
     public function create(Request $request): View|RedirectResponse
     {
         $user = $request->user();
-        if (!$user) return redirect()->route('management.auth.login');
+        if (! $user) {
+            return redirect()->route('management.auth.login');
+        }
 
-        $nigerianStates = \App\Data\Nigeria::states();
+        $nigerianStates = Nigeria::states();
         $activeStaff = User::where('role', 'staff')->where('status', 'active')
-            ->whereHas('permissions', fn($q) => $q->where('name', 'warehouses view'))
+            ->whereHas('permissions', fn ($q) => $q->where('name', 'warehouses view'))
             ->get();
         $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Warehouses', 'url' => route('management.warehouses.index')], ['label' => 'Create']];
+
         return view('management.warehouses.create', compact('user', 'nigerianStates', 'activeStaff', 'breadcrumbs'));
     }
 
     public function store(Request $request): RedirectResponse
     {
         $user = $request->user();
-        if (!$user) return redirect()->route('management.auth.login');
+        if (! $user) {
+            return redirect()->route('management.auth.login');
+        }
 
         $validated = $request->validate([
             'name' => 'required|string|max:255',
@@ -62,7 +79,7 @@ class WarehouseController extends Controller
 
         if ($request->filled('staff_ids')) {
             $staffIds = array_filter($request->staff_ids);
-            if (!empty($staffIds)) {
+            if (! empty($staffIds)) {
                 $warehouse->assignedStaff()->sync($staffIds);
             }
         }
@@ -73,10 +90,16 @@ class WarehouseController extends Controller
     public function show(Request $request, Warehouse $warehouse): View|RedirectResponse
     {
         $user = $request->user();
-        if (!$user) abort(403);
+        if (! $user) {
+            abort(403);
+        }
         if ($user->isStaff()) {
-            if (!$user->assignedWarehouses()->where('warehouses.id', $warehouse->id)->exists()) abort(403);
-        } elseif ($warehouse->user_id !== $user->id) abort(403);
+            if (! $user->assignedWarehouses()->where('warehouses.id', $warehouse->id)->exists()) {
+                abort(403);
+            }
+        } elseif ($warehouse->user_id !== $user->id) {
+            abort(403);
+        }
 
         $warehouse->load(['stockLocations.product', 'sections', 'assignedStaff']);
         $lowStockCount = $warehouse->stockLocations->filter->isLowStock()->count();
@@ -90,13 +113,13 @@ class WarehouseController extends Controller
             ->pluck('product_id')
             ->toArray();
 
-        $products = \App\Models\Product::where('warehouse_id', $warehouse->id)
+        $products = Product::where('warehouse_id', $warehouse->id)
             ->where('quantity', '>', 0)
             ->with(['section', 'images'])
             ->orderBy('name')
             ->get();
 
-        $recentMovements = \App\Models\StockMovement::whereIn('stock_location_id', $warehouse->stockLocations->pluck('id'))
+        $recentMovements = StockMovement::whereIn('stock_location_id', $warehouse->stockLocations->pluck('id'))
             ->with(['product', 'performedBy'])
             ->latest()
             ->take(20)
@@ -125,10 +148,16 @@ class WarehouseController extends Controller
     public function moveProducts(Request $request, Warehouse $warehouse): RedirectResponse
     {
         $user = $request->user();
-        if (!$user) abort(403);
+        if (! $user) {
+            abort(403);
+        }
         if ($user->isStaff()) {
-            if (!$user->assignedWarehouses()->where('warehouses.id', $warehouse->id)->exists()) abort(403);
-        } elseif ($warehouse->user_id !== $user->id) abort(403);
+            if (! $user->assignedWarehouses()->where('warehouses.id', $warehouse->id)->exists()) {
+                abort(403);
+            }
+        } elseif ($warehouse->user_id !== $user->id) {
+            abort(403);
+        }
 
         $canAutoComplete = $user->can('transfers create') && $user->can('transfers approve')
             && $user->can('transfers dispatch') && $user->can('transfers receive');
@@ -147,7 +176,7 @@ class WarehouseController extends Controller
             : Warehouse::where('business_id', $warehouse->business_id)->findOrFail($validated['destination_id']);
 
         $productIds = $validated['product_ids'];
-        $products = \App\Models\Product::whereIn('id', $productIds)
+        $products = Product::whereIn('id', $productIds)
             ->where('warehouse_id', $warehouse->id)
             ->get();
 
@@ -156,28 +185,28 @@ class WarehouseController extends Controller
         }
 
         $destinationType = $request->input('destination_type') === 'store'
-            ? \App\Models\Store::class
-            : \App\Models\Warehouse::class;
+            ? Store::class
+            : Warehouse::class;
 
         $shouldAutoComplete = $canAutoComplete && $request->boolean('complete_immediately');
 
         try {
             DB::beginTransaction();
 
-            $transfer = \App\Models\StockTransfer::create([
+            $transfer = StockTransfer::create([
                 'business_id' => $warehouse->business_id,
-                'from_location_type' => \App\Models\Warehouse::class,
+                'from_location_type' => Warehouse::class,
                 'from_location_id' => $warehouse->id,
                 'to_location_type' => $destinationType,
                 'to_location_id' => $destination->id,
                 'requested_by' => $user->id,
-                'status' => \App\Enums\TransferStatus::PENDING,
+                'status' => TransferStatus::PENDING,
                 'notes' => $validated['notes'] ?? null,
             ]);
 
             foreach ($products as $product) {
                 $qty = max(1, (int) $product->quantity);
-                \App\Models\StockTransferItem::create([
+                StockTransferItem::create([
                     'stock_transfer_id' => $transfer->id,
                     'product_id' => $product->id,
                     'quantity' => $qty,
@@ -187,40 +216,40 @@ class WarehouseController extends Controller
 
             if ($shouldAutoComplete) {
                 $transfer->update([
-                    'status' => \App\Enums\TransferStatus::APPROVED,
+                    'status' => TransferStatus::APPROVED,
                     'approved_by' => $user->id,
                 ]);
 
-                $ledger = app(\App\Services\StockLedgerService::class);
+                $ledger = app(StockLedgerService::class);
 
                 foreach ($transfer->items as $item) {
-                    $sourceStock = \App\Models\StockLocation::where('product_id', $item->product_id)
-                        ->where('locationable_type', \App\Models\Warehouse::class)
+                    $sourceStock = StockLocation::where('product_id', $item->product_id)
+                        ->where('locationable_type', Warehouse::class)
                         ->where('locationable_id', $warehouse->id)
                         ->first();
 
                     if ($sourceStock) {
                         $ledger->recordRemoval($sourceStock, $item->quantity, $transfer, $user,
-                            'Transfer dispatched to ' . $destination->name);
+                            'Transfer dispatched to '.$destination->name);
                     }
 
-                    $destStock = \App\Models\StockLocation::firstOrCreate([
+                    $destStock = StockLocation::firstOrCreate([
                         'product_id' => $item->product_id,
                         'locationable_type' => $destinationType,
                         'locationable_id' => $destination->id,
                     ], ['quantity' => 0, 'min_quantity' => 0, 'business_id' => $warehouse->business_id]);
 
                     $ledger->recordAddition($destStock, $item->quantity, $transfer, $user,
-                        'Transfer received from ' . $warehouse->name);
+                        'Transfer received from '.$warehouse->name);
 
                     if ($request->input('destination_type') === 'store') {
-                        \App\Models\Product::where('id', $item->product_id)
+                        Product::where('id', $item->product_id)
                             ->update(['store_id' => $destination->id]);
                     }
                 }
 
                 $transfer->update([
-                    'status' => \App\Enums\TransferStatus::RECEIVED,
+                    'status' => TransferStatus::RECEIVED,
                     'dispatched_by' => $user->id,
                     'received_by' => $user->id,
                 ]);
@@ -228,45 +257,59 @@ class WarehouseController extends Controller
                 DB::commit();
 
                 return redirect()->route('management.transfers.show', $transfer)
-                    ->with('success', count($products) . ' product(s) moved to ' . $destination->name . '. Transfer completed.');
+                    ->with('success', count($products).' product(s) moved to '.$destination->name.'. Transfer completed.');
             }
 
             DB::commit();
 
             return redirect()->route('management.transfers.show', $transfer)
-                ->with('success', 'Transfer created. Awaiting approval for ' . count($products) . ' product(s) to ' . $destination->name . '.');
+                ->with('success', 'Transfer created. Awaiting approval for '.count($products).' product(s) to '.$destination->name.'.');
 
         } catch (\Throwable $e) {
             DB::rollBack();
             \Log::error('warehouse.move_products_failed', ['error' => $e->getMessage()]);
-            return back()->with('error', 'Failed to create transfer: ' . $e->getMessage());
+
+            return back()->with('error', 'Failed to create transfer: '.$e->getMessage());
         }
     }
 
     public function edit(Request $request, Warehouse $warehouse): View|RedirectResponse
     {
         $user = $request->user();
-        if (!$user) abort(403);
+        if (! $user) {
+            abort(403);
+        }
         if ($user->isStaff()) {
-            if (!$user->assignedWarehouses()->where('warehouses.id', $warehouse->id)->exists()) abort(403);
-        } elseif ($warehouse->user_id !== $user->id) abort(403);
+            if (! $user->assignedWarehouses()->where('warehouses.id', $warehouse->id)->exists()) {
+                abort(403);
+            }
+        } elseif ($warehouse->user_id !== $user->id) {
+            abort(403);
+        }
 
-        $nigerianStates = \App\Data\Nigeria::states();
+        $nigerianStates = Nigeria::states();
         $activeStaff = User::where('role', 'staff')->where('status', 'active')
-            ->whereHas('permissions', fn($q) => $q->where('name', 'warehouses view'))
+            ->whereHas('permissions', fn ($q) => $q->where('name', 'warehouses view'))
             ->get();
         $warehouse->load('assignedStaff');
         $breadcrumbs = [['label' => 'Dashboard', 'url' => route('management.dashboard')], ['label' => 'Warehouses', 'url' => route('management.warehouses.index')], ['label' => $warehouse->name, 'url' => route('management.warehouses.show', $warehouse)], ['label' => 'Edit']];
+
         return view('management.warehouses.edit', compact('user', 'warehouse', 'nigerianStates', 'activeStaff', 'breadcrumbs'));
     }
 
     public function update(Request $request, Warehouse $warehouse): RedirectResponse
     {
         $user = $request->user();
-        if (!$user) abort(403);
+        if (! $user) {
+            abort(403);
+        }
         if ($user->isStaff()) {
-            if (!$user->assignedWarehouses()->where('warehouses.id', $warehouse->id)->exists()) abort(403);
-        } elseif ($warehouse->user_id !== $user->id) abort(403);
+            if (! $user->assignedWarehouses()->where('warehouses.id', $warehouse->id)->exists()) {
+                abort(403);
+            }
+        } elseif ($warehouse->user_id !== $user->id) {
+            abort(403);
+        }
 
         $validated = $request->validate([
             'name' => 'required|string|max:255',
@@ -289,18 +332,26 @@ class WarehouseController extends Controller
             $staffIds = array_filter($request->staff_ids ?? []);
             $warehouse->assignedStaff()->sync($staffIds);
         }
+
         return redirect()->route('management.warehouses.index')->with('success', 'Warehouse updated.');
     }
 
     public function destroy(Request $request, Warehouse $warehouse): RedirectResponse
     {
         $user = $request->user();
-        if (!$user) abort(403);
+        if (! $user) {
+            abort(403);
+        }
         if ($user->isStaff()) {
-            if (!$user->assignedWarehouses()->where('warehouses.id', $warehouse->id)->exists()) abort(403);
-        } elseif ($warehouse->user_id !== $user->id) abort(403);
+            if (! $user->assignedWarehouses()->where('warehouses.id', $warehouse->id)->exists()) {
+                abort(403);
+            }
+        } elseif ($warehouse->user_id !== $user->id) {
+            abort(403);
+        }
 
         $warehouse->update(['status' => 'deleted']);
+
         return redirect()->route('management.warehouses.index')->with('success', 'Warehouse deleted.');
     }
 
@@ -310,10 +361,16 @@ class WarehouseController extends Controller
     public function loadTab(Request $request, Warehouse $warehouse): View
     {
         $user = $request->user();
-        if (!$user) abort(403);
+        if (! $user) {
+            abort(403);
+        }
         if ($user->isStaff()) {
-            if (!$user->assignedWarehouses()->where('warehouses.id', $warehouse->id)->exists()) abort(403);
-        } elseif ($warehouse->user_id !== $user->id) abort(403);
+            if (! $user->assignedWarehouses()->where('warehouses.id', $warehouse->id)->exists()) {
+                abort(403);
+            }
+        } elseif ($warehouse->user_id !== $user->id) {
+            abort(403);
+        }
 
         $tab = $request->route('tab');
 
@@ -325,9 +382,9 @@ class WarehouseController extends Controller
 
     private function tabSettings(Warehouse $warehouse, User $user): View
     {
-        $nigerianStates = \App\Data\Nigeria::states();
+        $nigerianStates = Nigeria::states();
         $activeStaff = User::where('role', 'staff')->where('status', 'active')
-            ->whereHas('permissions', fn($q) => $q->where('name', 'warehouses view'))
+            ->whereHas('permissions', fn ($q) => $q->where('name', 'warehouses view'))
             ->get();
         $warehouse->load('assignedStaff');
 

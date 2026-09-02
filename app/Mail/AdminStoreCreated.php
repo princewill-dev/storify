@@ -3,11 +3,11 @@
 namespace App\Mail;
 
 use App\Models\Store;
+use App\Queue\WithQueueConfig;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Mail\Mailable;
 use Illuminate\Queue\SerializesModels;
-use App\Queue\WithQueueConfig;
 
 class AdminStoreCreated extends Mailable implements ShouldQueue
 {
@@ -24,7 +24,7 @@ class AdminStoreCreated extends Mailable implements ShouldQueue
             ->view('emails.admin.store-created')
             ->with([
                 'store' => $this->store,
-                'vendor' => $this->store->user,
+                'user' => $this->store->user,
             ]);
     }
 }
