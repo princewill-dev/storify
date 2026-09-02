@@ -1,7 +1,7 @@
 @php $isCurrent = $subscription && $subscription->subscription_plan_id === $plan->id; @endphp
-<div class="bg-white rounded-xl shadow-sm border {{ $isCurrent ? 'border-slate-900 ring-2 ring-slate-900/10' : 'border-slate-200' }} p-6 flex flex-col h-full {{ $isCurrent ? 'opacity-75' : '' }}">
-    <div class="flex items-start justify-between mb-3">
-        <div>
+<div class="bg-white rounded-xl shadow-sm border {{ $isCurrent ? 'border-slate-900 ring-2 ring-slate-900/10' : 'border-slate-200' }} p-5 flex flex-col h-full min-w-0 {{ $isCurrent ? 'opacity-75' : '' }}">
+    <div class="flex items-start justify-between gap-3 mb-3">
+        <div class="min-w-0">
             <h4 class="text-base font-bold text-slate-900">{{ $plan->name }}</h4>
             @if($isCurrent)
             <span class="inline-flex items-center gap-1 mt-0.5 px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[10px] font-medium">Current Plan</span>
@@ -9,8 +9,8 @@
             <span class="inline-flex items-center gap-1 mt-0.5 px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 text-[10px] font-medium">Popular</span>
             @endif
         </div>
-        <div class="text-right">
-            <p class="text-xl font-bold text-slate-900">₦{{ number_format($plan->amount, 2) }}</p>
+        <div class="text-right shrink-0">
+            <p class="text-lg font-bold text-slate-900">₦{{ number_format($plan->amount, 2) }}</p>
             <p class="text-[11px] text-slate-400">/{{ $plan->interval }}{{ $plan->interval_count > 1 ? 's' : '' }}</p>
         </div>
     </div>
