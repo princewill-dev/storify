@@ -88,3 +88,8 @@ Feature tests use `RefreshDatabase`. Test helpers create businesses, owners, rol
 3. Add an idempotency strategy for any retriable money, inventory, or provisioning request.
 4. Run Pint, the full Pest suite, and the Vite production build.
 5. Clear caches after route, controller, view, or configuration changes.
+
+
+Opencode:
+Session   storify project main
+  Continue  opencode -s ses_01049868effeVUhz5cDwV6GQvu

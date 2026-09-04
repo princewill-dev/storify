@@ -6,7 +6,7 @@
     <h3 class="plan-name">{{ $plan->name }}</h3>
     <p class="plan-desc">{{ $plan->description ?? 'All the essentials to get started.' }}</p>
 
-    <div style="margin-bottom: 32px;">
+    <div style="margin-bottom: 22px;">
         <span class="plan-price">₦{{ number_format($plan->amount, 2) }}</span>
         <span class="plan-interval">/{{ $plan->interval }}</span>
         @if($plan->interval === 'yearly')

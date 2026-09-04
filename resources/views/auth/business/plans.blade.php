@@ -9,21 +9,21 @@
     @vite('resources/css/app.css')
     <link rel="stylesheet" href="{{ asset('vendor_files/assets/vendor/@flaticon/flaticon-uicons/css/all/all.css') }}">
     <style>
-        .plan-card { padding: 40px 36px; }
-        .plan-card .plan-name { font-size: 22px; font-weight: 700; color: #0f172a; margin-bottom: 6px; margin-top: 12px; }
-        .plan-card .plan-desc { font-size: 14px; color: #94a3b8; margin-bottom: 28px; line-height: 1.6; }
-        .plan-card .plan-price { font-size: 48px; font-weight: 700; color: #0f172a; letter-spacing: -0.02em; }
-        .plan-card .plan-interval { font-size: 14px; color: #94a3b8; margin-left: 6px; }
-        .plan-card .plan-savings { font-size: 13px; color: #10b981; font-weight: 500; margin-top: 4px; }
-        .plan-card .plan-features { list-style: none; padding: 0; margin: 0 0 40px 0; flex: 1; }
-        .plan-card .plan-features li { display: flex; align-items: flex-start; gap: 12px; font-size: 14px; color: #475569; margin-bottom: 14px; line-height: 1.5; }
+        .plan-card { padding: 28px 24px; }
+        .plan-card .plan-name { font-size: 18px; font-weight: 700; color: #0f172a; margin-bottom: 4px; margin-top: 8px; }
+        .plan-card .plan-desc { font-size: 13px; color: #94a3b8; margin-bottom: 20px; line-height: 1.5; }
+        .plan-card .plan-price { font-size: 34px; font-weight: 700; color: #0f172a; letter-spacing: -0.02em; }
+        .plan-card .plan-interval { font-size: 12px; color: #94a3b8; margin-left: 4px; }
+        .plan-card .plan-savings { font-size: 12px; color: #10b981; font-weight: 500; margin-top: 3px; }
+        .plan-card .plan-features { list-style: none; padding: 0; margin: 0 0 24px 0; flex: 1; }
+        .plan-card .plan-features li { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; color: #475569; margin-bottom: 10px; line-height: 1.4; }
         .plan-card .plan-features li i { color: #10b981; margin-top: 2px; flex-shrink: 0; }
-        .plan-card .plan-btn { display: block; width: 100%; padding: 16px 24px; font-size: 15px; font-weight: 600; border-radius: 14px; text-align: center; text-decoration: none; transition: all 0.2s; }
+        .plan-card .plan-btn { display: block; width: 100%; padding: 12px 18px; font-size: 14px; font-weight: 600; border-radius: 10px; text-align: center; text-decoration: none; transition: all 0.2s; }
         .plan-card .plan-btn-primary { background: #2563eb; color: #fff; box-shadow: 0 10px 25px -5px rgba(37,99,235,0.3); }
         .plan-card .plan-btn-primary:hover { background: #1d4ed8; }
         .plan-card .plan-btn-secondary { background: #f1f5f9; color: #334155; }
         .plan-card .plan-btn-secondary:hover { background: #e2e8f0; }
-        .plan-trial-notice { font-size: 13px; color: #64748b; margin-top: 18px; background: #f8fafc; border-radius: 10px; padding: 10px 14px; text-align: center; }
+        .plan-trial-notice { font-size: 12px; color: #64748b; margin-top: 12px; background: #f8fafc; border-radius: 8px; padding: 8px 10px; text-align: center; }
     </style>
 </head>
 <body class="h-full font-sans antialiased">
@@ -40,10 +40,10 @@
         </form>
     </header>
 
-    <main class="flex-1 px-6 lg:px-8 py-12">
-        <div class="max-w-6xl mx-auto">
-            <div class="text-center mb-8">
-                <h1 class="text-3xl font-bold text-slate-900 tracking-tight">Choose your plan</h1>
+    <main class="flex-1 px-4 sm:px-6 lg:px-8 py-8">
+        <div class="max-w-4xl mx-auto">
+            <div class="text-center mb-6">
+                <h1 class="text-2xl font-bold text-slate-900 tracking-tight">Choose your plan</h1>
                 <p class="mt-3 text-base text-slate-500 max-w-lg mx-auto">Select a plan that fits your business. Start with a free trial — no payment required today.</p>
             </div>
 
@@ -52,7 +52,7 @@
             <div x-data="plansPage">
                 {{-- Billing cycle tabs --}}
                 @if($hasTabs)
-                <div class="flex items-center justify-center gap-1 bg-slate-100 rounded-xl p-1 w-fit mx-auto mb-8">
+                <div class="flex items-center justify-center gap-1 bg-slate-100 rounded-xl p-1 w-fit mx-auto mb-6">
                     <button
                         @click="billingCycle = 'monthly'"
                         :class="billingCycle === 'monthly' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'"
@@ -73,7 +73,7 @@
 
                 {{-- Monthly plans --}}
                 <div x-show="!{{ $hasTabs ? 'true' : 'false' }} || billingCycle === 'monthly'"
-                     class="{{ $monthlyPlans->count() === 1 ? 'max-w-md mx-auto' : 'grid grid-cols-1 md:grid-cols-3 gap-6 mb-10' }}">
+                     class="{{ $monthlyPlans->count() === 1 ? 'max-w-sm mx-auto' : 'grid grid-cols-1 md:grid-cols-3 gap-4 mb-8' }}">
                     @forelse($monthlyPlans as $plan)
                         @include('auth.business._plan-card', ['plan' => $plan])
                     @empty
@@ -89,7 +89,7 @@
                 {{-- Yearly plans --}}
                 @if($hasTabs)
                 <div x-show="billingCycle === 'yearly'" x-cloak
-                     class="{{ $yearlyPlans->count() === 1 ? 'max-w-md mx-auto' : 'grid grid-cols-1 md:grid-cols-3 gap-6 mb-10' }}">
+                     class="{{ $yearlyPlans->count() === 1 ? 'max-w-sm mx-auto' : 'grid grid-cols-1 md:grid-cols-3 gap-4 mb-8' }}">
                     @forelse($yearlyPlans as $plan)
                         @include('auth.business._plan-card', ['plan' => $plan])
                     @empty

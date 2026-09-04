@@ -43,3 +43,20 @@ test('business setup creates the tenant and advances the owner to plans', functi
         'business_id' => $business->id,
     ]);
 });
+
+test('the onboarding plans route renders the compact onboarding plans view', function () {
+    $business = Business::factory()->create();
+    $user = User::factory()->create([
+        'business_id' => $business->id,
+        'role' => User::ROLE_BUSINESS_OWNER,
+        'status' => 'active',
+        'is_verified' => true,
+    ]);
+    $business->update(['owner_id' => $user->id]);
+
+    actingAs($user)
+        ->get(route('management.plans.index'))
+        ->assertOk()
+        ->assertViewIs('auth.business.plans')
+        ->assertSee('Choose your plan');
+});
