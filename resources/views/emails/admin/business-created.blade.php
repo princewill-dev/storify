@@ -55,7 +55,7 @@
           </tr>
           <tr>
             <td style="padding:0 32px 28px;">
-              @php($usersUrl = app('router')->has('admin.businesses.index') ? route('admin.businesses.index') : url('/superadmin/businesses'))
+              @php($usersUrl = app('router')->has('admin.businesses.index') ? route('admin.businesses.index') : url('/office/businesses'))
               <a href="{{ $usersUrl }}" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;border-radius:8px;padding:10px 16px;font-weight:600;font-size:14px;">View businesses</a>
             </td>
           </tr>

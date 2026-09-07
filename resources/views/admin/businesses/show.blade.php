@@ -326,7 +326,7 @@ function deleteBusiness(accountId, name) {
     var form = document.getElementById('deleteBusinessForm');
     if (nameInput) nameInput.value = name || '';
     if (form && accountId) {
-        form.action = "{{ url('superadmin/businesses') }}/" + accountId;
+        form.action = "{{ url('office/businesses') }}/" + accountId;
     }
     openModal('deleteBusinessModal');
 }
@@ -339,7 +339,7 @@ function editBusinessModal(accountId, name, slug, email, phone, status) {
     document.getElementById('editBusinessStatus').value = status || 'active';
     var form = document.getElementById('editBusinessForm');
     if (form && accountId) {
-        form.action = "{{ url('superadmin/businesses') }}/" + accountId + "?redirect=show";
+        form.action = "{{ url('office/businesses') }}/" + accountId + "?redirect=show";
     }
     openModal('editBusinessModal');
 }
@@ -348,7 +348,7 @@ function suspendBusiness(accountId, name) {
     document.getElementById('suspendBusinessName').value = name || '';
     var form = document.getElementById('suspendBusinessForm');
     if (form && accountId) {
-        form.action = "{{ url('superadmin/businesses') }}/" + accountId + "/suspend";
+        form.action = "{{ url('office/businesses') }}/" + accountId + "/suspend";
     }
     openModal('suspendBusinessModal');
 }

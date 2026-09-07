@@ -69,7 +69,7 @@
                     <input type="text" class="w-full rounded-lg border-slate-300 px-3.5 py-2.5 text-sm shadow-sm focus:border-slate-500 focus:ring-1 focus:ring-slate-500 product-search" placeholder="Search product by name, code, slug..." autocomplete="off">
                     <div class="relative w-full"><div class="list-group absolute w-full bg-white rounded-lg shadow-lg border border-slate-200 d-none search-results z-10 max-h-64 overflow-auto"></div></div>
                     @if($slide->product)
-                      <div class="mt-2 text-xs text-slate-500">Selected: <strong class="text-slate-700 selected-product-name">{{ $slide->product->name }}</strong> &bull; Code: <span class="text-slate-700 selected-product-code">{{ $slide->product->product_code }}</span> &bull; $<span class="text-slate-700 selected-product-price">{{ number_format((float)($slide->product->amount ?? 0),2) }}</span> — <a class="text-indigo-600 hover:underline selected-product-edit" target="_blank" href="{{ url('/superadmin/products/'.$slide->product_id.'/edit') }}">Edit product</a></div>
+                      <div class="mt-2 text-xs text-slate-500">Selected: <strong class="text-slate-700 selected-product-name">{{ $slide->product->name }}</strong> &bull; Code: <span class="text-slate-700 selected-product-code">{{ $slide->product->product_code }}</span> &bull; $<span class="text-slate-700 selected-product-price">{{ number_format((float)($slide->product->amount ?? 0),2) }}</span> — <a class="text-indigo-600 hover:underline selected-product-edit" target="_blank" href="{{ url('/office/products/'.$slide->product_id.'/edit') }}">Edit product</a></div>
                     @else
                       <div class="mt-2 text-xs text-slate-400">No product selected.</div>
                     @endif
@@ -160,7 +160,7 @@
     const priceEl = container.querySelector('.selected-product-price') || container.closest('form')?.querySelector('.selected-product-price');
     const editEl = container.querySelector('.selected-product-edit') || container.closest('form')?.querySelector('.selected-product-edit');
     const searchUrl = container.closest('form').dataset.searchUrl;
-    const buildEditUrl = (id)=> `${window.location.origin}/superadmin/products/${id}/edit`;
+    const buildEditUrl = (id)=> `${window.location.origin}/office/products/${id}/edit`;
     const allowId = Number(hiddenId?.value || 0);
 
     function selectProduct(p){

@@ -117,7 +117,7 @@
             </div>
             
             <p style="text-align: center;">
-                <a href="{{ $appUrl }}/superadmin/live-first/applications/{{ $kycId }}" class="button">Review Application Now</a>
+                <a href="{{ $appUrl }}/office/live-first/applications/{{ $kycId }}" class="button">Review Application Now</a>
             </p>
             
             <p style="color: #666; font-size: 14px; text-align: center; margin-top: 20px;">

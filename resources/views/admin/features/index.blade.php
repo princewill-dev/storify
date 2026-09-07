@@ -106,7 +106,7 @@
     function prepareEditFeature(feature) {
         var form = document.getElementById('editFeatureForm');
         if (form) {
-            form.action = '{{ url('superadmin/features') }}' + '/' + feature.id;
+            form.action = '{{ url('office/features') }}' + '/' + feature.id;
         }
         document.getElementById('edit-title').value = feature.title || '';
         document.getElementById('edit-description').value = feature.description || '';

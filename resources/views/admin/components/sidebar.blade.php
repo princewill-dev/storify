@@ -215,11 +215,20 @@
 
     {{-- Footer --}}
     <div class="px-3 py-3 border-t border-slate-800 shrink-0 space-y-0.5">
+        @can('admin.admins')
+        <a href="{{ route('admin.admins.index') }}"
+           class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('admin.admins.*') ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800' }}">
+            <i class="fi fi-rr-user-shield text-base w-5 text-center"></i>
+            <span>Admins</span>
+        </a>
+        @endcan
+        @can('admin.activity-logs')
         <a href="{{ route('admin.activity-logs.index') }}"
            class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('admin.activity-logs.*') ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800' }}">
             <i class="fi fi-rr-list-check text-base w-5 text-center"></i>
             <span>Activity Logs</span>
         </a>
+        @endcan
         <a href="{{ route('home.index') }}"
            class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors text-slate-400 hover:text-white hover:bg-slate-800">
             <i class="fi fi-rr-home text-base w-5 text-center"></i>

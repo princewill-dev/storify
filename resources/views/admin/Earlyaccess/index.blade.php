@@ -194,12 +194,12 @@ function openEditModal(id, code, description, maxUses) {
     document.getElementById('edit_code').value = code;
     document.getElementById('edit_description').value = description;
     document.getElementById('edit_max_uses').value = maxUses;
-    document.getElementById('editForm').action = '/superadmin/early-access/' + code;
+    document.getElementById('editForm').action = '/office/early-access/' + code;
     openModal('editModal');
 }
 
 function openDeleteModal(id, code) {
-    document.getElementById('deleteForm').action = '/superadmin/early-access/' + code;
+    document.getElementById('deleteForm').action = '/office/early-access/' + code;
     openModal('deleteModal');
 }
 </script>

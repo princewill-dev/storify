@@ -109,7 +109,7 @@ class AdminAuthController extends Controller
             return redirect()->route('admin.setup');
         }
 
-        if (Auth::guard('web')->check() && Auth::user()->role === 'superadmin') {
+        if (Auth::guard('web')->check() && Auth::user()->isAdmin()) {
             return redirect()->route('admin.dashboard');
         }
 
@@ -133,7 +133,7 @@ class AdminAuthController extends Controller
             'email' => 'required|email',
         ]);
 
-        $user = User::where('email', $data['email'])->where('role', 'superadmin')->first();
+        $user = User::where('email', $data['email'])->whereIn('role', ['superadmin', 'admin'])->first();
         if (! $user) {
             Log::warning('Password reset requested for non-existent/unauthorized email', [
                 'email' => substr($data['email'], 0, 3).'***',
@@ -188,7 +188,7 @@ class AdminAuthController extends Controller
             'password' => 'required|string|min:8|confirmed',
         ]);
 
-        $user = User::where('email', $data['email'])->where('role', 'superadmin')->first();
+        $user = User::where('email', $data['email'])->whereIn('role', ['superadmin', 'admin'])->first();
         if (! $user) {
             return back()->withInput($request->except('password', 'password_confirmation', 'otp'))->with('error', 'Invalid request.');
         }
@@ -226,8 +226,8 @@ class AdminAuthController extends Controller
     public function processLogin(LoginRequest $request): RedirectResponse
     {
         try {
-            // Find user by email
-            $user = User::where('email', $request->email)->first();
+            // Find user by email (admin accounts only)
+            $user = User::where('email', $request->email)->whereIn('role', ['superadmin', 'admin'])->first();
 
             if (! $user) {
                 Log::warning('Login attempt with non-existent email', [
@@ -330,8 +330,8 @@ class AdminAuthController extends Controller
                     ->with('error', 'Invalid or expired verification code.');
             }
 
-            // Find and login user
-            $user = User::where('email', $request->email)->first();
+            // Find and login user (admin accounts only)
+            $user = User::where('email', $request->email)->whereIn('role', ['superadmin', 'admin'])->first();
 
             if (! $user) {
                 return redirect()->route('admin.login')
@@ -462,7 +462,7 @@ class AdminAuthController extends Controller
         session()->invalidate();
         session()->regenerateToken();
 
-        return redirect('/superadmin')
+        return redirect('/office')
             ->with('success', 'You have been logged out successfully.');
     }
 }

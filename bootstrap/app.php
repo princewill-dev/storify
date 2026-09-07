@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\CheckSubscription;
+use App\Http\Middleware\IsPlatformAdmin;
 use App\Http\Middleware\RedirectIfOnboardingIncomplete;
 use App\Http\Middleware\SetPermissionsTeamId;
 use Illuminate\Foundation\Application;
@@ -45,12 +46,17 @@ return Application::configure(basePath: dirname(__DIR__))
             'permission' => PermissionMiddleware::class,
             'role' => RoleMiddleware::class,
             'team.context' => SetPermissionsTeamId::class,
+            'platform.admin' => IsPlatformAdmin::class,
         ]);
 
         // Configure authentication redirects for customer guard
         $middleware->redirectGuestsTo(function ($request) {
             if ($request->is('pos') || $request->is('pos/*')) {
                 return route('pos.login');
+            }
+
+            if ($request->is('office') || $request->is('office/*')) {
+                return route('admin.login');
             }
 
             if ($request->is('management') || $request->is('management/*')

@@ -17,6 +17,7 @@ use App\Models\User;
 use Illuminate\Pagination\Paginator;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\View;
 use Illuminate\Support\ServiceProvider;
@@ -44,6 +45,15 @@ class AppServiceProvider extends ServiceProvider
         if ($this->app->environment('production')) {
             \URL::forceScheme('https');
         }
+
+        // Superadmin (plain role column) bypasses all Spatie permission checks.
+        Gate::before(function ($user, $ability) {
+            if ($user instanceof \App\Models\User && $user->role === \App\Models\User::ROLE_SUPERADMIN) {
+                return true;
+            }
+
+            return null;
+        });
 
         // Configure Log Viewer access - only allow superadmins (if package is installed)
         if (class_exists(LogViewer::class)) {

@@ -31,6 +31,55 @@ class SpatiePermissionSeeder extends Seeder
         'service_charges' => ['view', 'create', 'edit', 'delete'],
     ];
 
+    protected array $adminPermissions = [
+        'admin.dashboard',
+        'admin.businesses',
+        'admin.stores',
+        'admin.products',
+        'admin.customers',
+        'admin.orders',
+        'admin.transactions',
+        'admin.subscriptions',
+        'admin.coupons',
+        'admin.support',
+        'admin.content',
+        'admin.delivery',
+        'admin.finance',
+        'admin.warehouses',
+        'admin.settings',
+        'admin.activity-logs',
+        'admin.admins',
+    ];
+
+    protected array $adminRoles = [
+        'platform_admin' => [
+            'name' => 'Platform Admin',
+            'description' => 'Full platform access except managing other admins.',
+            'permissions' => [
+                'admin.dashboard', 'admin.businesses', 'admin.stores', 'admin.products',
+                'admin.customers', 'admin.orders', 'admin.transactions', 'admin.subscriptions',
+                'admin.coupons', 'admin.support', 'admin.content', 'admin.delivery',
+                'admin.finance', 'admin.warehouses', 'admin.settings', 'admin.activity-logs',
+            ],
+        ],
+        'support_admin' => [
+            'name' => 'Support Admin',
+            'description' => 'Customer support, orders, and storefront content.',
+            'permissions' => [
+                'admin.dashboard', 'admin.customers', 'admin.orders', 'admin.support',
+                'admin.products', 'admin.content', 'admin.activity-logs',
+            ],
+        ],
+        'finance_admin' => [
+            'name' => 'Finance Admin',
+            'description' => 'Transactions, subscriptions, coupons, and financial settings.',
+            'permissions' => [
+                'admin.dashboard', 'admin.transactions', 'admin.subscriptions',
+                'admin.coupons', 'admin.finance', 'admin.activity-logs',
+            ],
+        ],
+    ];
+
     protected array $roles = [
         'super_admin' => [
             'name' => 'Super Admin',
@@ -243,6 +292,11 @@ class SpatiePermissionSeeder extends Seeder
             }
         }
 
+        // Platform (admin-level) permissions
+        foreach ($this->adminPermissions as $name) {
+            Permission::firstOrCreate(['name' => $name, 'guard_name' => $guard]);
+        }
+
         $allPermissions = Permission::all();
         $permissionsByName = $allPermissions->keyBy('name');
 
@@ -250,6 +304,26 @@ class SpatiePermissionSeeder extends Seeder
             ['name' => 'Super Admin', 'business_id' => null, 'guard_name' => $guard]
         );
         $platformRole->syncPermissions($allPermissions);
+
+        $adminPermissionsByName = Permission::whereIn('name', $this->adminPermissions)
+            ->get()
+            ->keyBy('name');
+
+        foreach ($this->adminRoles as $slug => $config) {
+            $role = Role::firstOrCreate([
+                'name' => $config['name'],
+                'business_id' => null,
+                'guard_name' => $guard,
+            ]);
+
+            $permIds = [];
+            foreach ($config['permissions'] as $name) {
+                if (isset($adminPermissionsByName[$name])) {
+                    $permIds[] = $adminPermissionsByName[$name]->id;
+                }
+            }
+            $role->syncPermissions($permIds);
+        }
 
         $platformAdmins = User::whereNull('business_id')->where('role', 'superadmin')->get();
         foreach ($platformAdmins as $user) {

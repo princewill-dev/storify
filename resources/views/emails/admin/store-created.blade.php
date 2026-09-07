@@ -55,7 +55,7 @@
           </tr>
           <tr>
             <td style="padding:0 32px 28px;">
-              @php($storesUrl = app('router')->has('admin.stores.index') ? route('admin.stores.index') : url('/superadmin/stores'))
+              @php($storesUrl = app('router')->has('admin.stores.index') ? route('admin.stores.index') : url('/office/stores'))
               <a href="{{ $storesUrl }}" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;border-radius:8px;padding:10px 16px;font-weight:600;font-size:14px;">View stores</a>
             </td>
           </tr>

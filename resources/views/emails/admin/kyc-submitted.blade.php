@@ -57,7 +57,7 @@
               </div>
             </td>
           </tr>
-          @php($reviewUrl = app('router')->has('admin.business-kyc.show') ? route('admin.business-kyc.show', $application) : url('/superadmin/kyc/' . $application->id))
+          @php($reviewUrl = app('router')->has('admin.business-kyc.show') ? route('admin.business-kyc.show', $application) : url('/office/kyc/' . $application->id))
           <tr>
             <td style="padding:0 32px 28px;">
               <a href="{{ $reviewUrl }}" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;border-radius:8px;padding:10px 16px;font-weight:600;font-size:14px;">Review submission</a>

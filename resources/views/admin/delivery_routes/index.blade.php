@@ -212,19 +212,19 @@
         document.getElementById('routeEFee').value = fee || 0;
         document.getElementById('routeEDays').value = days || 3;
         document.getElementById('routeEActive').checked = (active === '1');
-        document.getElementById('routeEditForm').action = '{{ url('/superadmin/delivery-routes') }}/' + id;
+        document.getElementById('routeEditForm').action = '{{ url('/office/delivery-routes') }}/' + id;
         openModal('routeEditModal');
     }
 
     function prepareToggleRoute(id, active) {
         document.getElementById('routeToggleText').textContent = (active === '1') ? 'Disable this route?' : 'Enable this route?';
         document.getElementById('routeToggleBtn').textContent = (active === '1') ? 'Disable' : 'Enable';
-        document.getElementById('routeToggleForm').action = '{{ url('/superadmin/delivery-routes') }}/' + id + '/toggle';
+        document.getElementById('routeToggleForm').action = '{{ url('/office/delivery-routes') }}/' + id + '/toggle';
         openModal('routeToggleModal');
     }
 
     function prepareDeleteRoute(id) {
-        document.getElementById('routeDeleteForm').action = '{{ url('/superadmin/delivery-routes') }}/' + id;
+        document.getElementById('routeDeleteForm').action = '{{ url('/office/delivery-routes') }}/' + id;
         openModal('routeDeleteModal');
     }
 </script>

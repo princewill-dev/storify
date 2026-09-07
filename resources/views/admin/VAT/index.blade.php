@@ -180,15 +180,15 @@ function openVatEdit(id, pct, eff, act){
     document.getElementById('vatEditPercentage').value = pct || '';
     document.getElementById('vatEditEffective').value = eff || '';
     document.getElementById('vatEditActive').checked = act === 1 || act === '1';
-    document.getElementById('vatEditForm').action = '{{ url('/superadmin/vats') }}/'+id;
+    document.getElementById('vatEditForm').action = '{{ url('/office/vats') }}/'+id;
     openModal('vatEditModal');
 }
 function openVatDelete(id){
-    document.getElementById('vatDeleteForm').action = '{{ url('/superadmin/vats') }}/'+id;
+    document.getElementById('vatDeleteForm').action = '{{ url('/office/vats') }}/'+id;
     openModal('vatDeleteModal');
 }
 function openVatDisable(id){
-    document.getElementById('vatDisableForm').action = '{{ url('/superadmin/vats') }}/'+id+'/toggle';
+    document.getElementById('vatDisableForm').action = '{{ url('/office/vats') }}/'+id+'/toggle';
     openModal('vatDisableModal');
 }
 </script>

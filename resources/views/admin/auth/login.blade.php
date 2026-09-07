@@ -1,5 +1,5 @@
 @extends('admin.auth.layout')
-@section('title', 'Superadmin Login')
+@section('title', 'Admin Login')
 
 @section('content')
 <div class="text-center mb-6">

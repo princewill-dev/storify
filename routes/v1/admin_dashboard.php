@@ -4,6 +4,7 @@ use App\Http\Controllers\Admin\ActivityLogController;
 use App\Http\Controllers\Admin\AdminDashboardController;
 use App\Http\Controllers\Admin\AdminEarlyPassController;
 use App\Http\Controllers\Admin\AdminSettingsController;
+use App\Http\Controllers\Admin\AdminsController;
 use App\Http\Controllers\Admin\BankAccountController;
 use App\Http\Controllers\Admin\BusinessController;
 use App\Http\Controllers\Admin\BusinessKycApplicationController;
@@ -36,145 +37,171 @@ use App\Models\KycApplication;
 use App\Models\User;
 use Illuminate\Support\Facades\Route;
 
-// Admin Dashboard Routes (protected by auth middleware)
-Route::middleware(['auth'])->group(function () {
-    Route::get('/superadmin/dashboard', [AdminDashboardController::class, 'index'])->name('admin.dashboard');
-    Route::get('/superadmin/executive', fn () => redirect()->route('admin.dashboard'))->name('admin.executive');
+// Admin Dashboard Routes (protected by auth + admin role middleware)
+Route::middleware(['auth', 'platform.admin'])->group(function () {
+    Route::get('/office/dashboard', [AdminDashboardController::class, 'index'])->name('admin.dashboard');
+    Route::get('/office/executive', fn () => redirect()->route('admin.dashboard'))->name('admin.executive');
 
-    Route::get('/superadmin/settings', [AdminSettingsController::class, 'edit'])->name('admin.settings.edit');
-    Route::post('/superadmin/settings', [AdminSettingsController::class, 'update'])->name('admin.settings.update');
+    Route::get('/office/settings', [AdminSettingsController::class, 'edit'])->name('admin.settings.edit')->middleware('permission:admin.settings');
+    Route::post('/office/settings', [AdminSettingsController::class, 'update'])->name('admin.settings.update')->middleware('permission:admin.settings');
 
-    Route::prefix('superadmin')->name('admin.')->middleware([AdminRouteActivityLogger::class])->group(function () {
-        Route::resource('styling', PageStylingController::class)->except(['show']);
+    Route::prefix('office')->name('admin.')->middleware([AdminRouteActivityLogger::class])->group(function () {
 
-        Route::get('activity-logs', [ActivityLogController::class, 'index'])->name('activity-logs.index');
-        Route::resource('businesses', BusinessController::class)
-            ->parameters(['businesses' => 'user'])
-            ->except(['show', 'create', 'edit']);
-        Route::get('businesses/{user}', [BusinessController::class, 'show'])->name('businesses.show');
-        Route::post('businesses/{user}/suspend', [BusinessController::class, 'suspend'])->name('businesses.suspend');
-        Route::post('businesses/{user}/activate', [BusinessController::class, 'activate'])->name('businesses.activate');
-        Route::get('business-kyc-applications', [BusinessKycApplicationController::class, 'index'])->name('business-kyc.index');
-        Route::get('business-kyc-applications/{application}', [BusinessKycApplicationController::class, 'show'])->name('business-kyc.show');
-        Route::post('business-kyc-applications/{application}/approve', [BusinessKycApplicationController::class, 'approve'])->name('business-kyc.approve');
-        Route::post('business-kyc-applications/{application}/reject', [BusinessKycApplicationController::class, 'reject'])->name('business-kyc.reject');
+        Route::middleware('permission:admin.activity-logs')->group(function () {
+            Route::get('activity-logs', [ActivityLogController::class, 'index'])->name('activity-logs.index');
+        });
 
-        // Compatibility boundary for existing admin bookmarks and queued links.
-        Route::get('vendors', fn () => redirect()->route('admin.businesses.index', status: 301))->name('legacy.vendors.index');
-        Route::get('vendors/{user}', fn (User $user) => redirect()->route('admin.businesses.show', $user, 301))->name('legacy.vendors.show');
-        Route::get('vendor-kyc-applications', fn () => redirect()->route('admin.business-kyc.index', status: 301))->name('legacy.vendor-kyc.index');
-        Route::get('vendor-kyc-applications/{application}', fn (KycApplication $application) => redirect()->route('admin.business-kyc.show', $application, 301))->name('legacy.vendor-kyc.show');
-        Route::resource('stores', StoreController::class)->except(['show', 'create', 'edit']);
-        Route::get('stores/{store}', [StoreController::class, 'show'])->name('stores.show');
-        Route::post('stores/{store}/suspend', [StoreController::class, 'suspend'])->name('stores.suspend');
-        Route::post('stores/{store}/activate', [StoreController::class, 'activate'])->name('stores.activate');
-        Route::resource('products', ProductController::class)->except(['show']);
-        Route::get('products/{product}', [ProductController::class, 'show'])->name('products.show');
-        // Status-only update for products (avoid full ProductRequest)
-        Route::put('products/{product}/status', [ProductController::class, 'updateStatus'])->name('products.status');
-        // Pretty product URLs scoped to a store
-        Route::get('stores/{store}/products', [ProductController::class, 'index'])->name('stores.products.index');
-        Route::get('stores/{store}/product/create', [ProductController::class, 'create'])->name('stores.product.create');
-        Route::get('stores/{store}/products/{code}', [ProductController::class, 'showInStore'])->name('stores.products.show');
+        // Admin (platform staff) management — superadmin only
+        Route::middleware('permission:admin.admins')->group(function () {
+            Route::get('admins', [AdminsController::class, 'index'])->name('admins.index');
+            Route::post('admins', [AdminsController::class, 'store'])->name('admins.store');
+            Route::post('admins/{admin}/resend', [AdminsController::class, 'resend'])->name('admins.resend');
+            Route::put('admins/{admin}', [AdminsController::class, 'update'])->name('admins.update');
+            Route::delete('admins/{admin}', [AdminsController::class, 'destroy'])->name('admins.destroy');
+        });
 
-        Route::resource('categories', CategoryController::class)->except(['show']);
-        // Pretty category URLs scoped to a store
-        Route::get('stores/{store}/categories', [CategoryController::class, 'index'])->name('stores.categories.index');
-        Route::get('stores/{store}/categories/create', [CategoryController::class, 'create'])->name('stores.categories.create');
+        // Businesses + KYC
+        Route::middleware('permission:admin.businesses')->group(function () {
+            Route::resource('businesses', BusinessController::class)
+                ->parameters(['businesses' => 'user'])
+                ->except(['show', 'create', 'edit']);
+            Route::get('businesses/{user}', [BusinessController::class, 'show'])->name('businesses.show');
+            Route::post('businesses/{user}/suspend', [BusinessController::class, 'suspend'])->name('businesses.suspend');
+            Route::post('businesses/{user}/activate', [BusinessController::class, 'activate'])->name('businesses.activate');
+            Route::get('business-kyc-applications', [BusinessKycApplicationController::class, 'index'])->name('business-kyc.index');
+            Route::get('business-kyc-applications/{application}', [BusinessKycApplicationController::class, 'show'])->name('business-kyc.show');
+            Route::post('business-kyc-applications/{application}/approve', [BusinessKycApplicationController::class, 'approve'])->name('business-kyc.approve');
+            Route::post('business-kyc-applications/{application}/reject', [BusinessKycApplicationController::class, 'reject'])->name('business-kyc.reject');
+            Route::resource('early-access', AdminEarlyPassController::class)
+                ->parameters(['early-access' => 'earlyPass'])
+                ->except(['create', 'edit']);
+            Route::post('early-access/{earlyPass}/toggle-status', [AdminEarlyPassController::class, 'toggleStatus'])->name('early-access.toggle-status');
 
-        // Warehouses (admin overview)
-        Route::get('warehouses', [WarehouseController::class, 'index'])->name('warehouses.index');
-        Route::get('warehouses/{warehouse}', [WarehouseController::class, 'show'])->name('warehouses.show');
+            // Compatibility boundary for existing admin bookmarks and queued links.
+            Route::get('vendors', fn () => redirect()->route('admin.businesses.index', status: 301))->name('legacy.vendors.index');
+            Route::get('vendors/{user}', fn (User $user) => redirect()->route('admin.businesses.show', $user, 301))->name('legacy.vendors.show');
+            Route::get('vendor-kyc-applications', fn () => redirect()->route('admin.business-kyc.index', status: 301))->name('legacy.vendor-kyc.index');
+            Route::get('vendor-kyc-applications/{application}', fn (KycApplication $application) => redirect()->route('admin.business-kyc.show', $application, 301))->name('legacy.vendor-kyc.show');
+        });
 
-        // Stock Transfers (admin overview)
-        Route::get('transfers', [StockTransferController::class, 'index'])->name('transfers.index');
-        Route::get('transfers/{transfer}', [StockTransferController::class, 'show'])->name('transfers.show');
-        Route::patch('transfers/{transfer}/approve', [StockTransferController::class, 'approve'])->name('transfers.approve');
-        Route::patch('transfers/{transfer}/reject', [StockTransferController::class, 'reject'])->name('transfers.reject');
-        Route::patch('transfers/{transfer}/dispatch', [StockTransferController::class, 'dispatch'])->name('transfers.dispatch');
-        Route::patch('transfers/{transfer}/receive', [StockTransferController::class, 'receive'])->name('transfers.receive');
+        // Stores
+        Route::middleware('permission:admin.stores')->group(function () {
+            Route::resource('stores', StoreController::class)->except(['show', 'create', 'edit']);
+            Route::get('stores/{store}', [StoreController::class, 'show'])->name('stores.show');
+            Route::post('stores/{store}/suspend', [StoreController::class, 'suspend'])->name('stores.suspend');
+            Route::post('stores/{store}/activate', [StoreController::class, 'activate'])->name('stores.activate');
+        });
 
-        Route::resource('business-types', BusinessTypeController::class)->parameters(['business-types' => 'businessType'])->except(['show']);
-        Route::resource('ownership-types', OwnershipTypeController::class)->parameters(['ownership-types' => 'ownershipType'])->except(['show']);
-        // Company Services
-        Route::resource('company-services', CompanyServiceController::class)->except(['create', 'edit', 'show']);
-        Route::post('company-services/{companyService}/toggle', [CompanyServiceController::class, 'toggle'])->name('company-services.toggle');
-        Route::post('company-services/reorder', [CompanyServiceController::class, 'reorder'])->name('company-services.reorder');
+        // Products + Categories
+        Route::middleware('permission:admin.products')->group(function () {
+            Route::resource('products', ProductController::class)->except(['show']);
+            Route::get('products/{product}', [ProductController::class, 'show'])->name('products.show');
+            Route::put('products/{product}/status', [ProductController::class, 'updateStatus'])->name('products.status');
+            Route::get('stores/{store}/products', [ProductController::class, 'index'])->name('stores.products.index');
+            Route::get('stores/{store}/product/create', [ProductController::class, 'create'])->name('stores.product.create');
+            Route::get('stores/{store}/products/{code}', [ProductController::class, 'showInStore'])->name('stores.products.show');
 
-        Route::get('payment-methods', [PaymentMethodController::class, 'index'])->name('payment-methods.index');
-        Route::post('payment-methods/{paymentMethod}/toggle', [PaymentMethodController::class, 'toggle'])->name('payment-methods.toggle');
+            Route::resource('categories', CategoryController::class)->except(['show']);
+            Route::get('stores/{store}/categories', [CategoryController::class, 'index'])->name('stores.categories.index');
+            Route::get('stores/{store}/categories/create', [CategoryController::class, 'create'])->name('stores.categories.create');
+        });
 
-        // Bank Accounts
-        Route::resource('bank-accounts', BankAccountController::class);
-        Route::post('bank-accounts/{bankAccount}/toggle-active', [BankAccountController::class, 'toggleActive'])->name('bank-accounts.toggle-active');
+        // Warehouses + Transfers
+        Route::middleware('permission:admin.warehouses')->group(function () {
+            Route::get('warehouses', [WarehouseController::class, 'index'])->name('warehouses.index');
+            Route::get('warehouses/{warehouse}', [WarehouseController::class, 'show'])->name('warehouses.show');
 
-        // Storefront slides
-        Route::get('stores/{store}/storefront-slides', [StorefrontSlideController::class, 'index'])->name('storefront-slides.index');
-        Route::post('stores/{store}/storefront-slides', [StorefrontSlideController::class, 'store'])->name('storefront-slides.store');
-        Route::put('stores/{store}/storefront-slides/{slide}', [StorefrontSlideController::class, 'update'])->name('storefront-slides.update');
-        Route::delete('stores/{store}/storefront-slides/{slide}', [StorefrontSlideController::class, 'destroy'])->name('storefront-slides.destroy');
+            Route::get('transfers', [StockTransferController::class, 'index'])->name('transfers.index');
+            Route::get('transfers/{transfer}', [StockTransferController::class, 'show'])->name('transfers.show');
+            Route::patch('transfers/{transfer}/approve', [StockTransferController::class, 'approve'])->name('transfers.approve');
+            Route::patch('transfers/{transfer}/reject', [StockTransferController::class, 'reject'])->name('transfers.reject');
+            Route::patch('transfers/{transfer}/dispatch', [StockTransferController::class, 'dispatch'])->name('transfers.dispatch');
+            Route::patch('transfers/{transfer}/receive', [StockTransferController::class, 'receive'])->name('transfers.receive');
+        });
 
-        // SHOP4ME admin
-        Route::get('shop4me/orders', [Shop4meOrderController::class, 'index'])->name('shop4me.orders.index');
+        // Content (styling, business/ownership types, services, slides, testimonials, features)
+        Route::middleware('permission:admin.content')->group(function () {
+            Route::resource('styling', PageStylingController::class)->except(['show']);
+            Route::resource('business-types', BusinessTypeController::class)->parameters(['business-types' => 'businessType'])->except(['show']);
+            Route::resource('ownership-types', OwnershipTypeController::class)->parameters(['ownership-types' => 'ownershipType'])->except(['show']);
+            Route::resource('company-services', CompanyServiceController::class)->except(['create', 'edit', 'show']);
+            Route::post('company-services/{companyService}/toggle', [CompanyServiceController::class, 'toggle'])->name('company-services.toggle');
+            Route::post('company-services/reorder', [CompanyServiceController::class, 'reorder'])->name('company-services.reorder');
 
-        // VAT
-        Route::resource('vats', VatController::class)->except(['show', 'create']);
-        Route::post('vats/{vat}/toggle', [VatController::class, 'toggle'])->name('vats.toggle');
+            Route::get('stores/{store}/storefront-slides', [StorefrontSlideController::class, 'index'])->name('storefront-slides.index');
+            Route::post('stores/{store}/storefront-slides', [StorefrontSlideController::class, 'store'])->name('storefront-slides.store');
+            Route::put('stores/{store}/storefront-slides/{slide}', [StorefrontSlideController::class, 'update'])->name('storefront-slides.update');
+            Route::delete('stores/{store}/storefront-slides/{slide}', [StorefrontSlideController::class, 'destroy'])->name('storefront-slides.destroy');
 
-        // Delivery Routes
-        Route::resource('delivery-routes', DeliveryRouteController::class)->except(['show', 'create']);
-        Route::post('delivery-routes/{deliveryRoute}/toggle', [DeliveryRouteController::class, 'toggle'])->name('delivery-routes.toggle');
+            Route::resource('features', FeatureController::class)->except(['create', 'show', 'edit']);
+            Route::post('features/reorder', [FeatureController::class, 'reorder'])->name('features.reorder');
 
-        // Order Management
-        Route::resource('orders', OrderController::class)->except(['create', 'store']);
-        Route::patch('orders/{order}/status', [OrderController::class, 'updateStatus'])->name('orders.update-status');
-        Route::patch('orders/{order}/payment-status', [OrderController::class, 'updatePaymentStatus'])->name('orders.update-payment-status');
+            Route::resource('testimonials', TestimonialController::class)->except(['create', 'show', 'edit']);
+        });
 
-        // Delivery Intervals
-        Route::resource('delivery-intervals', DeliveryIntervalController::class)->except(['create', 'edit', 'show']);
-        Route::post('delivery-intervals/{id}/toggle', [DeliveryIntervalController::class, 'toggle'])->name('delivery-intervals.toggle');
+        // Finance (payment methods, bank accounts, VAT)
+        Route::middleware('permission:admin.finance')->group(function () {
+            Route::get('payment-methods', [PaymentMethodController::class, 'index'])->name('payment-methods.index');
+            Route::post('payment-methods/{paymentMethod}/toggle', [PaymentMethodController::class, 'toggle'])->name('payment-methods.toggle');
 
-        // Transaction Management
-        Route::get('transactions', [TransactionController::class, 'index'])->name('transactions.index');
-        Route::get('transactions/{transaction}', [TransactionController::class, 'show'])->name('transactions.show');
-        Route::patch('transactions/{transaction}/status', [TransactionController::class, 'updateStatus'])->name('transactions.update-status');
+            Route::resource('bank-accounts', BankAccountController::class);
+            Route::post('bank-accounts/{bankAccount}/toggle-active', [BankAccountController::class, 'toggleActive'])->name('bank-accounts.toggle-active');
 
-        // Feature CTAs
-        Route::resource('features', FeatureController::class)->except(['create', 'show', 'edit']);
-        Route::post('features/reorder', [FeatureController::class, 'reorder'])->name('features.reorder');
+            Route::resource('vats', VatController::class)->except(['show', 'create']);
+            Route::post('vats/{vat}/toggle', [VatController::class, 'toggle'])->name('vats.toggle');
+        });
 
-        // Customer Management
-        Route::resource('customers', CustomerController::class)->only(['index', 'show', 'edit', 'update']);
-        Route::post('customers/{customer}/suspend', [CustomerController::class, 'suspend'])->name('customers.suspend');
-        Route::post('customers/{customer}/activate', [CustomerController::class, 'activate'])->name('customers.activate');
+        // Delivery
+        Route::middleware('permission:admin.delivery')->group(function () {
+            Route::resource('delivery-routes', DeliveryRouteController::class)->except(['show', 'create']);
+            Route::post('delivery-routes/{deliveryRoute}/toggle', [DeliveryRouteController::class, 'toggle'])->name('delivery-routes.toggle');
+            Route::resource('delivery-intervals', DeliveryIntervalController::class)->except(['create', 'edit', 'show']);
+            Route::post('delivery-intervals/{id}/toggle', [DeliveryIntervalController::class, 'toggle'])->name('delivery-intervals.toggle');
+        });
 
-        // Testimonials
-        Route::resource('testimonials', TestimonialController::class)->except(['create', 'show', 'edit']);
+        // Orders
+        Route::middleware('permission:admin.orders')->group(function () {
+            Route::get('shop4me/orders', [Shop4meOrderController::class, 'index'])->name('shop4me.orders.index');
+            Route::resource('orders', OrderController::class)->except(['create', 'store']);
+            Route::patch('orders/{order}/status', [OrderController::class, 'updateStatus'])->name('orders.update-status');
+            Route::patch('orders/{order}/payment-status', [OrderController::class, 'updatePaymentStatus'])->name('orders.update-payment-status');
+        });
 
-        // Support Messages
-        Route::get('support-messages', [SupportMessageController::class, 'index'])->name('support-messages.index');
-        Route::post('support-messages/{supportMessage}/reply', [SupportMessageController::class, 'reply'])->name('support-messages.reply');
-        Route::delete('support-messages/{supportMessage}', [SupportMessageController::class, 'destroy'])->name('support-messages.destroy');
+        // Transactions
+        Route::middleware('permission:admin.transactions')->group(function () {
+            Route::get('transactions', [TransactionController::class, 'index'])->name('transactions.index');
+            Route::get('transactions/{transaction}', [TransactionController::class, 'show'])->name('transactions.show');
+            Route::patch('transactions/{transaction}/status', [TransactionController::class, 'updateStatus'])->name('transactions.update-status');
+        });
 
-        // Early Access Codes
-        Route::resource('early-access', AdminEarlyPassController::class)
-            ->parameters(['early-access' => 'earlyPass'])
-            ->except(['create', 'edit']);
-        Route::post('early-access/{earlyPass}/toggle-status', [AdminEarlyPassController::class, 'toggleStatus'])->name('early-access.toggle-status');
+        // Customers
+        Route::middleware('permission:admin.customers')->group(function () {
+            Route::resource('customers', CustomerController::class)->only(['index', 'show', 'edit', 'update']);
+            Route::post('customers/{customer}/suspend', [CustomerController::class, 'suspend'])->name('customers.suspend');
+            Route::post('customers/{customer}/activate', [CustomerController::class, 'activate'])->name('customers.activate');
+        });
 
-        // Subscriptions
-        Route::get('subscriptions', [SubscriptionController::class, 'index'])->name('subscriptions.index');
+        // Support
+        Route::middleware('permission:admin.support')->group(function () {
+            Route::get('support-messages', [SupportMessageController::class, 'index'])->name('support-messages.index');
+            Route::post('support-messages/{supportMessage}/reply', [SupportMessageController::class, 'reply'])->name('support-messages.reply');
+            Route::delete('support-messages/{supportMessage}', [SupportMessageController::class, 'destroy'])->name('support-messages.destroy');
+        });
 
-        // Subscription Plans
-        Route::resource('subscription-plans', SubscriptionPlanController::class)->only(['index', 'store', 'update', 'destroy']);
+        // Subscriptions + Plans + Coupons
+        Route::middleware('permission:admin.subscriptions')->group(function () {
+            Route::get('subscriptions', [SubscriptionController::class, 'index'])->name('subscriptions.index');
+            Route::resource('subscription-plans', SubscriptionPlanController::class)->only(['index', 'store', 'update', 'destroy']);
+        });
 
-        // Coupons
-        Route::get('coupons', [CouponController::class, 'index'])->name('coupons.index');
-        Route::get('coupons/create', [CouponController::class, 'create'])->name('coupons.create');
-        Route::post('coupons', [CouponController::class, 'store'])->name('coupons.store');
-        Route::get('coupons/{coupon}/edit', [CouponController::class, 'edit'])->name('coupons.edit');
-        Route::put('coupons/{coupon}', [CouponController::class, 'update'])->name('coupons.update');
-        Route::post('coupons/{coupon}/toggle', [CouponController::class, 'toggleActive'])->name('coupons.toggle');
-        Route::delete('coupons/{coupon}', [CouponController::class, 'destroy'])->name('coupons.destroy');
+        Route::middleware('permission:admin.coupons')->group(function () {
+            Route::get('coupons', [CouponController::class, 'index'])->name('coupons.index');
+            Route::get('coupons/create', [CouponController::class, 'create'])->name('coupons.create');
+            Route::post('coupons', [CouponController::class, 'store'])->name('coupons.store');
+            Route::get('coupons/{coupon}/edit', [CouponController::class, 'edit'])->name('coupons.edit');
+            Route::put('coupons/{coupon}', [CouponController::class, 'update'])->name('coupons.update');
+            Route::post('coupons/{coupon}/toggle', [CouponController::class, 'toggleActive'])->name('coupons.toggle');
+            Route::delete('coupons/{coupon}', [CouponController::class, 'destroy'])->name('coupons.destroy');
+        });
     });
 });

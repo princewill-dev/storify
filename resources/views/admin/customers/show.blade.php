@@ -344,13 +344,13 @@
 <script>
 function showSuspendModal(accountId, customerName) {
     document.getElementById('suspendCustomerName').textContent = customerName;
-    document.getElementById('suspendForm').action = `/superadmin/customers/${accountId}/suspend`;
+    document.getElementById('suspendForm').action = `/office/customers/${accountId}/suspend`;
     openModal('suspendModal');
 }
 
 function showActivateModal(accountId, customerName) {
     document.getElementById('activateCustomerName').textContent = customerName;
-    document.getElementById('activateForm').action = `/superadmin/customers/${accountId}/activate`;
+    document.getElementById('activateForm').action = `/office/customers/${accountId}/activate`;
     openModal('activateModal');
 }
 </script>

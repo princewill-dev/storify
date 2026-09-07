@@ -251,7 +251,7 @@
 <script>
   function prepareEditService(id, title, description, pageLink, status, order, bg) {
     var form = document.getElementById('editServiceForm');
-    if (form) form.setAttribute('action', '{{ url('superadmin/company-services') }}' + '/' + id);
+    if (form) form.setAttribute('action', '{{ url('office/company-services') }}' + '/' + id);
     document.getElementById('edit-order').value = order;
     document.getElementById('edit-title').value = title;
     document.getElementById('edit-description').value = description.replace(/^\"|\"$/g, '');
