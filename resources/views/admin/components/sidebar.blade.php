@@ -33,7 +33,7 @@
                 </a>
 
                 {{-- Businesses --}}
-                <div x-data="{ open: {{ request()->routeIs('admin.businesses.*', 'admin.business-kyc.*', 'admin.early-access.*') ? 'true' : 'false' }} }">
+                <div x-data="{ open: {{ request()->routeIs('admin.businesses.*', 'admin.early-access.*') ? 'true' : 'false' }} }">
                     <button @click="open = !open" class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors w-full text-left text-slate-300 hover:text-white hover:bg-slate-800">
                         <i class="fi fi-rr-building text-base w-5 text-center"></i>
                         <span class="flex-1">Businesses</span>
@@ -43,13 +43,6 @@
                         <a href="{{ route('admin.businesses.index') }}" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors {{ request()->routeIs('admin.businesses.*') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white hover:bg-slate-800' }}">
                             <span>All Businesses</span>
                         </a>
-                        <a href="{{ route('admin.business-kyc.index') }}" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors {{ request()->routeIs('admin.business-kyc.*') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white hover:bg-slate-800' }}">
-                            <span>KYC Submissions</span>
-                            @php $pendingKyc = \App\Models\KycApplication::where('status', 'submitted')->count(); @endphp
-                            @if($pendingKyc)
-                            <span class="ml-auto text-[10px] font-semibold text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded-full">{{ $pendingKyc }}</span>
-                            @endif
-                        </a>
                         <a href="{{ route('admin.early-access.index') }}" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors {{ request()->routeIs('admin.early-access.*') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white hover:bg-slate-800' }}">
                             <span>Access Codes</span>
                         </a>
@@ -57,15 +50,31 @@
                 </div>
 
                 @can('admin.users')
-                <a href="{{ route('admin.users.index') }}"
-                   class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('admin.users.*') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
-                    <i class="fi fi-rr-users text-base w-5 text-center"></i>
-                    <span>Users</span>
-                    @php $userCount = \App\Models\User::whereIn('role', ['business_owner', 'staff'])->where('status', '!=', 'deleted')->count(); @endphp
-                    @if($userCount)
-                    <span class="ml-auto text-[10px] font-semibold text-slate-500 bg-slate-700 px-1.5 py-0.5 rounded-full">{{ number_format($userCount) }}</span>
-                    @endif
-                </a>
+                <div x-data="{ open: {{ request()->routeIs('admin.users.*', 'admin.business-kyc.*') ? 'true' : 'false' }} }">
+                    <button @click="open = !open" class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors w-full text-left text-slate-300 hover:text-white hover:bg-slate-800">
+                        <i class="fi fi-rr-users text-base w-5 text-center"></i>
+                        <span class="flex-1">Users</span>
+                        <i class="fi fi-rr-angle-small-down text-xs transition-transform duration-150" :class="{ 'rotate-180': open }"></i>
+                    </button>
+                    <div x-show="open" x-transition class="ml-4 space-y-0.5 mt-0.5">
+                        <a href="{{ route('admin.users.index') }}" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors {{ request()->routeIs('admin.users.*') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white hover:bg-slate-800' }}">
+                            <span>All Users</span>
+                            @php $userCount = \App\Models\User::whereIn('role', ['business_owner', 'staff'])->where('status', '!=', 'deleted')->count(); @endphp
+                            @if($userCount)
+                            <span class="ml-auto text-[10px] font-semibold text-slate-500 bg-slate-700 px-1.5 py-0.5 rounded-full">{{ number_format($userCount) }}</span>
+                            @endif
+                        </a>
+                        @can('admin.businesses')
+                        <a href="{{ route('admin.business-kyc.index') }}" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors {{ request()->routeIs('admin.business-kyc.*') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white hover:bg-slate-800' }}">
+                            <span>KYC Submissions</span>
+                            @php $pendingKyc = \App\Models\KycApplication::where('status', 'submitted')->count(); @endphp
+                            @if($pendingKyc)
+                            <span class="ml-auto text-[10px] font-semibold text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded-full">{{ $pendingKyc }}</span>
+                            @endif
+                        </a>
+                        @endcan
+                    </div>
+                </div>
                 @endcan
 
                 <a href="{{ route('admin.stores.index') }}"
@@ -82,7 +91,7 @@
 
                 <a href="{{ route('admin.transfers.index') }}"
                    class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('admin.transfers.*') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
-                    <i class="fi fi-rr-arrows-exchange text-base w-5 text-center"></i>
+                    <i class="fi fi-rr-exchange text-base w-5 text-center"></i>
                     <span>Stock Transfers</span>
                 </a>
 
@@ -110,7 +119,7 @@
                 </a>
                 <a href="{{ route('admin.customers.index') }}"
                    class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('admin.customers.*') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
-                    <i class="fa-solid fa-users text-base w-5 text-center"></i>
+                    <i class="fi fi-rr-users-alt text-base w-5 text-center"></i>
                     <span>Customers</span>
                     @php $custCount = \App\Models\Customer::count(); @endphp
                     @if($custCount)
