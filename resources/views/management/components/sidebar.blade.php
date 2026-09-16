@@ -243,6 +243,64 @@ if (request()->routeIs('management.stores.*') || request()->routeIs('management.
         </a>
         @endif
 
+        {{-- Accounting --}}
+        @if($authUser?->can('accounting view'))
+        <div class="pt-3 mt-1 border-t border-slate-800">
+            <p class="px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Accounting</p>
+        </div>
+        <a href="{{ route('management.accounting.index') }}"
+           class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('management.accounting.index') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
+            <i class="fi fi-rr-chart-pie text-base w-5 text-center"></i>
+            <span>Overview</span>
+        </a>
+        <a href="{{ route('management.accounting.journal.index') }}"
+           class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('management.accounting.journal.*') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
+            <i class="fi fi-rr-book text-base w-5 text-center"></i>
+            <span>Journal</span>
+        </a>
+        <a href="{{ route('management.accounting.expenses.index') }}"
+           class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('management.accounting.expenses.*') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
+            <i class="fi fi-rr-receipt text-base w-5 text-center"></i>
+            <span>Expenses</span>
+        </a>
+        <a href="{{ route('management.accounting.bills.index') }}"
+           class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('management.accounting.bills.*') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
+            <i class="fi fi-rr-document text-base w-5 text-center"></i>
+            <span>Bills</span>
+        </a>
+        <a href="{{ route('management.accounting.suppliers.index') }}"
+           class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('management.accounting.suppliers.*') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
+            <i class="fi fi-rr-truck-side text-base w-5 text-center"></i>
+            <span>Suppliers</span>
+        </a>
+        <a href="{{ route('management.accounting.accounts.index') }}"
+           class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('management.accounting.accounts.*') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
+            <i class="fi fi-rr-list text-base w-5 text-center"></i>
+            <span>Chart of Accounts</span>
+        </a>
+        @can('accounting reports')
+        <a href="{{ route('management.accounting.reports.index') }}"
+           class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('management.accounting.reports.*') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
+            <i class="fi fi-rr-chart-histogram text-base w-5 text-center"></i>
+            <span>Reports</span>
+        </a>
+        @endcan
+        @can('accounting reconcile')
+        <a href="{{ route('management.accounting.reconciliation.index') }}"
+           class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('management.accounting.reconciliation.*') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
+            <i class="fi fi-rr-bank text-base w-5 text-center"></i>
+            <span>Bank Reconciliation</span>
+        </a>
+        @endcan
+        @can('accounting settings')
+        <a href="{{ route('management.accounting.settings.index') }}"
+           class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('management.accounting.settings.*') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
+            <i class="fi fi-rr-settings text-base w-5 text-center"></i>
+            <span>Accounting Settings</span>
+        </a>
+        @endcan
+        @endif
+
         {{-- Account --}}
         <div class="pt-3 mt-1 border-t border-slate-800">
             <p class="px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Account</p>

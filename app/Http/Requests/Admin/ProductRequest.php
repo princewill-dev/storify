@@ -33,6 +33,8 @@ class ProductRequest extends FormRequest
             'cod_available' => 'sometimes|boolean',
             'has_variants' => 'sometimes|boolean',
             'discount_percentage' => 'nullable|numeric|min:0|max:100',
+            'cost_price' => 'nullable|numeric|min:0',
+            'is_taxable' => 'sometimes|boolean',
             // Media (images/videos) and update-only fields
             'images.*' => 'nullable|mimes:jpeg,jpg,png,gif,webp|max:20480',
             'primary_image' => 'sometimes|integer',

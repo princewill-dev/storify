@@ -28,6 +28,7 @@ class SessionController extends Controller
                     'opened_at' => $session->opened_at->toISOString(),
                     'opening_balance' => $session->opening_balance,
                     'sales_total' => $session->calculateSalesTotal(),
+                    'cash_sales_total' => $session->calculateCashSalesTotal(),
                 ] : null,
             ],
         ]);

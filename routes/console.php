@@ -14,3 +14,7 @@ Artisan::command('inspire', function () {
 Schedule::job(new ProcessTrialExpirations)
     ->dailyAt('08:00')
     ->when(fn () => User::whereNotNull('trial_ends_at')->exists());
+
+// Weekly ledger integrity scan (report only — backfill with ledger:reconcile --post)
+Schedule::command('ledger:reconcile')
+    ->weeklyOn(1, '06:00');

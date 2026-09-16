@@ -132,3 +132,103 @@ test('staff cannot use POS endpoints for an unassigned store', function () {
     $this->getJson("/api/v1/pos/stores/{$otherStore->store_id}/orders")
         ->assertForbidden();
 });
+
+test('pos checkout charges vat on taxable products', function () {
+    [, $store, $product] = createPosSaleContext();
+
+    App\Models\Vat::create([
+        'percentage' => 7.5,
+        'active' => true,
+        'effective_at' => now(),
+    ]);
+
+    $this->postJson("/api/v1/pos/stores/{$store->store_id}/checkout", [
+        'items' => [['product_id' => $product->id, 'quantity' => 2]],
+        'payments' => [
+            ['method' => 'cash', 'amount' => 2150, 'amount_tendered' => 2150],
+        ],
+    ])->assertCreated();
+
+    $order = Order::where('store_id', $store->id)->sole();
+
+    expect((float) $order->subtotal)->toBe(2000.0)
+        ->and((float) $order->tax)->toBe(150.0)
+        ->and((float) $order->total)->toBe(2150.0)
+        ->and((float) $order->items->first()->tax_amount)->toBe(150.0);
+
+    $this->assertDatabaseHas('journal_entries', [
+        'business_id' => $store->business_id,
+        'idempotency_key' => 'sale:order:'.$order->id,
+    ]);
+});
+
+test('pos checkout skips vat for non-taxable products', function () {
+    [, $store, $product] = createPosSaleContext();
+
+    $product->update(['is_taxable' => false]);
+
+    App\Models\Vat::create([
+        'percentage' => 7.5,
+        'active' => true,
+        'effective_at' => now(),
+    ]);
+
+    $this->postJson("/api/v1/pos/stores/{$store->store_id}/checkout", [
+        'items' => [['product_id' => $product->id, 'quantity' => 1]],
+        'payments' => [
+            ['method' => 'cash', 'amount' => 1000, 'amount_tendered' => 1000],
+        ],
+    ])->assertCreated();
+
+    $order = Order::where('store_id', $store->id)->sole();
+
+    expect((float) $order->tax)->toBe(0.0)
+        ->and((float) $order->total)->toBe(1000.0);
+});
+
+test('pos session cash total counts only cash legs', function () {
+    [, $store] = createPosSaleContext();
+
+    $session = PosSession::where('store_id', $store->id)->sole();
+
+    $order = Order::create([
+        'business_id' => $store->business_id,
+        'store_id' => $store->id,
+        'user_id' => $store->user_id,
+        'source' => 'pos',
+        'order_number' => 'POS-CASH-TEST',
+        'subtotal' => 1500,
+        'total' => 1500,
+        'amount_paid' => 1500,
+        'status' => 'completed',
+        'pos_session_id' => $session->id,
+    ]);
+
+    Transaction::create([
+        'reference' => 'TXN-CASH-TEST',
+        'order_id' => $order->id,
+        'business_id' => $store->business_id,
+        'amount' => 1000,
+        'status' => App\Enums\TransactionStatus::CONFIRMED,
+        'paid_at' => now(),
+        'metadata' => ['leg_method' => 'cash'],
+    ]);
+
+    Transaction::create([
+        'reference' => 'TXN-CARD-TEST',
+        'order_id' => $order->id,
+        'business_id' => $store->business_id,
+        'amount' => 500,
+        'status' => App\Enums\TransactionStatus::CONFIRMED,
+        'paid_at' => now(),
+        'metadata' => ['leg_method' => 'paystack'],
+    ]);
+
+    expect($session->calculateCashSalesTotal())->toBe(100000)
+        ->and($session->calculateSalesTotal())->toBe(150000);
+
+    $session->close(120000);
+
+    expect($session->closing_balance_expected)->toBe(100000)
+        ->and($session->difference)->toBe(20000);
+});

@@ -29,6 +29,7 @@ class SpatiePermissionSeeder extends Seeder
         'coupons' => ['view', 'create', 'edit', 'delete'],
         'transfers' => ['view', 'create', 'approve', 'dispatch', 'receive'],
         'service_charges' => ['view', 'create', 'edit', 'delete'],
+        'accounting' => ['view', 'accounts', 'journal', 'expenses', 'suppliers', 'bills', 'reconcile', 'reports', 'settings', 'close'],
     ];
 
     protected array $adminPermissions = [
@@ -49,6 +50,7 @@ class SpatiePermissionSeeder extends Seeder
         'admin.settings',
         'admin.activity-logs',
         'admin.admins',
+        'admin.accounting',
     ];
 
     protected array $adminRoles = [
@@ -60,6 +62,7 @@ class SpatiePermissionSeeder extends Seeder
                 'admin.customers', 'admin.orders', 'admin.transactions', 'admin.subscriptions',
                 'admin.coupons', 'admin.support', 'admin.content', 'admin.delivery',
                 'admin.finance', 'admin.warehouses', 'admin.settings', 'admin.activity-logs',
+                'admin.accounting',
             ],
         ],
         'support_admin' => [
@@ -75,7 +78,7 @@ class SpatiePermissionSeeder extends Seeder
             'description' => 'Transactions, subscriptions, coupons, and financial settings.',
             'permissions' => [
                 'admin.dashboard', 'admin.transactions', 'admin.subscriptions',
-                'admin.coupons', 'admin.finance', 'admin.activity-logs',
+                'admin.coupons', 'admin.finance', 'admin.activity-logs', 'admin.accounting',
             ],
         ],
     ];
@@ -128,6 +131,7 @@ class SpatiePermissionSeeder extends Seeder
                 'transfers' => ['view'],
                 'deliveries' => ['view'],
                 'support' => ['view_tickets'],
+                'accounting' => ['view', 'accounts', 'journal', 'expenses', 'suppliers', 'bills', 'reconcile', 'reports', 'settings', 'close'],
             ],
         ],
         'manager' => [
@@ -151,6 +155,7 @@ class SpatiePermissionSeeder extends Seeder
                 'pos' => ['view_history'],
                 'transfers' => ['view', 'create', 'approve', 'dispatch', 'receive'],
                 'service_charges' => ['view', 'create', 'edit', 'delete'],
+                'accounting' => ['view', 'expenses', 'reports'],
             ],
         ],
         'store_manager' => [
@@ -193,6 +198,7 @@ class SpatiePermissionSeeder extends Seeder
                 'orders' => ['view'],
                 'coupons' => ['view', 'create', 'edit', 'delete'],
                 'stores' => ['view'],
+                'accounting' => ['view', 'journal', 'expenses', 'suppliers', 'bills', 'reports'],
             ],
         ],
         'cashier' => [
@@ -264,6 +270,7 @@ class SpatiePermissionSeeder extends Seeder
                 'deliveries' => ['view'],
                 'support' => ['view_tickets'],
                 'coupons' => ['view'],
+                'accounting' => ['view', 'reports'],
             ],
         ],
         'store_associate' => [

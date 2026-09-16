@@ -215,6 +215,13 @@
 
     {{-- Footer --}}
     <div class="px-3 py-3 border-t border-slate-800 shrink-0 space-y-0.5">
+        @can('admin.accounting')
+        <a href="{{ route('admin.accounting.index') }}"
+           class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('admin.accounting.*') ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800' }}">
+            <i class="fi fi-rr-calculator text-base w-5 text-center"></i>
+            <span>Platform Books</span>
+        </a>
+        @endcan
         @can('admin.admins')
         <a href="{{ route('admin.admins.index') }}"
            class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('admin.admins.*') ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800' }}">

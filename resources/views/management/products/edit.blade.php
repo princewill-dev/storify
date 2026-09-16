@@ -101,8 +101,14 @@
                         @error('amount')<p class="text-xs text-red-500 mt-1">{{ $message }}</p>@enderror
                     </div>
                     <x-management.form-input name="discount_percentage" label="Discount (%)" type="number" step="0.01" min="0" max="100" :value="old('discount_percentage', $product->discount_percentage)" placeholder="e.g. 10" :error="$errors->first('discount_percentage')" />
+                    <x-management.form-input name="cost_price" label="Cost Price" type="number" step="0.01" min="0" :value="old('cost_price', $product->cost_price)" placeholder="0.00" :error="$errors->first('cost_price')" />
                     <x-management.form-input name="bulk_quantity" label="Bulk Min. Qty" type="number" :value="old('bulk_quantity', $product->bulk_quantity)" placeholder="e.g. 10" :error="$errors->first('bulk_quantity')" />
                 </div>
+                <label class="flex items-center gap-2 text-sm text-slate-600 mt-4">
+                    <input type="hidden" name="is_taxable" value="0">
+                    <input type="checkbox" name="is_taxable" value="1" @checked(old('is_taxable', $product->is_taxable ?? true)) class="rounded border-slate-300 text-slate-900 focus:ring-slate-500">
+                    Charge VAT on this product
+                </label>
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
                     <div>
                         <label class="block text-sm font-medium text-slate-700 mb-1.5">Size</label>

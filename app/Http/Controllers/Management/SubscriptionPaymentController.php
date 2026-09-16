@@ -268,6 +268,11 @@ final class SubscriptionPaymentController extends Controller
 
         if ($activated) {
             $this->activationNotifier->send($request->user());
+
+            $payment->refresh();
+            $ledger = app(\App\Services\Accounting\LedgerPostingService::class);
+            $ledger->safe(fn () => $ledger->postSubscriptionPayment($payment, $request->user()->id));
+
             Log::info('subscription.payment_confirmed', ['payment_id' => $payment->id, 'user_id' => $request->user()->id]);
         }
 

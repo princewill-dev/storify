@@ -1,6 +1,15 @@
 <?php
 
 use App\Http\Controllers\Auth\BusinessAuthController;
+use App\Http\Controllers\Management\Accounting\AccountingDashboardController;
+use App\Http\Controllers\Management\Accounting\AccountingReportController;
+use App\Http\Controllers\Management\Accounting\AccountingSettingsController;
+use App\Http\Controllers\Management\Accounting\BankReconciliationController;
+use App\Http\Controllers\Management\Accounting\BillController;
+use App\Http\Controllers\Management\Accounting\ChartOfAccountsController;
+use App\Http\Controllers\Management\Accounting\ExpenseController;
+use App\Http\Controllers\Management\Accounting\JournalController;
+use App\Http\Controllers\Management\Accounting\SupplierController;
 use App\Http\Controllers\Management\CategoryController;
 use App\Http\Controllers\Management\CustomerController;
 use App\Http\Controllers\Management\DashboardController;
@@ -289,6 +298,98 @@ Route::prefix('management')->name('management.')->group(function () {
             });
             Route::middleware('permission:transactions refund')->group(function () {
                 Route::post('/transactions/{transaction:reference}/refund', [TransactionController::class, 'refundPayment'])->name('transactions.refund');
+            });
+
+            // Accounting
+            Route::middleware('permission:accounting view')->group(function () {
+                Route::get('/accounting', [AccountingDashboardController::class, 'index'])->name('accounting.index');
+                Route::get('/accounting/accounts', [ChartOfAccountsController::class, 'index'])->name('accounting.accounts.index');
+                Route::get('/accounting/journal', [JournalController::class, 'index'])->name('accounting.journal.index');
+                Route::get('/accounting/expenses', [ExpenseController::class, 'index'])->name('accounting.expenses.index');
+                Route::get('/accounting/suppliers', [SupplierController::class, 'index'])->name('accounting.suppliers.index');
+                Route::get('/accounting/bills', [BillController::class, 'index'])->name('accounting.bills.index');
+                Route::get('/accounting/settings', [AccountingSettingsController::class, 'index'])->name('accounting.settings.index');
+            });
+
+            Route::middleware('permission:accounting accounts')->group(function () {
+                Route::get('/accounting/accounts/create', [ChartOfAccountsController::class, 'create'])->name('accounting.accounts.create');
+                Route::post('/accounting/accounts', [ChartOfAccountsController::class, 'store'])->name('accounting.accounts.store');
+                Route::get('/accounting/accounts/{account}/edit', [ChartOfAccountsController::class, 'edit'])->name('accounting.accounts.edit');
+                Route::put('/accounting/accounts/{account}', [ChartOfAccountsController::class, 'update'])->name('accounting.accounts.update');
+                Route::post('/accounting/accounts/{account}/toggle', [ChartOfAccountsController::class, 'toggle'])->name('accounting.accounts.toggle');
+            });
+
+            Route::middleware('permission:accounting journal')->group(function () {
+                Route::get('/accounting/journal/create', [JournalController::class, 'create'])->name('accounting.journal.create');
+                Route::post('/accounting/journal', [JournalController::class, 'store'])->name('accounting.journal.store');
+                Route::post('/accounting/journal/{entry}/post', [JournalController::class, 'postDraft'])->name('accounting.journal.post');
+                Route::post('/accounting/journal/{entry}/reverse', [JournalController::class, 'reverse'])->name('accounting.journal.reverse');
+                Route::delete('/accounting/journal/{entry}', [JournalController::class, 'destroy'])->name('accounting.journal.destroy');
+            });
+
+            Route::middleware('permission:accounting expenses')->group(function () {
+                Route::get('/accounting/expenses/create', [ExpenseController::class, 'create'])->name('accounting.expenses.create');
+                Route::post('/accounting/expenses', [ExpenseController::class, 'store'])->name('accounting.expenses.store');
+                Route::post('/accounting/expenses/{expense}/void', [ExpenseController::class, 'void'])->name('accounting.expenses.void');
+                Route::delete('/accounting/expenses/{expense}', [ExpenseController::class, 'destroy'])->name('accounting.expenses.destroy');
+            });
+
+            Route::middleware('permission:accounting suppliers')->group(function () {
+                Route::post('/accounting/suppliers', [SupplierController::class, 'store'])->name('accounting.suppliers.store');
+                Route::put('/accounting/suppliers/{supplier}', [SupplierController::class, 'update'])->name('accounting.suppliers.update');
+                Route::delete('/accounting/suppliers/{supplier}', [SupplierController::class, 'destroy'])->name('accounting.suppliers.destroy');
+            });
+
+            Route::middleware('permission:accounting bills')->group(function () {
+                Route::get('/accounting/bills/create', [BillController::class, 'create'])->name('accounting.bills.create');
+                Route::post('/accounting/bills', [BillController::class, 'store'])->name('accounting.bills.store');
+                Route::post('/accounting/bills/{bill}/payments', [BillController::class, 'storePayment'])->name('accounting.bills.payments.store');
+                Route::post('/accounting/bills/{bill}/void', [BillController::class, 'void'])->name('accounting.bills.void');
+            });
+
+            Route::middleware('permission:accounting settings')->group(function () {
+                Route::put('/accounting/settings/mappings', [AccountingSettingsController::class, 'updateMappings'])->name('accounting.settings.mappings.update');
+                Route::post('/accounting/settings/opening-balances', [AccountingSettingsController::class, 'storeOpeningBalances'])->name('accounting.settings.opening-balances.store');
+                Route::post('/accounting/settings/periods/{period}/close', [AccountingSettingsController::class, 'closePeriod'])->name('accounting.settings.periods.close');
+                Route::post('/accounting/settings/periods/{period}/reopen', [AccountingSettingsController::class, 'reopenPeriod'])->name('accounting.settings.periods.reopen');
+            });
+
+            Route::middleware('permission:accounting close')->group(function () {
+                Route::post('/accounting/settings/years/{year}/close', [AccountingSettingsController::class, 'closeYear'])->name('accounting.settings.years.close');
+            });
+
+            // Accounting detail routes (wildcards last)
+            Route::middleware('permission:accounting view')->group(function () {
+                Route::get('/accounting/journal/{entry}', [JournalController::class, 'show'])->name('accounting.journal.show');
+                Route::get('/accounting/expenses/{expense}', [ExpenseController::class, 'show'])->name('accounting.expenses.show');
+                Route::get('/accounting/suppliers/{supplier}', [SupplierController::class, 'show'])->name('accounting.suppliers.show');
+                Route::get('/accounting/bills/{bill}', [BillController::class, 'show'])->name('accounting.bills.show');
+            });
+
+            // Accounting reports
+            Route::middleware('permission:accounting reports')->group(function () {
+                Route::get('/accounting/reports', [AccountingReportController::class, 'index'])->name('accounting.reports.index');
+                Route::get('/accounting/reports/trial-balance', [AccountingReportController::class, 'trialBalance'])->name('accounting.reports.trial-balance');
+                Route::get('/accounting/reports/profit-and-loss', [AccountingReportController::class, 'profitAndLoss'])->name('accounting.reports.profit-and-loss');
+                Route::get('/accounting/reports/balance-sheet', [AccountingReportController::class, 'balanceSheet'])->name('accounting.reports.balance-sheet');
+                Route::get('/accounting/reports/general-ledger', [AccountingReportController::class, 'generalLedger'])->name('accounting.reports.general-ledger');
+                Route::get('/accounting/reports/ar-aging', [AccountingReportController::class, 'arAging'])->name('accounting.reports.ar-aging');
+                Route::get('/accounting/reports/ap-aging', [AccountingReportController::class, 'apAging'])->name('accounting.reports.ap-aging');
+                Route::get('/accounting/reports/vat-summary', [AccountingReportController::class, 'vatSummary'])->name('accounting.reports.vat-summary');
+                Route::get('/accounting/reports/expense-summary', [AccountingReportController::class, 'expenseSummary'])->name('accounting.reports.expense-summary');
+                Route::get('/accounting/reports/integrity', [AccountingReportController::class, 'integrity'])->name('accounting.reports.integrity');
+            });
+
+            // Bank reconciliation
+            Route::middleware('permission:accounting reconcile')->group(function () {
+                Route::get('/accounting/reconciliation', [BankReconciliationController::class, 'index'])->name('accounting.reconciliation.index');
+                Route::post('/accounting/reconciliation', [BankReconciliationController::class, 'store'])->name('accounting.reconciliation.store');
+                Route::post('/accounting/reconciliation/lines/{line}/match', [BankReconciliationController::class, 'match'])->name('accounting.reconciliation.lines.match');
+                Route::post('/accounting/reconciliation/lines/{line}/unmatch', [BankReconciliationController::class, 'unmatch'])->name('accounting.reconciliation.lines.unmatch');
+                Route::post('/accounting/reconciliation/lines/{line}/ignore', [BankReconciliationController::class, 'ignore'])->name('accounting.reconciliation.lines.ignore');
+                Route::get('/accounting/reconciliation/{import}', [BankReconciliationController::class, 'show'])->name('accounting.reconciliation.show');
+                Route::post('/accounting/reconciliation/{import}/auto-match', [BankReconciliationController::class, 'autoMatch'])->name('accounting.reconciliation.auto-match');
+                Route::post('/accounting/reconciliation/{import}/complete', [BankReconciliationController::class, 'complete'])->name('accounting.reconciliation.complete');
             });
 
             // Support

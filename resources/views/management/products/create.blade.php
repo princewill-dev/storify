@@ -56,8 +56,9 @@
 
             {{-- Pricing --}}
             <x-management.card header="Pricing">
-                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div class="grid grid-cols-1 sm:grid-cols-4 gap-4">
                     <x-management.form-input name="amount" label="Price" type="number" step="0.01" placeholder="0.00" required :value="old('amount')" :error="$errors->first('amount')" />
+                    <x-management.form-input name="cost_price" label="Cost Price" type="number" step="0.01" min="0" placeholder="0.00" :value="old('cost_price')" :error="$errors->first('cost_price')" />
                     <x-management.form-input name="discount_percentage" label="Discount %" type="number" step="0.01" min="0" max="100" placeholder="0" :value="old('discount_percentage')" :error="$errors->first('discount_percentage')" />
                     <x-management.form-input name="currency_id" label="Currency" type="select" :error="$errors->first('currency_id')">
                         <option value="">Default</option>
@@ -66,6 +67,11 @@
                         @endforeach
                     </x-management.form-input>
                 </div>
+                <label class="flex items-center gap-2 text-sm text-slate-600 mt-4">
+                    <input type="hidden" name="is_taxable" value="0">
+                    <input type="checkbox" name="is_taxable" value="1" @checked(old('is_taxable', true)) class="rounded border-slate-300 text-slate-900 focus:ring-slate-500">
+                    Charge VAT on this product
+                </label>
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4 border-t border-slate-100 pt-4">
                     <x-management.form-input name="bulk_quantity" label="Bulk Min. Quantity" type="number" placeholder="e.g. 10" :value="old('bulk_quantity')" :error="$errors->first('bulk_quantity')" />
                     <x-management.form-input name="bulk_price" label="Bulk Price" type="number" step="0.01" placeholder="Discounted bulk price" :value="old('bulk_price')" :error="$errors->first('bulk_price')" />

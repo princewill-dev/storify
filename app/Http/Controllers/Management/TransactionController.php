@@ -194,6 +194,9 @@ class TransactionController extends Controller
             }
         });
 
+        $ledger = app(\App\Services\Accounting\LedgerPostingService::class);
+        $ledger->safe(fn () => $ledger->postPaymentReceived($transaction, $user->id));
+
         // Send confirmation emails (queued)
         try {
             $customer = $transaction->order->customer;
@@ -351,7 +354,7 @@ class TransactionController extends Controller
 
         // Use transaction for atomic operation
         try {
-            \DB::transaction(function () use ($transaction, $reason, $user) {
+            \DB::transaction(function () use ($transaction, $order, $reason, $user) {
                 $store = $transaction->order->store;
                 $amountInKobo = (int) ($transaction->amount * 100);
 
@@ -363,26 +366,32 @@ class TransactionController extends Controller
                 try {
                     $store->debitBalance($amountInKobo);
 
-                    // Update transaction with refund info
+                    // Update transaction with refund info (preserve original balance audit pair)
                     $metadata = $transaction->metadata ?? [];
                     $metadata['refund_reason'] = $reason;
                     $metadata['refunded_at'] = now()->toDateTimeString();
                     $metadata['refunded_by'] = $user->id;
+                    $metadata['refund_balance_before'] = $balanceBefore;
+                    $metadata['refund_balance_after'] = (int) $store->fresh()->balance;
 
                     $transaction->update([
                         'status' => TransactionStatus::REFUNDED->value,
                         'metadata' => $metadata,
                         'balance_updated_at' => now(),
-                        'store_balance_before' => $balanceBefore,
-                        'store_balance_after' => $store->fresh()->balance,
                     ]);
+
+                    // Reverse the payment against the order balance
+                    if ($order) {
+                        $order->amount_paid = max(0, (float) $order->amount_paid - (float) $transaction->amount);
+                        $order->save();
+                    }
 
                     \Log::info('payment_refunded', [
                         'transaction_id' => $transaction->id,
                         'store_id' => $store->id,
                         'amount_kobo' => $amountInKobo,
                         'balance_before' => $balanceBefore,
-                        'balance_after' => $store->fresh()->balance,
+                        'balance_after' => (int) $store->fresh()->balance,
                         'reason' => $reason,
                     ]);
                 } catch (\Exception $e) {
@@ -401,6 +410,9 @@ class TransactionController extends Controller
 
             return back()->with('error', 'Failed to process refund: '.$e->getMessage());
         }
+
+        $ledger = app(\App\Services\Accounting\LedgerPostingService::class);
+        $ledger->safe(fn () => $ledger->postRefund($transaction, $user->id));
 
         // Send refund email to customer (queued)
         try {

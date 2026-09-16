@@ -12,6 +12,7 @@ use App\Models\Product;
 use App\Models\StockLocation;
 use App\Models\Store;
 use App\Models\User;
+use App\Models\Vat;
 use App\Services\StockLedgerService;
 use DomainException;
 use Illuminate\Support\Facades\DB;
@@ -93,7 +94,10 @@ final class PlaceStorefrontOrder
                 ->keyBy('product_id');
 
             $subtotalKobo = 0;
+            $taxKobo = 0;
             $orderItems = [];
+
+            $vatPercentage = (float) (Vat::active()->orderByDesc('effective_at')->orderByDesc('id')->first()?->percentage ?? 0);
 
             foreach ($cart->items as $cartItem) {
                 $product = $products->get($cartItem->product_id);
@@ -109,6 +113,15 @@ final class PlaceStorefrontOrder
                 $lineSubtotalKobo = (int) ($cartItem->line_subtotal ?: $unitAmountKobo * $quantity);
                 $subtotalKobo += $lineSubtotalKobo;
 
+                $lineTaxKobo = 0;
+                if ($vatPercentage > 0 && $product->is_taxable) {
+                    $lineTaxKobo = (int) round($lineSubtotalKobo * $vatPercentage / 100);
+                    $taxKobo += $lineTaxKobo;
+                }
+
+                $costKobo = app(\App\Services\Accounting\InventoryCostingService::class)
+                    ->costForSale($product, $quantity);
+
                 $orderItems[] = [
                     'product' => $product,
                     'stock_location' => $stockLocation,
@@ -120,6 +133,9 @@ final class PlaceStorefrontOrder
                         'unit_price' => round($unitAmountKobo / 100, 2),
                         'quantity' => $quantity,
                         'subtotal' => round($lineSubtotalKobo / 100, 2),
+                        'tax_rate' => $product->is_taxable ? $vatPercentage : 0,
+                        'tax_amount' => round($lineTaxKobo / 100, 2),
+                        'cost_kobo' => $costKobo > 0 ? $costKobo : null,
                     ],
                 ];
             }
@@ -133,6 +149,7 @@ final class PlaceStorefrontOrder
                 : null;
             $shippingFee = (float) ($deliveryRoute?->fee ?? 0) / 100;
             $subtotal = round($subtotalKobo / 100, 2);
+            $tax = round($taxKobo / 100, 2);
 
             $deliveryAddress = $customer->deliveryAddresses()->create([
                 'recipient_name' => $customer->full_name,
@@ -158,8 +175,8 @@ final class PlaceStorefrontOrder
                 'source' => data_get($cart->meta, 'source', 'checkout'),
                 'subtotal' => $subtotal,
                 'shipping_fee' => $shippingFee,
-                'tax' => 0,
-                'total' => round($subtotal + $shippingFee, 2),
+                'tax' => $tax,
+                'total' => round($subtotal + $shippingFee + $tax, 2),
                 'status' => OrderStatus::PENDING->value,
                 'delivery_state' => $data['state'],
                 'delivery_area' => $data['city'],
@@ -192,6 +209,9 @@ final class PlaceStorefrontOrder
 
             $cart->items()->delete();
             $cart->update(['status' => 'completed']);
+
+            $ledger = app(\App\Services\Accounting\LedgerPostingService::class);
+            $ledger->safe(fn () => $ledger->postOrderRevenue($order));
 
             return $order;
         });

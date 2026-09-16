@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Admin\ActivityLogController;
+use App\Http\Controllers\Admin\AccountingController;
 use App\Http\Controllers\Admin\AdminDashboardController;
 use App\Http\Controllers\Admin\AdminEarlyPassController;
 use App\Http\Controllers\Admin\AdminSettingsController;
@@ -58,6 +59,20 @@ Route::middleware(['auth', 'platform.admin'])->group(function () {
             Route::post('admins/{admin}/resend', [AdminsController::class, 'resend'])->name('admins.resend');
             Route::put('admins/{admin}', [AdminsController::class, 'update'])->name('admins.update');
             Route::delete('admins/{admin}', [AdminsController::class, 'destroy'])->name('admins.destroy');
+        });
+
+        // Platform books (accounting)
+        Route::middleware('permission:admin.accounting')->group(function () {
+            Route::get('accounting', [AccountingController::class, 'index'])->name('accounting.index');
+            Route::get('accounting/accounts', [AccountingController::class, 'accounts'])->name('accounting.accounts');
+            Route::get('accounting/journal', [AccountingController::class, 'journal'])->name('accounting.journal');
+            Route::get('accounting/journal/{entry}', [AccountingController::class, 'journalShow'])->name('accounting.journal.show');
+            Route::get('accounting/reports', [AccountingController::class, 'reports'])->name('accounting.reports');
+            Route::get('accounting/settings', [AccountingController::class, 'settings'])->name('accounting.settings');
+            Route::put('accounting/settings/mappings', [AccountingController::class, 'updateMappings'])->name('accounting.settings.mappings.update');
+            Route::post('accounting/settings/periods/{period}/close', [AccountingController::class, 'closePeriod'])->name('accounting.settings.periods.close');
+            Route::post('accounting/settings/periods/{period}/reopen', [AccountingController::class, 'reopenPeriod'])->name('accounting.settings.periods.reopen');
+            Route::post('accounting/settings/years/{year}/close', [AccountingController::class, 'closeYear'])->name('accounting.settings.years.close');
         });
 
         // Businesses + KYC

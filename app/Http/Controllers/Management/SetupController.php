@@ -62,6 +62,8 @@ class SetupController extends Controller
         $seeder = new SpatiePermissionSeeder;
         $seeder->createRolesForBusiness($business);
 
+        app(\App\Services\Accounting\LedgerSetupService::class)->ensureForBusiness($business->id);
+
         return redirect()->route('management.plans.index')
             ->with('success', 'Your business is set up! Now choose a plan to get started.');
     }

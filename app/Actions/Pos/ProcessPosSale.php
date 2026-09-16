@@ -15,6 +15,7 @@ use App\Models\Store;
 use App\Models\StoreBank;
 use App\Models\Transaction;
 use App\Models\User;
+use App\Models\Vat;
 use App\Services\StockLedgerService;
 use DomainException;
 use Illuminate\Support\Facades\DB;
@@ -22,7 +23,10 @@ use Illuminate\Support\Str;
 
 final class ProcessPosSale
 {
-    public function __construct(private readonly StockLedgerService $stockLedger) {}
+    public function __construct(
+        private readonly StockLedgerService $stockLedger,
+        private readonly \App\Services\Accounting\InventoryCostingService $costing,
+    ) {}
 
     public function execute(Store $store, User $staff, PosSession $session, array $data): PosSaleResult
     {
@@ -63,7 +67,10 @@ final class ProcessPosSale
             }
 
             $subtotal = 0.0;
+            $tax = 0.0;
             $orderItems = [];
+
+            $vatPercentage = (float) (Vat::active()->orderByDesc('effective_at')->orderByDesc('id')->first()?->percentage ?? 0);
 
             foreach ($items as $item) {
                 $product = $products->get($item['product_id']);
@@ -71,12 +78,23 @@ final class ProcessPosSale
                 $itemTotal = $price * $item['quantity'];
                 $subtotal += $itemTotal;
 
+                $lineTax = 0.0;
+                if ($vatPercentage > 0 && $product->is_taxable) {
+                    $lineTax = round($itemTotal * $vatPercentage / 100, 2);
+                    $tax += $lineTax;
+                }
+
+                $costKobo = $this->costing->costForSale($product, $item['quantity']);
+
                 $orderItems[] = new OrderItem([
                     'product_id' => $product->id,
                     'product_name' => $product->name,
                     'unit_price' => $price,
                     'quantity' => $item['quantity'],
                     'subtotal' => $itemTotal,
+                    'tax_rate' => $product->is_taxable ? $vatPercentage : 0,
+                    'tax_amount' => $lineTax,
+                    'cost_kobo' => $costKobo > 0 ? $costKobo : null,
                 ]);
             }
 
@@ -87,7 +105,7 @@ final class ProcessPosSale
                     ->find($data['service_charge_id'])
                 : null;
             $serviceChargeAmount = (float) ($serviceCharge?->amount ?? 0);
-            $total = $subtotal + $serviceChargeAmount;
+            $total = round($subtotal + $serviceChargeAmount + $tax, 2);
             $payments = $this->normalizePayments($data, $total);
 
             $paymentsSum = collect($payments)->sum(fn (array $payment) => (float) $payment['amount']);
@@ -128,6 +146,7 @@ final class ProcessPosSale
                 'pos_session_id' => $session->id,
                 'idempotency_key' => $data['idempotency_key'] ?? null,
                 'subtotal' => $subtotal,
+                'tax' => $tax,
                 'total' => $total,
                 'amount_paid' => $total,
                 'service_charge_amount' => $serviceChargeAmount > 0 ? $serviceChargeAmount : null,
@@ -151,8 +170,8 @@ final class ProcessPosSale
             $this->recordPayments($order, $lockedStore, $payments);
             $this->removeStock($order, $lockedStore, $staff, $items, $products);
 
-            $lockedStore->balance = (int) $lockedStore->balance + (int) round($total * 100);
-            $lockedStore->save();
+            $ledger = app(\App\Services\Accounting\LedgerPostingService::class);
+            $ledger->safe(fn () => $ledger->postSale($order, $staff->id));
 
             return new PosSaleResult($order->load(['items', 'transactions.paymentMethod']));
         });
@@ -229,7 +248,7 @@ final class ProcessPosSale
                 $storeBankId = $payment['bank_account_id'];
             }
 
-            Transaction::create([
+            $transaction = Transaction::create([
                 'reference' => $reference,
                 'order_id' => $order->id,
                 'business_id' => $store->business_id,
@@ -243,6 +262,15 @@ final class ProcessPosSale
                     'amount_tendered' => $payment['amount_tendered'] ?? null,
                     'is_split' => count($payments) > 1,
                 ],
+            ]);
+
+            $amountInKobo = (int) round((float) $payment['amount'] * 100);
+            $balanceBefore = (int) $store->balance;
+            $store->creditBalance($amountInKobo);
+            $transaction->update([
+                'balance_updated_at' => now(),
+                'store_balance_before' => $balanceBefore,
+                'store_balance_after' => (int) $store->fresh()->balance,
             ]);
         }
     }

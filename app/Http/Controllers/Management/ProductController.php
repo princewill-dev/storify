@@ -289,6 +289,10 @@ class ProductController extends Controller
             DB::transaction(function () use ($request, $data, $user) {
                 $product = Product::create($data);
 
+                if (! empty($data['cost_price'])) {
+                    app(\App\Services\Accounting\InventoryCostingService::class)->syncFromCostPrice($product);
+                }
+
                 if ($request->hasFile('images')) {
                     $pos = 0;
                     foreach ($request->file('images') as $file) {
@@ -360,6 +364,10 @@ class ProductController extends Controller
                 $data['featured'] = $request->boolean('featured');
                 $data['has_variants'] = $request->boolean('has_variants');
                 $product->update($data);
+
+                if (! empty($data['cost_price'])) {
+                    app(\App\Services\Accounting\InventoryCostingService::class)->syncFromCostPrice($product);
+                }
 
                 if ($request->filled('delete_image_ids')) {
                     $ids = $request->input('delete_image_ids');

@@ -84,7 +84,7 @@ class PosSession extends Model
 
     public function close(int $actualCash, ?string $notes = null): void
     {
-        $this->closing_balance_expected = $this->opening_balance + $this->calculateSalesTotal();
+        $this->closing_balance_expected = $this->opening_balance + $this->calculateCashSalesTotal();
         $this->closing_balance_actual = $actualCash;
         $this->difference = $actualCash - $this->closing_balance_expected;
         $this->closed_at = now();
@@ -95,7 +95,28 @@ class PosSession extends Model
 
     public function calculateSalesTotal(): int
     {
-        return $this->orders()->sum('total');
+        return (int) round((float) $this->orders()->sum('total') * 100);
+    }
+
+    /**
+     * Cash legs only — the amount that should physically be in the drawer.
+     */
+    public function calculateCashSalesTotal(): int
+    {
+        return (int) round((float) Transaction::query()
+            ->whereHas('order', fn ($q) => $q->where('pos_session_id', $this->id))
+            ->whereIn('status', [
+                \App\Enums\TransactionStatus::CONFIRMED,
+                \App\Enums\TransactionStatus::PAID,
+            ])
+            ->where(function ($q) {
+                $q->where('metadata->leg_method', 'cash')
+                    ->orWhere(function ($inner) {
+                        $inner->whereNull('payment_method_id')
+                            ->whereNull('metadata->leg_method');
+                    });
+            })
+            ->sum('amount') * 100);
     }
 
     public static function statusBadgeData(): array

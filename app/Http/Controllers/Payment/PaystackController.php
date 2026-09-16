@@ -247,9 +247,14 @@ class PaystackController extends Controller
                 }
 
                 // Payment successful - update transaction
+                $feesKobo = isset($paymentData['fees']) ? (int) $paymentData['fees'] : null;
+                $amountKobo = (int) round($transaction->amount * 100);
+
                 $transaction->update([
                     'status' => TransactionStatus::CONFIRMED->value,
                     'paid_at' => now(),
+                    'fee_kobo' => $feesKobo,
+                    'net_kobo' => $feesKobo !== null ? max(0, $amountKobo - $feesKobo) : null,
                     'metadata' => array_merge($transaction->metadata ?? [], [
                         'double_verified' => true,
                         'first_verification_status' => 'passed',
@@ -281,6 +286,9 @@ class PaystackController extends Controller
                         'store_balance_after' => $store->fresh()->balance,
                     ]);
                 }
+
+                $ledger = app(\App\Services\Accounting\LedgerPostingService::class);
+                $ledger->safe(fn () => $ledger->postPaymentReceived($transaction));
 
                 Log::info('paystack.payment_successful', [
                     'reference' => $reference,
@@ -419,9 +427,14 @@ class PaystackController extends Controller
 
         if ($verification['success'] && $verification['data']['status'] === 'success') {
             DB::transaction(function () use ($transaction, $data) {
+                $feesKobo = isset($data['fees']) ? (int) $data['fees'] : null;
+                $amountKobo = (int) round($transaction->amount * 100);
+
                 $transaction->update([
                     'status' => TransactionStatus::CONFIRMED->value,
                     'paid_at' => now(),
+                    'fee_kobo' => $feesKobo,
+                    'net_kobo' => $feesKobo !== null ? max(0, $amountKobo - $feesKobo) : null,
                     'metadata' => array_merge($transaction->metadata ?? [], [
                         'webhook_received' => true,
                         'webhook_data' => $data,
@@ -444,6 +457,9 @@ class PaystackController extends Controller
                         'store_balance_after' => $store->fresh()->balance,
                     ]);
                 }
+
+                $ledger = app(\App\Services\Accounting\LedgerPostingService::class);
+                $ledger->safe(fn () => $ledger->postPaymentReceived($transaction));
 
                 Log::info('paystack.webhook.payment_updated', [
                     'reference' => $transaction->reference,

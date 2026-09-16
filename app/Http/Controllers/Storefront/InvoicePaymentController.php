@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Storefront;
 
 use App\Enums\InvoiceStatus;
+use App\Enums\TransactionStatus;
 use App\Http\Controllers\Controller;
 use App\Mail\InvoicePaymentReceiptMail;
 use App\Models\Invoice;
@@ -155,16 +156,27 @@ class InvoicePaymentController extends Controller
         $verification = $this->paystack->doubleVerifyPayment($reference);
 
         if (! $verification['success'] || strtolower($verification['data']['status'] ?? '') !== 'success') {
-            $transaction->update(['status' => 'failed', 'failure_reason' => $verification['message'] ?? 'Verification failed']);
+            $transaction->update([
+                'status' => TransactionStatus::CANCELED->value,
+                'metadata' => array_merge($transaction->metadata ?? [], [
+                    'verification_failed' => true,
+                    'failure_reason' => $verification['message'] ?? 'Verification failed',
+                ]),
+            ]);
 
             return redirect()->route('invoice.pay.show', ['token' => $token])->with('error', 'Payment could not be verified.');
         }
 
         DB::transaction(function () use ($invoice, $transaction, $verification) {
+            $feesKobo = isset($verification['data']['fees']) ? (int) $verification['data']['fees'] : null;
+            $amountKobo = (int) round($transaction->amount * 100);
+
             $transaction->update([
-                'status' => 'confirmed',
+                'status' => TransactionStatus::CONFIRMED->value,
                 'gateway_reference' => $verification['data']['id'] ?? null,
                 'gateway_response' => $verification['data'],
+                'fee_kobo' => $feesKobo,
+                'net_kobo' => $feesKobo !== null ? max(0, $amountKobo - $feesKobo) : null,
                 'paid_at' => now(),
             ]);
 
@@ -180,7 +192,15 @@ class InvoicePaymentController extends Controller
             $invoice->save();
 
             if ($invoice->store) {
-                $invoice->store->creditBalance((int) ($transaction->amount * 100));
+                $store = $invoice->store;
+                $store->lockForUpdate();
+                $balanceBefore = (int) $store->balance;
+                $store->creditBalance((int) round($transaction->amount * 100));
+                $transaction->update([
+                    'balance_updated_at' => now(),
+                    'store_balance_before' => $balanceBefore,
+                    'store_balance_after' => (int) $store->fresh()->balance,
+                ]);
                 Log::info('invoice_payment_store_credited', [
                     'invoice_id' => $invoice->id,
                     'store_id' => $invoice->store_id,
@@ -197,6 +217,12 @@ class InvoicePaymentController extends Controller
             } catch (\Throwable $e) {
                 Log::error('invoice_receipt_mail_failed', ['error' => $e->getMessage()]);
             }
+        });
+
+        $ledger = app(\App\Services\Accounting\LedgerPostingService::class);
+        $ledger->safe(function () use ($ledger, $invoice, $transaction) {
+            $ledger->postInvoice($invoice);
+            $ledger->postPaymentReceived($transaction);
         });
 
         return redirect()->route('invoice.pay.show', ['token' => $token])->with('paymentSuccess', true);

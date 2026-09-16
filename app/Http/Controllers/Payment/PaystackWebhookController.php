@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Payment;
 
+use App\Enums\OrderStatus;
 use App\Enums\TransactionStatus;
 use App\Http\Controllers\Controller;
 use App\Models\PaymentMethod;
@@ -77,7 +78,7 @@ class PaystackWebhookController extends Controller
             ? $transaction->status->value
             : $transaction->status;
 
-        if ($transactionStatus === 'completed') {
+        if ($transactionStatus === TransactionStatus::CONFIRMED->value) {
             return response()->json(['status' => 'already processed']);
         }
 
@@ -89,19 +90,43 @@ class PaystackWebhookController extends Controller
 
             if ($verification['success'] && ($verification['data']['status'] ?? '') === 'success') {
                 DB::transaction(function () use ($transaction, $data) {
+                    $feesKobo = isset($data->fees) ? (int) $data->fees : null;
+                    $amountKobo = (int) round($transaction->amount * 100);
+
                     $transaction->update([
-                        'status' => 'completed',
+                        'status' => TransactionStatus::CONFIRMED->value,
                         'paid_at' => now(),
+                        'gateway_reference' => $data->id ?? null,
+                        'gateway_response' => $data,
+                        'fee_kobo' => $feesKobo,
+                        'net_kobo' => $feesKobo !== null ? max(0, $amountKobo - $feesKobo) : null,
                         'metadata' => array_merge($transaction->metadata ?? [], [
                             'webhook_received' => true,
                             'webhook_data' => $data,
                         ]),
                     ]);
 
-                    if ($transaction->order) {
-                        $transaction->order->update([
-                            'payment_method' => 'Paystack',
-                        ]);
+                    $order = $transaction->order;
+
+                    if ($order) {
+                        $order->amount_paid = (float) $order->amount_paid + (float) $transaction->amount;
+
+                        if ($order->isFullyPaid()) {
+                            $order->status = OrderStatus::ACCEPTED;
+                        }
+                        $order->save();
+
+                        $store = $order->store;
+                        if ($store) {
+                            $amountInKobo = (int) round($transaction->amount * 100);
+                            $balanceBefore = (int) $store->balance;
+                            $store->creditBalance($amountInKobo);
+                            $transaction->update([
+                                'balance_updated_at' => now(),
+                                'store_balance_before' => $balanceBefore,
+                                'store_balance_after' => (int) $store->fresh()->balance,
+                            ]);
+                        }
                     }
                 });
 
@@ -109,6 +134,9 @@ class PaystackWebhookController extends Controller
                     'reference' => $reference,
                     'transaction_id' => $transaction->id,
                 ]);
+
+                $ledger = app(\App\Services\Accounting\LedgerPostingService::class);
+                $ledger->safe(fn () => $ledger->postPaymentReceived($transaction));
 
                 return response()->json(['status' => 'success']);
             }

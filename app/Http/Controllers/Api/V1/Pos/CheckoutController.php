@@ -71,6 +71,8 @@ final class CheckoutController extends Controller
                 'order' => [
                     'order_number' => $order->order_number,
                     'total' => (float) $order->total,
+                    'subtotal' => (float) $order->subtotal,
+                    'tax' => (float) $order->tax,
                     'amount_tendered' => $amountTendered,
                     'change' => $amountTendered > 0 ? max(0, $amountTendered - (int) $order->total) : 0,
                     'date' => $order->created_at->toISOString(),
@@ -95,6 +97,7 @@ final class CheckoutController extends Controller
                         'qty' => $item->quantity,
                         'price' => (float) $item->unit_price,
                         'subtotal' => (float) $item->subtotal,
+                        'tax' => (float) $item->tax_amount,
                     ]),
                 ],
             ],

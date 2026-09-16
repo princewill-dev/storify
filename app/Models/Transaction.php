@@ -30,6 +30,8 @@ class Transaction extends Model
         'balance_updated_at',
         'store_balance_before',
         'store_balance_after',
+        'fee_kobo',
+        'net_kobo',
     ];
 
     protected $casts = [
@@ -38,6 +40,8 @@ class Transaction extends Model
         'balance_updated_at' => 'datetime',
         'status' => TransactionStatus::class,
         'metadata' => 'array',
+        'fee_kobo' => 'integer',
+        'net_kobo' => 'integer',
     ];
 
     protected static function boot()

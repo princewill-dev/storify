@@ -34,6 +34,9 @@ class Product extends Model
         'weight',
         'weight_unit_id',
         'amount',
+        'cost_price',
+        'average_cost_kobo',
+        'is_taxable',
         'discount_percentage',
         'currency_id',
         'status',
@@ -138,6 +141,9 @@ class Product extends Model
     protected $casts = [
         'featured' => 'boolean',
         'has_variants' => 'boolean',
+        'cost_price' => 'decimal:2',
+        'average_cost_kobo' => 'integer',
+        'is_taxable' => 'boolean',
     ];
 
     public function scopeFeatured($query)

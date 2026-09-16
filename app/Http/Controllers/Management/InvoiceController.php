@@ -74,9 +74,10 @@ class InvoiceController extends Controller
     {
         $user = $request->user();
         $validated = $this->validateInvoice($request);
+        $totals = $this->computeInvoiceTotals($validated);
         $invoice = null;
 
-        DB::transaction(function () use ($user, $validated, $request, &$invoice) {
+        DB::transaction(function () use ($user, $validated, $totals, $request, &$invoice) {
             $invoice = Invoice::create([
                 'business_id' => $user->business_id,
                 'user_id' => $user->id,
@@ -89,12 +90,12 @@ class InvoiceController extends Controller
                 'status' => $request->has('finalize') ? InvoiceStatus::SENT : InvoiceStatus::DRAFT,
                 'issue_date' => $validated['issue_date'],
                 'due_date' => $validated['due_date'],
-                'subtotal' => $validated['subtotal'] ?? 0,
-                'tax_rate' => $validated['tax_rate'] ?? 0,
-                'tax_amount' => $validated['tax_amount'] ?? 0,
+                'subtotal' => $totals['subtotal'],
+                'tax_rate' => $totals['tax_rate'],
+                'tax_amount' => $totals['tax_amount'],
                 'discount_type' => $validated['discount_type'] ?? null,
-                'discount_value' => $validated['discount_value'] ?? 0,
-                'total' => $validated['total'] ?? 0,
+                'discount_value' => $totals['discount_value'],
+                'total' => $totals['total'],
                 'notes' => $validated['notes'] ?? null,
                 'terms' => $validated['terms'] ?? null,
             ]);
@@ -186,8 +187,9 @@ class InvoiceController extends Controller
         }
 
         $validated = $this->validateInvoice($request);
+        $totals = $this->computeInvoiceTotals($validated);
 
-        DB::transaction(function () use ($invoice, $validated, $request) {
+        DB::transaction(function () use ($invoice, $validated, $totals, $request) {
             $invoice->update([
                 'store_id' => $validated['store_id'] ?? null,
                 'customer_id' => $validated['customer_id'] ?? null,
@@ -198,12 +200,12 @@ class InvoiceController extends Controller
                 'status' => $request->has('finalize') ? InvoiceStatus::SENT : InvoiceStatus::DRAFT,
                 'issue_date' => $validated['issue_date'],
                 'due_date' => $validated['due_date'],
-                'subtotal' => $validated['subtotal'] ?? 0,
-                'tax_rate' => $validated['tax_rate'] ?? 0,
-                'tax_amount' => $validated['tax_amount'] ?? 0,
+                'subtotal' => $totals['subtotal'],
+                'tax_rate' => $totals['tax_rate'],
+                'tax_amount' => $totals['tax_amount'],
                 'discount_type' => $validated['discount_type'] ?? null,
-                'discount_value' => $validated['discount_value'] ?? 0,
-                'total' => $validated['total'] ?? 0,
+                'discount_value' => $totals['discount_value'],
+                'total' => $totals['total'],
                 'notes' => $validated['notes'] ?? null,
                 'terms' => $validated['terms'] ?? null,
             ]);
@@ -256,6 +258,9 @@ class InvoiceController extends Controller
 
         $this->sendInvoice($invoice);
 
+        $ledger = app(\App\Services\Accounting\LedgerPostingService::class);
+        $ledger->safe(fn () => $ledger->postInvoice($invoice, $user->id));
+
         return back()->with('success', 'Invoice sent to '.$invoice->recipient_email);
     }
 
@@ -266,10 +271,68 @@ class InvoiceController extends Controller
             abort(403);
         }
 
-        $invoice->update([
-            'status' => InvoiceStatus::PAID,
-            'paid_at' => now(),
-        ]);
+        if (in_array($invoice->status, [InvoiceStatus::PAID, InvoiceStatus::VOID])) {
+            return back()->with('error', 'This invoice is already '.$invoice->status->label().'.');
+        }
+
+        $remaining = $invoice->remainingBalance();
+        if ($remaining <= 0) {
+            return back()->with('warning', 'This invoice has no remaining balance.');
+        }
+
+        $createdTransaction = null;
+
+        DB::transaction(function () use ($invoice, $user, $remaining, &$createdTransaction) {
+            $transaction = Transaction::create([
+                'reference' => 'PMT-'.strtoupper(Str::random(12)),
+                'invoice_id' => $invoice->id,
+                'business_id' => $invoice->business_id,
+                'amount' => $remaining,
+                'currency' => 'NGN',
+                'status' => TransactionStatus::CONFIRMED,
+                'paid_at' => now(),
+                'metadata' => [
+                    'method' => 'manual',
+                    'source' => 'mark_paid',
+                    'recorded_by' => $user->id,
+                ],
+            ]);
+
+            $invoice->amount_paid = (float) $invoice->amount_paid + $remaining;
+            $invoice->status = InvoiceStatus::PAID;
+            $invoice->paid_at = now();
+            $invoice->save();
+
+            if ($invoice->store) {
+                $store = $invoice->store;
+                $store->lockForUpdate();
+                $balanceBefore = (int) $store->balance;
+                $store->creditBalance((int) round($remaining * 100));
+                $transaction->update([
+                    'balance_updated_at' => now(),
+                    'store_balance_before' => $balanceBefore,
+                    'store_balance_after' => (int) $store->fresh()->balance,
+                ]);
+            }
+
+            \Log::info('invoice_marked_paid', [
+                'invoice_id' => $invoice->id,
+                'invoice_number' => $invoice->invoice_number,
+                'transaction_id' => $transaction->id,
+                'amount' => $remaining,
+                'recorded_by' => $user->id,
+            ]);
+
+            $createdTransaction = $transaction;
+        });
+
+        $ledger = app(\App\Services\Accounting\LedgerPostingService::class);
+        $ledger->safe(function () use ($ledger, $invoice, $createdTransaction, $user) {
+            $ledger->postInvoice($invoice, $user->id);
+            if ($createdTransaction) {
+                $ledger->postPaymentReceived($createdTransaction, $user->id);
+            }
+        });
 
         return back()->with('success', 'Invoice marked as paid.');
     }
@@ -313,7 +376,9 @@ class InvoiceController extends Controller
             'amount.max' => 'Amount cannot exceed the remaining balance of ₦'.number_format($invoice->remainingBalance(), 2).'.',
         ]);
 
-        DB::transaction(function () use ($invoice, $user, $validated) {
+        $createdTransaction = null;
+
+        DB::transaction(function () use ($invoice, $user, $validated, &$createdTransaction) {
             $methodLabels = ['gateway' => 'Payment Gateway', 'bank_transfer' => 'Bank Transfer', 'check' => 'Cheque'];
             $methodLabel = $methodLabels[$validated['payment_method']] ?? $validated['payment_method'];
 
@@ -366,6 +431,16 @@ class InvoiceController extends Controller
                 'store_balance_before' => $transaction->store_balance_before,
                 'store_balance_after' => $transaction->store_balance_after,
             ]);
+
+            $createdTransaction = $transaction;
+        });
+
+        $ledger = app(\App\Services\Accounting\LedgerPostingService::class);
+        $ledger->safe(function () use ($ledger, $invoice, $createdTransaction, $user) {
+            $ledger->postInvoice($invoice, $user->id);
+            if ($createdTransaction) {
+                $ledger->postPaymentReceived($createdTransaction, $user->id);
+            }
         });
 
         return back()->with('success', 'Payment of ₦'.number_format($validated['amount'], 2)
@@ -411,6 +486,39 @@ class InvoiceController extends Controller
             'items.*.quantity' => 'required|integer|min:1',
             'items.*.unit_price' => 'required|numeric|min:0',
         ]);
+    }
+
+    /**
+     * Compute invoice totals server-side from line items, tax rate, and discount.
+     * Never trust client-supplied totals.
+     */
+    protected function computeInvoiceTotals(array $validated): array
+    {
+        $subtotal = 0.0;
+
+        foreach ($validated['items'] ?? [] as $item) {
+            if (empty($item['description'])) {
+                continue;
+            }
+
+            $subtotal += ((int) ($item['quantity'] ?? 1)) * (float) ($item['unit_price'] ?? 0);
+        }
+
+        $subtotal = round($subtotal, 2);
+        $taxRate = (float) ($validated['tax_rate'] ?? 0);
+        $taxAmount = round($subtotal * $taxRate / 100, 2);
+        $discountValue = (float) ($validated['discount_value'] ?? 0);
+        $discountAmount = ($validated['discount_type'] ?? null) === 'percentage'
+            ? round($subtotal * $discountValue / 100, 2)
+            : round($discountValue, 2);
+
+        return [
+            'subtotal' => $subtotal,
+            'tax_rate' => $taxRate,
+            'tax_amount' => $taxAmount,
+            'discount_value' => $discountValue,
+            'total' => max(0, round($subtotal + $taxAmount - $discountAmount, 2)),
+        ];
     }
 
     protected function sendInvoice(Invoice $invoice): void

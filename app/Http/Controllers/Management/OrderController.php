@@ -169,7 +169,10 @@ class OrderController extends Controller
         $order->shipping_fee = $data['shipping_fee'];
         $order->tax = $data['tax'];
         $order->notes = $data['notes'] ?? null;
-        $order->total = (float) $order->subtotal + $order->shipping_fee + $order->tax;
+        $order->total = (float) $order->subtotal
+            + (float) $order->shipping_fee
+            + (float) $order->tax
+            + (float) ($order->service_charge_amount ?? 0);
         $order->save();
 
         return back()->with('success', 'Order updated.');

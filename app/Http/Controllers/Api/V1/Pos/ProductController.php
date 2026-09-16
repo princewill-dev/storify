@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1\Pos;
 use App\Http\Controllers\Controller;
 use App\Models\Product;
 use App\Models\Store;
+use App\Models\Vat;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -33,6 +34,7 @@ class ProductController extends Controller
                 'product_code' => $product->product_code,
                 'amount' => (float) $product->amount,
                 'quantity' => (int) $product->quantity,
+                'is_taxable' => (bool) $product->is_taxable,
                 'image' => $product->images->first()
                     ? asset('storage/'.$product->images->first()->path)
                     : null,
@@ -42,6 +44,7 @@ class ProductController extends Controller
             'success' => true,
             'data' => [
                 'products' => $products,
+                'vat_percentage' => (float) (Vat::active()->orderByDesc('effective_at')->orderByDesc('id')->first()?->percentage ?? 0),
             ],
         ]);
     }

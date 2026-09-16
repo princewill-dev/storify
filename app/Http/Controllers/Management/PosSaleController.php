@@ -333,6 +333,7 @@ class PosSaleController extends Controller
         Transaction::create([
             'reference' => 'RFND-'.strtoupper(Str::random(10)),
             'order_id' => $order->id,
+            'business_id' => $order->business_id,
             'payment_method_id' => $existingTx->payment_method_id,
             'amount' => $order->total,
             'status' => TransactionStatus::REFUND_PENDING->value,
