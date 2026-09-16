@@ -38,7 +38,24 @@
 
     {{-- Main Content --}}
     <div class="flex flex-1 flex-col min-w-0 lg:pl-64" :class="{ 'lg:pl-64': sidebarOpen, 'lg:pl-0': !sidebarOpen }">
-        
+
+        {{-- Impersonation Banner --}}
+        @if(session('impersonator_id'))
+        @php($impersonator = \App\Models\User::find(session('impersonator_id')))
+        @if($impersonator)
+        <div class="bg-amber-500 text-amber-950 px-4 sm:px-6 py-2.5 flex items-center justify-between gap-4">
+            <p class="text-sm font-medium flex items-center gap-2">
+                <i class="fi fi-rr-user-shield"></i>
+                You are viewing as <span class="font-bold">{{ auth()->user()?->name }}</span> — signed in as admin {{ $impersonator->name }}.
+            </p>
+            <form method="POST" action="{{ route('admin.impersonate.stop') }}">
+                @csrf
+                <button class="px-3 py-1.5 bg-amber-950 text-amber-50 text-xs font-semibold rounded-lg hover:bg-amber-900 whitespace-nowrap">Return to Admin</button>
+            </form>
+        </div>
+        @endif
+        @endif
+
         {{-- Header --}}
         @include('management.components.header')
 

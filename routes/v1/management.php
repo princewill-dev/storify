@@ -18,6 +18,7 @@ use App\Http\Controllers\Management\EarlyPassController;
 use App\Http\Controllers\Management\InvoiceController;
 use App\Http\Controllers\Management\KycController;
 use App\Http\Controllers\Management\OrderController;
+use App\Http\Controllers\Management\PasswordChangeController;
 use App\Http\Controllers\Management\PaymentSettingsController;
 use App\Http\Controllers\Management\PosController;
 use App\Http\Controllers\Management\PosSessionController;
@@ -69,6 +70,10 @@ Route::prefix('management')->name('management.')->group(function () {
     Route::middleware(['auth', 'team.context'])->group(function () {
         Route::post('/logout', [BusinessAuthController::class, 'logout'])->name('auth.logout');
         Route::get('/logout', [BusinessAuthController::class, 'logout'])->name('auth.logout.get');
+
+        // Forced password change after an admin reset (outside onboarding gate to avoid loops)
+        Route::get('/change-password', [PasswordChangeController::class, 'show'])->name('password.change');
+        Route::post('/change-password', [PasswordChangeController::class, 'update'])->name('password.change.update');
 
         Route::get('/subscription', [SubscriptionPlanController::class, 'index'])->name('subscription.plan');
         Route::post('/subscription/select-plan', [SubscriptionPlanController::class, 'select'])->name('subscription.select-plan');

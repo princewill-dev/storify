@@ -56,6 +56,18 @@
                     </div>
                 </div>
 
+                @can('admin.users')
+                <a href="{{ route('admin.users.index') }}"
+                   class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('admin.users.*') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
+                    <i class="fi fi-rr-users text-base w-5 text-center"></i>
+                    <span>Users</span>
+                    @php $userCount = \App\Models\User::whereIn('role', ['business_owner', 'staff'])->where('status', '!=', 'deleted')->count(); @endphp
+                    @if($userCount)
+                    <span class="ml-auto text-[10px] font-semibold text-slate-500 bg-slate-700 px-1.5 py-0.5 rounded-full">{{ number_format($userCount) }}</span>
+                    @endif
+                </a>
+                @endcan
+
                 <a href="{{ route('admin.stores.index') }}"
                    class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors {{ request()->routeIs('admin.stores.*') ? 'bg-slate-800 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800' }}">
                     <i class="fi fi-rr-store-alt text-base w-5 text-center"></i>

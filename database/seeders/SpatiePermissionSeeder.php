@@ -51,6 +51,8 @@ class SpatiePermissionSeeder extends Seeder
         'admin.activity-logs',
         'admin.admins',
         'admin.accounting',
+        'admin.users',
+        'admin.users.impersonate',
     ];
 
     protected array $adminRoles = [
@@ -62,7 +64,7 @@ class SpatiePermissionSeeder extends Seeder
                 'admin.customers', 'admin.orders', 'admin.transactions', 'admin.subscriptions',
                 'admin.coupons', 'admin.support', 'admin.content', 'admin.delivery',
                 'admin.finance', 'admin.warehouses', 'admin.settings', 'admin.activity-logs',
-                'admin.accounting',
+                'admin.accounting', 'admin.users', 'admin.users.impersonate',
             ],
         ],
         'support_admin' => [
@@ -70,7 +72,7 @@ class SpatiePermissionSeeder extends Seeder
             'description' => 'Customer support, orders, and storefront content.',
             'permissions' => [
                 'admin.dashboard', 'admin.customers', 'admin.orders', 'admin.support',
-                'admin.products', 'admin.content', 'admin.activity-logs',
+                'admin.products', 'admin.content', 'admin.activity-logs', 'admin.users',
             ],
         ],
         'finance_admin' => [

@@ -22,6 +22,20 @@ class RedirectIfOnboardingIncomplete
 
         $currentRoute = $request->route()->getName();
 
+        if ($user->force_password_change) {
+            $exemptRoutes = [
+                'management.password.change',
+                'management.password.change.update',
+                'management.auth.logout',
+                'management.auth.logout.get',
+            ];
+
+            if (! in_array($currentRoute, $exemptRoutes)) {
+                return redirect()->route('management.password.change')
+                    ->with('warning', 'Please set a new password to continue.');
+            }
+        }
+
         if (! $user->is_verified) {
             $exemptRoutes = [
                 'management.auth.verify-otp',

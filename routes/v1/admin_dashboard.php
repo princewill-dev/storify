@@ -31,6 +31,7 @@ use App\Http\Controllers\Admin\SubscriptionPlanController;
 use App\Http\Controllers\Admin\SupportMessageController;
 use App\Http\Controllers\Admin\TestimonialController;
 use App\Http\Controllers\Admin\TransactionController;
+use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\Admin\VatController;
 use App\Http\Controllers\Admin\WarehouseController;
 use App\Http\Middleware\AdminRouteActivityLogger;
@@ -39,7 +40,7 @@ use App\Models\User;
 use Illuminate\Support\Facades\Route;
 
 // Admin Dashboard Routes (protected by auth + admin role middleware)
-Route::middleware(['auth', 'platform.admin'])->group(function () {
+Route::middleware(['auth', 'platform.admin', 'team.context'])->group(function () {
     Route::get('/office/dashboard', [AdminDashboardController::class, 'index'])->name('admin.dashboard');
     Route::get('/office/executive', fn () => redirect()->route('admin.dashboard'))->name('admin.executive');
 
@@ -61,9 +62,26 @@ Route::middleware(['auth', 'platform.admin'])->group(function () {
             Route::delete('admins/{admin}', [AdminsController::class, 'destroy'])->name('admins.destroy');
         });
 
+        // Users (business owners + staff)
+        Route::middleware('permission:admin.users')->group(function () {
+            Route::get('users', [UserController::class, 'index'])->name('users.index');
+            Route::get('users/{user}', [UserController::class, 'show'])->name('users.show');
+            Route::put('users/{user}', [UserController::class, 'update'])->name('users.update');
+            Route::post('users/{user}/suspend', [UserController::class, 'suspend'])->name('users.suspend');
+            Route::post('users/{user}/activate', [UserController::class, 'activate'])->name('users.activate');
+            Route::post('users/{user}/verify', [UserController::class, 'verify'])->name('users.verify');
+            Route::post('users/{user}/unverify', [UserController::class, 'unverify'])->name('users.unverify');
+            Route::post('users/{user}/reset-password', [UserController::class, 'resetPassword'])->name('users.reset-password');
+            Route::post('users/{user}/restore', [UserController::class, 'restore'])->name('users.restore');
+            Route::delete('users/{user}', [UserController::class, 'destroy'])->name('users.destroy');
+        });
+
+        Route::middleware('permission:admin.users.impersonate')->group(function () {
+            Route::post('users/{user}/impersonate', [UserController::class, 'impersonate'])->name('users.impersonate');
+        });
+
         // Platform books (accounting)
-        Route::middleware('permission:admin.accounting')->group(function () {
-            Route::get('accounting', [AccountingController::class, 'index'])->name('accounting.index');
+        Route::middleware('permission:admin.accounting')->group(function () {            Route::get('accounting', [AccountingController::class, 'index'])->name('accounting.index');
             Route::get('accounting/accounts', [AccountingController::class, 'accounts'])->name('accounting.accounts');
             Route::get('accounting/journal', [AccountingController::class, 'journal'])->name('accounting.journal');
             Route::get('accounting/journal/{entry}', [AccountingController::class, 'journalShow'])->name('accounting.journal.show');

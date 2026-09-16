@@ -41,3 +41,13 @@ test('web ajax routes are not duplicated below the api v1 prefix', function () {
 
     expect($malformedUris)->toBe([]);
 });
+
+test('legacy superadmin urls redirect to the office portal', function () {
+    $this->get('/superadmin/stores')
+        ->assertRedirect('/office/stores')
+        ->assertStatus(301);
+
+    $this->get('/superadmin')
+        ->assertRedirect('/office')
+        ->assertStatus(301);
+});
