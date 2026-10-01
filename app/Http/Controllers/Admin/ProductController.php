@@ -218,6 +218,11 @@ class ProductController extends Controller
                 $product->cod_available = $request->boolean('cod_available');
                 $product->featured = $request->boolean('featured');
                 $product->has_variants = $request->boolean('has_variants');
+                $product->is_digital = $request->boolean('is_digital');
+
+                if ($product->is_digital) {
+                    $product->cod_available = false;
+                }
 
                 // Bulk fields
                 if ($request->filled('bulk_quantity')) {
@@ -290,6 +295,12 @@ class ProductController extends Controller
                             $first->update(['is_primary' => true]);
                         }
                     }
+                }
+
+                // Handle digital product files
+                if ($request->hasFile('digital_files')) {
+                    app(\App\Services\ProductFileService::class)
+                        ->storeFiles($product, $request->file('digital_files'));
                 }
 
                 // Handle variants
@@ -428,6 +439,11 @@ class ProductController extends Controller
                 $data['cod_available'] = $request->boolean('cod_available');
                 $data['featured'] = $request->boolean('featured');
                 $data['has_variants'] = $request->boolean('has_variants');
+                $data['is_digital'] = $request->boolean('is_digital');
+
+                if ($data['is_digital']) {
+                    $data['cod_available'] = false;
+                }
 
                 // Bulk fields
                 $data['bulk_quantity'] = $request->filled('bulk_quantity') ? (int) $request->input('bulk_quantity') : null;
@@ -452,6 +468,16 @@ class ProductController extends Controller
                         }
                         $img->delete();
                     }
+                }
+
+                if ($request->filled('delete_file_ids')) {
+                    app(\App\Services\ProductFileService::class)
+                        ->deleteFiles($product, (array) $request->input('delete_file_ids'));
+                }
+
+                if ($request->hasFile('digital_files')) {
+                    app(\App\Services\ProductFileService::class)
+                        ->storeFiles($product, $request->file('digital_files'));
                 }
 
                 if ($request->hasFile('images')) {
@@ -566,6 +592,7 @@ class ProductController extends Controller
             } catch (\Throwable $e) {
             }
         }
+        app(\App\Services\ProductFileService::class)->deleteAllFiles($product);
         $product->delete();
         $url = route('admin.stores.products.index', $store);
         $qs = [];

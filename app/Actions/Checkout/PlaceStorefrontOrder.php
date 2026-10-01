@@ -50,9 +50,9 @@ final class PlaceStorefrontOrder
                     'business_id' => $store->business_id,
                     'ip_address' => $ipAddress,
                     'password' => bcrypt(Str::random(32)),
-                    'street_address' => $data['street_address'],
-                    'city' => $data['city'],
-                    'state' => $data['state'],
+                    'street_address' => $data['street_address'] ?? null,
+                    'city' => $data['city'] ?? null,
+                    'state' => $data['state'] ?? null,
                     'country' => $data['country'] ?? 'Nigeria',
                 ]
             );
@@ -102,10 +102,12 @@ final class PlaceStorefrontOrder
             foreach ($cart->items as $cartItem) {
                 $product = $products->get($cartItem->product_id);
                 $quantity = (int) $cartItem->qty;
+                $isDigital = (bool) $product->is_digital;
                 $stockLocation = $stockLocations->get($product->id);
                 $available = $stockLocation ? (int) $stockLocation->quantity : (int) $product->quantity;
 
-                if ($available < $quantity || (int) $product->quantity < $quantity) {
+                // Digital products have unlimited stock
+                if (! $isDigital && ($available < $quantity || (int) $product->quantity < $quantity)) {
                     throw new DomainException("{$product->name}: only {$available} available (requested {$quantity}).");
                 }
 
@@ -119,13 +121,15 @@ final class PlaceStorefrontOrder
                     $taxKobo += $lineTaxKobo;
                 }
 
-                $costKobo = app(\App\Services\Accounting\InventoryCostingService::class)
-                    ->costForSale($product, $quantity);
+                $costKobo = $isDigital
+                    ? 0
+                    : app(\App\Services\Accounting\InventoryCostingService::class)->costForSale($product, $quantity);
 
                 $orderItems[] = [
                     'product' => $product,
                     'stock_location' => $stockLocation,
                     'quantity' => $quantity,
+                    'is_digital' => $isDigital,
                     'attributes' => [
                         'product_id' => $product->id,
                         'product_name' => $cartItem->name ?: $product->name,
@@ -136,32 +140,38 @@ final class PlaceStorefrontOrder
                         'tax_rate' => $product->is_taxable ? $vatPercentage : 0,
                         'tax_amount' => round($lineTaxKobo / 100, 2),
                         'cost_kobo' => $costKobo > 0 ? $costKobo : null,
+                        'is_digital' => $isDigital,
                     ],
                 ];
             }
 
-            $routeId = $cart->delivery_route_id ?: ($data['delivery_route_id'] ?? null);
+            $containsDigital = collect($orderItems)->contains(fn ($item) => $item['is_digital']);
+            $requiresShipping = collect($orderItems)->contains(fn ($item) => ! $item['is_digital']);
+
+            $routeId = $requiresShipping ? ($cart->delivery_route_id ?: ($data['delivery_route_id'] ?? null)) : null;
             $deliveryRoute = $routeId
                 ? DeliveryRoute::query()
                     ->where('store_id', $store->id)
                     ->where('active', true)
                     ->find($routeId)
                 : null;
-            $shippingFee = (float) ($deliveryRoute?->fee ?? 0) / 100;
+            $shippingFee = $requiresShipping ? (float) ($deliveryRoute?->fee ?? 0) / 100 : 0.0;
             $subtotal = round($subtotalKobo / 100, 2);
             $tax = round($taxKobo / 100, 2);
 
-            $deliveryAddress = $customer->deliveryAddresses()->create([
-                'recipient_name' => $customer->full_name,
-                'recipient_phone' => $customer->phone,
-                'street_address' => $data['street_address'],
-                'apartment' => $data['apartment'] ?? null,
-                'country' => $data['country'] ?? 'Nigeria',
-                'state' => $data['state'],
-                'city' => $data['city'],
-                'landmark' => $data['landmark'] ?? null,
-                'delivery_route_id' => $deliveryRoute?->id,
-            ]);
+            $deliveryAddress = $requiresShipping
+                ? $customer->deliveryAddresses()->create([
+                    'recipient_name' => $customer->full_name,
+                    'recipient_phone' => $customer->phone,
+                    'street_address' => $data['street_address'] ?? null,
+                    'apartment' => $data['apartment'] ?? null,
+                    'country' => $data['country'] ?? 'Nigeria',
+                    'state' => $data['state'] ?? null,
+                    'city' => $data['city'] ?? null,
+                    'landmark' => $data['landmark'] ?? null,
+                    'delivery_route_id' => $deliveryRoute?->id,
+                ])
+                : null;
 
             $ownerId = $store->user_id && User::query()->whereKey($store->user_id)->exists()
                 ? $store->user_id
@@ -172,22 +182,30 @@ final class PlaceStorefrontOrder
                 'business_id' => $store->business_id,
                 'user_id' => $ownerId,
                 'customer_id' => $customer->id,
-                'source' => data_get($cart->meta, 'source', 'checkout'),
+                'source' => $containsDigital ? 'digital' : data_get($cart->meta, 'source', 'checkout'),
                 'subtotal' => $subtotal,
                 'shipping_fee' => $shippingFee,
                 'tax' => $tax,
                 'total' => round($subtotal + $shippingFee + $tax, 2),
                 'status' => OrderStatus::PENDING->value,
-                'delivery_state' => $data['state'],
-                'delivery_area' => $data['city'],
+                'delivery_state' => $requiresShipping ? ($data['state'] ?? null) : null,
+                'delivery_area' => $requiresShipping ? ($data['city'] ?? null) : null,
                 'delivery_route_id' => $deliveryRoute?->id,
                 'delivery_days' => $deliveryRoute?->delivery_days,
                 'notes' => $data['notes'] ?? null,
-                'delivery_address_id' => $deliveryAddress->id,
+                'delivery_address_id' => $deliveryAddress?->id,
+                'meta' => array_filter([
+                    'contains_digital' => $containsDigital ?: null,
+                ]),
             ]);
 
             foreach ($orderItems as $item) {
                 OrderItem::create(['order_id' => $order->id, ...$item['attributes']]);
+
+                // Digital products have no stock to move
+                if ($item['is_digital']) {
+                    continue;
+                }
 
                 $stockLocation = $item['stock_location'] ?? StockLocation::create([
                     'product_id' => $item['product']->id,

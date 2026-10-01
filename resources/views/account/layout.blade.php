@@ -73,6 +73,9 @@
             <a href="{{ route('account.orders') }}" class="nav-link {{ request()->routeIs('account.orders') || request()->routeIs('account.order.show') ? 'active' : '' }}">
                 <i class="fa-solid fa-bag-shopping me-2"></i> Orders
             </a>
+            <a href="{{ route('account.downloads') }}" class="nav-link {{ request()->routeIs('account.downloads') ? 'active' : '' }}">
+                <i class="fa-solid fa-download me-2"></i> Downloads
+            </a>
             <a href="{{ route('account.transactions') }}" class="nav-link {{ request()->routeIs('account.transactions') || request()->routeIs('account.transaction.show') ? 'active' : '' }}">
                 <i class="fa-solid fa-credit-card me-2"></i> Transactions
             </a>
@@ -112,6 +115,9 @@
     </a>
     <a href="{{ route('account.orders') }}" class="{{ request()->routeIs('account.orders', 'account.order.show') ? 'active' : '' }}">
         <i class="fa-solid fa-bag-shopping"></i> Orders
+    </a>
+    <a href="{{ route('account.downloads') }}" class="{{ request()->routeIs('account.downloads') ? 'active' : '' }}">
+        <i class="fa-solid fa-download"></i> Downloads
     </a>
     <a href="{{ route('account.transactions') }}" class="{{ request()->routeIs('account.transactions', 'account.transaction.show') ? 'active' : '' }}">
         <i class="fa-solid fa-credit-card"></i> Payments

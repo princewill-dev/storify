@@ -2,6 +2,12 @@
 @section('subtitle', 'Edit ' . $product->name)
 
 @section('content')
+@php
+    $digitalMaxMb = number_format(config('digital.max_upload_kb') / 1024, 0);
+    $digitalAccept = '.'.implode(',.', config('digital.allowed_mimes'));
+    $defaultDownloadLimit = config('digital.default_download_limit');
+    $defaultExpiryDays = config('digital.default_expiry_days');
+@endphp
 <div class="flex items-center gap-3 mb-6">
     <a href="{{ route('management.products.show', $product) }}" class="text-slate-400 hover:text-slate-600">
         <i class="fi fi-rr-arrow-left"></i>
@@ -22,7 +28,7 @@
 </div>
 @endif
 
-<form method="post" action="{{ route('management.products.update', $product) }}" enctype="multipart/form-data">
+<form method="post" action="{{ route('management.products.update', $product) }}" enctype="multipart/form-data" x-data="{ isDigital: {{ old('is_digital', $product->is_digital) ? 'true' : 'false' }} }">
     @csrf @method('PUT')
 
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -70,7 +76,7 @@
                     <x-management.form-input name="name" label="Product Name" :value="old('name', $product->name)" required :error="$errors->first('name')" />
                     <x-management.form-input name="brand" label="Brand" :value="old('brand', $product->brand)" placeholder="Apple, Samsung..." :error="$errors->first('brand')" />
                 </div>
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4" x-show="!isDigital" x-cloak>
                     <div>
                         <x-management.form-input name="quantity" label="Quantity (remaining)" type="number" :value="old('quantity', $product->quantity)" required :error="$errors->first('quantity')" />
                     </div>
@@ -84,6 +90,54 @@
                     </div>
                 </div>
             </x-management.card>
+
+            {{-- Product Type --}}
+            <x-management.card header="Product Type">
+                <label class="flex items-start gap-3 text-sm text-slate-600 cursor-pointer">
+                    <input type="hidden" name="is_digital" value="0">
+                    <input type="checkbox" name="is_digital" value="1" x-model="isDigital" class="mt-0.5 rounded border-slate-300 text-slate-900 focus:ring-slate-500">
+                    <span>
+                        <span class="font-medium text-slate-800">This is a digital product</span>
+                        <span class="block text-xs text-slate-400 mt-0.5">Sell downloadable content (e-book, PDF, ZIP, media). No stock or shipping — buyers receive a secure download link after payment.</span>
+                    </span>
+                </label>
+            </x-management.card>
+
+            {{-- Digital Files --}}
+            <div x-show="isDigital" x-cloak>
+                <x-management.card header="Digital Files">
+                    @if($product->files->isNotEmpty())
+                    <div class="space-y-2 mb-4">
+                        @foreach($product->files as $file)
+                        <div class="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                            <div class="min-w-0">
+                                <p class="text-sm text-slate-700 truncate">{{ $file->original_name }}</p>
+                                <p class="text-xs text-slate-400">{{ $file->formatted_size }} · {{ $file->existsOnDisk() ? 'stored' : 'missing on disk' }}</p>
+                            </div>
+                            <label class="flex items-center gap-1.5 text-xs text-red-600 whitespace-nowrap cursor-pointer">
+                                <input type="checkbox" name="delete_file_ids[]" value="{{ $file->id }}" class="rounded border-slate-300 text-red-600 focus:ring-red-500">
+                                Delete
+                            </label>
+                        </div>
+                        @endforeach
+                    </div>
+                    @endif
+                    <div class="rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 p-6 text-center">
+                        <svg class="mx-auto h-10 w-10 text-slate-300 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 16V4m0 0L8 8m4-4l4 4M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>
+                        <p class="text-sm text-slate-500 mb-1">Add more files —
+                            <label class="font-medium text-blue-600 hover:text-blue-700 cursor-pointer">browse
+                                <input type="file" name="digital_files[]" multiple accept="{{ $digitalAccept }}" class="hidden">
+                            </label>
+                        </p>
+                        <p class="text-xs text-slate-400">PDF, EPUB, MOBI, ZIP, DOC, DOCX, MP3, MP4, WAV — up to {{ $digitalMaxMb }} MB each.</p>
+                    </div>
+                    @error('digital_files.*')<p class="text-xs text-red-500 mt-2">{{ $message }}</p>@enderror
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+                        <x-management.form-input name="download_limit" label="Download limit (per buyer)" type="number" min="1" placeholder="{{ $defaultDownloadLimit }}" :value="old('download_limit', $product->download_limit ?? $defaultDownloadLimit)" :error="$errors->first('download_limit')" />
+                        <x-management.form-input name="download_expiry_days" label="Download link expires after (days)" type="number" min="1" placeholder="{{ $defaultExpiryDays }}" :value="old('download_expiry_days', $product->download_expiry_days ?? $defaultExpiryDays)" :error="$errors->first('download_expiry_days')" />
+                    </div>
+                </x-management.card>
+            </div>
 
             {{-- Pricing & Attributes --}}
             <x-management.card header="Pricing & Attributes">

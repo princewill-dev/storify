@@ -66,6 +66,10 @@ final class PageController extends Controller
 
         $customer = auth()->guard('customer')->user();
 
+        $requiresShipping = $cart->items->contains(
+            fn ($item) => ! (bool) ($item->product?->is_digital)
+        );
+
         return view('storefront.pages.checkout', [
             'store' => $store,
             'cart' => $cart,
@@ -77,6 +81,7 @@ final class PageController extends Controller
             'shippingFee' => $preselectedRoute?->active ? $preselectedRoute->fee : 0,
             'savedAddresses' => $customer?->deliveryAddresses()->with('deliveryRoute')->latest()->get() ?? collect(),
             'defaultAddress' => $customer?->defaultDeliveryAddress,
+            'requiresShipping' => $requiresShipping,
         ]);
     }
 

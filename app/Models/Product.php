@@ -43,6 +43,9 @@ class Product extends Model
         'featured',
         'cod_available',
         'has_variants',
+        'is_digital',
+        'download_limit',
+        'download_expiry_days',
     ];
 
     protected static function boot()
@@ -71,6 +74,19 @@ class Product extends Model
             }
             // When product has variants, base amount/quantity are optional
             if ($model->has_variants) {
+                return;
+            }
+            // Digital products have unlimited stock — only a price is required
+            if ($model->is_digital) {
+                $validator = Validator::make([
+                    'amount' => $model->amount,
+                ], [
+                    'amount' => ['required', 'numeric', 'gt:0'],
+                ]);
+                if ($validator->fails()) {
+                    throw new ValidationException($validator);
+                }
+
                 return;
             }
             $validator = Validator::make([
@@ -131,6 +147,28 @@ class Product extends Model
         return $this->hasMany(ProductImage::class)->orderBy('position');
     }
 
+    public function files(): HasMany
+    {
+        return $this->hasMany(ProductFile::class)->orderBy('position');
+    }
+
+    public function downloadLimit(): int
+    {
+        return (int) ($this->download_limit ?: config('digital.default_download_limit', 5));
+    }
+
+    public function downloadExpiryDays(): int
+    {
+        return (int) ($this->download_expiry_days ?: config('digital.default_expiry_days', 7));
+    }
+
+    public function primaryFile(): ?ProductFile
+    {
+        $file = $this->files->firstWhere('is_primary', true);
+
+        return $file ?: $this->files->first();
+    }
+
     public function primaryImage(): ?ProductImage
     {
         $img = $this->images->firstWhere('is_primary', true);
@@ -144,6 +182,9 @@ class Product extends Model
         'cost_price' => 'decimal:2',
         'average_cost_kobo' => 'integer',
         'is_taxable' => 'boolean',
+        'is_digital' => 'boolean',
+        'download_limit' => 'integer',
+        'download_expiry_days' => 'integer',
     ];
 
     public function scopeFeatured($query)

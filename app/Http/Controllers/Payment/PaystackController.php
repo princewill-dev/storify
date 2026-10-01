@@ -327,6 +327,8 @@ class PaystackController extends Controller
                 DB::commit();
 
                 if ($order->isFullyPaid()) {
+                    app(\App\Services\Digital\DigitalDeliveryService::class)->deliverSafely($order);
+
                     return redirect()->route('order.success', ['reference' => $reference])
                         ->with('success', 'Payment verified successfully');
                 }
@@ -493,6 +495,12 @@ class PaystackController extends Controller
                     ]);
                 }
             });
+
+            // Deliver digital products once the order is fully paid
+            $order = $transaction->order;
+            if ($order && $order->isFullyPaid()) {
+                app(\App\Services\Digital\DigitalDeliveryService::class)->deliverSafely($order);
+            }
         }
     }
 

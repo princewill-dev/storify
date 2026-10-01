@@ -14,10 +14,22 @@
                 @foreach($order->items as $item)
                 <div class="d-flex justify-content-between align-items-center px-4 py-3 {{ !$loop->last ? 'border-bottom' : '' }}">
                     <div>
-                        <p class="mb-0 fw-medium">{{ $item->product_name }}</p>
+                        <p class="mb-0 fw-medium">
+                            {{ $item->product_name }}
+                            @if($item->is_digital)<span class="badge text-bg-info ms-1" style="font-size:10px;">Digital</span>@endif
+                        </p>
                         <small class="text-muted">Qty: {{ $item->quantity }} × ₦{{ number_format($item->unit_price, 2) }}</small>
                     </div>
-                    <span class="fw-semibold">₦{{ number_format($item->subtotal, 2) }}</span>
+                    <div class="text-end">
+                        <span class="fw-semibold">₦{{ number_format($item->subtotal, 2) }}</span>
+                        @php($itemDownload = $order->digitalDownloads->firstWhere('order_item_id', $item->id))
+                        @if($itemDownload)
+                        <br>
+                        <a href="{{ route('downloads.show', ['token' => $itemDownload->token]) }}" class="btn btn-sm btn-primary mt-1">
+                            {{ $itemDownload->isActive() ? 'Download' : 'View' }}
+                        </a>
+                        @endif
+                    </div>
                 </div>
                 @endforeach
                 <div class="d-flex justify-content-between px-4 py-3 bg-light fw-bold">

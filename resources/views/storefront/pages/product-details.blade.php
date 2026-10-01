@@ -190,22 +190,31 @@
 
                <!-- Quantity & Add to Cart -->
                @php($detailStock = $product->has_variants ? null : (int)($product->quantity ?? 0))
+               @php($isDigitalProduct = (bool) $product->is_digital)
                <div class="quantity-cart-wrapper">
+                  @unless($isDigitalProduct)
                   <div class="quantity-selector" id="qtySelectorWrapper">
                      <button class="qty-btn" id="qtyDecBtn" onclick="decrementQty()" {{ (!$product->has_variants && $detailStock <= 0) ? 'disabled' : '' }}>−</button>
                      <input type="number" class="qty-input" id="quantity" value="1" min="1" max="{{ $detailStock ?? '' }}" {{ (!$product->has_variants && $detailStock <= 0) ? 'disabled' : '' }} readonly>
                      <button class="qty-btn" id="qtyIncBtn" onclick="incrementQty()" {{ (!$product->has_variants && $detailStock <= 0) ? 'disabled' : '' }}>+</button>
                   </div>
-                  @if(!$product->has_variants && $detailStock <= 0)
+                  @else
+                  <input type="hidden" id="quantity" value="1">
+                  @endunless
+                  @if(!$isDigitalProduct && !$product->has_variants && $detailStock <= 0)
                     <button style="font-size:12px; background:#e5e7eb; color:#9ca3af; cursor:not-allowed; border:none;" class="add-to-cart-btn" disabled>Out of stock</button>
                   @else
-                    <button style="font-size:12px;" id="addToCartDetails" class="add-to-cart-btn" data-product-id="{{ $product->id }}" data-max-stock="{{ $detailStock ?? '' }}" data-has-variants="{{ $product->has_variants ? 'true' : 'false' }}"><i class="far fa-shopping-bag mr-1"></i> Add to cart</button>
+                    <button style="font-size:12px;" id="addToCartDetails" class="add-to-cart-btn" data-product-id="{{ $product->id }}" data-max-stock="{{ $isDigitalProduct ? '' : ($detailStock ?? '') }}" data-has-variants="{{ $product->has_variants ? 'true' : 'false' }}"><i class="far fa-shopping-bag mr-1"></i> Add to cart</button>
                     <button style="font-size: 12px;" id="buyNowBtn" class="add-to-cart-btn" data-product-id="{{ $product->id }}">Buy Now</button>
                   @endif
                </div>
 
                <div class="shipping-info" style="display:flex;align-items:center;justify-content:center;gap:6px;">
+                  @if($isDigitalProduct)
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4m0 0L8 8m4-4l4 4M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg> Instant download after payment
+                  @else
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg> Ships within 3-5 business days
+                  @endif
                </div>
 
                <!-- Product Features -->
@@ -225,7 +234,7 @@
                            <path d="M12 6v6l4 2"/>
                         </svg>
                      </div>
-                     <div class="feature-label">Fast Delivery</div>
+                      <div class="feature-label">{{ $isDigitalProduct ? 'Instant Access' : 'Fast Delivery' }}</div>
                   </div>
                   <div class="feature-item">
                      <div class="feature-icon">
@@ -234,7 +243,7 @@
                            <path d="M9 22V12h6v10"/>
                         </svg>
                      </div>
-                     <div class="feature-label">Secure Packaging</div>
+                      <div class="feature-label">{{ $isDigitalProduct ? 'Secure Download' : 'Secure Packaging' }}</div>
                   </div>
                   <div class="feature-item">
                      <div class="feature-icon">

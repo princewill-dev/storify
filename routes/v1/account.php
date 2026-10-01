@@ -32,6 +32,7 @@ Route::middleware('auth:customer')->group(function () {
     Route::post('/account/info', [AccountController::class, 'updateAccountInfo']);
     Route::get('/account/orders', [AccountController::class, 'orders'])->name('account.orders');
     Route::get('/account/orders/{orderNumber}', [AccountController::class, 'showOrder'])->name('account.order.show');
+    Route::get('/account/downloads', [AccountController::class, 'downloads'])->name('account.downloads');
     Route::get('/account/transactions', [AccountController::class, 'transactions'])->name('account.transactions');
     Route::get('/account/transactions/{transactionId}', [AccountController::class, 'showTransaction'])->name('account.transaction.show');
 

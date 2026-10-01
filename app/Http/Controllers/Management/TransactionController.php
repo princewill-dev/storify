@@ -197,6 +197,12 @@ class TransactionController extends Controller
         $ledger = app(\App\Services\Accounting\LedgerPostingService::class);
         $ledger->safe(fn () => $ledger->postPaymentReceived($transaction, $user->id));
 
+        // Deliver digital products once the order is fully paid
+        $paidOrder = $transaction->order;
+        if ($paidOrder && $paidOrder->isFullyPaid()) {
+            app(\App\Services\Digital\DigitalDeliveryService::class)->deliverSafely($paidOrder);
+        }
+
         // Send confirmation emails (queued)
         try {
             $customer = $transaction->order->customer;

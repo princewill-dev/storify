@@ -18,6 +18,10 @@ class ProductRequest extends FormRequest
     public function rules(): array
     {
         $hasVariants = (bool) $this->input('has_variants', false);
+        $isDigital = (bool) $this->input('is_digital', false);
+
+        $digitalMimes = implode(',', config('digital.allowed_mimes', ['pdf', 'zip']));
+        $digitalMaxKb = (int) config('digital.max_upload_kb', 102400);
 
         $base = [
             'store_id' => 'nullable|exists:stores,id',
@@ -35,6 +39,13 @@ class ProductRequest extends FormRequest
             'discount_percentage' => 'nullable|numeric|min:0|max:100',
             'cost_price' => 'nullable|numeric|min:0',
             'is_taxable' => 'sometimes|boolean',
+            // Digital products
+            'is_digital' => 'sometimes|boolean',
+            'download_limit' => 'nullable|integer|min:1|max:1000',
+            'download_expiry_days' => 'nullable|integer|min:1|max:3650',
+            'digital_files.*' => "nullable|file|mimes:{$digitalMimes}|max:{$digitalMaxKb}",
+            'delete_file_ids' => 'sometimes|array',
+            'delete_file_ids.*' => 'integer',
             // Media (images/videos) and update-only fields
             'images.*' => 'nullable|mimes:jpeg,jpg,png,gif,webp|max:20480',
             'primary_image' => 'sometimes|integer',
@@ -66,10 +77,11 @@ class ProductRequest extends FormRequest
             return array_merge($base, $variantRules);
         }
 
-        // Single-SKU fields required when not using variants
+        // Single-SKU fields required when not using variants.
+        // Digital products have unlimited stock, so quantity is not required.
         $singleSku = [
             'color' => 'nullable|string|max:100',
-            'quantity' => 'bail|required|integer|gt:0',
+            'quantity' => $isDigital ? 'nullable|integer|min:0' : 'bail|required|integer|gt:0',
             'stock_quantity' => 'nullable|integer|gt:0',
             'size' => 'nullable|numeric|min:0',
             'size_unit_id' => 'nullable|exists:size_units,id',

@@ -18,12 +18,14 @@ class OrderItem extends Model
         'cost_kobo',
         'tax_rate',
         'tax_amount',
+        'is_digital',
     ];
 
     protected $casts = [
         'unit_price' => 'decimal:2',
         'subtotal' => 'decimal:2',
         'cost_kobo' => 'integer',
+        'is_digital' => 'boolean',
         'tax_rate' => 'decimal:2',
         'tax_amount' => 'decimal:2',
     ];

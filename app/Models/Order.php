@@ -101,6 +101,21 @@ class Order extends Model
         return $this->hasMany(OrderItem::class);
     }
 
+    public function digitalDownloads(): HasMany
+    {
+        return $this->hasMany(DigitalDownload::class);
+    }
+
+    public function containsDigitalItems(): bool
+    {
+        return $this->items()->where('is_digital', true)->exists();
+    }
+
+    public function requiresShipping(): bool
+    {
+        return $this->items()->where('is_digital', false)->exists();
+    }
+
     public function transactions(): HasMany
     {
         return $this->hasMany(Transaction::class);

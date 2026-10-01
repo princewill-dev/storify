@@ -265,8 +265,8 @@ class ProductController extends Controller
             return back()->with('error', 'Invalid store selection.')->withInput();
         }
 
-        // Warehouse is the primary location for new products
-        if (! $request->filled('warehouse_id')) {
+        // Warehouse is the primary location for new products (digital products have no stock)
+        if (! $request->boolean('is_digital') && ! $request->filled('warehouse_id')) {
             return back()->with('error', 'Please assign the product to a warehouse.')->withInput();
         }
 
@@ -276,6 +276,11 @@ class ProductController extends Controller
         $data['cod_available'] = $request->boolean('cod_available');
         $data['featured'] = $request->boolean('featured');
         $data['has_variants'] = $request->boolean('has_variants');
+        $data['is_digital'] = $request->boolean('is_digital');
+
+        if ($data['is_digital']) {
+            $data['cod_available'] = false;
+        }
 
         // Auto-assign warehouse_id from section
         if (! empty($data['section_id']) && empty($data['warehouse_id'])) {
@@ -304,6 +309,11 @@ class ProductController extends Controller
                             'position' => $pos++,
                         ]);
                     }
+                }
+
+                if ($request->hasFile('digital_files')) {
+                    app(\App\Services\ProductFileService::class)
+                        ->storeFiles($product, $request->file('digital_files'));
                 }
 
                 if ($product->has_variants) {
@@ -363,10 +373,26 @@ class ProductController extends Controller
                 $data['cod_available'] = $request->boolean('cod_available');
                 $data['featured'] = $request->boolean('featured');
                 $data['has_variants'] = $request->boolean('has_variants');
+                $data['is_digital'] = $request->boolean('is_digital');
+
+                if ($data['is_digital']) {
+                    $data['cod_available'] = false;
+                }
+
                 $product->update($data);
 
                 if (! empty($data['cost_price'])) {
                     app(\App\Services\Accounting\InventoryCostingService::class)->syncFromCostPrice($product);
+                }
+
+                if ($request->filled('delete_file_ids')) {
+                    app(\App\Services\ProductFileService::class)
+                        ->deleteFiles($product, (array) $request->input('delete_file_ids'));
+                }
+
+                if ($request->hasFile('digital_files')) {
+                    app(\App\Services\ProductFileService::class)
+                        ->storeFiles($product, $request->file('digital_files'));
                 }
 
                 if ($request->filled('delete_image_ids')) {
@@ -523,6 +549,7 @@ class ProductController extends Controller
             } catch (\Throwable $e) {
             }
         }
+        app(\App\Services\ProductFileService::class)->deleteAllFiles($product);
         $product->delete();
 
         return redirect()->route('management.stores.products', $product->store)->with('success', 'Product deleted.');
@@ -554,6 +581,7 @@ class ProductController extends Controller
                 } catch (\Throwable $e) {
                 }
             }
+            app(\App\Services\ProductFileService::class)->deleteAllFiles($product);
             $product->delete();
             $deleted++;
         }

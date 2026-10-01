@@ -85,6 +85,7 @@
                                     </div>
                                 </div>
 
+                                @if($requiresShipping ?? true)
                                 <hr>
 
                                 <h6 class="mb-3 mt-4">Delivery Information</h6>
@@ -140,9 +141,17 @@
                                         <label class="form-label">House/Apartment Number (Optional)</label>
                                         <input type="text" name="apartment" class="form-control" value="{{ old('apartment') }}" placeholder="e.g. Suite 404">
                                     </div>
+                                </div>
+                                @else
+                                <div class="alert alert-info mb-4">
+                                    This order is digital only — no shipping is required. Your secure download link will be emailed to you as soon as your payment is confirmed.
+                                </div>
+                                @endif
+
+                                <div class="row mb-4">
                                     <div class="col-md-12 mb-3">
                                         <label class="form-label">Order Notes (Optional)</label>
-                                        <textarea name="notes" class="form-control" rows="2" placeholder="Any special instructions for delivery">{{ old('notes') }}</textarea>
+                                        <textarea name="notes" class="form-control" rows="2" placeholder="Any special instructions">{{ old('notes') }}</textarea>
                                     </div>
                                 </div>
 

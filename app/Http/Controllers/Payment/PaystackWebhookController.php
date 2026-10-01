@@ -138,6 +138,12 @@ class PaystackWebhookController extends Controller
                 $ledger = app(\App\Services\Accounting\LedgerPostingService::class);
                 $ledger->safe(fn () => $ledger->postPaymentReceived($transaction));
 
+                // Deliver digital products once the order is fully paid
+                $order = $transaction->order;
+                if ($order && $order->isFullyPaid()) {
+                    app(\App\Services\Digital\DigitalDeliveryService::class)->deliverSafely($order);
+                }
+
                 return response()->json(['status' => 'success']);
             }
 

@@ -56,6 +56,30 @@
     </div>
     @endif
 
+    @if(isset($downloads) && $downloads->isNotEmpty())
+    <div style="margin-top:24px;text-align:left;">
+        <p style="margin:0 0 10px;font-size:13px;font-weight:700;color:#e4e4e7;text-transform:uppercase;letter-spacing:.04em;">Your Downloads</p>
+        <div style="display:flex;flex-direction:column;gap:10px;">
+            @foreach($downloads as $download)
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;background:#18181b;border:1px solid #27272a;border-radius:12px;padding:12px 14px;">
+                <div style="min-width:0;">
+                    <div style="font-size:14px;font-weight:600;color:#e4e4e7;">{{ $download->product->name }}</div>
+                    <div style="font-size:11px;color:#71717a;margin-top:2px;">
+                        {{ $download->downloadsRemaining() }} download(s) remaining
+                        @if($download->expires_at) · expires {{ $download->expires_at->format('d M Y') }} @endif
+                    </div>
+                </div>
+                <a href="{{ route('downloads.show', ['token' => $download->token]) }}"
+                   style="flex-shrink:0;background:#4f46e5;color:#fff;text-decoration:none;font-size:13px;font-weight:600;padding:9px 16px;border-radius:10px;">
+                    Download
+                </a>
+            </div>
+            @endforeach
+        </div>
+        <p style="margin:10px 0 0;font-size:11px;color:#71717a;">A copy of these links has also been emailed to you.</p>
+    </div>
+    @endif
+
     <a href="{{ route('home.store.order.track', ['store_subdomain' => $store->slug ?? 'store', 'orderNumber' => $order->order_number]) }}" class="btn btn-primary">Track Order</a>
     <a href="{{ request()->getHost() === parse_url(config('app.url'), PHP_URL_HOST) ? url($store->slug) : url('/') }}" class="btn btn-ghost">Continue Shopping</a>
 </div>

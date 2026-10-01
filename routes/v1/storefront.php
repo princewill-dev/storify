@@ -167,7 +167,10 @@ Route::get('/payment/{reference}/success', function ($reference) {
     $order = $transaction->order;
     $store = $order->store;
 
-    return view('storefront.pages.payment.success', compact('order', 'transaction', 'store'));
+    $downloads = $order->digitalDownloads()->with('product')->get()
+        ->filter(fn ($download) => $download->product !== null);
+
+    return view('storefront.pages.payment.success', compact('order', 'transaction', 'store', 'downloads'));
 })->name('order.success');
 
 Route::get('/payment/{reference}/failed', function ($reference) {
@@ -177,6 +180,10 @@ Route::get('/payment/{reference}/failed', function ($reference) {
 
     return view('storefront.pages.payment.failed', compact('order', 'transaction', 'store'));
 })->name('order.failed');
+
+// Digital product downloads (public, tokenized, guest-safe)
+Route::get('/download/{token}', [\App\Http\Controllers\Storefront\DigitalDownloadController::class, 'show'])->name('downloads.show');
+Route::get('/download/{token}/file/{file}', [\App\Http\Controllers\Storefront\DigitalDownloadController::class, 'file'])->name('downloads.file');
 
 // Invoice Payment Routes (public, no auth)
 Route::prefix('pay/invoice/{token}')->name('invoice.pay.')->group(function () {

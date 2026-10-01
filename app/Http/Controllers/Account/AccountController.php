@@ -413,11 +413,26 @@ class AccountController extends Controller
     }
 
     /**
+     * Show digital downloads page
+     */
+    public function downloads(Request $request): View
+    {
+        $customer = Auth::guard('customer')->user();
+
+        $downloads = \App\Models\DigitalDownload::query()
+            ->where('customer_id', $customer->id)
+            ->with(['product', 'order'])
+            ->latest()
+            ->paginate(15);
+
+        return view('account.downloads', compact('downloads'));
+    }
+
+    /**
      * Show orders page
      */
     public function orders(Request $request): View
-    {
-        $customer = Auth::guard('customer')->user();
+    {        $customer = Auth::guard('customer')->user();
 
         $query = Order::where('customer_id', $customer->id)
             ->with(['store', 'items.product']);
@@ -446,7 +461,7 @@ class AccountController extends Controller
 
         $order = Order::where('order_number', $orderNumber)
             ->where('customer_id', $customer->id)
-            ->with(['store', 'items.product', 'transactions.paymentMethod'])
+            ->with(['store', 'items.product', 'digitalDownloads', 'transactions.paymentMethod'])
             ->firstOrFail();
 
         return view('account.order-details', compact('order'));

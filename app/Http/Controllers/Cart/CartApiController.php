@@ -98,7 +98,8 @@ class CartApiController extends Controller
                 'slug' => $product->slug ?? null,
                 'code' => $product->product_code ?? null,
                 'is_bulk' => $isBulk,
-                'max_stock' => ($product && ! $product->has_variants && ! is_null($product->quantity))
+                'is_digital' => (bool) ($product->is_digital ?? false),
+                'max_stock' => ($product && ! $product->is_digital && ! $product->has_variants && ! is_null($product->quantity))
                     ? (int) $product->quantity
                     : null,
             ];
@@ -142,7 +143,8 @@ class CartApiController extends Controller
         $cart = $this->resolveCart($request, $store);
 
         // For non-variant products, check stock against total qty that will be in cart
-        if (! $product->has_variants && ! is_null($product->quantity)) {
+        // (digital products have unlimited stock)
+        if (! $product->is_digital && ! $product->has_variants && ! is_null($product->quantity)) {
             $existingLine = CartItem::where('cart_id', $cart->id)
                 ->where('product_id', $product->id)
                 ->where('variant_key', $data['variant_key'] ?? null)
@@ -235,8 +237,8 @@ class CartApiController extends Controller
             return response()->json(['message' => 'Product not in this store'], 422);
         }
 
-        // Check stock availability
-        if (! $product->has_variants && ! is_null($product->quantity)) {
+        // Check stock availability (digital products have unlimited stock)
+        if (! $product->is_digital && ! $product->has_variants && ! is_null($product->quantity)) {
             if ($qty > (int) $product->quantity) {
                 return response()->json([
                     'message' => 'Requested quantity exceeds available stock.',
