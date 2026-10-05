@@ -134,14 +134,21 @@ class InvoiceController extends Controller
         ]);
 
         $invoice = DB::transaction(function () use ($validated, $store, $user) {
-            $total = $validated['total'];
+            $subtotal = round(collect($validated['items'])->sum(fn (array $item) => (int) $item['quantity'] * (float) $item['unit_price']), 2);
 
+            $serviceChargeAmount = 0.0;
             if ($validated['service_charge_id'] ?? null) {
                 $charge = ServiceCharge::where('store_id', $store->id)->where('is_active', true)->find($validated['service_charge_id']);
-                if ($charge) {
-                    $total += (float) $charge->amount;
-                }
+                $serviceChargeAmount = (float) ($charge?->amount ?? 0);
             }
+
+            $total = round(
+                $subtotal
+                + (float) ($validated['tax_amount'] ?? 0)
+                - (float) ($validated['discount_value'] ?? 0)
+                + $serviceChargeAmount,
+                2
+            );
 
             $invoice = Invoice::create([
                 'business_id' => $store->business_id,
@@ -154,7 +161,7 @@ class InvoiceController extends Controller
                 'status' => InvoiceStatus::DRAFT,
                 'issue_date' => $validated['issue_date'],
                 'due_date' => $validated['due_date'],
-                'subtotal' => $validated['subtotal'],
+                'subtotal' => $subtotal,
                 'tax_rate' => $validated['tax_rate'] ?? 0,
                 'tax_amount' => $validated['tax_amount'] ?? 0,
                 'discount_value' => $validated['discount_value'] ?? 0,

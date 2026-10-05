@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Management;
 
+use App\Rules\ReservedStoreSlug;
 use Illuminate\Foundation\Http\FormRequest;
 
 class CreateStoreRequest extends FormRequest
@@ -15,7 +16,7 @@ class CreateStoreRequest extends FormRequest
     {
         return [
             'name' => ['required', 'string', 'max:255'],
-            'slug' => ['nullable', 'string', 'max:255'],
+            'slug' => ['nullable', 'string', 'max:255', new ReservedStoreSlug],
             'description' => ['nullable', 'string'],
             'support_email' => ['nullable', 'email', 'max:255', 'unique:stores,support_email'],
             'support_phone' => ['nullable', 'string', 'max:50', 'unique:stores,support_phone'],

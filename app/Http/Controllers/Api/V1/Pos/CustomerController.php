@@ -47,7 +47,7 @@ class CustomerController extends Controller
 
     public function show(Store $store, $customerId): JsonResponse
     {
-        $customer = Customer::findOrFail($customerId);
+        $customer = Customer::where('business_id', $store->business_id)->findOrFail($customerId);
 
         $recentOrders = $customer->orders()
             ->where('store_id', $store->id)

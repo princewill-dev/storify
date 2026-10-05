@@ -17,7 +17,7 @@ Route::prefix('pos')->group(function () {
 
     Route::post('/login', [AuthController::class, 'login']);
 
-    Route::middleware(['auth:sanctum', 'team.context'])->group(function () {
+    Route::middleware(['auth:sanctum', 'team.context', 'token.audience:pos'])->group(function () {
 
         Route::get('/me', [AuthController::class, 'me']);
         Route::post('/logout', [AuthController::class, 'logout']);

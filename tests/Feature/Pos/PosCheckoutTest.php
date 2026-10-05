@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\TransactionStatus;
 use App\Models\Order;
 use App\Models\PosSession;
 use App\Models\Product;
@@ -7,6 +8,7 @@ use App\Models\StockLocation;
 use App\Models\Store;
 use App\Models\Transaction;
 use App\Models\User;
+use App\Models\Vat;
 use Laravel\Sanctum\Sanctum;
 
 function createPosSaleContext(): array
@@ -55,7 +57,7 @@ function createPosSaleContext(): array
         'opening_balance' => 0,
     ]);
 
-    Sanctum::actingAs($staff);
+    Sanctum::actingAs($staff, ['pos']);
 
     return [$staff, $store, $product, $stock];
 }
@@ -127,7 +129,7 @@ test('staff cannot use POS endpoints for an unassigned store', function () {
         'pos_enabled' => true,
     ]);
 
-    Sanctum::actingAs($staff);
+    Sanctum::actingAs($staff, ['pos']);
 
     $this->getJson("/api/v1/pos/stores/{$otherStore->store_id}/orders")
         ->assertForbidden();
@@ -136,7 +138,7 @@ test('staff cannot use POS endpoints for an unassigned store', function () {
 test('pos checkout charges vat on taxable products', function () {
     [, $store, $product] = createPosSaleContext();
 
-    App\Models\Vat::create([
+    Vat::create([
         'percentage' => 7.5,
         'active' => true,
         'effective_at' => now(),
@@ -167,7 +169,7 @@ test('pos checkout skips vat for non-taxable products', function () {
 
     $product->update(['is_taxable' => false]);
 
-    App\Models\Vat::create([
+    Vat::create([
         'percentage' => 7.5,
         'active' => true,
         'effective_at' => now(),
@@ -209,7 +211,7 @@ test('pos session cash total counts only cash legs', function () {
         'order_id' => $order->id,
         'business_id' => $store->business_id,
         'amount' => 1000,
-        'status' => App\Enums\TransactionStatus::CONFIRMED,
+        'status' => TransactionStatus::CONFIRMED,
         'paid_at' => now(),
         'metadata' => ['leg_method' => 'cash'],
     ]);
@@ -219,7 +221,7 @@ test('pos session cash total counts only cash legs', function () {
         'order_id' => $order->id,
         'business_id' => $store->business_id,
         'amount' => 500,
-        'status' => App\Enums\TransactionStatus::CONFIRMED,
+        'status' => TransactionStatus::CONFIRMED,
         'paid_at' => now(),
         'metadata' => ['leg_method' => 'paystack'],
     ]);

@@ -74,7 +74,7 @@ final class CheckoutController extends Controller
                     'subtotal' => (float) $order->subtotal,
                     'tax' => (float) $order->tax,
                     'amount_tendered' => $amountTendered,
-                    'change' => $amountTendered > 0 ? max(0, $amountTendered - (int) $order->total) : 0,
+                    'change' => $amountTendered > 0 ? max(0, $amountTendered - (int) round((float) $order->total * 100)) : 0,
                     'date' => $order->created_at->toISOString(),
                     'cashier' => $user->name,
                     'payment_method' => $order->transactions->count() === 1

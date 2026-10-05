@@ -57,8 +57,8 @@ final class OrderController extends Controller
                     'items_count' => $order->items->count(),
                     'items' => $order->items->take(3)->map(fn ($item) => $item->product_name),
                     'more_items' => max(0, $order->items->count() - 3),
-                    'has_refund' => $order->transactions->whereIn('status', ['refunded', 'refund_pending'])->isNotEmpty(),
-                    'refund_status' => $order->transactions->whereIn('status', ['refunded', 'refund_pending'])->first()?->status?->value,
+                    'has_refund' => $order->transactions->contains(fn ($transaction) => in_array($transaction->status?->value, ['refunded', 'refund_pending'], true)),
+                    'refund_status' => $order->transactions->first(fn ($transaction) => in_array($transaction->status?->value, ['refunded', 'refund_pending'], true))?->status?->value,
                 ]),
                 'pagination' => [
                     'current_page' => $orders->currentPage(),
@@ -97,9 +97,15 @@ final class OrderController extends Controller
                     'customer_name' => $meta['customer_name'] ?? $order->customer?->full_name,
                     'customer_phone' => $meta['customer_phone'] ?? $order->customer?->phone,
                     'amount_tendered' => $amountTendered,
-                    'change' => $amountTendered > 0 ? max(0, $amountTendered - (int) $order->total) : 0,
+                    'change' => $amountTendered > 0 ? max(0, $amountTendered - (int) round((float) $order->total * 100)) : 0,
+                    'tax' => (float) $order->tax,
                     'service_charge_name' => $meta['service_charge_name'] ?? null,
                     'service_charge_amount' => (float) ($order->service_charge_amount ?? 0),
+                    'payments' => $order->transactions->map(fn (Transaction $transaction) => [
+                        'method' => $transaction->metadata['leg_method'] ?? ($transaction->paymentMethod?->code ?? 'cash'),
+                        'method_label' => $transaction->paymentMethod?->name ?? 'Cash',
+                        'amount' => (float) $transaction->amount,
+                    ])->values(),
                     'items' => $order->items->map(fn ($item) => [
                         'name' => $item->product_name,
                         'qty' => $item->quantity,

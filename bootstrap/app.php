@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\CheckSubscription;
+use App\Http\Middleware\EnsureTokenAudience;
 use App\Http\Middleware\IsPlatformAdmin;
 use App\Http\Middleware\RedirectIfOnboardingIncomplete;
 use App\Http\Middleware\SetPermissionsTeamId;
@@ -47,6 +48,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'role' => RoleMiddleware::class,
             'team.context' => SetPermissionsTeamId::class,
             'platform.admin' => IsPlatformAdmin::class,
+            'token.audience' => EnsureTokenAudience::class,
         ]);
 
         // Configure authentication redirects for customer guard

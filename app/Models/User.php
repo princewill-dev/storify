@@ -56,8 +56,7 @@ class User extends Authenticatable
 
     protected static function boot()
     {
-        parent::boot();
-        static::creating(function ($model) {
+        parent::boot();        static::creating(function ($model) {
             if (empty($model->uuid)) {
                 $model->uuid = (string) Str::uuid();
             }
@@ -72,6 +71,15 @@ class User extends Authenticatable
     public function getRouteKeyName(): string
     {
         return 'account_code';
+    }
+
+    /**
+     * Pin Spatie to the "web" guard so permissions resolve identically for
+     * session and Sanctum-token authentication.
+     */
+    public function guardName(): string
+    {
+        return 'web';
     }
 
     public function business(): BelongsTo

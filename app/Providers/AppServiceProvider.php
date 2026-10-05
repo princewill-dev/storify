@@ -14,10 +14,13 @@ use App\Models\Setting;
 use App\Models\Store;
 use App\Models\Transaction;
 use App\Models\User;
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Request;
 use Illuminate\Pagination\Paginator;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\View;
 use Illuminate\Support\ServiceProvider;
@@ -53,6 +56,15 @@ class AppServiceProvider extends ServiceProvider
             }
 
             return null;
+        });
+
+        // API rate limits: generous global limit, strict on auth endpoints.
+        RateLimiter::for('api', function (Request $request) {
+            return Limit::perMinute(120)->by($request->user()?->getAuthIdentifier() ?: $request->ip());
+        });
+
+        RateLimiter::for('auth', function (Request $request) {
+            return Limit::perMinute(10)->by($request->ip().'|'.(string) $request->input('email'));
         });
 
         // Configure Log Viewer access - only allow superadmins (if package is installed)

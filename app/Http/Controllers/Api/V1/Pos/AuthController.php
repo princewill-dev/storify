@@ -47,7 +47,7 @@ class AuthController extends Controller
             ], 403);
         }
 
-        $token = $user->createToken('pos-terminal')->plainTextToken;
+        $token = $user->createToken('pos-terminal', ['pos'])->plainTextToken;
 
         $stores = $this->getAccessibleStores($user);
         $singleStore = $stores->count() === 1 ? $stores->first() : null;
@@ -57,7 +57,7 @@ class AuthController extends Controller
             'success' => true,
             'data' => [
                 'token' => $token,
-                'idle_timeout_minutes' => (int) env('POS_IDLE_TIMEOUT_MINUTES', 15),
+                'idle_timeout_minutes' => (int) config('pos.idle_timeout_minutes'),
                 'user' => [
                     'id' => $user->id,
                     'name' => $user->name,
@@ -132,6 +132,7 @@ class AuthController extends Controller
 
         if (! $assigned && ! $user->isRestrictedStaff()) {
             $assigned = Store::where('id', $validated['store_id'])
+                ->when(! $user->isPlatformAdmin(), fn ($query) => $query->where('business_id', $user->business_id))
                 ->where('pos_enabled', true)
                 ->where('status', '!=', 'deleted')
                 ->exists();
@@ -189,7 +190,7 @@ class AuthController extends Controller
         }
 
         $matchedUser = User::find($matchedUser->id);
-        $token = $matchedUser->createToken('pos-terminal')->plainTextToken;
+        $token = $matchedUser->createToken('pos-terminal', ['pos'])->plainTextToken;
         $stores = $this->getAccessibleStores($matchedUser);
         $activeStore = $stores->count() === 1 ? $stores->first() : null;
 
@@ -198,7 +199,7 @@ class AuthController extends Controller
             'data' => [
                 'switched' => true,
                 'token' => $token,
-                'idle_timeout_minutes' => (int) env('POS_IDLE_TIMEOUT_MINUTES', 15),
+                'idle_timeout_minutes' => (int) config('pos.idle_timeout_minutes'),
                 'user' => [
                     'id' => $matchedUser->id,
                     'name' => $matchedUser->name,
@@ -248,6 +249,7 @@ class AuthController extends Controller
 
         return Store::where('pos_enabled', true)
             ->where('status', '!=', 'deleted')
+            ->when(! $user->isPlatformAdmin(), fn ($query) => $query->where('business_id', $user->business_id))
             ->get();
     }
 }

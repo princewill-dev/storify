@@ -1,5 +1,6 @@
 <?php
 
+use App\Helpers\StoreSubdomains;
 use App\Http\Controllers\Home\HomePageController;
 use App\Http\Controllers\Home\ProductController;
 use App\Http\Controllers\Home\TrackingController;
@@ -46,7 +47,7 @@ Route::domain(config('app.main_domain', parse_url(config('app.url'), PHP_URL_HOS
 // Local dev bypass: access stores via path instead of subdomain
 if (config('app.env') === 'local') {
     Route::prefix('{store_subdomain}')
-        ->where(['store_subdomain' => '(?!api|admin|vendor|storage|livewire|cart|checkout|products|services|search|support|international-supply)[A-Za-z0-9_\-]+'])
+        ->where(['store_subdomain' => StoreSubdomains::localConstraint()])
         ->group(function () {
             // Store homepage (products listing)
             Route::get('/', [ProductController::class, 'indexByStore'])->name('local.store.products.index');
@@ -61,7 +62,7 @@ if (config('app.env') === 'local') {
 
 // Subdomain routes for stores (excluding www)
 Route::domain('{store_subdomain}.'.config('app.main_domain', parse_url(config('app.url'), PHP_URL_HOST)))
-    ->where(['store_subdomain' => '(?!www)[A-Za-z0-9_\-]+'])
+    ->where(['store_subdomain' => StoreSubdomains::constraint()])
     ->group(function () {
 
         // Store homepage (products listing)

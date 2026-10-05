@@ -1,5 +1,6 @@
 <?php
 
+use App\Helpers\StoreSubdomains;
 use App\Http\Controllers\Cart\CartController;
 use App\Http\Controllers\Checkout\DeliveryAddressController;
 use App\Http\Controllers\Checkout\PageController as CheckoutPageController;
@@ -11,6 +12,7 @@ use App\Http\Controllers\Home\SupportController;
 use App\Http\Controllers\Payment\BankTransferController;
 use App\Http\Controllers\Payment\PaystackController;
 use App\Http\Controllers\Shop4me\Shop4meController;
+use App\Http\Controllers\Storefront\DigitalDownloadController;
 use App\Http\Controllers\Storefront\InvoicePaymentController;
 use App\Http\Controllers\Storefront\StoreCategoryController;
 use App\Http\Controllers\Storefront\StoreOrderController;
@@ -42,7 +44,7 @@ Route::domain(config('app.main_domain', parse_url(config('app.url'), PHP_URL_HOS
 // Local dev bypass
 if (config('app.env') === 'local') {
     Route::prefix('{store_subdomain}')
-        ->where(['store_subdomain' => '(?!api|admin|vendor|storage|livewire|cart|checkout|products|services|search|support|international-supply)[A-Za-z0-9_\-]+'])
+        ->where(['store_subdomain' => StoreSubdomains::localConstraint()])
         ->group(function () {
 
             // Store homepage (products listing)
@@ -94,7 +96,7 @@ if (config('app.env') === 'local') {
 
 // Subdomain routes
 Route::domain('{store_subdomain}.'.config('app.main_domain', parse_url(config('app.url'), PHP_URL_HOST)))
-    ->where(['store_subdomain' => '(?!www)[A-Za-z0-9_\-]+'])
+    ->where(['store_subdomain' => StoreSubdomains::constraint()])
     ->group(function () {
 
         // Store homepage (products listing)
@@ -182,8 +184,8 @@ Route::get('/payment/{reference}/failed', function ($reference) {
 })->name('order.failed');
 
 // Digital product downloads (public, tokenized, guest-safe)
-Route::get('/download/{token}', [\App\Http\Controllers\Storefront\DigitalDownloadController::class, 'show'])->name('downloads.show');
-Route::get('/download/{token}/file/{file}', [\App\Http\Controllers\Storefront\DigitalDownloadController::class, 'file'])->name('downloads.file');
+Route::get('/download/{token}', [DigitalDownloadController::class, 'show'])->name('downloads.show');
+Route::get('/download/{token}/file/{file}', [DigitalDownloadController::class, 'file'])->name('downloads.file');
 
 // Invoice Payment Routes (public, no auth)
 Route::prefix('pay/invoice/{token}')->name('invoice.pay.')->group(function () {

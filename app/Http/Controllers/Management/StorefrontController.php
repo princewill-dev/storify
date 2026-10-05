@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Management;
 
 use App\Http\Controllers\Controller;
 use App\Models\Store;
+use App\Rules\ReservedStoreSlug;
 use App\Services\StoreAccessService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -64,7 +65,7 @@ final class StorefrontController extends Controller
     {
         $rules = [
             'store_name' => ['required', 'string', 'max:255'],
-            'slug' => ['required', 'string', 'max:255', 'unique:stores,slug,'.$store->id],
+            'slug' => ['required', 'string', 'max:255', new ReservedStoreSlug, 'unique:stores,slug,'.$store->id],
             'is_nationwide' => ['boolean'],
             'nationwide_fee' => ['nullable', 'numeric', 'min:0'],
             'nationwide_days' => ['nullable', 'integer', 'min:1'],

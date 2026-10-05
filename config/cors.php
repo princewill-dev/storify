@@ -1,5 +1,19 @@
 <?php
 
+// Read the env directly: calling config() inside a config file can run before
+// the other config file has loaded.
+$allowedOrigins = array_values(array_filter(array_map(
+    'trim',
+    explode(',', (string) env('API_ALLOWED_ORIGINS', ''))
+)));
+
+// Regex patterns (e.g. "^https://[a-z0-9-]+\.storyify\.ng$") for wildcard
+// store subdomains, which cannot be expressed as exact origins.
+$allowedOriginPatterns = array_values(array_filter(array_map(
+    'trim',
+    explode(',', (string) env('API_ALLOWED_ORIGIN_PATTERNS', ''))
+)));
+
 return [
 
     /*
@@ -19,9 +33,10 @@ return [
 
     'allowed_methods' => ['*'],
 
-    'allowed_origins' => ['*'],
+    // Set API_ALLOWED_ORIGINS (comma-separated) to lock this down; falls back to "*".
+    'allowed_origins' => $allowedOrigins !== [] ? $allowedOrigins : ['*'],
 
-    'allowed_origins_patterns' => [],
+    'allowed_origins_patterns' => $allowedOriginPatterns,
 
     'allowed_headers' => ['*'],
 
@@ -29,6 +44,6 @@ return [
 
     'max_age' => 0,
 
-    'supports_credentials' => false,
+    'supports_credentials' => $allowedOrigins !== [],
 
 ];

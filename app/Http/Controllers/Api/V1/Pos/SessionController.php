@@ -71,6 +71,8 @@ class SessionController extends Controller
                     'session_code' => $session->session_code,
                     'opened_at' => $session->opened_at->toISOString(),
                     'opening_balance' => $session->opening_balance,
+                    'sales_total' => 0,
+                    'cash_sales_total' => 0,
                 ],
             ],
         ], 201);

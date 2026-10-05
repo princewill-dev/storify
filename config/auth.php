@@ -49,6 +49,12 @@ return [
             'provider' => 'users',
         ],
 
+        // Bearer-token guard for the standalone storefront/customer app.
+        'sanctum_customer' => [
+            'driver' => 'sanctum',
+            'provider' => 'customers',
+        ],
+
         'customer' => [
             'driver' => 'session',
             'provider' => 'customers',

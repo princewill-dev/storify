@@ -59,10 +59,13 @@ class Store extends Model
                 $model->store_id = 'st_'.str_pad((string) random_int(0, 9999999999), 10, '0', STR_PAD_LEFT);
             }
             if (empty($model->slug) && ! empty($model->name)) {
-                $base = strtolower(str_replace(' ', '_', $model->name));
+                $base = trim(preg_replace('/[^a-z0-9]+/', '-', strtolower($model->name)) ?? '', '-');
+                $base = $base !== '' ? $base : 'store';
+                $reserved = config('storefront.reserved_subdomains', []);
+
                 $slug = $base;
                 $tries = 0;
-                while (Store::where('slug', $slug)->exists()) {
+                while (Store::where('slug', $slug)->exists() || in_array($slug, $reserved, true)) {
                     $suffix = '-'.str_pad((string) random_int(0, 999), 3, '0', STR_PAD_LEFT);
                     $slug = $base.$suffix;
                     if (++$tries > 10) {

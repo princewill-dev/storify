@@ -59,6 +59,11 @@ class TransactionController extends Controller
 
     public function show(Store $store, Transaction $transaction): JsonResponse
     {
+        $belongsToStore = ($transaction->order && (int) $transaction->order->store_id === (int) $store->id)
+            || ($transaction->invoice && (int) $transaction->invoice->store_id === (int) $store->id);
+
+        abort_unless($belongsToStore, 404);
+
         $transaction->load(['order.customer', 'order.items', 'order.store', 'invoice.store', 'paymentMethod']);
 
         return response()->json([
