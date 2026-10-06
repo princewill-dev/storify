@@ -17,6 +17,7 @@ use App\Models\User;
 use App\Models\Warehouse;
 use Database\Seeders\SpatiePermissionSeeder;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 
 /**
  * WS-7 — Dashboard parity completion (admin console).
@@ -79,6 +80,10 @@ function ad07Customer(Business $business, array $attributes = []): Customer
         'first_name' => 'Ada',
         'last_name' => 'Buyer',
         'email' => 'ada'.random_int(1000, 9999).'@example.test',
+        // `phone` and `password` are NOT NULL with no default on the
+        // restructured customers table (see ws19's fixture).
+        'phone' => '080'.random_int(10000000, 99999999),
+        'password' => bcrypt('ad07-secret'),
         'status' => Customer::STATUS_ACTIVE,
     ], $attributes));
 }
@@ -88,14 +93,33 @@ function ad07Customer(Business $business, array $attributes = []): Customer
  */
 function ad07Product(Store $store, array $attributes = [], int $stockAtStore = 0): Product
 {
-    $product = Product::create(array_merge([
+    $attributes = array_merge([
         'store_id' => $store->id,
         'business_id' => $store->business_id,
         'name' => 'Product '.random_int(1000, 9999),
         'amount' => 100,
         'quantity' => 0,
         'status' => 'active',
-    ], $attributes));
+    ], $attributes);
+
+    // The Product model refuses to persist a non-digital, non-variant product
+    // with a non-positive quantity (the ad15 catalogue rule asserts that), so a
+    // sold-out fixture is created with stock and then dropped to zero directly
+    // — the ws03/ws28 precedent for modelling an out-of-stock row.
+    $soldOut = (int) $attributes['quantity'] <= 0
+        && empty($attributes['has_variants'])
+        && empty($attributes['is_digital']);
+
+    if ($soldOut) {
+        $attributes['quantity'] = 1;
+    }
+
+    $product = Product::create($attributes);
+
+    if ($soldOut) {
+        DB::table('products')->where('id', $product->id)->update(['quantity' => 0]);
+        $product->quantity = 0;
+    }
 
     if ($stockAtStore > 0) {
         StockLocation::create([
@@ -144,14 +168,7 @@ test('the dashboard returns the legacy KPI, stats, chart and panel payload', fun
     ad07Transaction($order, ['amount' => 2500]);
 
     ad07Product($store, ['name' => 'Widget', 'amount' => 400, 'quantity' => 3], stockAtStore: 3);
-    Product::create([
-        'store_id' => $store->id,
-        'business_id' => $business->id,
-        'name' => 'Sold out',
-        'amount' => 50,
-        'quantity' => 0,
-        'status' => 'active',
-    ]);
+    ad07Product($store, ['name' => 'Sold out', 'amount' => 50]);
 
     Warehouse::create([
         'user_id' => $owner->id,
@@ -172,6 +189,7 @@ test('the dashboard returns the legacy KPI, stats, chart and panel payload', fun
 
     StockTransfer::create([
         'business_id' => $business->id,
+        'requested_by' => $owner->id,
         'from_location_type' => Warehouse::class,
         'from_location_id' => $warehouse->id,
         'to_location_type' => Store::class,
@@ -213,17 +231,19 @@ test('the dashboard returns the legacy KPI, stats, chart and panel payload', fun
             ],
         ]);
 
-    expect($response->json('data.kpis.revenue_today'))->toBe(2500.0)
+    // Money is kobo integers on the wire — whole floats serialise without the
+    // fraction, so the decoded payload holds ints (assertJsonPath is strict).
+    expect($response->json('data.kpis.revenue_today'))->toBe(2500)
         ->and($response->json('data.kpis.orders_today'))->toBe(1)
-        ->and($response->json('data.kpis.revenue_mtd'))->toBe(2500.0)
+        ->and($response->json('data.kpis.revenue_mtd'))->toBe(2500)
         // 3 units at 400 — stock value counts stock on hand, not product quantity.
-        ->and($response->json('data.kpis.stock_value'))->toBe(1200.0)
+        ->and($response->json('data.kpis.stock_value'))->toBe(1200)
         // Flagship is active; Second is suspended — active stores counts only the former.
         ->and($response->json('data.kpis.active_stores'))->toBe(1)
         ->and($response->json('data.kpis.customers'))->toBe(1)
         ->and($response->json('data.stats.total_warehouses'))->toBe(1)
         ->and($response->json('data.stats.units_in_stock'))->toBe(3)
-        ->and($response->json('data.stats.stock_value'))->toBe(1200.0)
+        ->and($response->json('data.stats.stock_value'))->toBe(1200)
         // 3 is low (<=10); the sold-out product is out of stock.
         ->and($response->json('data.stats.low_stock'))->toBe(1)
         ->and($response->json('data.stats.low_stock_threshold'))->toBe(10)
@@ -250,8 +270,8 @@ test('the dashboard returns the legacy KPI, stats, chart and panel payload', fun
     $flagship = collect($response->json('data.top_stores'))->firstWhere('name', 'Flagship');
     expect($flagship['orders_today'])->toBe(1)
         ->and($flagship['products_count'])->toBe(2)
-        ->and($flagship['revenue_today'])->toBe(2500.0)
-        ->and($flagship['revenue_mtd'])->toBe(2500.0)
+        ->and($flagship['revenue_today'])->toBe(2500)
+        ->and($flagship['revenue_mtd'])->toBe(2500)
         ->and($flagship['pos_status'])->toBe('closed')
         ->and($flagship['last_order_at'])->not->toBeNull()
         ->and(collect($response->json('data.top_stores'))->pluck('name')->all())
@@ -286,6 +306,7 @@ test('the store filter scopes exactly the widgets legacy scoped', function () {
     ]);
     StockTransfer::create([
         'business_id' => $businessA->id,
+        'requested_by' => $ownerA->id,
         'from_location_type' => Warehouse::class,
         'from_location_id' => $warehouse->id,
         'to_location_type' => Store::class,
@@ -294,6 +315,7 @@ test('the store filter scopes exactly the widgets legacy scoped', function () {
     ]);
     StockTransfer::create([
         'business_id' => $businessA->id,
+        'requested_by' => $ownerA->id,
         'from_location_type' => Store::class,
         'from_location_id' => $storeB->id,
         'to_location_type' => Warehouse::class,
@@ -307,14 +329,14 @@ test('the store filter scopes exactly the widgets legacy scoped', function () {
         ->assertOk();
 
     // Scoped: the four KPI tiles, stock counts, charts, donut, transfers, table.
-    expect($filtered->json('data.kpis.revenue_today'))->toBe(1500.0)
-        ->and($filtered->json('data.kpis.revenue_mtd'))->toBe(1500.0)
+    expect($filtered->json('data.kpis.revenue_today'))->toBe(1500)
+        ->and($filtered->json('data.kpis.revenue_mtd'))->toBe(1500)
         ->and($filtered->json('data.kpis.orders_today'))->toBe(1)
-        ->and($filtered->json('data.kpis.stock_value'))->toBe(500.0)
+        ->and($filtered->json('data.kpis.stock_value'))->toBe(500)
         ->and($filtered->json('data.stats.units_in_stock'))->toBe(5)
-        ->and(collect($filtered->json('data.daily_revenue'))->sum('total'))->toBe(1500.0)
+        ->and(collect($filtered->json('data.daily_revenue'))->sum('total'))->toBe(1500)
         ->and(collect($filtered->json('data.daily_orders'))->sum('total'))->toBe(1)
-        ->and(collect($filtered->json('data.payment_breakdown'))->sum('total'))->toBe(1500.0)
+        ->and(collect($filtered->json('data.payment_breakdown'))->sum('total'))->toBe(1500)
         ->and($filtered->json('data.top_stores'))->toHaveCount(1)
         ->and($filtered->json('data.top_stores.0.name'))->toBe('Alpha')
         ->and($filtered->json('data.pending_transfers'))->toHaveCount(1)
@@ -335,8 +357,8 @@ test('the store filter scopes exactly the widgets legacy scoped', function () {
     $byCode = $this->getJson('/api/v1/admin/dashboard?store_id='.$storeB->store_id, ['Authorization' => 'Bearer '.$token])
         ->assertOk();
 
-    expect($byCode->json('data.kpis.revenue_today'))->toBe(7000.0)
-        ->and($byCode->json('data.kpis.stock_value'))->toBe(2000.0)
+    expect($byCode->json('data.kpis.revenue_today'))->toBe(7000)
+        ->and($byCode->json('data.kpis.stock_value'))->toBe(2000)
         ->and($byCode->json('data.top_stores.0.name'))->toBe('Beta');
 });
 
@@ -364,11 +386,11 @@ test('the date range scopes the payment donut and is validated', function () {
     $response = $this->getJson("/api/v1/admin/dashboard?from={$today}&to={$today}", ['Authorization' => 'Bearer '.$token])
         ->assertOk();
 
-    expect(collect($response->json('data.payment_breakdown'))->sum('total'))->toBe(1000.0)
+    expect(collect($response->json('data.payment_breakdown'))->sum('total'))->toBe(1000)
         ->and($response->json('data.filters.from'))->toBe($today)
         ->and($response->json('data.filters.to'))->toBe($today)
         // MTD is a fixed window, not the donut range.
-        ->and($response->json('data.kpis.revenue_mtd'))->toBe(1400.0);
+        ->and($response->json('data.kpis.revenue_mtd'))->toBe(1400);
 
     $this->getJson('/api/v1/admin/dashboard?from=not-a-date', ['Authorization' => 'Bearer '.$token])
         ->assertStatus(422)
@@ -457,11 +479,11 @@ test('the store table reports POS status, last sale and a drill-through id', fun
     expect($rows)->toHaveCount(2)
         ->and($rows->pluck('name')->all())->toBe(['Live Store', 'Quiet Store'])
         ->and($rows->firstWhere('name', 'Live Store')['pos_status'])->toBe('open')
-        ->and($rows->firstWhere('name', 'Live Store')['revenue_today'])->toBe(3000.0)
+        ->and($rows->firstWhere('name', 'Live Store')['revenue_today'])->toBe(3000)
         ->and($rows->firstWhere('name', 'Quiet Store')['pos_status'])->toBe('closed')
         // Three days old: not today's revenue, still MTD.
-        ->and($rows->firstWhere('name', 'Quiet Store')['revenue_today'])->toBe(0.0)
-        ->and($rows->firstWhere('name', 'Quiet Store')['revenue_mtd'])->toBe(900.0)
+        ->and($rows->firstWhere('name', 'Quiet Store')['revenue_today'])->toBe(0)
+        ->and($rows->firstWhere('name', 'Quiet Store')['revenue_mtd'])->toBe(900)
         ->and($rows->firstWhere('name', 'Quiet Store')['last_order_at'])->not->toBeNull()
         ->and($rows->pluck('name'))->not->toContain($removed->name);
 
@@ -502,6 +524,7 @@ test('the dashboard panels honour the legacy limits and statuses', function () {
     for ($i = 0; $i < 6; $i++) {
         StockTransfer::create([
             'business_id' => $business->id,
+            'requested_by' => $owner->id,
             'from_location_type' => Warehouse::class,
             'from_location_id' => $warehouse->id,
             'to_location_type' => Store::class,
@@ -512,6 +535,7 @@ test('the dashboard panels honour the legacy limits and statuses', function () {
 
     StockTransfer::create([
         'business_id' => $business->id,
+        'requested_by' => $owner->id,
         'from_location_type' => Store::class,
         'from_location_id' => $store->id,
         'to_location_type' => Warehouse::class,
@@ -521,6 +545,7 @@ test('the dashboard panels honour the legacy limits and statuses', function () {
 
     StockTransfer::create([
         'business_id' => $business->id,
+        'requested_by' => $owner->id,
         'from_location_type' => Store::class,
         'from_location_id' => $store->id,
         'to_location_type' => Warehouse::class,
@@ -537,9 +562,9 @@ test('the dashboard panels honour the legacy limits and statuses', function () {
     expect($transactions)->toHaveCount(10)
         ->and($orders)->toHaveCount(10)
         // Newest first, and the pending payment is nowhere in the confirmed feed.
-        ->and((float) $transactions[0]['amount'])->toBe(111.0)
+        ->and($transactions[0]['amount'])->toBe(111)
         ->and(collect($transactions)->pluck('reference'))->not->toContain($pending->reference)
-        ->and($orders[0]['total'])->toBe(111.0)
+        ->and($orders[0]['total'])->toBe(111)
         ->and($response->json('data.pending_transfers'))->toHaveCount(5)
         ->and($response->json('data.transfer_stats.pending'))->toBe(6)
         ->and($response->json('data.transfer_stats.today_dispatched'))->toBe(1)
@@ -551,6 +576,10 @@ test('a platform admin with the permission can read but a permissionless admin c
 
     $this->getJson('/api/v1/admin/dashboard', ['Authorization' => 'Bearer '.ad07Token($platformAdmin)])
         ->assertOk();
+
+    // Sanctum's guard caches the resolved user for the whole test, so the
+    // guard must be forgotten before a request as a different user.
+    app('auth')->forgetGuards();
 
     $plainAdmin = User::factory()->create([
         'role' => 'admin',
@@ -585,6 +614,9 @@ test('management tokens and guests are refused', function () {
 
     $this->getJson('/api/v1/admin/dashboard', ['Authorization' => 'Bearer '.$managementToken])
         ->assertStatus(403);
+
+    // Forget the cached guard user so the tokenless request is a real guest.
+    app('auth')->forgetGuards();
 
     $this->getJson('/api/v1/admin/dashboard')->assertStatus(401);
 });

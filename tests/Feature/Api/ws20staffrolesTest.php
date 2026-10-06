@@ -529,5 +529,9 @@ test('staff endpoints are gated by staff permissions', function () {
         'role' => 'Cashier',
     ])->assertStatus(403);
 
+    // The test application keeps the Sanctum guard's resolved user between
+    // requests, so drop the cached staff identity before switching to the owner.
+    $this->app['auth']->forgetGuards();
+
     $this->withToken(ws20Token($owner))->getJson('/api/v1/management/staff')->assertOk();
 });

@@ -446,6 +446,13 @@ test('the early-pass code is required and the endpoints need a token', function 
         ->assertStatus(422)
         ->assertJsonValidationErrors('code');
 
+    // withToken() persists as a default header for the rest of the test, and the
+    // sanctum request guard memoises the user it resolved above; drop both so the
+    // final calls are genuinely unauthenticated (401) rather than riding the
+    // owner's token (which would reach the controller and answer 422).
+    $this->flushHeaders();
+    $this->app['auth']->forgetGuards();
+
     $this->postJson('/api/v1/management/plans/validate-coupon', ['code' => 'SAVE20'])
         ->assertStatus(401);
 

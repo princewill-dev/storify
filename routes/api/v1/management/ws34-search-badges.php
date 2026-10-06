@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\V1\Management\GlobalSearchController;
 use App\Http\Controllers\Api\V1\Management\ProfilePhotoController;
 use App\Http\Controllers\Api\V1\Management\ShellCountsController;
+use App\Http\Middleware\ForceJsonResponse;
 
 /*
 |--------------------------------------------------------------------------
@@ -30,5 +31,9 @@ Route::get('search', GlobalSearchController::class)->name('search');
 Route::get('shell/counts', ShellCountsController::class)->name('shell.counts');
 
 Route::get('profile/photo', [ProfilePhotoController::class, 'show'])->name('profile.photo.show');
-Route::post('profile/photo', [ProfilePhotoController::class, 'store'])->name('profile.photo.store');
+// Multipart upload: without a negotiated JSON Accept a failed validation
+// would redirect back (302) instead of returning the {message, errors} 422.
+Route::post('profile/photo', [ProfilePhotoController::class, 'store'])
+    ->middleware(ForceJsonResponse::class)
+    ->name('profile.photo.store');
 Route::delete('profile/photo', [ProfilePhotoController::class, 'destroy'])->name('profile.photo.destroy');

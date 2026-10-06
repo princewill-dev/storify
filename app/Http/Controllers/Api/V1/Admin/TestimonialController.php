@@ -494,7 +494,7 @@ class TestimonialController extends ApiController
      */
     private function plainText(string $value, string $field, string $label): string
     {
-        $clean = trim(strip_tags($value));
+        $clean = trim($this->stripMarkup($value));
 
         if ($clean === '') {
             throw ValidationException::withMessages([
@@ -503,6 +503,17 @@ class TestimonialController extends ApiController
         }
 
         return $clean;
+    }
+
+    /**
+     * `strip_tags()` removes the tags but leaves the *contents* of `<script>` /
+     * `<style>` elements behind as loose text ("alert(1)"). The column is
+     * plain text, so the element bodies are dropped first and the remaining
+     * tag skeleton is stripped afterwards.
+     */
+    private function stripMarkup(string $value): string
+    {
+        return strip_tags(preg_replace('#<(script|style)\b[^>]*>.*?</\1\s*>#is', '', $value));
     }
 
     /**

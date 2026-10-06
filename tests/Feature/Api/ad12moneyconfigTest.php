@@ -73,7 +73,9 @@ test('the VAT list returns the active rate first with pagination meta', function
 
     $response->assertOk()
         ->assertJsonPath('data.vats.0.id', $current->id)
-        ->assertJsonPath('data.vats.0.percentage', 5.0)
+        // JSON has no `5.0`: PHP encodes a whole-number float as the int 5 and
+        // assertJsonPath is a strict identity check.
+        ->assertJsonPath('data.vats.0.percentage', 5)
         ->assertJsonPath('data.vats.0.active', true)
         ->assertJsonStructure([
             'data' => ['vats' => [['id', 'percentage', 'active', 'effective_at', 'created_at']]],
@@ -110,7 +112,7 @@ test('creating a zero rate is allowed and becomes the active rate', function () 
 
     $this->postJson('/api/v1/admin/vats', ['percentage' => 0], ad12AdminToken($admin))
         ->assertCreated()
-        ->assertJsonPath('data.vat.percentage', 0.0)
+        ->assertJsonPath('data.vat.percentage', 0)
         ->assertJsonPath('data.vat.active', true);
 
     expect($active->fresh()->active)->toBeFalse();
@@ -158,7 +160,7 @@ test('editing an inactive VAT rate leaves the active one alone', function () {
 
     $this->putJson("/api/v1/admin/vats/{$old->id}", ['percentage' => 3], ad12AdminToken($admin))
         ->assertOk()
-        ->assertJsonPath('data.vat.percentage', 3.0)
+        ->assertJsonPath('data.vat.percentage', 3)
         ->assertJsonPath('data.vat.active', false);
 
     expect($active->fresh()->active)->toBeTrue()
@@ -205,7 +207,7 @@ test('the disable action creates a 0% rate superseding every other rate', functi
     $response = $this->postJson("/api/v1/admin/vats/{$active->id}/toggle", [], ad12AdminToken($admin));
 
     $response->assertOk()
-        ->assertJsonPath('data.vat.percentage', 0.0)
+        ->assertJsonPath('data.vat.percentage', 0)
         ->assertJsonPath('data.vat.active', true)
         ->assertJsonPath('message', '0% VAT created.');
 
@@ -518,7 +520,7 @@ test('a coupon update without a code leaves the code alone', function () {
     $this->putJson("/api/v1/admin/coupons/{$coupon->id}", ['discount_value' => 15], ad12AdminToken($admin))
         ->assertOk()
         ->assertJsonPath('data.coupon.code', 'KEEP')
-        ->assertJsonPath('data.coupon.discount_value', 15.0);
+        ->assertJsonPath('data.coupon.discount_value', 15);
 });
 
 // ---------------------------------------------------------------------------
@@ -543,6 +545,10 @@ test('money configuration refuses non-platform, unpermitted and guest callers', 
     $this->postJson('/api/v1/admin/payment-methods/'.PaymentMethod::firstOrFail()->id.'/toggle', [], $ownerToken)->assertStatus(403);
     $this->postJson('/api/v1/admin/bank-accounts', ['bank_name' => 'X', 'account_number' => '1'], $ownerToken)->assertStatus(403);
 
+    // Sanctum's guard caches the resolved user for the whole test, so it must
+    // be forgotten before a request made as a different identity.
+    app('auth')->forgetGuards();
+
     // A management-audience token cannot reach the admin API at all.
     $managementToken = ['Authorization' => 'Bearer '.$owner->createToken('management-access', ['management'], now()->addHour())->plainTextToken];
 
@@ -559,20 +565,29 @@ test('money configuration refuses non-platform, unpermitted and guest callers', 
 
     $plainToken = ad12AdminToken($plainAdmin);
 
+    app('auth')->forgetGuards();
+
     $this->getJson('/api/v1/admin/vats', $plainToken)->assertStatus(403);
     $this->getJson('/api/v1/admin/payment-methods', $plainToken)->assertStatus(403);
     $this->getJson('/api/v1/admin/bank-accounts', $plainToken)->assertStatus(403);
 
     // Guests are unauthenticated.
+    app('auth')->forgetGuards();
+
     $this->getJson('/api/v1/admin/vats')->assertStatus(401);
     $this->getJson('/api/v1/admin/bank-accounts')->assertStatus(401);
 
     // The seeded finance admin and a superadmin pass.
     $financeAdmin = ad12FinanceAdmin();
 
+    app('auth')->forgetGuards();
+
     $this->getJson('/api/v1/admin/vats', ad12AdminToken($financeAdmin))->assertOk();
     $this->getJson('/api/v1/admin/payment-methods', ad12AdminToken($financeAdmin))->assertOk();
     $this->getJson('/api/v1/admin/bank-accounts', ad12AdminToken($financeAdmin))->assertOk();
+
+    app('auth')->forgetGuards();
+
     $this->getJson('/api/v1/admin/vats', ad12AdminToken(ad12SuperAdmin()))->assertOk();
 });
 
@@ -595,11 +610,17 @@ test('coupon code editing refuses non-platform and unpermitted callers', functio
         'business_id' => null,
     ]);
 
+    // Sanctum's guard caches the resolved user for the whole test, so it must
+    // be forgotten before a request made as a different identity.
+    app('auth')->forgetGuards();
+
     $this->putJson("/api/v1/admin/coupons/{$coupon->id}", ['code' => 'HIJACK'], ad12AdminToken($plainAdmin))->assertStatus(403);
 
     expect($coupon->fresh()->code)->toBe('GUARDED');
 
     $admin = ad12FinanceAdmin();
+
+    app('auth')->forgetGuards();
 
     $this->putJson("/api/v1/admin/coupons/{$coupon->id}", ['code' => 'EDITED'], ad12AdminToken($admin))
         ->assertOk();

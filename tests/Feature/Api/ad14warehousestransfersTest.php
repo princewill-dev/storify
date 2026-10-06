@@ -496,7 +496,12 @@ test('dispatching moves stock through the ledger and attributes the admin', func
     expect($movement->type)->toBe(StockMovement::TYPE_REMOVED)
         ->and((int) $movement->performed_by_id)->toBe($admin->id)
         ->and((int) $movement->from_location_id)->toBe($warehouse->id)
-        ->and((int) $movement->to_location_id)->toBe($store->id);
+        // Dispatch records the departure only: a removal movement names its
+        // source and never a destination. The destination side of the ledger is
+        // written by the receive step (a separate TYPE_ADDED row), exactly as it
+        // is for every other removal writer (POS sales, storefront checkout).
+        ->and($movement->to_location_id)->toBeNull()
+        ->and($movement->to_location_type)->toBeNull();
 
     expect((int) StockLocation::query()
         ->where('product_id', $product->id)
@@ -562,8 +567,13 @@ test('receiving adds the approved quantity to the destination and attributes the
         ->where('reference_id', $transfer->id)
         ->firstOrFail();
 
+    // The destination leg of the ledger is this addition movement, just as the
+    // dispatch leg's removal names only its source: the two columns of a
+    // transfer are recorded by the two movements, one per side.
     expect($movement->type)->toBe(StockMovement::TYPE_ADDED)
-        ->and((int) $movement->performed_by_id)->toBe($admin->id);
+        ->and((int) $movement->performed_by_id)->toBe($admin->id)
+        ->and((int) $movement->to_location_id)->toBe($store->id)
+        ->and($movement->to_location_type)->toBe(Store::class);
 
     expect((int) $product->fresh()->quantity)->toBe(13)
         ->and((int) $product->fresh()->store_id)->toBe($store->id);

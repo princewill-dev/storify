@@ -189,7 +189,12 @@ test('the list paginates at the legacy page sizes and filters by status, search,
         ->assertJsonPath('meta.per_page', 50);
 
     $names = function (string $query) use ($token) {
-        $response = $this->withToken($token)->getJson('/api/v1/admin/products?'.$query)->assertOk();
+        // The membership assertions below are about the filter, not the page:
+        // ask for a full page so the default size of 10 cannot hide the 11th
+        // match (the `from` range matches every product except `Old Item`).
+        $response = $this->withToken($token)
+            ->getJson('/api/v1/admin/products?'.$query.'&per_page=100')
+            ->assertOk();
 
         return collect($response->json('data'))->pluck('name');
     };
@@ -237,7 +242,7 @@ test('the store-scoped list only returns that store products', function () {
         ->getJson('/api/v1/admin/stores/'.$store->store_id.'/products')
         ->assertOk();
 
-    expect(collect($response->json('data'))->pluck('name'))->toBe(['Mine']);
+    expect(collect($response->json('data'))->pluck('name')->all())->toBe(['Mine']);
 });
 
 test('a product is created with a generated code, stock ledger entry and audit row', function () {
@@ -562,7 +567,10 @@ test('update deletes images, promotes a new primary and clears bulk pricing when
 
     // ...but a partial payload that never mentions bulk pricing must not wipe
     // it (the same "only write what the payload carries" rule as the flags).
-    $product->forceFill(['bulk_quantity' => 10, 'bulk_price' => 8000])->save();
+    // Refresh first: the clearing update above emptied the columns in the
+    // database, and forcing the same values back onto the stale in-memory
+    // model would be a no-op (Eloquent skips a save when nothing is dirty).
+    $product->refresh()->forceFill(['bulk_quantity' => 10, 'bulk_price' => 8000])->save();
 
     $this->withToken(ad15Token($admin))->putJson('/api/v1/admin/products/'.$product->product_code, [
         'name' => $product->name,

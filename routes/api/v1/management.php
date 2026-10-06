@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\V1\Management\StaffController;
 use App\Http\Controllers\Api\V1\Management\StoreController;
 use App\Http\Controllers\Api\V1\Management\TransactionController;
 use App\Http\Controllers\Api\V1\Management\WarehouseController;
+use App\Http\Middleware\EnsureManagementSubscription;
 use App\Http\Middleware\EnsurePosStoreAccess;
 use Illuminate\Support\Facades\Route;
 
@@ -24,7 +25,13 @@ use Illuminate\Support\Facades\Route;
 | by the auth endpoints.
 */
 
-Route::middleware(['auth:sanctum', 'token.audience:management', 'team.context'])
+// EnsureManagementSubscription is referenced by class, not by the
+// 'management.subscription' alias — that alias maps to the legacy web
+// CheckSubscription middleware, which redirects rather than returning JSON.
+// Owners without an active subscription or live trial are refused with a
+// 403 carrying {message, code, redirect}; staff, unverified owners and the
+// plans/subscription routes are exempt (see SubscriptionGate::EXEMPT_PREFIXES).
+Route::middleware(['auth:sanctum', 'token.audience:management', 'team.context', EnsureManagementSubscription::class])
     ->prefix('management')
     ->name('api.management.')
     ->group(function () {

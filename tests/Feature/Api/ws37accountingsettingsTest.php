@@ -372,11 +372,15 @@ test('accounting settings and year close routes require their legacy permissions
     $this->withToken($accountantToken)->postJson('/api/v1/management/accounting/settings/years/'.now()->year.'/close')->assertStatus(403);
     $this->withToken($accountantToken)->getJson('/api/v1/management/accounting/reconciliation')->assertStatus(403);
 
-    // A Cashier has no accounting permissions at all.
+    // A Cashier has no accounting permissions at all. Sanctum's guard memoises
+    // the first user it resolves for the rest of the test, so drop the resolved
+    // guards whenever the request carries a different user's token.
     $cashier = ws37Staff($business->id, 'Cashier');
+    $this->app['auth']->forgetGuards();
     $this->withToken(ws37Token($cashier))->getJson('/api/v1/management/accounting/settings')->assertStatus(403);
 
     // The owner can close the year.
+    $this->app['auth']->forgetGuards();
     $this->withToken(ws37Token($owner))
         ->postJson('/api/v1/management/accounting/settings/years/'.now()->year.'/close')
         ->assertOk();
@@ -596,8 +600,10 @@ test('the reconciliation list returns only this business imports and completed r
         // Options for the import modal: this business's bank accounts only.
         ->assertJsonPath('data.bank_accounts.0.code', '1010');
 
+    // Pest passes an Expectation wrapper into each()'s callback, so the raw
+    // string never reaches in_array() — call the expectation method instead.
     expect(collect($response->json('data.bank_accounts'))->pluck('code')->all())
-        ->each(fn ($code) => expect(in_array($code, ['1010', '1020', '1030'], true))->toBeTrue());
+        ->each(fn ($code) => $code->toBeIn(['1010', '1020', '1030']));
 });
 
 test('the reconcile screen returns the ledger closing balance, lines and match candidates', function () {

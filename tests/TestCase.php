@@ -36,4 +36,21 @@ abstract class TestCase extends BaseTestCase
 
         return $app;
     }
+
+    /**
+     * Set the bearer token for subsequent requests.
+     *
+     * Laravel's Sanctum guard caches the user it resolved on the previous
+     * request for the whole life of the test, so switching tokens mid-test
+     * without clearing the guards silently keeps the OLD identity — a test
+     * that authenticates as staff and then as the owner would still be
+     * asserting as staff. Clearing the guards here makes every token switch
+     * take effect, which is what the caller obviously intends.
+     */
+    public function withToken($token, $type = 'Bearer')
+    {
+        $this->app['auth']->forgetGuards();
+
+        return parent::withToken($token, $type);
+    }
 }

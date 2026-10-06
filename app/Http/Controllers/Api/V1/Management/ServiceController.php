@@ -237,7 +237,10 @@ class ServiceController extends ApiController
      */
     private function accessibleStoreIds(Request $request)
     {
-        return $this->accessibleStores($request)->pluck('stores.id');
+        // accessibleStores() below runs ->get(), so this is a Collection of
+        // Store models — the key is plain `id`. Qualifying it as `stores.id`
+        // (correct against a query builder) matches nothing here.
+        return $this->accessibleStores($request)->pluck('id');
     }
 
     /**

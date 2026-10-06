@@ -98,6 +98,11 @@ test('a business without the settings payment permission cannot read payment set
         ->getJson('/api/v1/management/payment-settings')
         ->assertStatus(403);
 
+    // The Sanctum guard caches the first user it resolves for the lifetime of
+    // a test, so the token switch needs a forget or the owner would still be
+    // authenticated as the staff user above.
+    app('auth')->forgetGuards();
+
     $this->withToken(ws11Token($owner))
         ->getJson('/api/v1/management/payment-settings')
         ->assertOk();
@@ -124,7 +129,10 @@ test('a duplicate bank account is refused within the business', function () {
         ->assertJsonPath('message', 'This bank account already exists.');
 
     // A different business adding its own account is unaffected by the
-    // first business's rows.
+    // first business's rows. The Sanctum guard caches the first user it
+    // resolved, so it must be forgotten before acting as the other owner.
+    app('auth')->forgetGuards();
+
     $this->withToken(ws11Token($otherOwner))
         ->postJson('/api/v1/management/payment-settings/bank-accounts', [
             'bank_code' => '058',
@@ -158,12 +166,15 @@ test('a bank account requires a 10-digit account number and a resolved name', fu
 test('verify-bank resolves the account name through Paystack and surfaces failures', function () {
     [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
 
-    Http::fake([
-        '*' => Http::response([
+    // One sequence for both Paystack calls: a second Http::fake() only
+    // appends a stub, so the first '*' stub would keep answering.
+    Http::fakeSequence('*')
+        ->push([
             'status' => true,
             'data' => ['account_number' => '0123456789', 'account_name' => 'JANE DOE'],
-        ]),
-    ]);
+        ])
+        // Paystack answers HTTP 200 with status=false when it cannot resolve.
+        ->push(['status' => false, 'message' => 'Could not resolve account name']);
 
     $this->withToken(ws11Token($owner))
         ->postJson('/api/v1/management/payment-settings/verify-bank', [
@@ -172,10 +183,6 @@ test('verify-bank resolves the account name through Paystack and surfaces failur
         ])
         ->assertOk()
         ->assertJsonPath('data.account_name', 'JANE DOE');
-
-    Http::fake([
-        '*' => Http::response(['status' => false, 'message' => 'Could not resolve account name'], 200),
-    ]);
 
     $this->withToken(ws11Token($owner))
         ->postJson('/api/v1/management/payment-settings/verify-bank', [
@@ -383,13 +390,16 @@ test('a paystack gateway can be connected, edited, toggled, tested and removed',
         ->assertOk();
     expect((bool) DB::table('business_payment_method')->where('id', $gatewayId)->value('is_active'))->toBeFalse();
 
-    // Test — success and failure.
-    Http::fake(['*' => Http::response(['status' => true, 'message' => 'Banks retrieved'])]);
+    // Test — success and failure. A sequence, not two Http::fake() calls:
+    // the second fake appends a stub and the first one still wins.
+    Http::fakeSequence('*')
+        ->push(['status' => true, 'message' => 'Banks retrieved'])
+        ->push(['status' => false, 'message' => 'Invalid key'], 401);
+
     $this->withToken(ws11Token($owner))
         ->postJson("/api/v1/management/payment-settings/gateways/{$gatewayId}/test")
         ->assertOk();
 
-    Http::fake(['*' => Http::response(['status' => false, 'message' => 'Invalid key'], 401)]);
     $this->withToken(ws11Token($owner))
         ->postJson("/api/v1/management/payment-settings/gateways/{$gatewayId}/test")
         ->assertStatus(422);

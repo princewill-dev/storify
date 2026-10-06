@@ -502,6 +502,10 @@ test('delivery routes refuse non-platform, unpermitted and guest callers', funct
     // A management-audience token cannot reach the admin API at all.
     $managementToken = ['Authorization' => 'Bearer '.$owner->createToken('management-access', ['management'], now()->addHour())->plainTextToken];
 
+    // Sanctum's guard caches the first user it resolves for the whole test, so
+    // every identity change must forget it or the audience/permission gates
+    // keep judging the owner above instead of the caller this token names.
+    app('auth')->forgetGuards();
     $this->getJson('/api/v1/admin/delivery-routes', $managementToken)->assertStatus(403);
 
     // An admin account without the permission is stopped by the route gate.
@@ -512,16 +516,22 @@ test('delivery routes refuse non-platform, unpermitted and guest callers', funct
         'business_id' => null,
     ]);
 
+    app('auth')->forgetGuards();
     $this->getJson('/api/v1/admin/delivery-routes', ad17AdminToken($plainAdmin))->assertStatus(403);
     $this->postJson('/api/v1/admin/delivery-routes', ad17Payload(), ad17AdminToken($plainAdmin))->assertStatus(403);
 
     // Guests are unauthenticated.
+    app('auth')->forgetGuards();
     $this->getJson('/api/v1/admin/delivery-routes')->assertStatus(401);
 
     // The seeded platform role and a superadmin pass.
     $platformAdmin = ad17PlatformAdmin();
 
     $this->getJson('/api/v1/admin/delivery-routes', ad17AdminToken($platformAdmin))->assertOk();
+
+    // Forget the platform admin just resolved so the superadmin's own token
+    // is what this request is actually judged on.
+    app('auth')->forgetGuards();
     $this->getJson('/api/v1/admin/delivery-routes', ad17AdminToken($superadmin))->assertOk();
 
     // The refusals never touched the route.

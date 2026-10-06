@@ -581,7 +581,10 @@ test('only platform accounts can reach the subscription and early-access console
         'Authorization' => 'Bearer '.$owner->createToken('admin-access', ['admin'], now()->addHour())->plainTextToken,
     ])->assertStatus(403);
 
-    // A management token cannot cross audiences.
+    // A management token cannot cross audiences. The guard is forgotten so the
+    // audience middleware sees this token rather than the owner's cached one.
+    app('auth')->forgetGuards();
+
     $this->getJson('/api/v1/admin/subscriptions', [
         'Authorization' => 'Bearer '.$owner->createToken('management-access', ['management'], now()->addHour())->plainTextToken,
     ])->assertStatus(403);
@@ -594,19 +597,32 @@ test('only platform accounts can reach the subscription and early-access console
         'business_id' => null,
     ]);
 
+    app('auth')->forgetGuards();
+
     ad11Get($this, $permissionless, 'subscriptions')->assertStatus(403);
     ad11Get($this, $permissionless, 'early-access')->assertStatus(403);
 
     // Finance Admin carries admin.subscriptions but not admin.businesses.
     $finance = ad11AdminWithRole('Finance Admin');
+
+    // Sanctum's RequestGuard caches the first user it resolves for the whole
+    // test, so it must be forgotten before each request made as a different
+    // identity — otherwise the next caller is still authorised as the previous.
+    app('auth')->forgetGuards();
+
     ad11Get($this, $finance, 'subscriptions')->assertOk();
     ad11Get($this, $finance, 'subscription-plans')->assertOk();
     ad11Get($this, $finance, 'early-access')->assertStatus(403);
 
     // Platform Admin carries both.
     $platform = ad11AdminWithRole('Platform Admin');
+
+    app('auth')->forgetGuards();
+
     ad11Get($this, $platform, 'subscriptions')->assertOk();
     ad11Get($this, $platform, 'early-access')->assertOk();
+
+    app('auth')->forgetGuards();
 
     $this->getJson('/api/v1/admin/subscriptions')->assertStatus(401);
 });

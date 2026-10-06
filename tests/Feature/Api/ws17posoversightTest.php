@@ -276,9 +276,15 @@ test('two cashiers can hold sessions on one store and both are surfaced', functi
         ->postJson('/api/v1/management/stores/'.$store->store_id.'/pos/open', ['opening_balance' => 1000])
         ->assertCreated();
 
+    // The in-process auth guard caches the first resolved user; drop it so the
+    // next request authenticates as Bola and not as Ada.
+    app('auth')->forgetGuards();
+
     $this->withToken(ws17Token($bola))
         ->postJson('/api/v1/management/stores/'.$store->store_id.'/pos/open', ['opening_balance' => 2000])
         ->assertCreated();
+
+    app('auth')->forgetGuards();
 
     $response = $this->withToken(ws17Token($owner))
         ->getJson('/api/v1/management/pos/sessions?status=open')

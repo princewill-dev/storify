@@ -297,13 +297,19 @@ test('store creation is closed to unverified owners and users without the permis
         'business_id' => $business->id,
     ]);
 
+    // The sanctum request guard memoises the first user it resolves for the
+    // whole test, so without dropping it the owner would still answer for the
+    // staff token — and its stale verification flag would decide the 403.
+    $this->app['auth']->forgetGuards();
+
     $this->withToken(ws02Token($staff))
         ->postJson('/api/v1/management/stores', ['name' => 'Staff Store'])
         ->assertStatus(403);
 
-    // withToken() writes to the test's default headers and would leak into the
-    // next call, turning the guest assertion into another 403.
+    // Dropping the header alone is not enough: the guard still holds the user
+    // it resolved above, so the header-less request would come back 403, not 401.
     $this->flushHeaders();
+    $this->app['auth']->forgetGuards();
 
     $this->postJson('/api/v1/management/stores', ['name' => 'Guest Store'])
         ->assertStatus(401);

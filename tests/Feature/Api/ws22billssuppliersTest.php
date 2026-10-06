@@ -78,7 +78,10 @@ function ws22Product(int $businessId, User $owner, array $attributes = [], int $
         'business_id' => $businessId,
         'name' => 'Widget',
         'amount' => 5000,
-        'quantity' => 0,
+        // The Product model refuses a store-assigned product with a
+        // non-positive quantity (saving validation), so the base row needs
+        // positive stock. On-hand for costing still comes from StockLocation.
+        'quantity' => 10,
         'status' => 'active',
     ], $attributes));
 
@@ -407,6 +410,11 @@ test('bill numbers are auto-generated when omitted and duplicates are a field er
     // Uniqueness is per business: another business may reuse the number.
     [$otherOwner, $otherBusiness] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
     ws22EnsureBooks($otherBusiness->id);
+
+    // Token switch: within one test the Sanctum guard caches the first user
+    // it resolved, so the guard must be forgotten or this request would still
+    // authenticate as the first owner.
+    app('auth')->forgetGuards();
 
     $this->withToken(ws22Token($otherOwner))
         ->postJson($url, [
@@ -741,6 +749,11 @@ test('supplier and bill routes require the legacy accounting permissions', funct
     $accountant->assignRole('Accountant');
 
     $accountantToken = ws22Token($accountant);
+
+    // Token switch: the Sanctum guard caches the first user resolved in the
+    // test, so without this the accountant's requests would still be
+    // authenticated as the permission-less Store Manager.
+    app('auth')->forgetGuards();
 
     $this->withToken($accountantToken)->getJson('/api/v1/management/accounting/suppliers')->assertOk();
     $this->withToken($accountantToken)->getJson('/api/v1/management/accounting/bills')->assertOk();

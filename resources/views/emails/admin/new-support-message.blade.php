@@ -78,7 +78,7 @@
                             <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
                                 <tr>
                                     <td align="center" style="padding: 20px 0;">
-                                        <a href="{{ route('admin.support-messages.index') }}" style="display: inline-block; background-color: #333333; color: #ffffff; text-decoration: none; padding: 14px 40px; border-radius: 4px; font-size: 15px; font-weight: 600;">
+                                        <a href="{{ \App\Support\SpaUrls::admin('/support-messages') }}" style="display: inline-block; background-color: #333333; color: #ffffff; text-decoration: none; padding: 14px 40px; border-radius: 4px; font-size: 15px; font-weight: 600;">
                                             View & Reply in Dashboard
                                         </a>
                                     </td>

@@ -43,7 +43,7 @@
             </ul>
 
             <p style="text-align: center;">
-                <a href="{{ route('management.subscription.payment') }}" class="button">Upgrade Now</a>
+                <a href="{{ \App\Support\SpaUrls::management('/subscription/payment') }}" class="button">Upgrade Now</a>
             </p>
 
             <p style="color: #666; font-size: 14px;">If you have any questions, our support team is happy to help.</p>

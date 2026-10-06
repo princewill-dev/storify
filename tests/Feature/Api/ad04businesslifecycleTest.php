@@ -246,6 +246,12 @@ test('only platform accounts can reach the business directory', function () {
         'Authorization' => 'Bearer '.$owner->createToken('admin-access', ['admin'], now()->addHour())->plainTextToken,
     ])->assertStatus(403);
 
+    // Sanctum's guard caches the first user it resolves for the whole test.
+    // Each later request — a different token or a different account — has to
+    // forget it first, or the middleware would keep seeing the owner above
+    // rather than the caller the presented token actually names.
+    app('auth')->forgetGuards();
+
     // A management token cannot cross audiences.
     $this->getJson('/api/v1/admin/businesses', [
         'Authorization' => 'Bearer '.$owner->createToken('management-access', ['management'], now()->addHour())->plainTextToken,
@@ -259,13 +265,16 @@ test('only platform accounts can reach the business directory', function () {
         'business_id' => null,
     ]);
 
+    app('auth')->forgetGuards();
     $this->getJson('/api/v1/admin/businesses', ['Authorization' => 'Bearer '.ad04Token($permissionless)])
         ->assertStatus(403);
 
     // A Platform Admin holds admin.businesses and is allowed.
+    app('auth')->forgetGuards();
     $this->getJson('/api/v1/admin/businesses', ['Authorization' => 'Bearer '.ad04Token(ad04AdminWithRole('Platform Admin'))])
         ->assertOk();
 
+    app('auth')->forgetGuards();
     $this->getJson('/api/v1/admin/businesses')->assertStatus(401);
 });
 
@@ -573,6 +582,9 @@ test('the owner can be marked email-verified from the business console', functio
     // The verify action carries legacy's users-domain gate as well.
     $financeAdmin = ad04AdminWithRole('Finance Admin');
 
+    // Forget the superadmin the first request resolved (see the directory
+    // test): without this the route gate would be checked against him.
+    app('auth')->forgetGuards();
     $this->postJson('/api/v1/admin/businesses/'.$business->business_code.'/verify-owner', [], [
         'Authorization' => 'Bearer '.ad04Token($financeAdmin),
     ])->assertStatus(403);
@@ -650,9 +662,11 @@ test('business types are gated behind the content permission', function () {
         ->assertOk();
 
     // Support Admin holds admin.content; Finance Admin does not.
+    app('auth')->forgetGuards();
     $this->getJson('/api/v1/admin/business-types', ['Authorization' => 'Bearer '.ad04Token(ad04AdminWithRole('Support Admin'))])
         ->assertOk();
 
+    app('auth')->forgetGuards();
     $this->getJson('/api/v1/admin/business-types', ['Authorization' => 'Bearer '.ad04Token(ad04AdminWithRole('Finance Admin'))])
         ->assertStatus(403);
 });

@@ -139,7 +139,7 @@ test('the stock summary reconciles value, units and one low-stock definition', f
         ->assertJsonPath('data.summary.transfer_requests.pending', 0)
         ->assertJsonPath('data.summary.transfer_requests.approved', 0)
         // The legacy dashboard card: lowest stock first, capped at the limit.
-        ->assertJsonPath('data.summary.low_stock.products.0.name', 'Oil')
+        ->assertJsonPath('data.summary.low_stock.products.0.product.name', 'Oil')
         ->assertJsonPath('data.summary.low_stock.products.0.quantity', 1)
         ->assertJsonPath('data.summary.low_stock.products.0.store.name', $store->name);
 });

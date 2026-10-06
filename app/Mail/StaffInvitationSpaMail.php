@@ -3,6 +3,7 @@
 namespace App\Mail;
 
 use App\Models\User;
+use App\Support\SpaUrls;
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Content;
@@ -51,9 +52,6 @@ class StaffInvitationSpaMail extends Mailable
 
     public function acceptUrl(): string
     {
-        $base = env('MANAGEMENT_SPA_URL')
-            ?: (app()->environment('local') ? 'http://localhost:5173' : 'https://app.'.config('app.main_domain', 'storify.ng'));
-
-        return rtrim($base, '/').'/invitations/'.$this->user->invitation_token;
+        return SpaUrls::management('/invitations/'.$this->user->invitation_token);
     }
 }

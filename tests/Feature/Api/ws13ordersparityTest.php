@@ -29,6 +29,19 @@ function ws13Token(User $user): string
     return $user->createToken('management-access', ['management'], now()->addHour())->plainTextToken;
 }
 
+/**
+ * Drop the resolved auth guards before a test switches actor.
+ *
+ * Sanctum's request guard caches the authenticated user for the lifetime of
+ * the process, so a later request presenting a *different* token is still
+ * answered as the first actor unless the guard is forgotten. Without this a
+ * permission assertion on the second actor silently tests the first one.
+ */
+function ws13SwitchActor(): void
+{
+    app('auth')->forgetGuards();
+}
+
 function ws13Store(User $owner, $business, array $attributes = []): Store
 {
     return Store::create(array_merge([
@@ -110,8 +123,10 @@ test('the orders board returns the legacy list columns and filters', function ()
 
     $customer = ws13Customer($business->id, ['first_name' => 'Ada', 'last_name' => 'Obi']);
 
-    PaymentMethod::create(['name' => 'Cash', 'code' => 'cash']);
-    $transfer = PaymentMethod::create(['name' => 'Bank Transfer', 'code' => 'bank_transfer']);
+    PaymentMethod::firstOrCreate(['code' => 'cash'], ['name' => 'Cash']);
+    // bank_transfer is seeded by a migration and its code column is unique,
+    // so the fixture reuses that row instead of inserting a duplicate.
+    $transfer = PaymentMethod::firstOrCreate(['code' => 'bank_transfer'], ['name' => 'Bank Transfer']);
 
     $online = ws13Order($storeA, [
         'order_number' => 'WS13-ONLINE',
@@ -315,7 +330,7 @@ test('order detail renders the legacy panels', function () {
         'is_verified' => true,
     ]);
 
-    $transfer = PaymentMethod::create(['name' => 'Bank Transfer', 'code' => 'bank_transfer']);
+    $transfer = PaymentMethod::firstOrCreate(['code' => 'bank_transfer'], ['name' => 'Bank Transfer']);
 
     ws13Transaction($order, [
         'payment_method_id' => $transfer->id,
@@ -417,6 +432,8 @@ test('order detail is scoped to the business and to assigned stores', function (
         ->assertOk()
         ->assertJsonPath('data.stats.total', 1);
 
+    ws13SwitchActor();
+
     $this->withToken(ws13Token($otherOwner))
         ->getJson('/api/v1/management/orders/'.$mine->order_number.'/detail')
         ->assertStatus(403);
@@ -430,6 +447,8 @@ test('order detail is scoped to the business and to assigned stores', function (
     ]);
     setPermissionsTeamId($business->id);
     $clerk->assignRole('Inventory Clerk');
+
+    ws13SwitchActor();
 
     $this->withToken(ws13Token($clerk))
         ->getJson('/api/v1/management/orders/board/list')
@@ -472,6 +491,8 @@ test('the order edit payload carries the items and the editable fields', functio
     setPermissionsTeamId($business->id);
     $staff->assignRole('Store Associate');
     $staff->assignedStores()->attach($store->id);
+
+    ws13SwitchActor();
 
     $this->withToken(ws13Token($staff))
         ->getJson('/api/v1/management/orders/WS13-EDITME/edit')
@@ -583,6 +604,8 @@ test('order edits are refused across businesses and across stores', function () 
     $staff->assignedStores()->attach($store->id);
     $staff->givePermissionTo('orders edit');
 
+    ws13SwitchActor();
+
     $this->withToken(ws13Token($staff))
         ->putJson('/api/v1/management/orders/WS13-OFFLIMITS', ['shipping_fee' => 999, 'tax' => 0])
         ->assertStatus(403);
@@ -622,6 +645,8 @@ test('deleting an order needs the orders delete permission', function () {
     setPermissionsTeamId($business->id);
     $staff->assignRole('Store Associate');
     $staff->assignedStores()->attach($store->id);
+
+    ws13SwitchActor();
 
     $this->withToken(ws13Token($staff))
         ->deleteJson('/api/v1/management/orders/WS13-KEEP')

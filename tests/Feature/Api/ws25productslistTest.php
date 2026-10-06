@@ -449,6 +449,14 @@ test('the bulk routes need their permission and a management token', function ()
     expect((float) $product->fresh()->amount)->toBe(2500.0)
         ->and($product->fresh()->status)->toBe('active');
 
+    // Two things keep this request authenticated if neither is cleared: the
+    // test client's default headers, and the Sanctum guard, which caches the
+    // user it resolved on the previous request for the life of the test. Left
+    // alone, the "no token" request arrives as the staff member and 403s from
+    // the permission middleware instead of 401ing from the auth middleware.
+    $this->flushHeaders();
+    $this->app['auth']->forgetGuards();
+
     $this->postJson('/api/v1/management/products/bulk-delete', ['product_ids' => [$product->id]])
         ->assertStatus(401);
 });

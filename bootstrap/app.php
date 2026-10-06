@@ -11,23 +11,6 @@ use Illuminate\Foundation\Configuration\Middleware;
 use Spatie\Permission\Middleware\PermissionMiddleware;
 use Spatie\Permission\Middleware\RoleMiddleware;
 
-// --- ADD THIS BLOCK ---
-$storageDirs = [
-    __DIR__.'/../storage/app/public',
-    __DIR__.'/../storage/framework/cache/data',
-    __DIR__.'/../storage/framework/sessions',
-    __DIR__.'/../storage/framework/testing',
-    __DIR__.'/../storage/framework/views',
-    __DIR__.'/../storage/logs',
-];
-
-foreach ($storageDirs as $dir) {
-    if (! is_dir($dir)) {
-        @mkdir($dir, 0755, true);
-    }
-}
-// ----------------------
-
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
         web: __DIR__.'/../routes/web.php',
@@ -51,35 +34,10 @@ return Application::configure(basePath: dirname(__DIR__))
             'token.audience' => EnsureTokenAudience::class,
         ]);
 
-        // Configure authentication redirects for customer guard
-        $middleware->redirectGuestsTo(function ($request) {
-            if ($request->is('pos') || $request->is('pos/*')) {
-                return route('pos.login');
-            }
-
-            if ($request->is('office') || $request->is('office/*')) {
-                return route('admin.login');
-            }
-
-            if ($request->is('management') || $request->is('management/*')
-                || $request->is('staff') || $request->is('staff/*')) {
-                return route('management.auth.login');
-            }
-
-            if ($request->is('*/checkout') || $request->is('*/checkout/*')) {
-                // Extract store slug from URL
-                $segments = $request->segments();
-                $storeSlug = $segments[0] ?? null;
-
-                // Store checkout redirect info in session
-                session([
-                    'checkout_redirect' => true,
-                    'checkout_store_slug' => $storeSlug,
-                ]);
-            }
-
-            return route('account.login');
-        });
+        // This app is API-only: an unauthenticated request gets a JSON 401 from
+        // the auth middleware rather than a redirect to an HTML login page.
+        // The previous closure resolved legacy Blade login route names, which
+        // no longer exist.
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //

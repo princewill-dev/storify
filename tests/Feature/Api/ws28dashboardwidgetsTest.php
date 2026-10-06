@@ -188,9 +188,12 @@ test('the widgets payload returns every permitted KPI for a business owner', fun
 
     $response = $this->withToken(ws28Token($owner))->getJson('/api/v1/management/dashboard/widgets')->assertOk();
 
+    // Money is an integer on the wire; a whole float is written by JSON as a
+    // bare number and decoded back as an int, and assertJsonPath is a strict
+    // identity check.
     $response
-        ->assertJsonPath('data.stats.revenue.total', 4000.0)
-        ->assertJsonPath('data.stats.revenue.this_month', 4000.0)
+        ->assertJsonPath('data.stats.revenue.total', 4000)
+        ->assertJsonPath('data.stats.revenue.this_month', 4000)
         ->assertJsonPath('data.stats.orders.total', 1)
         ->assertJsonPath('data.stats.orders.pending', 0)
         ->assertJsonPath('data.stats.orders.completed', 1)
@@ -199,7 +202,7 @@ test('the widgets payload returns every permitted KPI for a business owner', fun
         ->assertJsonPath('data.stats.customers.active', 1)
         ->assertJsonPath('data.stats.products.total', 1)
         ->assertJsonPath('data.stats.stock.total_units', 5)
-        ->assertJsonPath('data.stats.stock.value', 5000.0)
+        ->assertJsonPath('data.stats.stock.value', 5000)
         ->assertJsonPath('data.stats.stores.total', 1)
         ->assertJsonPath('data.stats.stores.active', 1)
         ->assertJsonPath('data.stats.web_visits', 1)
@@ -223,9 +226,9 @@ test('the revenue percent change matches the legacy definition', function () {
     $this->withToken(ws28Token($owner))
         ->getJson('/api/v1/management/dashboard/widgets')
         ->assertOk()
-        ->assertJsonPath('data.stats.revenue.last_month', 1000.0)
-        ->assertJsonPath('data.stats.revenue.this_month', 1500.0)
-        ->assertJsonPath('data.stats.revenue.change_percent', 50.0);
+        ->assertJsonPath('data.stats.revenue.last_month', 1000)
+        ->assertJsonPath('data.stats.revenue.this_month', 1500)
+        ->assertJsonPath('data.stats.revenue.change_percent', 50);
 
     // No baseline: legacy reported +100 when anything came in, not a division
     // by zero.
@@ -233,7 +236,7 @@ test('the revenue percent change matches the legacy definition', function () {
     $this->withToken(ws28Token($owner))
         ->getJson('/api/v1/management/dashboard/widgets')
         ->assertOk()
-        ->assertJsonPath('data.stats.revenue.change_percent', 100.0);
+        ->assertJsonPath('data.stats.revenue.change_percent', 100);
 });
 
 test('unconfirmed transactions never count towards revenue', function () {
@@ -245,8 +248,8 @@ test('unconfirmed transactions never count towards revenue', function () {
     $this->withToken(ws28Token($owner))
         ->getJson('/api/v1/management/dashboard/widgets')
         ->assertOk()
-        ->assertJsonPath('data.stats.revenue.total', 0.0)
-        ->assertJsonPath('data.recent_transactions.0.amount', 900.0);
+        ->assertJsonPath('data.stats.revenue.total', 0)
+        ->assertJsonPath('data.recent_transactions.0.amount', 900);
 });
 
 test('a store selection scopes every card and panel to that store', function () {
@@ -271,7 +274,7 @@ test('a store selection scopes every card and panel to that store', function () 
     $response
         ->assertJsonPath('data.scope.store_id', $ikeja->id)
         ->assertJsonPath('data.scope.store.name', 'Ikeja')
-        ->assertJsonPath('data.stats.revenue.total', 3000.0)
+        ->assertJsonPath('data.stats.revenue.total', 3000)
         ->assertJsonPath('data.stats.orders.total', 1)
         ->assertJsonPath('data.stats.products.total', 1)
         ->assertJsonPath('data.stats.stores.total', 1)

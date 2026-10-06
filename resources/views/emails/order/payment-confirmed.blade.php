@@ -81,7 +81,7 @@
                 </div>
             @else
                 <div style="text-align: center;">
-                    <a href="{{ route('management.transactions.show', $transaction) }}" class="button">View Transaction</a>
+                    <a href="{{ \App\Support\SpaUrls::management('/transactions/'.$transaction->reference) }}" class="button">View Transaction</a>
                 </div>
             @endif
 

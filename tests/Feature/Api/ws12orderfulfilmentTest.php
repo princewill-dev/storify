@@ -538,9 +538,8 @@ test('marking a payment paid with no transaction creates a manual cash transacti
 
     [$owner, $business, $store] = ws12Context();
     $order = ws12Order($store);
-    PaymentMethod::create([
+    PaymentMethod::firstOrCreate(['code' => 'cash'], [
         'name' => 'Cash',
-        'code' => 'cash',
         'type' => 'traditional',
         'is_active' => true,
     ]);

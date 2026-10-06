@@ -220,6 +220,8 @@ test('inviting refuses duplicate emails across users and customers, and non-plat
         'first_name' => 'Ada',
         'last_name' => 'Customer',
         'email' => 'taken-customer@example.test',
+        // `phone` is NOT NULL on `customers` (see the create migration).
+        'phone' => '08031112222',
         'password' => bcrypt('secret-pass-123'),
         'status' => Customer::STATUS_ACTIVE,
     ]);
@@ -396,16 +398,25 @@ test('the admins console refuses tenant, unpermitted, wrong-audience and guest c
     ad10Get($this, $owner, 'admins')->assertStatus(403);
     ad10Post($this, $owner, 'admins', ['email' => 'nope@example.test', 'role' => 'Support Admin'])->assertStatus(403);
 
+    // Sanctum's guard caches the resolved user for the whole test, so it must
+    // be forgotten before each request made as a different identity — without
+    // it every assertion below would really be checked against $owner.
+    app('auth')->forgetGuards();
+
     // The seeded Platform Admin role deliberately excludes admin.admins.
     $platformAdmin = ad10PlatformAdmin();
     ad10Get($this, $platformAdmin, 'admins')->assertStatus(403);
     ad10Get($this, $platformAdmin, 'admins/roles')->assertStatus(403);
 
     // A management-audience token never reaches an admin route.
+    app('auth')->forgetGuards();
+
     $managementToken = $owner->createToken('management-access', ['management'], now()->addHour())->plainTextToken;
     $this->getJson('/api/v1/admin/admins', ['Authorization' => 'Bearer '.$managementToken])->assertStatus(403);
 
     // Guests are unauthenticated.
+    app('auth')->forgetGuards();
+
     $this->getJson('/api/v1/admin/admins')->assertUnauthorized();
 });
 

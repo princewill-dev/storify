@@ -511,7 +511,7 @@ test('the payment override creates, updates and deletes the order transactions a
     $store = ad05Store($owner, $business);
     $customer = ad05Customer($business->id);
 
-    PaymentMethod::create(['name' => 'Cash', 'code' => 'cash']);
+    PaymentMethod::firstOrCreate(['code' => 'cash'], ['name' => 'Cash']);
 
     $order = ad05Order($store, [
         'order_number' => 'AD05-PAY',
@@ -723,6 +723,11 @@ test('platform order oversight refuses non-platform, unpermitted and guest calle
         'business_id' => null,
     ]);
 
+    // Sanctum's guard caches the first user it resolves for the whole test, so
+    // it must be forgotten before each request made as a different identity —
+    // otherwise every later caller is judged as the owner above.
+    app('auth')->forgetGuards();
+
     $this->getJson('/api/v1/admin/orders', [
         'Authorization' => 'Bearer '.ad05AdminToken($plainAdmin),
     ])->assertStatus(403);
@@ -731,15 +736,21 @@ test('platform order oversight refuses non-platform, unpermitted and guest calle
     [$otherOwner] = createBusinessOwner();
     $managementToken = $otherOwner->createToken('management-access', ['management'], now()->addHour())->plainTextToken;
 
+    app('auth')->forgetGuards();
+
     $this->getJson('/api/v1/admin/orders', ['Authorization' => 'Bearer '.$managementToken])
         ->assertStatus(403);
 
     // Guests are unauthenticated.
+    app('auth')->forgetGuards();
+
     $this->getJson('/api/v1/admin/orders')->assertStatus(401);
     $this->getJson('/api/v1/admin/shop4me-orders')->assertStatus(401);
 
     // A platform admin with the seeded role passes.
     $platformAdmin = ad05PlatformAdmin();
+
+    app('auth')->forgetGuards();
 
     $this->getJson('/api/v1/admin/orders', [
         'Authorization' => 'Bearer '.ad05AdminToken($platformAdmin),

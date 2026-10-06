@@ -482,7 +482,9 @@ test('the gate payload drives the dashboard banners for pending stores', functio
 });
 
 test('store activation is refused until KYC is approved', function () {
-    [$owner, $business] = createBusinessOwner();
+    // A live trial, so the subscription gate passes and this test exercises
+    // the KYC refusal rather than the plan refusal in front of it.
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
 
     $store = Store::factory()->create([
         'user_id' => $owner->id,

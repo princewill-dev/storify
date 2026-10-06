@@ -386,7 +386,9 @@ test('shell counts zeroes counters the caller has no permission for', function (
     ws34Transaction($mine, $business->id, ['status' => 'pending']);
 
     $customer = ws34Customer($business->id, ['first_name' => 'Ada']);
-    ws34Order($store, ['customer_id' => $customer->id]);
+    // Links Ada to the assigned store so the customers counter scopes her in;
+    // completed so she does not add a second pending order to the badge.
+    ws34Order($store, ['customer_id' => $customer->id, 'status' => 'completed']);
     ws34Customer($business->id, ['first_name' => 'Bola']);
 
     PosSession::create([

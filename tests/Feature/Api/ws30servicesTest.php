@@ -85,7 +85,7 @@ test('the service list returns rows with store, currency and thumbnail', functio
         ->assertOk()
         ->assertJsonPath('data.services.0.name', 'Logo Design')
         ->assertJsonPath('data.services.0.service_code', $service->service_code)
-        ->assertJsonPath('data.services.0.amount', 15000.0)
+        ->assertJsonPath('data.services.0.amount', 15000)
         ->assertJsonPath('data.services.0.currency.code', 'NGN')
         ->assertJsonPath('data.services.0.currency.symbol', '₦')
         ->assertJsonPath('data.services.0.store.id', $store->id)
@@ -326,7 +326,7 @@ test('a service can be updated, including its store and status', function () {
         ->assertJsonPath('data.service.name', 'Logo & Identity')
         ->assertJsonPath('data.service.store.id', $ikeja->id)
         ->assertJsonPath('data.service.status', 'inactive')
-        ->assertJsonPath('data.service.amount', 25000.0);
+        ->assertJsonPath('data.service.amount', 25000);
 
     $service->refresh();
 

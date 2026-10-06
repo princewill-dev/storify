@@ -10,6 +10,7 @@ use App\Models\Subscription;
 use App\Models\SubscriptionPlan;
 use App\Models\User;
 use App\Services\Accounting\LedgerSetupService;
+use Illuminate\Http\Client\Factory;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
@@ -58,6 +59,12 @@ function ws08FakeGateway(
     string $status = 'success',
     bool $initializeSucceeds = true,
 ): void {
+    // Http::fake() merges stub callbacks and the earliest matching stub always
+    // wins, so calling this a second time (e.g. once the payment's real
+    // reference exists) would be shadowed by the first registration. Swap in a
+    // fresh factory so each call replaces the previous stub set.
+    Http::swap(new Factory);
+
     Http::fake(function (Request $request) use ($reference, $amountKobo, $currency, $status, $initializeSucceeds) {
         $url = $request->url();
 
@@ -541,6 +548,12 @@ test('the callback refuses another business reference', function () {
 
     [$intruder] = createBusinessOwner();
 
+    // Every request in a test shares one application instance, and the sanctum
+    // RequestGuard caches the first user it resolves — without forgetting the
+    // guards here the intruder's request would still be authenticated as the
+    // owner above (and would reach the gateway instead of the 404).
+    $this->app['auth']->forgetGuards();
+
     $this->withToken(ws08Token($intruder))
         ->getJson('/api/v1/management/subscription/callback?reference='.$payment->reference)
         ->assertStatus(404)
@@ -673,6 +686,12 @@ test('the billing endpoints require the subscription permission and a management
     $this->withToken(ws08Token($staff))
         ->postJson('/api/v1/management/subscription/process-payment', ['idempotency_key' => 'key-0012'])
         ->assertStatus(403);
+
+    // withToken() persists as a default header and the sanctum guard caches the
+    // first user resolved on this shared application instance; drop both so the
+    // final request is genuinely unauthenticated rather than merely un-permitted.
+    $this->flushHeaders();
+    $this->app['auth']->forgetGuards();
 
     $this->getJson('/api/v1/management/subscription/payments')->assertStatus(401);
 });

@@ -110,10 +110,15 @@ test('the expense list returns the legacy stats block and applies category, date
         ->keyBy('description');
     expect($byDescription['Last year rent']['category_label'])->toBe('Rent');
 
+    // The category filter is a strict `expense_category_id` match, as legacy's
+    // was — the fallback to the ledger account name is display-only, so the
+    // uncategorised "Last year rent" row stays out even though it sits on the
+    // Rent account.
     $this->withToken($token)->getJson($base.'?category='.ws16Category($business->id, 'Rent')->id)
         ->assertOk()
-        ->assertJsonPath('meta.stats.records', 2)
-        ->assertJsonCount(2, 'data');
+        ->assertJsonPath('meta.stats.records', 1)
+        ->assertJsonCount(1, 'data')
+        ->assertJsonPath('data.0.id', $thisMonth->id);
 
     $this->withToken($token)->getJson($base.'?status=void')
         ->assertOk()
@@ -422,7 +427,11 @@ test('expense endpoints require the legacy accounting permissions', function () 
         'payment_method' => 'cash',
     ])->assertStatus(403);
 
-    // The owner (all permissions) can read and record.
+    // The owner (all permissions) can read and record. The Sanctum request
+    // guard caches the first user it resolves for the whole test case, so the
+    // identity has to be dropped when a different token takes over.
+    $this->app['auth']->forgetGuards();
+
     $this->withToken(ws16Token($owner))->getJson($url)->assertOk();
 });
 

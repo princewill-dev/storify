@@ -711,7 +711,11 @@ class InvoiceController extends ApiController
                 'first_name' => $nameParts[0] ?: 'Customer',
                 'last_name' => $nameParts[1] ?? '',
                 'email' => $email,
-                'phone' => $data['recipient_phone'] ?? null,
+                // `phone` and `password` are NOT NULL on `customers`. An
+                // invoicing contact is not meant to sign in, so the password is
+                // an unguessable hash rather than a usable credential.
+                'phone' => $data['recipient_phone'] ?? '',
+                'password' => Hash::make(Str::random(40)),
                 'status' => Customer::STATUS_ACTIVE,
             ]);
         }

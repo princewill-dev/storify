@@ -173,6 +173,9 @@ test('an invoice rejects a store or customer from another business', function ()
         'first_name' => 'Theirs',
         'last_name' => 'Client',
         'email' => 'theirs@example.com',
+        // `phone` and `password` are NOT NULL on `customers`.
+        'phone' => '08030000001',
+        'password' => bcrypt('secret-pass-123'),
         'status' => Customer::STATUS_ACTIVE,
     ]);
 
@@ -548,6 +551,9 @@ test('the form options endpoint returns the business customers and stores only',
         'first_name' => 'Mine',
         'last_name' => 'Client',
         'email' => 'mine@example.com',
+        // `phone` and `password` are NOT NULL on `customers`.
+        'phone' => '08030000002',
+        'password' => bcrypt('secret-pass-123'),
         'status' => Customer::STATUS_ACTIVE,
     ]);
 
@@ -556,6 +562,8 @@ test('the form options endpoint returns the business customers and stores only',
         'first_name' => 'Theirs',
         'last_name' => 'Client',
         'email' => 'theirs@example.com',
+        'phone' => '08030000003',
+        'password' => bcrypt('secret-pass-123'),
         'status' => Customer::STATUS_ACTIVE,
     ]);
 

@@ -56,7 +56,7 @@
           </tr>
           <tr>
             <td style="padding:0 32px 28px;">
-              <a href="{{ route('management.stores.create') }}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;border-radius:8px;padding:10px 16px;font-weight:600;font-size:14px;">Continue store setup</a>
+              <a href="{{ \App\Support\SpaUrls::management('/stores/create') }}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;border-radius:8px;padding:10px 16px;font-weight:600;font-size:14px;">Continue store setup</a>
             </td>
           </tr>
           <tr>

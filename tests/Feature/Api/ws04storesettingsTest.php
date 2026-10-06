@@ -78,7 +78,9 @@ test('the settings screen returns the full workspace payload', function () {
         ->assertJsonPath('data.store.description', 'Our busiest store.')
         ->assertJsonPath('data.store.support_email', 'support@example.test')
         ->assertJsonPath('data.service_charges.0.name', 'Packaging')
-        ->assertJsonPath('data.service_charges.0.amount', 500.0)
+        // assertJsonPath is a strict identity check: the JSON number 500
+        // decodes to an int, so a 500.0 float literal would always mismatch.
+        ->assertJsonPath('data.service_charges.0.amount', 500)
         ->assertJsonPath('data.delivery_routes.0.fee', 150000)
         ->assertJsonPath('data.delivery_routes.0.delivery_days', 2)
         ->assertJsonPath('data.pos.enabled', false)
@@ -230,7 +232,7 @@ test('service charges can be created, updated, toggled and deleted', function ()
             'description' => 'Box, tape and bubble wrap',
         ])
         ->assertOk()
-        ->assertJsonPath('data.service_charge.amount', 900.0);
+        ->assertJsonPath('data.service_charge.amount', 900);
 
     $this->withToken(ws04Token($owner))
         ->patchJson(ws04Url($store, "/service-charges/{$chargeId}/toggle"))
@@ -262,11 +264,18 @@ test('a charge created in settings is visible to the POS read endpoint', functio
 
     $posToken = $staff->createToken('pos-access', ['pos'], now()->addHour())->plainTextToken;
 
+    // The management request above resolved the sanctum guard for the owner.
+    // Within a single test the guard keeps that user (and its management
+    // token), so switching bearer tokens without clearing it makes the POS
+    // audience middleware reject the request with a 403.
+    $this->app['auth']->forgetGuards();
+    $this->flushSession();
+
     $this->withToken($posToken)
         ->getJson("/api/v1/pos/stores/{$store->store_id}/service-charges")
         ->assertOk()
         ->assertJsonPath('data.charges.0.name', 'Service Fee')
-        ->assertJsonPath('data.charges.0.amount', 250.0);
+        ->assertJsonPath('data.charges.0.amount', 250);
 });
 
 test('service charge validation and store scoping', function () {
@@ -555,6 +564,9 @@ test('a delivery route from a sibling store is not reachable', function () {
         'business_id' => $business->id,
         'country' => 'Nigeria',
         'state' => 'Abuja',
+        // delivery_routes.area is NOT NULL with no default under MySQL strict
+        // mode, so a direct model create must supply it.
+        'area' => 'Garki',
         'fee' => 100000,
         'delivery_days' => 2,
         'active' => true,

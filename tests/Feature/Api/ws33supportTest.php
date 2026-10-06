@@ -125,9 +125,11 @@ test('the inbox filters by status, store and search term', function () {
     $storeA = ws33Store($owner, ['name' => 'Alpha']);
     $storeB = ws33Store($owner, ['name' => 'Beta']);
 
-    ws33Message($storeA, ['name' => 'Ada Needs Help', 'status' => 'pending', 'created_at' => now()->subMinutes(30)]);
-    ws33Message($storeA, ['name' => 'Bola', 'status' => 'replied', 'created_at' => now()->subMinutes(20)]);
-    ws33Message($storeB, ['name' => 'Chidi', 'status' => 'pending', 'created_at' => now()->subMinutes(10)]);
+    // Distinct emails: `q` searches name/email/phone/message, so a shared
+    // default email would make the search term match unrelated rows.
+    ws33Message($storeA, ['name' => 'Ada Needs Help', 'email' => 'ada@example.com', 'status' => 'pending', 'created_at' => now()->subMinutes(30)]);
+    ws33Message($storeA, ['name' => 'Bola', 'email' => 'bola@example.com', 'status' => 'replied', 'created_at' => now()->subMinutes(20)]);
+    ws33Message($storeB, ['name' => 'Chidi', 'email' => 'chidi@example.com', 'status' => 'pending', 'created_at' => now()->subMinutes(10)]);
 
     $token = ws33Token($owner);
 

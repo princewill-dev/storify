@@ -13,7 +13,7 @@ We reviewed the identity information you submitted and it was **not approved**.
 
 You can correct the issue and resubmit your KYC information at any time — your previous submission is kept on file for reference.
 
-<x-mail::button :url="route('management.kyc.show')">
+<x-mail::button :url="\App\Support\SpaUrls::management('/kyc')">
 Review and Resubmit
 </x-mail::button>
 

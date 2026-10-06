@@ -407,6 +407,10 @@ test('report endpoints require the legacy accounting reports permission', functi
     setPermissionsTeamId($business->id);
     $auditor->assignRole('Auditor');
 
+    // Sanctum's guard caches the resolved user for the whole test, so the
+    // guard must be forgotten before a request as a different user.
+    app('auth')->forgetGuards();
+
     $this->withToken(ws24Token($auditor))
         ->getJson('/api/v1/management/accounting/reports/trial-balance?'.$range)
         ->assertOk();

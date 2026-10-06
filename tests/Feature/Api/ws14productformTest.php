@@ -76,7 +76,7 @@ test('a product keeps the full selling data the legacy form accepted', function 
     $store = ws14Store($owner);
     $warehouse = ws14Warehouse($owner);
     $section = ws14Section($warehouse);
-    $category = Category::create(['business_id' => $business->id, 'store_id' => $store->id, 'name' => 'Shoes']);
+    $category = Category::create(['business_id' => $business->id, 'store_id' => $store->id, 'name' => 'Shoes', 'slug' => 'shoes']);
     $currency = ws14Currency();
     $sizeUnit = SizeUnit::create(['name' => 'US', 'code' => 'us']);
     $weightUnit = WeightUnit::create(['name' => 'Kilogram', 'code' => 'kg']);
@@ -109,20 +109,23 @@ test('a product keeps the full selling data the legacy form accepted', function 
         'status' => 'active',
     ]);
 
+    // assertJsonPath is a strict identity check and PHP's JSON encoder writes
+    // whole floats without a decimal fraction (42.0 -> 42), which decodes back
+    // as int — so whole numbers are asserted as ints.
     $response->assertCreated()
-        ->assertJsonPath('data.product.size', 42.0)
+        ->assertJsonPath('data.product.size', 42)
         ->assertJsonPath('data.product.size_unit_id', $sizeUnit->id)
         ->assertJsonPath('data.product.weight', 1.5)
         ->assertJsonPath('data.product.weight_unit_id', $weightUnit->id)
         ->assertJsonPath('data.product.color', 'Brown')
         ->assertJsonPath('data.product.tags', 'boots,leather')
-        ->assertJsonPath('data.product.cost_price', 15000.0)
+        ->assertJsonPath('data.product.cost_price', 15000)
         ->assertJsonPath('data.product.bulk_quantity', 12)
-        ->assertJsonPath('data.product.bulk_price', 22000.0)
+        ->assertJsonPath('data.product.bulk_price', 22000)
         ->assertJsonPath('data.product.stock_quantity', 40)
         ->assertJsonPath('data.product.sold_quantity', 10)
         ->assertJsonPath('data.product.has_discount', true)
-        ->assertJsonPath('data.product.display_amount', 22500.0)
+        ->assertJsonPath('data.product.display_amount', 22500)
         ->assertJsonPath('data.product.section_name', $section->name)
         ->assertJsonPath('data.product.warehouse_name', $warehouse->name)
         ->assertJsonPath('data.product.store_name', $store->name)
@@ -256,14 +259,14 @@ test('variants round-trip every legacy field', function () {
 
     $response->assertCreated()
         ->assertJsonPath('data.product.variants.0.sku', 'TS-RED-M')
-        ->assertJsonPath('data.product.variants.0.size', 32.0)
-        ->assertJsonPath('data.product.variants.0.weight', 250.0)
+        ->assertJsonPath('data.product.variants.0.size', 32)
+        ->assertJsonPath('data.product.variants.0.weight', 250)
         ->assertJsonPath('data.product.variants.0.weight_unit_id', $weightUnit->id)
         ->assertJsonPath('data.product.variants.0.currency_id', $currency->id)
         ->assertJsonPath('data.product.variants.0.featured', true)
         ->assertJsonPath('data.product.variants.0.quantity', 8);
 
-    expect($response->json('data.product.price_range'))->toBe(['min' => 4500.0, 'max' => 4700.0]);
+    expect($response->json('data.product.price_range'))->toBe(['min' => 4500, 'max' => 4700]);
 });
 
 test('a digital product needs no warehouse and cannot offer cash on delivery', function () {
@@ -461,7 +464,7 @@ test('the detail payload carries names, stock math, variant fields and file stat
     $store = ws14Store($owner);
     $warehouse = ws14Warehouse($owner);
     $section = ws14Section($warehouse);
-    $category = Category::create(['business_id' => $business->id, 'store_id' => $store->id, 'name' => 'Gear']);
+    $category = Category::create(['business_id' => $business->id, 'store_id' => $store->id, 'name' => 'Gear', 'slug' => 'gear']);
     $currency = ws14Currency();
 
     $product = ws14Product($store->id, $business->id, [
@@ -558,7 +561,7 @@ test('the form options endpoint serves the pickers the create/edit screens need'
     $store = ws14Store($owner);
     $warehouse = ws14Warehouse($owner);
     $section = ws14Section($warehouse);
-    Category::create(['business_id' => $owner->business_id, 'store_id' => $store->id, 'name' => 'Shoes']);
+    Category::create(['business_id' => $owner->business_id, 'store_id' => $store->id, 'name' => 'Shoes', 'slug' => 'shoes']);
     ws14Currency();
     SizeUnit::create(['name' => 'US', 'code' => 'us']);
     WeightUnit::create(['name' => 'Kilogram', 'code' => 'kg']);

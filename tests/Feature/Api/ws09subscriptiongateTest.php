@@ -223,6 +223,12 @@ test('the status payload never exposes another business subscription or stores',
         ->assertJsonPath('data.subscription.plan_name', 'Starter')
         ->assertJsonPath('data.stores.total', 1);
 
+    // The first request above resolved the sanctum guard for $owner. Within a
+    // single test the guard caches that user, so switching bearer tokens
+    // without clearing it would answer the second request as $owner again.
+    $this->app['auth']->forgetGuards();
+    $this->flushSession();
+
     $this->withToken(ws09Token($otherOwner))
         ->getJson('/api/v1/management/subscription/status')
         ->assertOk()
@@ -244,7 +250,7 @@ test('a gated owner is refused on a non-exempt route with the legacy contract', 
     $response = ws09GateCall($owner, 'api.management.orders.index');
 
     expect($response->getStatusCode())->toBe(403)
-        ->and($response->json())->toMatchArray([
+        ->and($response->getData(true))->toMatchArray([
             'message' => 'Please select a plan to continue.',
             'code' => 'subscription_required',
             'redirect' => '/plans',
@@ -268,7 +274,7 @@ test('staff, trials and subscribed businesses all pass the gate', function () {
     foreach ([$staff, $trialing, $subscribed] as $user) {
         $response = ws09GateCall($user, 'api.management.orders.index');
         expect($response->getStatusCode())->toBe(200)
-            ->and($response->json('passed'))->toBeTrue();
+            ->and($response->getData(true)['passed'])->toBeTrue();
     }
 });
 
@@ -310,7 +316,7 @@ test('an unverified owner is refused with the verification contract', function (
     $response = ws09GateCall($owner, 'api.management.orders.index');
 
     expect($response->getStatusCode())->toBe(403)
-        ->and($response->json())->toMatchArray([
+        ->and($response->getData(true))->toMatchArray([
             'code' => 'verify_email',
             'redirect' => '/verify-otp',
         ]);

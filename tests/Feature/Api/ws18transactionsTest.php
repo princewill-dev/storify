@@ -315,7 +315,7 @@ test('transaction detail returns the order context, customer block, slip and bal
         'name' => 'Chidi Cashier',
     ]);
 
-    $method = PaymentMethod::create(['name' => 'Bank Transfer', 'code' => 'bank_transfer']);
+    $method = PaymentMethod::firstOrCreate(['code' => 'bank_transfer'], ['name' => 'Bank Transfer']);
     $bank = StoreBank::create([
         'business_id' => $business->id,
         'bank_name' => 'GTBank',

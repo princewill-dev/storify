@@ -18,6 +18,7 @@ use App\Services\ActivityRecorder;
 use App\Services\ProductFileService;
 use App\Services\StockLedgerService;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
@@ -25,6 +26,7 @@ use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 /**
  * WS-15 (admin console) — the platform product catalogue.
@@ -141,7 +143,7 @@ class ProductController extends ApiController
             return $problem;
         }
 
-        $data = $request->validate($this->rules($request), $this->messages());
+        $data = $this->validateOrJson($request, $this->rules($request), $this->messages());
 
         $store = $this->liveStore((int) $data['store_id']);
 
@@ -214,7 +216,7 @@ class ProductController extends ApiController
             return $problem;
         }
 
-        $data = $request->validate($this->rules($request, forUpdate: true), $this->messages());
+        $data = $this->validateOrJson($request, $this->rules($request, forUpdate: true), $this->messages());
 
         $store = $product->store;
 
@@ -324,7 +326,7 @@ class ProductController extends ApiController
     {
         $this->authorizePlatformAdmin();
 
-        $data = $request->validate([
+        $data = $this->validateOrJson($request, [
             'status' => ['required', Rule::in(['active', 'inactive'])],
         ]);
 
@@ -436,7 +438,7 @@ class ProductController extends ApiController
      */
     private function listResponse(Request $request, ?Store $store): JsonResponse
     {
-        $filters = $request->validate([
+        $filters = $this->validateOrJson($request, [
             'q' => ['nullable', 'string', 'max:100'],
             'status' => ['nullable', Rule::in(['active', 'inactive'])],
             // The legacy URL-only store scope matches the numeric id or the
@@ -784,6 +786,34 @@ class ProductController extends ApiController
             'weight' => ['nullable', 'numeric', 'min:0'],
             'weight_unit_id' => ['nullable', 'integer', 'exists:weight_units,id'],
         ]);
+    }
+
+    /**
+     * Validate like `Request::validate()`, but make sure an API client that
+     * did not negotiate JSON still gets the `{message, errors}` envelope.
+     * Laravel's default validation failure redirects the caller back to a web
+     * form that does not exist for this API — which is what a plain multipart
+     * upload (no `Accept: application/json`) hits when an image is rejected
+     * or a field fails its rule. Requests that do ask for JSON keep the
+     * framework's native rendering.
+     *
+     * @param  array<string, mixed>  $rules
+     * @param  array<string, string>  $messages
+     * @return array<string, mixed>
+     */
+    private function validateOrJson(Request $request, array $rules, array $messages = []): array
+    {
+        try {
+            return $request->validate($rules, $messages);
+        } catch (ValidationException $exception) {
+            if ($request->expectsJson()) {
+                throw $exception;
+            }
+
+            throw new HttpResponseException(
+                $this->error($exception->getMessage(), 422, $exception->errors()),
+            );
+        }
     }
 
     /**

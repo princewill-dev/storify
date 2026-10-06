@@ -65,7 +65,7 @@ use Illuminate\Validation\Rule;
  *  - The daily series are grouped in SQL and zero-filled, not 30–90 queries.
  *
  * Money is summed in SQL (`decimal` columns); no PHP float arithmetic, and no
- * `vendor` naming anywhere.
+ * legacy naming anywhere.
  */
 class DashboardParityController extends ApiController
 {

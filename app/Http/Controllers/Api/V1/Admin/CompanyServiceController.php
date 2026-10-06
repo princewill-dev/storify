@@ -458,7 +458,7 @@ class CompanyServiceController extends ApiController
      */
     private function plainText(string $value, string $field, string $label): string
     {
-        $clean = trim(strip_tags($value));
+        $clean = trim($this->stripMarkup($value));
 
         if ($clean === '') {
             throw ValidationException::withMessages([
@@ -475,9 +475,21 @@ class CompanyServiceController extends ApiController
             return null;
         }
 
-        $clean = trim(strip_tags($value));
+        $clean = trim($this->stripMarkup($value));
 
         return $clean === '' ? null : $clean;
+    }
+
+    /**
+     * `strip_tags()` removes the tags but leaves the *contents* of `<script>` /
+     * `<style>` elements behind as loose text ("alert(1)"). Copy is stored as
+     * plain text, so the element bodies are dropped first and the remaining
+     * tag skeleton is stripped afterwards — the same convention the
+     * testimonial writer uses.
+     */
+    private function stripMarkup(string $value): string
+    {
+        return strip_tags(preg_replace('#<(script|style)\b[^>]*>.*?</\1\s*>#is', '', $value));
     }
 
     /**

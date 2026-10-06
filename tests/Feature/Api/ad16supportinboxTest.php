@@ -448,6 +448,12 @@ test('only platform accounts can reach the support inbox', function () {
         'Authorization' => 'Bearer '.ad16Token($owner),
     ])->assertStatus(403);
 
+    // Sanctum's guard caches the first user it resolves for the whole test, so
+    // every later request that presents a different token or account has to
+    // forget it first — otherwise the middleware keeps judging the owner above
+    // instead of the caller the presented token actually names.
+    app('auth')->forgetGuards();
+
     // A management token cannot cross audiences.
     $this->getJson('/api/v1/admin/support-messages', [
         'Authorization' => 'Bearer '.ad16Token($owner, 'management'),
@@ -460,16 +466,20 @@ test('only platform accounts can reach the support inbox', function () {
         'is_verified' => true,
         'business_id' => null,
     ]);
+    app('auth')->forgetGuards();
     ad16Get($this, $permissionless, 'support-messages')->assertStatus(403);
 
     // Support Admin carries admin.support; Finance Admin does not.
+    app('auth')->forgetGuards();
     $support = ad16AdminWithRole('Support Admin');
     ad16Get($this, $support, 'support-messages')->assertOk();
     ad16Get($this, $support, 'support-messages/stats')->assertOk();
 
+    app('auth')->forgetGuards();
     $finance = ad16AdminWithRole('Finance Admin');
     ad16Get($this, $finance, 'support-messages')->assertStatus(403);
 
+    app('auth')->forgetGuards();
     $this->getJson('/api/v1/admin/support-messages')->assertStatus(401);
 });
 

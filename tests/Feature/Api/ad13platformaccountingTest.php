@@ -287,7 +287,7 @@ test('the journal paginates, validates every filter, and exports the filtered ro
     expect($export->headers->get('content-type'))->toContain('text/csv');
 
     $csv = $export->streamedContent();
-    expect($csv)->toContain('Entry,Date,Reference,Memo,Status,Lines,Debits (NGN),Credits (NGN)')
+    expect($csv)->toContain('Entry,Date,Reference,Memo,Status,Lines,"Debits (NGN)","Credits (NGN)"')
         ->toContain($first->entry_number)
         ->toContain('CSV-ONE')
         ->not->toContain('CSV-TWO');
@@ -660,6 +660,11 @@ test('platform accounting refuses non-platform, unpermitted, wrong-audience and 
     // A platform admin whose role lacks admin.accounting is stopped by the gate.
     $supportAdmin = ad13SupportAdmin();
 
+    // Sanctum's guard caches the first user it resolves for the whole test.
+    // Every later request must forget it, or the middleware keeps seeing the
+    // owner above instead of the caller the presented token actually names.
+    app('auth')->forgetGuards();
+
     $this->getJson('/api/v1/admin/accounting', [
         'Authorization' => 'Bearer '.ad13AdminToken($supportAdmin),
     ])->assertStatus(403);
@@ -667,10 +672,14 @@ test('platform accounting refuses non-platform, unpermitted, wrong-audience and 
     // A management-audience token never reaches an admin route.
     $managementToken = $owner->createToken('management-access', ['management'], now()->addHour())->plainTextToken;
 
+    app('auth')->forgetGuards();
+
     $this->getJson('/api/v1/admin/accounting', ['Authorization' => 'Bearer '.$managementToken])
         ->assertStatus(403);
 
     // Guests are unauthenticated.
+    app('auth')->forgetGuards();
+
     $this->getJson('/api/v1/admin/accounting')->assertStatus(401);
     $this->getJson('/api/v1/admin/accounting/journal')->assertStatus(401);
     $this->postJson('/api/v1/admin/accounting/settings/years/2026/close')->assertStatus(401);

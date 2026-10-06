@@ -412,8 +412,10 @@ class StockVisibilityController extends ApiController
 
         $warehouses = $user->accessibleWarehouses()
             ->where('status', '!=', Warehouse::STATUS_DELETED)
+            // Qualified: restricted staff resolve through a morphedByMany whose
+            // pivot also has an `id`, so a bare column list is ambiguous.
             ->orderBy('name')
-            ->get(['id', 'warehouse_code', 'name'])
+            ->get(['warehouses.id', 'warehouse_code', 'name'])
             ->map(fn (Warehouse $warehouse) => [
                 'id' => $warehouse->id,
                 'code' => $warehouse->warehouse_code,
@@ -423,7 +425,7 @@ class StockVisibilityController extends ApiController
         $stores = $user->accessibleStores()
             ->where('status', '!=', Store::STATUS_DELETED)
             ->orderBy('name')
-            ->get(['id', 'store_id', 'name'])
+            ->get(['stores.id', 'store_id', 'name'])
             ->map(fn (Store $store) => [
                 'id' => $store->id,
                 'code' => $store->store_id,

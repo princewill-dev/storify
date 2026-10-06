@@ -382,6 +382,12 @@ test('category endpoints are gated by products permissions', function () {
     $associate->assignRole('Store Associate');
     $associateToken = ws31Token($associate);
 
+    // Sanctum's guard caches the authenticated user for the life of the test
+    // application, so swapping the bearer token alone keeps the no-role staff
+    // member from the request above. Reset the guards so this request is
+    // actually authorised as the associate.
+    $this->app['auth']->forgetGuards();
+
     $this->withToken($associateToken)->getJson('/api/v1/management/categories')->assertOk();
 
     $this->withToken($associateToken)->postJson('/api/v1/management/categories', [
@@ -394,6 +400,10 @@ test('category endpoints are gated by products permissions', function () {
         ->assertStatus(403);
 
     expect($category->fresh()->name)->toBe('Kept');
+
+    // Reset again so the owner assertion exercises the owner's token rather
+    // than the associate still cached from the requests above.
+    $this->app['auth']->forgetGuards();
 
     $this->withToken(ws31Token($owner))->getJson('/api/v1/management/categories')->assertOk();
 });

@@ -76,6 +76,8 @@ function ws27Customer(int $businessId, array $attributes = []): Customer
         'first_name' => 'Ada',
         'last_name' => 'Buyer',
         'email' => 'buyer-'.random_int(1000, 9999).'@example.test',
+        'phone' => '08011112222',
+        'password' => bcrypt('secret-pass-123'),
     ], $attributes));
 }
 

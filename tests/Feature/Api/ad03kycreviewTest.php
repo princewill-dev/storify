@@ -92,13 +92,32 @@ function ad03Application(User $owner, array $attributes = []): KycApplication
     return $application;
 }
 
+/**
+ * Drop guard state carried over from an earlier request in this test.
+ *
+ * Sanctum's RequestGuard caches the user it resolved, and the test client
+ * reuses one application — and therefore one guard instance — across every
+ * request in a test. Without this, a later request made with a different
+ * token (or with none at all) is still judged as the first identity that
+ * authenticated. Each real request gets a fresh process, so resetting here
+ * makes the simulation faithful rather than changing what is asserted.
+ */
+function ad03FreshAuth(): void
+{
+    auth()->forgetGuards();
+}
+
 function ad03Get(object $test, User $admin, string $path)
 {
+    ad03FreshAuth();
+
     return $test->getJson('/api/v1/admin/'.$path, ['Authorization' => 'Bearer '.ad03Token($admin)]);
 }
 
 function ad03Post(object $test, User $admin, string $path, array $payload = [])
 {
+    ad03FreshAuth();
+
     return $test->postJson('/api/v1/admin/'.$path, $payload, ['Authorization' => 'Bearer '.ad03Token($admin)]);
 }
 
@@ -562,7 +581,13 @@ test('management tokens and guests are refused', function () {
     $this->getJson('/api/v1/admin/kyc-applications', ['Authorization' => 'Bearer '.$managementToken])
         ->assertStatus(403);
 
+    // A guest carries no token: forget the identity the request above
+    // resolved, so these are genuinely unauthenticated (401) rather than
+    // re-judged as the management-token owner (which would be a 403).
+    ad03FreshAuth();
     $this->getJson('/api/v1/admin/kyc-applications')->assertStatus(401);
+
+    ad03FreshAuth();
     $this->postJson('/api/v1/admin/kyc-applications/1/approve')->assertStatus(401);
 });
 

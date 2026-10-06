@@ -605,8 +605,12 @@ class BillController extends ApiController
                 'payment_date' => $payment->payment_date?->toDateString(),
                 'amount_kobo' => (int) $payment->amount_kobo,
                 'method' => $payment->method,
+                // Payment history rows keep the legacy display label
+                // (ucfirst with underscores removed → "Bank transfer"), which
+                // is also what SupplierController::methodLabel() returns. The
+                // title-case PAYMENT_METHODS labels dress the form picker only.
                 'method_label' => $payment->method
-                    ? (self::PAYMENT_METHODS[$payment->method] ?? ucfirst(str_replace('_', ' ', $payment->method)))
+                    ? ucfirst(str_replace('_', ' ', $payment->method))
                     : null,
                 'reference' => $payment->reference,
                 'payment_account' => $payment->paymentAccount ? [

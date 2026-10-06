@@ -41,7 +41,7 @@
             <p>Simply log in and subscribe to a plan to reactivate your stores immediately.</p>
 
             <p style="text-align: center;">
-                <a href="{{ route('management.subscription.payment') }}" class="button">Reactivate My Stores</a>
+                <a href="{{ \App\Support\SpaUrls::management('/subscription/payment') }}" class="button">Reactivate My Stores</a>
             </p>
 
             <p style="color: #666; font-size: 14px;">Need help? Our support team is here for you.</p>

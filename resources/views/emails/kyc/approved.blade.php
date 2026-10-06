@@ -9,7 +9,7 @@ Your identity verification has been **approved**. You can now activate your stor
 Your stores are ready to go live. Visit your dashboard to activate them.
 </x-mail::panel>
 
-<x-mail::button :url="route('management.dashboard')">
+<x-mail::button :url="\App\Support\SpaUrls::management('/')">
 Go to Dashboard
 </x-mail::button>
 

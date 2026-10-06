@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\V1\Admin\CouponUpdateController;
 use App\Http\Controllers\Api\V1\Admin\PaymentMethodController;
 use App\Http\Controllers\Api\V1\Admin\VatController;
 use App\Http\Middleware\AdminApiActivityLogger;
+use App\Http\Middleware\ForceJsonResponse;
 
 /*
 |--------------------------------------------------------------------------
@@ -28,7 +29,7 @@ use App\Http\Middleware\AdminApiActivityLogger;
 | that never existed and 500'd on every hit.
 */
 
-Route::middleware(['permission:admin.finance', AdminApiActivityLogger::class])->group(function () {
+Route::middleware([ForceJsonResponse::class, 'permission:admin.finance', AdminApiActivityLogger::class])->group(function () {
     Route::get('vats', [VatController::class, 'index'])->name('vats.index');
     Route::post('vats', [VatController::class, 'store'])->name('vats.store');
     Route::put('vats/{vat}', [VatController::class, 'update'])->name('vats.update');
@@ -53,6 +54,6 @@ Route::middleware(['permission:admin.finance', AdminApiActivityLogger::class])->
 | the same way AD-08 extends the shared user routes. CouponController itself
 | stays untouched for the rest of the coupon screens.
 */
-Route::middleware(['permission:admin.coupons', AdminApiActivityLogger::class])->group(function () {
+Route::middleware([ForceJsonResponse::class, 'permission:admin.coupons', AdminApiActivityLogger::class])->group(function () {
     Route::put('coupons/{coupon}', [CouponUpdateController::class, 'update'])->name('coupons.update');
 });

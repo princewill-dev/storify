@@ -184,13 +184,18 @@ class KycController extends ApiController
                 // database never points at a file the post-commit cleanup
                 // removes from disk.
                 if ($previous) {
-                    $replaced = array_filter([
-                        'identification_document_path' => array_key_exists('identification_document_path', $files) ? $previous->identification_document_path : null,
-                        'selfie_image_path' => array_key_exists('selfie_image_path', $files) ? $previous->selfie_image_path : null,
-                    ]);
+                    $cleared = [];
 
-                    if ($replaced !== []) {
-                        $previous->forceFill($replaced)->save();
+                    if (array_key_exists('identification_document_path', $files)) {
+                        $cleared['identification_document_path'] = null;
+                    }
+
+                    if (array_key_exists('selfie_image_path', $files)) {
+                        $cleared['selfie_image_path'] = null;
+                    }
+
+                    if ($cleared !== []) {
+                        $previous->forceFill($cleared)->save();
                     }
                 }
 

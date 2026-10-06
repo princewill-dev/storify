@@ -51,6 +51,14 @@ class Store extends Model
         'has_website',
     ];
 
+    protected function casts(): array
+    {
+        return [
+            'has_website' => 'boolean',
+            'pos_enabled' => 'boolean',
+        ];
+    }
+
     protected static function boot()
     {
         parent::boot();

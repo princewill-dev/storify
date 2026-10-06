@@ -58,7 +58,26 @@ function ad18AdminWithRole(string $roleName): User
 
 function ad18Headers(User $user): array
 {
-    return ['Authorization' => 'Bearer '.ad18Token($user)];
+    // The admin SPA speaks JSON, so carry Accept explicitly: the multipart
+    // uploads below cannot use postJson(), and without it Laravel answers a
+    // validation failure with a redirect-back (302) instead of the API's
+    // documented 422 {message, errors}.
+    return [
+        'Authorization' => 'Bearer '.ad18Token($user),
+        'Accept' => 'application/json',
+    ];
+}
+
+/**
+ * Sanctum's request guard caches the user it resolved for the lifetime of the
+ * test process, so without a reset the second and later requests in one test
+ * would still be authenticated as the first caller. Reset it before every
+ * request that introduces a new token, so each caller is judged on its own
+ * credentials.
+ */
+function ad18FreshGuards(): void
+{
+    app('auth')->forgetGuards();
 }
 
 function ad18Testimonial(array $attributes = []): Testimonial
@@ -632,11 +651,13 @@ test('only platform accounts can reach the marketing content screens', function 
     setPermissionsTeamId($business->id);
     expect($owner->can('admin.content'))->toBeTrue();
 
+    ad18FreshGuards();
     $this->getJson('/api/v1/admin/testimonials', [
         'Authorization' => 'Bearer '.$owner->createToken('admin-access', ['admin'], now()->addHour())->plainTextToken,
     ])->assertStatus(403);
 
     // A management token cannot cross audiences.
+    ad18FreshGuards();
     $this->getJson('/api/v1/admin/testimonials', [
         'Authorization' => 'Bearer '.$owner->createToken('management-access', ['management'], now()->addHour())->plainTextToken,
     ])->assertStatus(403);
@@ -649,15 +670,21 @@ test('only platform accounts can reach the marketing content screens', function 
         'business_id' => null,
     ]);
 
+    ad18FreshGuards();
     $this->getJson('/api/v1/admin/testimonials', ad18Headers($permissionless))->assertStatus(403);
+    ad18FreshGuards();
     $this->getJson('/api/v1/admin/company-services', ad18Headers($permissionless))->assertStatus(403);
 
     // A Platform Admin carries admin.content and is allowed.
+    ad18FreshGuards();
     $this->getJson('/api/v1/admin/testimonials', ad18Headers(ad18AdminWithRole('Platform Admin')))->assertOk();
+    ad18FreshGuards();
     $this->getJson('/api/v1/admin/company-services', ad18Headers(ad18AdminWithRole('Platform Admin')))->assertOk();
 
     // Support Admin also carries admin.content (they curate storefront copy).
+    ad18FreshGuards();
     $this->getJson('/api/v1/admin/testimonials', ad18Headers(ad18AdminWithRole('Support Admin')))->assertOk();
 
+    ad18FreshGuards();
     $this->getJson('/api/v1/admin/testimonials')->assertStatus(401);
 });

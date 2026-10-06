@@ -286,7 +286,10 @@ class AccountingController extends ApiController
         return response()->streamDownload(function () use ($entries) {
             $handle = fopen('php://output', 'w');
 
-            fputcsv($handle, ['Entry', 'Date', 'Reference', 'Memo', 'Status', 'Lines', 'Debits (NGN)', 'Credits (NGN)']);
+            // Explicit escape keeps PHP 8.4's fputcsv deprecation away and
+            // follows RFC 4180 (enclosure-only quoting) — the same convention
+            // as the management report and transactions exports.
+            fputcsv($handle, ['Entry', 'Date', 'Reference', 'Memo', 'Status', 'Lines', 'Debits (NGN)', 'Credits (NGN)'], ',', '"', '');
 
             foreach ($entries as $entry) {
                 fputcsv($handle, [
@@ -298,7 +301,7 @@ class AccountingController extends ApiController
                     (int) $entry->lines_count,
                     $this->naira((int) $entry->total_debits),
                     $this->naira((int) $entry->total_credits),
-                ]);
+                ], ',', '"', '');
             }
 
             fclose($handle);

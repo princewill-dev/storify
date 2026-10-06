@@ -51,12 +51,16 @@ class StockTransfer extends Model
 
     public function fromLocation(): MorphTo
     {
-        return $this->morphTo('from_location');
+        // No explicit name: the relation name must match the method ("fromLocation")
+        // so eager loading caches results under that key. Passing the snake_case
+        // column prefix ("from_location") makes `with('fromLocation')` initialise
+        // the relation to null and store the result under a key nothing reads.
+        return $this->morphTo();
     }
 
     public function toLocation(): MorphTo
     {
-        return $this->morphTo('to_location');
+        return $this->morphTo();
     }
 
     public function requester(): BelongsTo

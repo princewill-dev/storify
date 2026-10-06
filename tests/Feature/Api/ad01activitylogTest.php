@@ -209,6 +209,10 @@ test('a platform admin with the permission can read but a permissionless admin c
         'business_id' => null,
     ]);
 
+    // Sanctum's guard caches the resolved user for the whole test, so it has
+    // to be forgotten before a request made as a different identity.
+    app('auth')->forgetGuards();
+
     $this->getJson('/api/v1/admin/activity-logs', ['Authorization' => 'Bearer '.ad01AdminToken($plainAdmin)])
         ->assertStatus(403);
 });
@@ -235,6 +239,10 @@ test('management tokens and guests are refused', function () {
 
     $this->getJson('/api/v1/admin/activity-logs', ['Authorization' => 'Bearer '.$managementToken])
         ->assertStatus(403);
+
+    // The guard still holds the owner from the request above; forget it so the
+    // token-less request is genuinely unauthenticated.
+    app('auth')->forgetGuards();
 
     $this->getJson('/api/v1/admin/activity-logs')
         ->assertStatus(401);

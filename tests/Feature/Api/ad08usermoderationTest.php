@@ -129,7 +129,15 @@ test('the user directory defaults to owners and exposes the legacy filters and s
     [$soloOwner] = createBusinessOwner(['name' => 'Solo Owner']);
     $soloOwner->update(['business_id' => null]);
 
-    $suspended = User::factory()->create(['role' => 'staff', 'status' => 'suspended', 'is_verified' => false]);
+    // Belongs to a business: the factory leaves business_id null, which would
+    // also match the has_business=no filter below — that filter is about
+    // owners whose setup never completed, not unattached staff.
+    $suspended = User::factory()->create([
+        'role' => 'staff',
+        'status' => 'suspended',
+        'is_verified' => false,
+        'business_id' => $business->id,
+    ]);
 
     // No role given → legacy defaulted the list to owners.
     $response = ad08Get($this, $admin, 'users')
@@ -526,6 +534,11 @@ test('impersonation issues a hand-off contract, logs it, and can be stopped from
         ->assertOk()
         ->assertJsonPath('data.impersonator.name', $admin->name);
 
+    // The console request presents the admin's own token again; the guard
+    // cached the impersonated owner for the previous request, so it has to be
+    // forgotten or the admin would be read as the owner.
+    app('auth')->forgetGuards();
+
     // The detail console surfaces the live session.
     ad08Get($this, $admin, 'users/'.$owner->account_code)
         ->assertOk()
@@ -640,18 +653,27 @@ test('user moderation refuses business-scoped, unpermitted, wrong-audience and g
         'is_verified' => true,
         'business_id' => null,
     ]);
+
+    // Sanctum's guard caches the first user it resolves for the whole test, so
+    // every request that presents a different token or account has to forget
+    // it first — otherwise the middleware keeps seeing the owner above instead
+    // of the caller the presented token actually names.
+    app('auth')->forgetGuards();
     ad08Get($this, $plainAdmin, 'users')->assertStatus(403);
 
     // A management-audience token never reaches an admin route.
     [$other] = createBusinessOwner();
     $managementToken = $other->createToken('management-access', ['management'], now()->addHour())->plainTextToken;
+    app('auth')->forgetGuards();
     $this->getJson('/api/v1/admin/users', ['Authorization' => 'Bearer '.$managementToken])->assertStatus(403);
 
     // A platform admin holding the seeded role passes.
     $platformAdmin = ad08PlatformAdmin();
+    app('auth')->forgetGuards();
     ad08Get($this, $platformAdmin, 'users')->assertOk();
 
     // Guests are unauthenticated.
+    app('auth')->forgetGuards();
     $this->getJson('/api/v1/admin/users')->assertUnauthorized();
     $this->postJson('/api/v1/admin/users/'.$other->account_code.'/suspend', ['reason' => 'x'])->assertUnauthorized();
 });

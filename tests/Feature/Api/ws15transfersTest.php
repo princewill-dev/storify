@@ -123,7 +123,7 @@ function ws15Context(array $warehouseAttributes = []): array
 
 test('the transfer list returns status tabs, counts and business-scoped rows', function () {
     [$owner, , $warehouse, $store, $product] = ws15Context();
-    [, $otherOwner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    [$otherOwner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
 
     $mine = ws15Transfer($owner, $warehouse, $store, [['product_id' => $product->id, 'quantity' => 4]]);
     ws15Transfer($otherOwner, ws15Warehouse($otherOwner), ws15Store($otherOwner), []);
@@ -322,7 +322,10 @@ test('approving with adjusted quantities enters the acknowledgement loop', funct
         ->assertJsonPath('data.transfer.items.0.approved_quantity', 9);
 
     // Rebuild pending and genuinely lower a line: awaiting acknowledgment.
-    $transfer->update(['status' => TransferStatus::PENDING]);
+    // Refresh first — the approval above committed on a separate model
+    // instance, so the in-memory status is stale and a bare update() would
+    // write nothing (Eloquent skips non-dirty attributes).
+    $transfer->refresh()->update(['status' => TransferStatus::PENDING]);
 
     $response = $this->withToken($token)
         ->patchJson("/api/v1/management/transfers/{$transfer->transfer_code}/approve", [
@@ -629,7 +632,7 @@ test('the source product grid refuses another business location', function () {
 
 test('the locations endpoint returns accessible warehouses and stores', function () {
     [$owner, , $warehouse, $store] = ws15Context();
-    [, $otherOwner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    [$otherOwner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
     $theirWarehouse = ws15Warehouse($otherOwner);
 
     $response = $this->withToken(ws15Token($owner))->getJson('/api/v1/management/transfers/locations');

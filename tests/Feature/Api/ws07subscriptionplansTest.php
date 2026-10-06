@@ -92,7 +92,7 @@ test('the subscription endpoint reports the current plan and trial state', funct
         ->assertOk()
         ->assertJsonPath('data.subscription.plan.name', 'Starter')
         ->assertJsonPath('data.subscription.is_active', true)
-        ->assertJsonPath('data.subscription.next_amount', 5000.0)
+        ->assertJsonPath('data.subscription.next_amount', 5000)
         ->assertJsonPath('data.subscription.next_amount_kobo', 500000)
         ->assertJsonPath('data.subscription.billing_cycle', '/monthly')
         ->assertJsonPath('data.trial.active', false)
@@ -257,7 +257,7 @@ test('changing a plan swaps it immediately and logs the change', function () {
         ->postJson('/api/v1/management/subscription/change-plan', ['plan_id' => $growth->id])
         ->assertOk()
         ->assertJsonPath('data.subscription.plan.name', 'Growth')
-        ->assertJsonPath('data.subscription.next_amount', 9000.0);
+        ->assertJsonPath('data.subscription.next_amount', 9000);
 
     expect($subscription->fresh()->subscription_plan_id)->toBe($growth->id);
 

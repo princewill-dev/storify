@@ -195,6 +195,7 @@ test('the country filter also matches a delivery route country', function () {
     DeliveryAddress::create([
         'customer_id' => $customer->id,
         'recipient_name' => $customer->full_name,
+        'recipient_phone' => $customer->phone,
         'street_address' => '12 Riverside',
         'country' => 'Kenya',
         'delivery_route_id' => $route->id,
@@ -222,7 +223,9 @@ test('the customer detail returns pending count, address, transactions and activ
     $paid = ws19Order($store, $customer, ['status' => 'completed', 'total' => 2500]);
     ws19Order($store, $customer, ['status' => 'completed', 'total' => 1500]);
 
-    PaymentMethod::create(['name' => 'Bank Transfer', 'code' => 'bank_transfer']);
+    // The 2026_07_12_150444 migration already seeds bank_transfer, so this
+    // fixture must not insert a second row with the same unique code.
+    PaymentMethod::firstOrCreate(['code' => 'bank_transfer'], ['name' => 'Bank Transfer']);
     ws19Transaction($paid, 2500);
 
     ActivityLog::create([

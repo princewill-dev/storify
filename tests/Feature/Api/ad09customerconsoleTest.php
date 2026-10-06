@@ -235,6 +235,8 @@ test('the country filter also matches a delivery route country and the options a
     DeliveryAddress::create([
         'customer_id' => $customer->id,
         'recipient_name' => $customer->full_name,
+        // recipient_phone is NOT NULL in the schema.
+        'recipient_phone' => $customer->phone,
         'street_address' => '12 Riverside',
         'country' => 'Kenya',
         'delivery_route_id' => $route->id,
@@ -347,7 +349,9 @@ test('the customer detail returns stats, address, last-10 orders, transactions a
         $extra->forceFill(['created_at' => now()->subMinutes(10 + $i)])->save();
     }
 
-    $method = PaymentMethod::create(['name' => 'Bank Transfer', 'code' => 'bank_transfer']);
+    // The 2026_07_12_150444 migration already seeds bank_transfer, so this
+    // fixture must not insert a second row with the same unique code.
+    $method = PaymentMethod::firstOrCreate(['code' => 'bank_transfer'], ['name' => 'Bank Transfer']);
 
     $transactionPaid = ad09Transaction($paid, [
         'amount' => 2500,
@@ -625,6 +629,10 @@ test('the platform customer console refuses non-platform, unpermitted and guest 
     [$otherOwner] = createBusinessOwner();
     $managementToken = $otherOwner->createToken('management-access', ['management'], now()->addHour())->plainTextToken;
 
+    // Sanctum's guard caches the resolved user for the whole test, so it must
+    // be forgotten before a request made as a different identity.
+    app('auth')->forgetGuards();
+
     $this->getJson('/api/v1/admin/customers', ['Authorization' => 'Bearer '.$managementToken])->assertStatus(403);
 
     // An admin account without the permission is stopped by the route gate.
@@ -635,14 +643,24 @@ test('the platform customer console refuses non-platform, unpermitted and guest 
         'business_id' => null,
     ]);
 
+    // The guard still holds the previous identity; forget it so the plain
+    // admin is genuinely resolved and stopped by the route gate.
+    app('auth')->forgetGuards();
+
     $this->getJson('/api/v1/admin/customers', ['Authorization' => 'Bearer '.ad09AdminToken($plainAdmin)])->assertStatus(403);
 
-    // Guests are unauthenticated.
+    // Guests are unauthenticated — without forgetting the guard first it
+    // would still answer as the permissionless admin above (403, not 401).
+    app('auth')->forgetGuards();
+
     $this->getJson('/api/v1/admin/customers')->assertStatus(401);
 
     // A seeded platform admin and a superadmin pass.
     $platformAdmin = ad09PlatformAdmin();
 
     $this->getJson('/api/v1/admin/customers', ['Authorization' => 'Bearer '.ad09AdminToken($platformAdmin)])->assertOk();
+
+    app('auth')->forgetGuards();
+
     $this->getJson('/api/v1/admin/customers', ['Authorization' => 'Bearer '.ad09AdminToken(ad09SuperAdmin())])->assertOk();
 });

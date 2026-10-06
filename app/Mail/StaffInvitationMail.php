@@ -3,6 +3,7 @@
 namespace App\Mail;
 
 use App\Models\User;
+use App\Support\SpaUrls;
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Content;
@@ -30,7 +31,7 @@ class StaffInvitationMail extends Mailable
         return new Content(
             view: 'emails.staff.invitation',
             with: [
-                'acceptUrl' => route('management.staff.invitation.accept', ['token' => $this->user->invitation_token]),
+                'acceptUrl' => SpaUrls::management('/invitations/'.$this->user->invitation_token),
                 'plainPassword' => $this->plainPassword,
             ],
         );

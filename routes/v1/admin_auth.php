@@ -1,7 +1,8 @@
 <?php
 
-use App\Http\Controllers\Admin\Auth\AdminAuthController;
 use App\Http\Controllers\Admin\AdminInvitationController;
+use App\Http\Controllers\Admin\Auth\AdminAuthController;
+use App\Http\Controllers\Admin\UserController;
 use Illuminate\Support\Facades\Route;
 
 // Default login route (for auth middleware redirect)
@@ -38,12 +39,7 @@ Route::post('/office/logout', [AdminAuthController::class, 'logout'])->name('adm
 Route::get('/office/invite/{token}', [AdminInvitationController::class, 'showAccept'])->name('admin.invitation.accept');
 Route::post('/office/invite/{token}', [AdminInvitationController::class, 'accept'])->name('admin.invitation.accept.process');
 
-// Legacy portal redirects: old /superadmin/* bookmarks now live under /office/*
-Route::get('/superadmin', fn () => redirect('/office', 301));
-Route::get('/superadmin/{path}', fn (string $path) => redirect('/office/'.$path, 301))
-    ->where('path', '.*');
-
 // Stop impersonation — must work while impersonating, so only requires an authenticated session.
-Route::post('/office/impersonate/stop', [\App\Http\Controllers\Admin\UserController::class, 'stopImpersonate'])
+Route::post('/office/impersonate/stop', [UserController::class, 'stopImpersonate'])
     ->middleware('auth')
     ->name('admin.impersonate.stop');

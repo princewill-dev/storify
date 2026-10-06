@@ -469,6 +469,12 @@ test('reversing a posted entry voids the original and links the contra entry', f
     // Another business cannot reverse it.
     [$otherOwner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
 
+    // Every request in a test shares one application instance and the sanctum
+    // RequestGuard caches the first user it resolves — without forgetting the
+    // guards here this request would still be authenticated as the owner above
+    // (and would reach the controller's status check instead of the 403).
+    $this->app['auth']->forgetGuards();
+
     $this->withToken(ws23Token($otherOwner))
         ->postJson("{$base}/{$original->id}/reverse")
         ->assertStatus(403);
@@ -668,6 +674,13 @@ test('journal writes require the accounting journal permission', function () {
     ])->assertStatus(403);
 
     // The owner's role still covers the writes.
+    //
+    // The manager's request above is the first authentication in this test, so
+    // the sanctum RequestGuard cached the manager as the resolved user; the
+    // guard has to be forgotten or the owner's request would inherit the
+    // manager's (insufficient) permissions and 403 here.
+    $this->app['auth']->forgetGuards();
+
     $this->withToken(ws23Token($owner))->postJson('/api/v1/management/accounting/accounts', [
         'code' => '5981',
         'name' => 'Owner account',

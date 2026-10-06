@@ -156,12 +156,25 @@ class StockVisibilityService
         $storeIds = $this->accessibleStoreIds($user);
         $warehouseIds = $this->accessibleWarehouseIds($user);
 
+        // A location filter scopes the whole read to that host. Narrowing only
+        // its own id list is not enough: filtering by one warehouse would still
+        // leave every accessible store's rows in the result (and vice versa).
+        // When both are given, both hosts stay in scope — each filter is a
+        // location the caller asked for.
         if ($storeId !== null) {
             $storeIds = $storeIds->intersect([$storeId]);
+
+            if ($warehouseId === null) {
+                $warehouseIds = collect();
+            }
         }
 
         if ($warehouseId !== null) {
             $warehouseIds = $warehouseIds->intersect([$warehouseId]);
+
+            if ($storeId === null) {
+                $storeIds = collect();
+            }
         }
 
         return StockLocation::query()
@@ -182,7 +195,10 @@ class StockVisibilityService
     {
         return $user->accessibleStores()
             ->where('status', '!=', Store::STATUS_DELETED)
-            ->pluck('id');
+            // Qualified: restricted staff resolve through a morphedByMany whose
+            // pivot also has an `id`, so a bare pluck('id') is ambiguous and
+            // the query fails outright.
+            ->pluck('stores.id');
     }
 
     /**
@@ -192,7 +208,7 @@ class StockVisibilityService
     {
         return $user->accessibleWarehouses()
             ->where('status', '!=', Warehouse::STATUS_DELETED)
-            ->pluck('id');
+            ->pluck('warehouses.id');
     }
 
     /**

@@ -377,6 +377,12 @@ test('the metrics require the stores view permission and an assigned store', fun
     // Holds the permission but is only assigned to the other store.
     $otherStore = ws35StaffWith($owner, ['stores view'], [$sibling->id]);
 
+    // Sanctum's guard caches the authenticated user for the life of the test
+    // application, so swapping the bearer token alone would keep the request
+    // above's staff member cached. Reset the guards so this request is
+    // actually authorised as the staff member who holds `stores view`.
+    $this->app['auth']->forgetGuards();
+
     $this->withToken(ws35Token($otherStore))
         ->getJson('/api/v1/management/stores/'.$store->store_id.'/web-metrics')
         ->assertForbidden();
@@ -384,13 +390,21 @@ test('the metrics require the stores view permission and an assigned store', fun
     // Assigned and permitted — allowed.
     $assigned = ws35StaffWith($owner, ['stores view'], [$store->id]);
 
+    // Same guard reset: without it this request would still run as the
+    // unassigned staff member above and answer 403 instead of 200.
+    $this->app['auth']->forgetGuards();
+
     $this->withToken(ws35Token($assigned))
         ->getJson('/api/v1/management/stores/'.$store->store_id.'/web-metrics')
         ->assertOk()
         ->assertJsonPath('data.metrics.web_orders', 2);
 
     // withToken() writes into the test's default headers, so a request issued
-    // after it would still be authenticated (and answer 200, not 401).
+    // after it would still be authenticated (and answer 200, not 401). The
+    // cached guard user outlives the header too, so reset before dropping the
+    // token.
+    $this->app['auth']->forgetGuards();
+
     $this->withoutToken()
         ->getJson('/api/v1/management/stores/'.$store->store_id.'/web-metrics')
         ->assertUnauthorized();

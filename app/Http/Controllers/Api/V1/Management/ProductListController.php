@@ -371,7 +371,11 @@ class ProductListController extends ApiController
         return $this->user($request)
             ->accessibleStores()
             ->where('status', '!=', Store::STATUS_DELETED)
-            ->pluck('id');
+            // Restricted staff read through the staff_assignments pivot, which
+            // carries its own `id`; a bare pluck is then ambiguous between the
+            // two tables and the query fails. Same qualification as
+            // User::accessibleStoreIds().
+            ->pluck('stores.id');
     }
 
     private function deleteImageFile(ProductImage $image): void

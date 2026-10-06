@@ -4,6 +4,7 @@ namespace App\Mail;
 
 use App\Models\Setting;
 use App\Models\User;
+use App\Support\SpaUrls;
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Content;
@@ -41,7 +42,7 @@ class UserPasswordResetMail extends Mailable
         return new Content(
             view: 'emails.admin.user-password-reset',
             with: [
-                'loginUrl' => route('management.auth.login'),
+                'loginUrl' => SpaUrls::management('/login'),
             ],
         );
     }

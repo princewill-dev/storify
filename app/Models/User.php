@@ -206,16 +206,6 @@ class User extends Authenticatable
         return '₦'.number_format($this->getTotalBalanceInNaira(), 2);
     }
 
-    public function getOnboardingProgress(): array
-    {
-        return [
-            'step' => 'complete',
-            'completed' => true,
-            'next_route' => route('management.dashboard'),
-            'progress_percentage' => 100,
-        ];
-    }
-
     public function isBusinessOwner(): bool
     {
         return $this->role === self::ROLE_BUSINESS_OWNER;

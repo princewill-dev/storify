@@ -62,7 +62,7 @@
     </div>
 
     <div class="section" style="text-align:center;">
-        <a href="{{ route('management.orders.show', ['order' => $order]) }}" class="btn">View order in dashboard</a>
+        <a href="{{ \App\Support\SpaUrls::management('/orders/'.$order->order_number) }}" class="btn">View order in dashboard</a>
     </div>
 
     <div class="footer">
