@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\ActivityLog;
 use App\Models\Business;
 use App\Models\User;
+use App\Support\Http\SensitiveKeys;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Request;
@@ -36,34 +37,7 @@ use Illuminate\Support\Facades\Request;
  */
 class ActivityRecorder
 {
-    /**
-     * Key fragments whose values are replaced before the row is persisted.
-     */
-    private const SENSITIVE_KEY_FRAGMENTS = [
-        'password',
-        'secret',
-        'token',
-        'api_key',
-        'apikey',
-        'private_key',
-        'credit_card',
-        'card_number',
-    ];
-
-    /**
-     * Short keys that are only sensitive on an exact match — a substring rule
-     * for "pin" would also redact something like `shipping_address`.
-     */
-    private const SENSITIVE_EXACT_KEYS = [
-        'pin',
-        'pin_code',
-        'card_pin',
-        'cvv',
-        'cvc',
-        'ssn',
-    ];
-
-    public const REDACTED = '[redacted]';
+    public const REDACTED = SensitiveKeys::REDACTED;
 
     /**
      * Record an audit row.
@@ -128,39 +102,6 @@ class ActivityRecorder
      */
     public static function redact(array $values): array
     {
-        foreach ($values as $key => $value) {
-            if (is_string($key) && self::isSensitiveKey($key)) {
-                $values[$key] = self::REDACTED;
-
-                continue;
-            }
-
-            if (is_array($value)) {
-                $values[$key] = self::redact($value);
-            }
-        }
-
-        return $values;
-    }
-
-    /**
-     * A key is sensitive when it contains any guarded fragment, so
-     * `paystack_secret_key` and `api_keys` are both caught.
-     */
-    private static function isSensitiveKey(string $key): bool
-    {
-        $key = strtolower($key);
-
-        if (in_array($key, self::SENSITIVE_EXACT_KEYS, true)) {
-            return true;
-        }
-
-        foreach (self::SENSITIVE_KEY_FRAGMENTS as $fragment) {
-            if (str_contains($key, $fragment)) {
-                return true;
-            }
-        }
-
-        return false;
+        return SensitiveKeys::redact($values);
     }
 }
