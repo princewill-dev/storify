@@ -1,9 +1,7 @@
 <?php
 
-use App\Http\Middleware\CheckSubscription;
 use App\Http\Middleware\EnsureTokenAudience;
 use App\Http\Middleware\IsPlatformAdmin;
-use App\Http\Middleware\RedirectIfOnboardingIncomplete;
 use App\Http\Middleware\SetPermissionsTeamId;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -25,8 +23,6 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
 
         $middleware->alias([
-            'management.subscription' => CheckSubscription::class,
-            'management.onboarding' => RedirectIfOnboardingIncomplete::class,
             'permission' => PermissionMiddleware::class,
             'role' => RoleMiddleware::class,
             'team.context' => SetPermissionsTeamId::class,

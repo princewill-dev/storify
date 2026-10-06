@@ -2,39 +2,20 @@
 
 use App\Models\Store;
 use App\Rules\ReservedStoreSlug;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
-use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
-test('reserved subdomains never match the storefront routes', function () {
-    [$owner, $business] = createBusinessOwner();
-
-    // Simulate a legacy store that managed to claim a reserved slug.
-    Store::create([
-        'user_id' => $owner->id,
-        'business_id' => $business->id,
-        'name' => 'Reserved Store',
-        'slug' => 'admin',
-        'status' => Store::STATUS_ACTIVE,
-        'has_website' => true,
-    ]);
-
-    $domain = config('app.main_domain');
-    $routes = app('router')->getRoutes();
-
-    $matches = fn (string $host) => $routes->match(Request::create('http://'.$host.'/'));
-
-    foreach (['admin', 'app', 'pos', 'api', 'staff', 'account', 'dashboard', 'staging'] as $reserved) {
-        expect(fn () => $matches($reserved.'.'.$domain))
-            ->toThrow(NotFoundHttpException::class);
-    }
-
-    // A normal store host still matches the storefront route.
-    expect(fn () => $matches('real-shop.'.$domain))->not->toThrow(NotFoundHttpException::class);
-});
+/*
+| The API serves one host and no subdomain routes any more — the storefront,
+| management and admin are standalone SPAs on their own subdomains. The
+| reservation therefore has to hold at the data layer, which is where a store
+| could otherwise claim a slug that collides with a system subdomain. That is
+| what the two tests below cover.
+*/
 
 test('reserved and invalid store slugs are rejected by validation', function () {
-    foreach (['admin', 'app', 'pos', 'api', 'www', 'status', 'Admin', 'ADMIN'] as $slug) {
+    // Includes the hosts the SPAs themselves occupy (app, office), so a store
+    // can never shadow the management or admin console.
+    foreach (['admin', 'app', 'office', 'pos', 'api', 'www', 'manage', 'status', 'Admin', 'ADMIN'] as $slug) {
         expect(Validator::make(['slug' => $slug], ['slug' => [new ReservedStoreSlug]])->fails())->toBeTrue();
     }
 

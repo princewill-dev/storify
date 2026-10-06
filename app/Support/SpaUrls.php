@@ -28,9 +28,28 @@ final class SpaUrls
         return self::base('admin', 'office').self::path($path);
     }
 
-    public static function storefront(string $path = ''): string
+    /**
+     * A store's own storefront. Each store is served from its own subdomain,
+     * so the link has to carry the slug — there is no single storefront origin.
+     *
+     * A configured STOREFRONT_URL wins, which is what a single-store
+     * deployment (or a local dev server reached via ?store=) wants.
+     */
+    public static function storefront(string $storeSlug, string $path = ''): string
     {
-        return self::base('storefront', 'shop').self::path($path);
+        $configured = config('frontend.storefront_url');
+
+        if (is_string($configured) && $configured !== '') {
+            return rtrim($configured, '/').self::path($path);
+        }
+
+        if (app()->environment('local')) {
+            $port = (int) config('frontend.local_ports.storefront', 5174);
+
+            return "http://{$storeSlug}.localhost:{$port}".self::path($path);
+        }
+
+        return 'https://'.$storeSlug.'.'.config('frontend.main_domain', 'storify.ng').self::path($path);
     }
 
     public static function home(string $path = ''): string

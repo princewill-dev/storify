@@ -95,7 +95,9 @@
             <div style="text-align: center;">
                 @php
                     $store = $order->store;
-                    $trackUrl = $store ? route('home.store.order.track', ['store_subdomain' => $store->slug, 'orderNumber' => $order->order_number]) : config('app.url');
+                    $trackUrl = $store
+                        ? \App\Support\SpaUrls::storefront($store->slug, '/track?order='.$order->order_number)
+                        : config('app.url');
                 @endphp
                 <a href="{{ $trackUrl }}" class="button">Track Your Order</a>
             </div>

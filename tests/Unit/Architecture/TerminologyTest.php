@@ -1,6 +1,6 @@
 <?php
 
-it('keeps legacy vendor terminology inside explicit compatibility boundaries', function () {
+it('uses business terminology everywhere, with no legacy exceptions', function () {
     $projectRoot = dirname(__DIR__, 3);
     $roots = [
         $projectRoot.'/app',
@@ -26,23 +26,11 @@ it('keeps legacy vendor terminology inside explicit compatibility boundaries', f
                     continue;
                 }
 
-                $isLegacyMailShim = str_starts_with($relativePath, 'app/Mail/Vendor')
-                    || $relativePath === 'app/Mail/AdminVendorCreated.php';
-                $isLegacyRoute = in_array($relativePath, [
-                    'routes/v1/vendor.php',
-                    'routes/v1/admin_dashboard.php',
-                    'routes/web.php',
-                    'routes/v1/home.php',
-                    'routes/v1/storefront.php',
-                    'routes/api/v1/storefront_api.php',
-                ], true);
-                $isThirdPartyAssetPath = str_contains($line, 'vendor_files/')
-                    || str_contains($line, '/assets/js/vendor/')
-                    || str_contains($line, 'assets/js/vendor/');
-
-                if (! $isLegacyMailShim && ! $isLegacyRoute && ! $isThirdPartyAssetPath) {
-                    $violations[] = sprintf('%s:%d: %s', $relativePath, $lineNumber + 1, trim($line));
-                }
+                // The legacy Blade application, its route files, the mail shims
+                // and the third-party asset directory are all gone, so this
+                // rule no longer carries any carve-outs. A single mention
+                // anywhere in app/, routes/ or resources/views/ now fails.
+                $violations[] = sprintf('%s:%d: %s', $relativePath, $lineNumber + 1, trim($line));
             }
         }
     }

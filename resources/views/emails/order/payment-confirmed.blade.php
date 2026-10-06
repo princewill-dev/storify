@@ -77,7 +77,7 @@
                 </div>
 
                 <div style="text-align: center;">
-                    <a href="{{ route('home.store.order.track', ['store_subdomain' => $store->slug, 'orderNumber' => $order->order_number]) }}" class="button">Track Your Order</a>
+                    <a href="{{ \App\Support\SpaUrls::storefront($store->slug, '/track?order='.$order->order_number) }}" class="button">Track Your Order</a>
                 </div>
             @else
                 <div style="text-align: center;">

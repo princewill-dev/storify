@@ -1,22 +1,21 @@
 <?php
 
-use App\Helpers\StoreSubdomains;
-use App\Http\Controllers\Home\HomePageController;
-use App\Http\Controllers\Home\ProductController;
-use App\Http\Controllers\Home\TrackingController;
 use App\Http\Controllers\Payment\PaystackWebhookController;
-use App\Http\Controllers\Shop4me\Shop4meController;
 use Illuminate\Support\Facades\Route;
 
-// Public webhooks
-Route::post('/webhooks/paystack', [PaystackWebhookController::class, 'handle'])->name('webhooks.paystack');
-// use App\Http\Controllers\BulkCartController;
-// use App\Http\Controllers\Home\InternationalSupplyController;
-use App\Http\Controllers\Home\SearchController;
-use App\Http\Controllers\Home\SupportController;
-use App\Http\Controllers\Storefront\StoreCategoryController;
+/*
+|--------------------------------------------------------------------------
+| Webhooks and apex redirects
+|--------------------------------------------------------------------------
+| The marketing site, storefront and admin console are all standalone SPAs
+| now, so this file carries only what has to live on the API host.
+*/
 
-// Handle www subdomain redirect to main domain
+// Paystack posts here. Must stay on the web stack: it is CSRF-exempted in
+// bootstrap/app.php and verified by signature rather than by session.
+Route::post('/webhooks/paystack', [PaystackWebhookController::class, 'handle'])->name('webhooks.paystack');
+
+// Send www traffic to the apex so links and cookies share one origin.
 Route::domain('www.'.config('app.main_domain', parse_url(config('app.url'), PHP_URL_HOST)))->group(function () {
     Route::get('{any}', function () {
         $mainDomain = config('app.main_domain', parse_url(config('app.url'), PHP_URL_HOST));
@@ -26,54 +25,3 @@ Route::domain('www.'.config('app.main_domain', parse_url(config('app.url'), PHP_
         return redirect("{$scheme}://{$mainDomain}{$path}", 301);
     })->where('any', '.*');
 });
-
-// Main domain routes (non-subdomain)
-Route::domain(config('app.main_domain', parse_url(config('app.url'), PHP_URL_HOST)))->group(function () {
-    // homepage routes
-    Route::get('/', [HomePageController::class, 'index'])->name('home.index');
-
-    // Order tracking
-    Route::get('/track-order', [TrackingController::class, 'index'])->name('tracking.index');
-    Route::get('/track-order/{order}', [TrackingController::class, 'show'])->name('tracking.show');
-
-    Route::get('/about-us', [HomePageController::class, 'about'])->name('home.about');
-    Route::get('/support', [SupportController::class, 'platformIndex'])->name('home.support');
-    Route::post('/support/send', [SupportController::class, 'platformSend'])->name('home.support.send')->middleware('throttle:3,10');
-    Route::get('/pricing', [HomePageController::class, 'pricing'])->name('home.pricing');
-    Route::get('/stores', [HomePageController::class, 'stores'])->name('home.stores');
-    Route::get('/services', [HomePageController::class, 'services'])->name('home.services');
-});
-
-// Local dev bypass: access stores via path instead of subdomain
-if (config('app.env') === 'local') {
-    Route::prefix('{store_subdomain}')
-        ->where(['store_subdomain' => StoreSubdomains::localConstraint()])
-        ->group(function () {
-            // Store homepage (products listing)
-            Route::get('/', [ProductController::class, 'indexByStore'])->name('local.store.products.index');
-
-            // Live search
-            Route::get('/search', [SearchController::class, 'liveSearch'])->name('local.store.search');
-
-            // SHOP4ME landing page
-            Route::get('/shop4me', [Shop4meController::class, 'page'])->name('local.store.shop4me');
-        });
-}
-
-// Subdomain routes for stores (excluding www)
-Route::domain('{store_subdomain}.'.config('app.main_domain', parse_url(config('app.url'), PHP_URL_HOST)))
-    ->where(['store_subdomain' => StoreSubdomains::constraint()])
-    ->group(function () {
-
-        // Store homepage (products listing)
-        Route::get('/', [ProductController::class, 'indexByStore'])->name('home.store.products.index');
-
-        // Live search
-        Route::get('/search', [SearchController::class, 'liveSearch'])->name('home.store.search');
-
-        // Category page
-        Route::get('/category/{category}', [StoreCategoryController::class, 'index'])->name('home.store.category');
-
-        // SHOP4ME landing page
-        Route::get('/shop4me', [Shop4meController::class, 'page'])->name('home.store.shop4me');
-    });

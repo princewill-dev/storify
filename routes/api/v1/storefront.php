@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\V1\Storefront\AccountController;
 use App\Http\Controllers\Api\V1\Storefront\CartController;
 use App\Http\Controllers\Api\V1\Storefront\CatalogController;
 use App\Http\Controllers\Api\V1\Storefront\CheckoutController;
+use App\Http\Controllers\Api\V1\Storefront\DownloadController;
 use App\Http\Controllers\Api\V1\Storefront\SupportController;
 use Illuminate\Support\Facades\Route;
 
@@ -49,4 +50,9 @@ Route::prefix('storefront/{store}')->name('api.storefront.')->group(function () 
     Route::post('payments/paystack/verify', [CheckoutController::class, 'paystackVerify'])->name('payments.paystack.verify');
     Route::post('payments/bank-transfer', [CheckoutController::class, 'bankTransfer'])->name('payments.bank-transfer');
     Route::get('orders/{orderNumber}', [CheckoutController::class, 'orderShow'])->name('orders.show');
+
+    // Tokenised digital downloads. The token in the emailed link IS the
+    // credential, so these stay public and are scoped to the issuing store.
+    Route::get('downloads/{token}', [DownloadController::class, 'show'])->name('downloads.show');
+    Route::get('downloads/{token}/files/{file}', [DownloadController::class, 'file'])->name('downloads.file');
 });

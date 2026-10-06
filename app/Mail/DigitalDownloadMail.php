@@ -4,6 +4,7 @@ namespace App\Mail;
 
 use App\Models\Order;
 use App\Queue\WithQueueConfig;
+use App\Support\SpaUrls;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Mail\Mailable;
@@ -26,13 +27,17 @@ class DigitalDownloadMail extends Mailable implements ShouldQueue
 
     public function content(): Content
     {
+        // The storefront SPA owns the download page now, so the link points at
+        // the store's own subdomain rather than an API Blade route.
+        $storeSlug = (string) ($this->order->store?->slug ?? '');
+
         $downloads = $this->order->digitalDownloads()
             ->with('product')
             ->get()
             ->filter(fn ($download) => $download->product !== null)
             ->map(fn ($download) => [
                 'product_name' => $download->product->name,
-                'url' => route('downloads.show', ['token' => $download->token]),
+                'url' => SpaUrls::storefront($storeSlug, '/download/'.$download->token),
                 'downloads_remaining' => $download->downloadsRemaining(),
                 'expires_at' => $download->expires_at,
                 'file_count' => $download->product->files->count(),
