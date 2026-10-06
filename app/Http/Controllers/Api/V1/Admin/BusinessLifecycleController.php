@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1\Admin;
 
 use App\Enums\OrderStatus;
 use App\Enums\TransactionStatus;
+use App\Http\Controllers\Api\V1\Admin\Concerns\EnsuresPlatformAdmin;
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Mail\AdminBusinessCreated;
 use App\Mail\BusinessReactivated;
@@ -61,6 +62,8 @@ use Illuminate\Validation\Rule;
  */
 class BusinessLifecycleController extends ApiController
 {
+    use EnsuresPlatformAdmin;
+
     /**
      * Owner account statuses an edit is allowed to reach. `deleted` is
      * excluded on purpose — deletion has guards, an edit does not.
@@ -78,7 +81,7 @@ class BusinessLifecycleController extends ApiController
      */
     public function index(Request $request): JsonResponse
     {
-        $this->authorizePlatformAccess($request);
+        $this->authorizePlatformAdmin();
 
         $filters = $request->validate([
             'q' => ['nullable', 'string', 'max:100'],
@@ -160,7 +163,7 @@ class BusinessLifecycleController extends ApiController
      */
     public function store(Request $request): JsonResponse
     {
-        $this->authorizePlatformAccess($request);
+        $this->authorizePlatformAdmin();
 
         if (User::query()->where('role', User::ROLE_SUPERADMIN)->exists() && ! $this->multiBusinessSetupAllowed()) {
             return $this->error(
@@ -256,7 +259,7 @@ class BusinessLifecycleController extends ApiController
      */
     public function show(Request $request, Business $business): JsonResponse
     {
-        $this->authorizePlatformAccess($request);
+        $this->authorizePlatformAdmin();
 
         return $this->ok(['business' => $this->payload($business, detailed: true)]);
     }
@@ -266,7 +269,7 @@ class BusinessLifecycleController extends ApiController
      */
     public function update(Request $request, Business $business): JsonResponse
     {
-        $this->authorizePlatformAccess($request);
+        $this->authorizePlatformAdmin();
 
         if ($business->status === 'deleted') {
             return $this->error('A deleted business cannot be edited.', 422);
@@ -371,7 +374,7 @@ class BusinessLifecycleController extends ApiController
      */
     public function destroy(Request $request, Business $business): JsonResponse
     {
-        $this->authorizePlatformAccess($request);
+        $this->authorizePlatformAdmin();
 
         if ($this->ownsMainStore($business)) {
             ActivityRecorder::record(
@@ -430,7 +433,7 @@ class BusinessLifecycleController extends ApiController
      */
     public function suspend(Request $request, Business $business): JsonResponse
     {
-        $this->authorizePlatformAccess($request);
+        $this->authorizePlatformAdmin();
 
         $data = $request->validate(['reason' => ['required', 'string', 'max:2000']]);
 
@@ -481,7 +484,7 @@ class BusinessLifecycleController extends ApiController
      */
     public function activate(Request $request, Business $business): JsonResponse
     {
-        $this->authorizePlatformAccess($request);
+        $this->authorizePlatformAdmin();
 
         $data = $request->validate(['reason' => ['required', 'string', 'max:2000']]);
 
@@ -542,7 +545,7 @@ class BusinessLifecycleController extends ApiController
      */
     public function verifyOwner(Request $request, Business $business): JsonResponse
     {
-        $this->authorizePlatformAccess($request);
+        $this->authorizePlatformAdmin();
 
         $owner = $business->owner;
 
@@ -851,14 +854,4 @@ class BusinessLifecycleController extends ApiController
      * (WS-1 documented the same hole), so a business-scoped account holding a
      * leaked admin-audience token would otherwise read and mutate every tenant.
      */
-    private function authorizePlatformAccess(Request $request): void
-    {
-        $user = $request->user();
-
-        abort_unless(
-            $user instanceof User && $user->isAdmin(),
-            403,
-            'This endpoint is restricted to platform administrators.',
-        );
-    }
 }

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1\Admin;
 
+use App\Http\Controllers\Api\V1\Admin\Concerns\EnsuresPlatformAdmin;
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Models\ActivityLog;
 use App\Models\User;
@@ -26,6 +27,8 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  */
 class ActivityLogController extends ApiController
 {
+    use EnsuresPlatformAdmin;
+
     /**
      * Columns the list may be sorted by; anything else falls back to newest
      * first. Never pass a request-supplied column straight to orderBy.
@@ -34,7 +37,7 @@ class ActivityLogController extends ApiController
 
     public function index(Request $request): JsonResponse|StreamedResponse
     {
-        $this->authorizePlatformAccess($request);
+        $this->authorizePlatformAdmin();
 
         $filters = $this->validatedFilters($request);
         $query = $this->filteredQuery($filters);
@@ -69,16 +72,6 @@ class ActivityLogController extends ApiController
      * read every tenant's audit rows. Platform admins (AdminAuthController
      * only signs in superadmin/admin) always pass.
      */
-    private function authorizePlatformAccess(Request $request): void
-    {
-        $user = $request->user();
-
-        abort_unless(
-            $user instanceof User && in_array($user->role, [User::ROLE_SUPERADMIN, User::ROLE_ADMIN], true),
-            403,
-            'This endpoint is restricted to platform administrators.',
-        );
-    }
 
     /**
      * @return array<string, mixed>

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1\Admin;
 
 use App\Enums\OrderStatus;
 use App\Enums\TransactionStatus;
+use App\Http\Controllers\Api\V1\Admin\Concerns\EnsuresPlatformAdmin;
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Mail\CustomerAccountActivatedMail;
 use App\Mail\CustomerAccountSuspendedMail;
@@ -11,7 +12,6 @@ use App\Models\ActivityLog;
 use App\Models\Customer;
 use App\Models\Order;
 use App\Models\Transaction;
-use App\Models\User;
 use App\Services\ActivityRecorder;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -31,7 +31,7 @@ use Illuminate\Validation\Rule;
  * oversight. This controller is the platform-wide console. It is deliberately
  * unaware of tenant scoping — a platform admin sees every business's
  * customers — and is guarded instead by `permission:admin.customers` plus the
- * platform-role check in authorizePlatformAccess().
+ * platform-role check in the EnsuresPlatformAdmin trait.
  *
  * Legacy defects fixed rather than cloned:
  * - `sort_by`/`sort_order` were passed straight to `orderBy` (a SQL injection
@@ -55,6 +55,8 @@ use Illuminate\Validation\Rule;
  */
 class CustomerController extends ApiController
 {
+    use EnsuresPlatformAdmin;
+
     /**
      * The directory. Stats are platform-wide and deliberately independent of
      * the active filters — they are the cards above the table, not the page
@@ -62,7 +64,7 @@ class CustomerController extends ApiController
      */
     public function index(Request $request): JsonResponse
     {
-        $this->authorizePlatformAccess($request);
+        $this->authorizePlatformAdmin();
 
         if ($request->filled('status')) {
             $request->merge(['status' => strtolower(trim((string) $request->input('status')))]);
@@ -107,7 +109,7 @@ class CustomerController extends ApiController
      */
     public function countries(Request $request): JsonResponse
     {
-        $this->authorizePlatformAccess($request);
+        $this->authorizePlatformAdmin();
 
         $countries = Cache::remember('admin.customer_countries', now()->addMinutes(10), function () {
             $fromCustomers = Customer::query()
@@ -137,7 +139,7 @@ class CustomerController extends ApiController
      */
     public function show(Request $request, Customer $customer): JsonResponse
     {
-        $this->authorizePlatformAccess($request);
+        $this->authorizePlatformAdmin();
 
         $orders = $customer->orders();
 
@@ -222,7 +224,7 @@ class CustomerController extends ApiController
      */
     public function update(Request $request, Customer $customer): JsonResponse
     {
-        $this->authorizePlatformAccess($request);
+        $this->authorizePlatformAdmin();
 
         if ($request->has('status')) {
             $request->merge(['status' => strtolower(trim((string) $request->input('status')))]);
@@ -288,7 +290,7 @@ class CustomerController extends ApiController
      */
     public function suspend(Request $request, Customer $customer): JsonResponse
     {
-        $this->authorizePlatformAccess($request);
+        $this->authorizePlatformAdmin();
 
         $data = $request->validate([
             'reason' => ['required', 'string', 'max:500'],
@@ -342,7 +344,7 @@ class CustomerController extends ApiController
      */
     public function activate(Request $request, Customer $customer): JsonResponse
     {
-        $this->authorizePlatformAccess($request);
+        $this->authorizePlatformAdmin();
 
         if ($customer->status === Customer::STATUS_ACTIVE) {
             return $this->error('This customer is already active.', 422);
@@ -570,14 +572,4 @@ class CustomerController extends ApiController
      * otherwise read and mutate every tenant's customers (the same hole WS-1
      * and WS-4 documented).
      */
-    private function authorizePlatformAccess(Request $request): void
-    {
-        $user = $request->user();
-
-        abort_unless(
-            $user instanceof User && $user->isAdmin(),
-            403,
-            'This endpoint is restricted to platform administrators.',
-        );
-    }
 }

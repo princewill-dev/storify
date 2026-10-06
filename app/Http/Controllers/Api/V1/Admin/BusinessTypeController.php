@@ -2,11 +2,11 @@
 
 namespace App\Http\Controllers\Api\V1\Admin;
 
+use App\Http\Controllers\Api\V1\Admin\Concerns\EnsuresPlatformAdmin;
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Models\Business;
 use App\Models\BusinessType;
 use App\Models\Store;
-use App\Models\User;
 use App\Services\ActivityRecorder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -27,9 +27,11 @@ use Illuminate\Validation\Rule;
  */
 class BusinessTypeController extends ApiController
 {
+    use EnsuresPlatformAdmin;
+
     public function index(Request $request): JsonResponse
     {
-        $this->authorizePlatformAccess($request);
+        $this->authorizePlatformAdmin();
 
         $filters = $request->validate([
             'q' => ['nullable', 'string', 'max:100'],
@@ -60,7 +62,7 @@ class BusinessTypeController extends ApiController
 
     public function store(Request $request): JsonResponse
     {
-        $this->authorizePlatformAccess($request);
+        $this->authorizePlatformAdmin();
 
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255', Rule::unique('business_types', 'name')],
@@ -81,7 +83,7 @@ class BusinessTypeController extends ApiController
 
     public function update(Request $request, BusinessType $businessType): JsonResponse
     {
-        $this->authorizePlatformAccess($request);
+        $this->authorizePlatformAdmin();
 
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255', Rule::unique('business_types', 'name')->ignore($businessType->id)],
@@ -107,7 +109,7 @@ class BusinessTypeController extends ApiController
 
     public function destroy(Request $request, BusinessType $businessType): JsonResponse
     {
-        $this->authorizePlatformAccess($request);
+        $this->authorizePlatformAdmin();
 
         if ($this->inUse($businessType->id)) {
             return $this->error('This business type is in use by a business or store and cannot be deleted.', 422);
@@ -175,16 +177,5 @@ class BusinessTypeController extends ApiController
             'businesses_count' => $businessesCount,
             'stores_count' => $storesCount,
         ];
-    }
-
-    private function authorizePlatformAccess(Request $request): void
-    {
-        $user = $request->user();
-
-        abort_unless(
-            $user instanceof User && $user->isAdmin(),
-            403,
-            'This endpoint is restricted to platform administrators.',
-        );
     }
 }

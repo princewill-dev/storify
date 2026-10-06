@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1\Admin;
 
+use App\Http\Controllers\Api\V1\Admin\Concerns\EnsuresPlatformAdmin;
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Models\KycApplication;
 use App\Models\User;
@@ -33,11 +34,13 @@ use Illuminate\Validation\Rule;
  */
 class KycApplicationController extends ApiController
 {
+    use EnsuresPlatformAdmin;
+
     public function __construct(private readonly KycApprovalService $kyc) {}
 
     public function index(Request $request): JsonResponse
     {
-        $this->authorizePlatformAccess($request);
+        $this->authorizePlatformAdmin();
 
         $filters = $this->validatedFilters($request);
 
@@ -62,7 +65,7 @@ class KycApplicationController extends ApiController
 
     public function show(Request $request, KycApplication $application): JsonResponse
     {
-        $this->authorizePlatformAccess($request);
+        $this->authorizePlatformAdmin();
 
         $application->load($this->relations());
 
@@ -71,7 +74,7 @@ class KycApplicationController extends ApiController
 
     public function approve(Request $request, KycApplication $application): JsonResponse
     {
-        $this->authorizePlatformAccess($request);
+        $this->authorizePlatformAdmin();
 
         $data = $request->validate([
             'review_notes' => ['nullable', 'string', 'max:2000'],
@@ -95,7 +98,7 @@ class KycApplicationController extends ApiController
 
     public function reject(Request $request, KycApplication $application): JsonResponse
     {
-        $this->authorizePlatformAccess($request);
+        $this->authorizePlatformAdmin();
 
         $data = $request->validate([
             'review_notes' => ['required', 'string', 'max:2000'],
@@ -127,16 +130,6 @@ class KycApplicationController extends ApiController
      * token would otherwise read every business's application. Platform
      * admins (AdminAuthController only signs in superadmin/admin) pass.
      */
-    private function authorizePlatformAccess(Request $request): void
-    {
-        $user = $request->user();
-
-        abort_unless(
-            $user instanceof User && in_array($user->role, [User::ROLE_SUPERADMIN, User::ROLE_ADMIN], true),
-            403,
-            'This endpoint is restricted to platform administrators.',
-        );
-    }
 
     /**
      * @return array<string, mixed>

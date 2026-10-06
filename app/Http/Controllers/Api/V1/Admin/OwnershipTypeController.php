@@ -2,11 +2,11 @@
 
 namespace App\Http\Controllers\Api\V1\Admin;
 
+use App\Http\Controllers\Api\V1\Admin\Concerns\EnsuresPlatformAdmin;
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Models\Business;
 use App\Models\OwnershipType;
 use App\Models\Store;
-use App\Models\User;
 use App\Services\ActivityRecorder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -22,9 +22,11 @@ use Illuminate\Validation\Rule;
  */
 class OwnershipTypeController extends ApiController
 {
+    use EnsuresPlatformAdmin;
+
     public function index(Request $request): JsonResponse
     {
-        $this->authorizePlatformAccess($request);
+        $this->authorizePlatformAdmin();
 
         $filters = $request->validate([
             'q' => ['nullable', 'string', 'max:100'],
@@ -55,7 +57,7 @@ class OwnershipTypeController extends ApiController
 
     public function store(Request $request): JsonResponse
     {
-        $this->authorizePlatformAccess($request);
+        $this->authorizePlatformAdmin();
 
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255', Rule::unique('ownership_types', 'name')],
@@ -76,7 +78,7 @@ class OwnershipTypeController extends ApiController
 
     public function update(Request $request, OwnershipType $ownershipType): JsonResponse
     {
-        $this->authorizePlatformAccess($request);
+        $this->authorizePlatformAdmin();
 
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255', Rule::unique('ownership_types', 'name')->ignore($ownershipType->id)],
@@ -102,7 +104,7 @@ class OwnershipTypeController extends ApiController
 
     public function destroy(Request $request, OwnershipType $ownershipType): JsonResponse
     {
-        $this->authorizePlatformAccess($request);
+        $this->authorizePlatformAdmin();
 
         if ($this->inUse($ownershipType->id)) {
             return $this->error('This ownership type is in use by a business or store and cannot be deleted.', 422);
@@ -170,16 +172,5 @@ class OwnershipTypeController extends ApiController
             'businesses_count' => $businessesCount,
             'stores_count' => $storesCount,
         ];
-    }
-
-    private function authorizePlatformAccess(Request $request): void
-    {
-        $user = $request->user();
-
-        abort_unless(
-            $user instanceof User && $user->isAdmin(),
-            403,
-            'This endpoint is restricted to platform administrators.',
-        );
     }
 }

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1\Admin;
 
 use App\Enums\OrderStatus;
 use App\Enums\TransactionStatus;
+use App\Http\Controllers\Api\V1\Admin\Concerns\EnsuresPlatformAdmin;
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Mail\AdminStoreCreated;
 use App\Mail\StoreActivated;
@@ -71,6 +72,8 @@ use Illuminate\Validation\Rule;
  */
 class StoreModerationController extends ApiController
 {
+    use EnsuresPlatformAdmin;
+
     /**
      * Statuses the create form is allowed to reach. Legacy's create modal
      * offered active/inactive only; `pending`/`suspended`/`deleted` are
@@ -103,7 +106,7 @@ class StoreModerationController extends ApiController
      */
     public function index(Request $request): JsonResponse
     {
-        $this->authorizePlatformAccess($request);
+        $this->authorizePlatformAdmin();
 
         $filters = $request->validate([
             'q' => ['nullable', 'string', 'max:100'],
@@ -198,7 +201,7 @@ class StoreModerationController extends ApiController
      */
     public function show(Request $request, Store $store): JsonResponse
     {
-        $this->authorizePlatformAccess($request);
+        $this->authorizePlatformAdmin();
 
         return $this->ok(['store' => $this->detailPayload($store)]);
     }
@@ -212,7 +215,7 @@ class StoreModerationController extends ApiController
      */
     public function formOptions(Request $request): JsonResponse
     {
-        $this->authorizePlatformAccess($request);
+        $this->authorizePlatformAdmin();
 
         $mainStoreId = $this->mainStoreId();
         $multiBusinessAllowed = $this->multiBusinessSetupAllowed();
@@ -254,7 +257,7 @@ class StoreModerationController extends ApiController
      */
     public function store(Request $request): JsonResponse
     {
-        $this->authorizePlatformAccess($request);
+        $this->authorizePlatformAdmin();
 
         if ($this->mainStoreId() !== null && ! $this->multiBusinessSetupAllowed()) {
             return $this->error('Multi-business controls are disabled.', 422);
@@ -378,7 +381,7 @@ class StoreModerationController extends ApiController
      */
     public function update(Request $request, Store $store): JsonResponse
     {
-        $this->authorizePlatformAccess($request);
+        $this->authorizePlatformAdmin();
 
         if ($store->status === Store::STATUS_DELETED) {
             return $this->error('A deleted store cannot be edited.', 422);
@@ -540,7 +543,7 @@ class StoreModerationController extends ApiController
      */
     public function suspend(Request $request, Store $store): JsonResponse
     {
-        $this->authorizePlatformAccess($request);
+        $this->authorizePlatformAdmin();
 
         $data = $request->validate(['reason' => ['required', 'string', 'max:2000']]);
 
@@ -599,7 +602,7 @@ class StoreModerationController extends ApiController
      */
     public function activate(Request $request, Store $store): JsonResponse
     {
-        $this->authorizePlatformAccess($request);
+        $this->authorizePlatformAdmin();
 
         $data = $request->validate(['reason' => ['required', 'string', 'max:2000']]);
 
@@ -648,7 +651,7 @@ class StoreModerationController extends ApiController
      */
     public function destroy(Request $request, Store $store): JsonResponse
     {
-        $this->authorizePlatformAccess($request);
+        $this->authorizePlatformAdmin();
 
         if ($store->status === Store::STATUS_DELETED) {
             return $this->error('This store has already been deleted.', 422);
@@ -1021,14 +1024,4 @@ class StoreModerationController extends ApiController
      * holding a leaked admin-audience token would otherwise read and mutate
      * every tenant's stores.
      */
-    private function authorizePlatformAccess(Request $request): void
-    {
-        $user = $request->user();
-
-        abort_unless(
-            $user instanceof User && $user->isAdmin(),
-            403,
-            'This endpoint is restricted to platform administrators.',
-        );
-    }
 }

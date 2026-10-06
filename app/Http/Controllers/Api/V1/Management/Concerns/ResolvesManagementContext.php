@@ -35,16 +35,7 @@ trait ResolvesManagementContext
         }
     }
 
-    /**
-     * @return array{current_page: int, last_page: int, per_page: int, total: int}
-     */
-    protected function paginationMeta($paginator): array
-    {
-        return [
-            'current_page' => $paginator->currentPage(),
-            'last_page' => $paginator->lastPage(),
-            'per_page' => $paginator->perPage(),
-            'total' => $paginator->total(),
-        ];
-    }
+    // paginationMeta() deliberately lives on ApiController only. This trait
+    // carried a byte-identical copy, which silently shadowed the base method
+    // for the 61 controllers that use it.
 }
