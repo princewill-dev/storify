@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\V1\Auth\ImpersonationController;
 use App\Http\Controllers\Api\V1\Auth\InvitationController;
 use App\Http\Controllers\Api\V1\Auth\ManagementAuthController;
 use App\Http\Controllers\Api\V1\Auth\TokenController;
+use App\Http\Controllers\Api\V1\Management\SetupController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -66,6 +67,13 @@ Route::middleware(['auth:sanctum', 'token.audience:management', 'team.context'])
         Route::post('logout', [ManagementAuthController::class, 'logout'])->name('logout');
         Route::post('logout-all', [ManagementAuthController::class, 'logoutAll'])->name('logout-all');
         Route::post('stop-impersonation', [ImpersonationController::class, 'stop'])->name('stop-impersonation');
+    });
+
+// Management app — onboarding (authenticated, but before a business exists)
+Route::middleware(['auth:sanctum', 'token.audience:management', 'team.context'])
+    ->prefix('management')->name('api.management.')
+    ->group(function () {
+        Route::post('setup', [SetupController::class, 'store'])->name('setup');
     });
 
 // Admin app — authenticated

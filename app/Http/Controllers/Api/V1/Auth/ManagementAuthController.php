@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1\Auth;
 
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Http\Controllers\Api\V1\Auth\Concerns\BuildsAuthResponses;
+use App\Models\Impersonation;
 use App\Models\User;
 use App\Services\Auth\ApiTokenService;
 use App\Services\Auth\RefreshTokenService;
@@ -222,9 +223,19 @@ class ManagementAuthController extends ApiController
         /** @var User $user */
         $user = $request->user();
 
+        $impersonation = Impersonation::activeForToken($user->currentAccessToken());
+        $impersonator = $impersonation?->impersonator;
+
         return $this->ok([
             'user' => $this->userPayload($user),
             'next' => $this->nextStep($user),
+            'impersonator' => $impersonator ? [
+                'id' => $impersonator->id,
+                'name' => $impersonator->name,
+                'email' => $impersonator->email,
+                'impersonation_id' => $impersonation->id,
+                'started_at' => $impersonation->started_at?->toISOString(),
+            ] : null,
         ]);
     }
 
@@ -248,12 +259,19 @@ class ManagementAuthController extends ApiController
         /** @var User $user */
         $user = $request->user();
 
-        $data = $request->validate([
-            'current_password' => ['required', 'string'],
-            'password' => ['required', 'string', 'min:8', 'confirmed'],
-        ]);
+        // A forced change (first sign-in after an invitation) has no known
+        // current password to prove, so only the new one is collected.
+        $forced = (bool) $user->force_password_change;
 
-        if (! Hash::check($data['current_password'], $user->password)) {
+        $rules = ['password' => ['required', 'string', 'min:8', 'confirmed']];
+
+        if (! $forced) {
+            $rules['current_password'] = ['required', 'string'];
+        }
+
+        $data = $request->validate($rules);
+
+        if (! $forced && ! Hash::check($data['current_password'], $user->password)) {
             return $this->error('The current password is incorrect.', 422, [
                 'current_password' => ['The current password is incorrect.'],
             ]);
