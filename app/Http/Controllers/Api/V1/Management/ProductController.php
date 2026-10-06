@@ -68,6 +68,12 @@ class ProductController extends ApiController
             return $this->error('Invalid store selection.', 422);
         }
 
+        $isDigital = $request->boolean('is_digital');
+
+        if ($message = $this->warehouseAssignmentError($request, $data['warehouse_id'] ?? null, $isDigital)) {
+            return $this->error($message, 422, ['warehouse_id' => [$message]]);
+        }
+
         $data['business_id'] = $user->business_id;
         $data['is_digital'] = $request->boolean('is_digital');
         $data['featured'] = $request->boolean('featured');
@@ -110,6 +116,14 @@ class ProductController extends ApiController
         }
         if ($request->has('has_variants')) {
             $data['has_variants'] = $request->boolean('has_variants');
+        }
+
+        // Judge the product as it will be after this update, not as it is now.
+        $isDigital = $data['is_digital'] ?? (bool) $product->is_digital;
+        $warehouseId = array_key_exists('warehouse_id', $data) ? $data['warehouse_id'] : $product->warehouse_id;
+
+        if ($message = $this->warehouseAssignmentError($request, $warehouseId, $isDigital)) {
+            return $this->error($message, 422, ['warehouse_id' => [$message]]);
         }
 
         DB::transaction(function () use ($request, $product, $data) {
@@ -174,6 +188,32 @@ class ProductController extends ApiController
     }
 
     /**
+     * A physical product must belong to a warehouse the business can reach.
+     *
+     * The legacy form refused to save one without a warehouse ("Please assign
+     * the product to a warehouse"), and the new API accepted it silently —
+     * leaving products that receiving, transfers and stock counts could not
+     * touch. Digital products are exempt: they hold no stock.
+     */
+    private function warehouseAssignmentError(Request $request, ?int $warehouseId, bool $isDigital): ?string
+    {
+        if ($isDigital) {
+            return null;
+        }
+
+        if (! $warehouseId) {
+            return 'Assign the product to a warehouse.';
+        }
+
+        $allowed = $this->user($request)
+            ->accessibleWarehouses()
+            ->whereKey($warehouseId)
+            ->exists();
+
+        return $allowed ? null : 'Invalid warehouse selection.';
+    }
+
+    /**
      * @return array<string, mixed>
      */
     private function rules(bool $forUpdate = false): array
@@ -207,7 +247,7 @@ class ProductController extends ApiController
             'download_limit' => ['nullable', 'integer', 'min:1', 'max:1000'],
             'download_expiry_days' => ['nullable', 'integer', 'min:1', 'max:3650'],
             'images.*' => ['nullable', 'mimes:jpeg,jpg,png,gif,webp', 'max:20480'],
-            'digital_files.*' => ["nullable", "file", "mimes:{$digitalMimes}", "max:{$digitalMaxKb}"],
+            'digital_files.*' => ['nullable', 'file', "mimes:{$digitalMimes}", "max:{$digitalMaxKb}"],
             'delete_image_ids' => ['sometimes', 'array'],
             'delete_image_ids.*' => ['integer'],
             'delete_file_ids' => ['sometimes', 'array'],
@@ -295,6 +335,8 @@ class ProductController extends ApiController
             'status' => $product->status,
             'featured' => (bool) $product->featured,
             'store_id' => $product->store_id,
+            'warehouse_id' => $product->warehouse_id,
+            'warehouse' => $product->warehouse?->name,
             'category_id' => $product->category_id,
             'image_url' => $product->primaryImage()?->path
                 ? asset('storage/'.$product->primaryImage()->path)

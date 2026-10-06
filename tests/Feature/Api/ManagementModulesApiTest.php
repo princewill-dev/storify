@@ -1,16 +1,17 @@
 <?php
 
 use App\Enums\TransactionStatus;
+use App\Models\Business;
 use App\Models\Customer;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\Store;
 use App\Models\Transaction;
 use App\Models\User;
-use Database\Seeders\SpatiePermissionSeeder;
+use App\Models\Warehouse;
 
 /**
- * @return array{0: User, 1: \App\Models\Business, 2: Store}
+ * @return array{0: User, 1: Business, 2: Store, 3: Warehouse}
  */
 function modulesContext(): array
 {
@@ -24,16 +25,24 @@ function modulesContext(): array
         'status' => Store::STATUS_ACTIVE,
     ]);
 
-    return [$owner, $business, $store];
+    $warehouse = Warehouse::create([
+        'user_id' => $owner->id,
+        'business_id' => $business->id,
+        'name' => 'Modules Warehouse',
+        'status' => Warehouse::STATUS_ACTIVE,
+    ]);
+
+    return [$owner, $business, $store, $warehouse];
 }
 
 test('products can be created, updated and deleted through the api', function () {
-    [$owner, $business, $store] = modulesContext();
+    [$owner, $business, $store, $warehouse] = modulesContext();
     $token = managementToken($owner);
 
     $created = $this->postJson('/api/v1/management/products', [
         'name' => 'API Widget',
         'store_id' => $store->id,
+        'warehouse_id' => $warehouse->id,
         'amount' => 2500,
         'quantity' => 10,
         'status' => 'active',

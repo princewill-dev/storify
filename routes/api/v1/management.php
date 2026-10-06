@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\V1\Management\SearchController;
 use App\Http\Controllers\Api\V1\Management\StaffController;
 use App\Http\Controllers\Api\V1\Management\StoreController;
 use App\Http\Controllers\Api\V1\Management\TransactionController;
+use App\Http\Controllers\Api\V1\Management\WarehouseController;
 use App\Http\Middleware\EnsurePosStoreAccess;
 use Illuminate\Support\Facades\Route;
 
@@ -39,6 +40,24 @@ Route::middleware(['auth:sanctum', 'token.audience:management', 'team.context'])
             Route::get('stores/{store}', [StoreController::class, 'show'])
                 ->middleware(EnsurePosStoreAccess::class)
                 ->name('stores.show');
+        });
+
+        // Inventory
+        Route::middleware('permission:warehouses view')->group(function () {
+            Route::get('warehouses', [WarehouseController::class, 'index'])->name('warehouses.index');
+            Route::get('warehouses/{warehouse}', [WarehouseController::class, 'show'])->name('warehouses.show');
+        });
+
+        Route::middleware('permission:warehouses create')->group(function () {
+            Route::post('warehouses', [WarehouseController::class, 'store'])->name('warehouses.store');
+        });
+
+        Route::middleware('permission:warehouses edit')->group(function () {
+            Route::put('warehouses/{warehouse}', [WarehouseController::class, 'update'])->name('warehouses.update');
+        });
+
+        Route::middleware('permission:warehouses delete')->group(function () {
+            Route::delete('warehouses/{warehouse}', [WarehouseController::class, 'destroy'])->name('warehouses.destroy');
         });
 
         // Catalog

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -39,6 +40,15 @@ class StockLocation extends Model
     public function locationable(): MorphTo
     {
         return $this->morphTo();
+    }
+
+    /**
+     * Query form of {@see isLowStock()}, so counts and lists can agree with
+     * the per-row check instead of re-deriving the threshold.
+     */
+    public function scopeLowStock(Builder $query): void
+    {
+        $query->whereColumn('quantity', '<=', 'min_quantity')->where('min_quantity', '>', 0);
     }
 
     public function isLowStock(): bool
