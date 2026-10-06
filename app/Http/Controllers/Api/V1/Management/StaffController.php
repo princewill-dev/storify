@@ -95,7 +95,7 @@ class StaffController extends ApiController
         }
 
         if (! empty($data['warehouse_ids'])) {
-            $warehouseIds = $this->user($request)->accessibleWarehouses()->pluck('id');
+            $warehouseIds = $this->user($request)->accessibleWarehouseIds();
             $staff->assignedWarehouses()->sync(collect($data['warehouse_ids'])->intersect($warehouseIds)->all());
         }
 
@@ -135,7 +135,7 @@ class StaffController extends ApiController
         }
 
         if ($request->has('warehouse_ids')) {
-            $warehouseIds = $this->user($request)->accessibleWarehouses()->pluck('id');
+            $warehouseIds = $this->user($request)->accessibleWarehouseIds();
             $staff->assignedWarehouses()->sync(collect((array) $request->input('warehouse_ids'))->intersect($warehouseIds)->all());
         }
 

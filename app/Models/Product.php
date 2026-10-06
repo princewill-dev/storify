@@ -46,6 +46,8 @@ class Product extends Model
         'is_digital',
         'download_limit',
         'download_expiry_days',
+        'bulk_quantity',
+        'bulk_price',
     ];
 
     protected static function boot()

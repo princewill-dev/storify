@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphToMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 use Laravel\Sanctum\HasApiTokens;
 use Spatie\Permission\Traits\HasRoles;
@@ -56,7 +57,8 @@ class User extends Authenticatable
 
     protected static function boot()
     {
-        parent::boot();        static::creating(function ($model) {
+        parent::boot();
+        static::creating(function ($model) {
             if (empty($model->uuid)) {
                 $model->uuid = (string) Str::uuid();
             }
@@ -130,6 +132,28 @@ class User extends Authenticatable
     public function warehouses(): HasMany
     {
         return $this->hasMany(Warehouse::class);
+    }
+
+    /**
+     * Accessible ids, qualified.
+     *
+     * For restricted staff these run through a morphedByMany, which joins the
+     * pivot table — a bare `pluck('id')` is then ambiguous between the two
+     * tables and the query fails outright.
+     *
+     * @return Collection<int, int>
+     */
+    public function accessibleStoreIds(): Collection
+    {
+        return $this->accessibleStores()->pluck('stores.id');
+    }
+
+    /**
+     * @return Collection<int, int>
+     */
+    public function accessibleWarehouseIds(): Collection
+    {
+        return $this->accessibleWarehouses()->pluck('warehouses.id');
     }
 
     public function locations(): HasMany

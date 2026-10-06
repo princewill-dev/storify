@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1\Management\Concerns;
 use App\Models\Store;
 use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 
 trait ResolvesManagementContext
 {
@@ -17,11 +18,11 @@ trait ResolvesManagementContext
     }
 
     /**
-     * @return \Illuminate\Support\Collection<int, int>
+     * @return Collection<int, int>
      */
     protected function accessibleStoreIds(Request $request)
     {
-        return $this->user($request)->accessibleStores()->pluck('id');
+        return $this->user($request)->accessibleStoreIds();
     }
 
     protected function authorizeStore(Request $request, Store $store): void

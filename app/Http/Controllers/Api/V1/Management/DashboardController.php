@@ -8,7 +8,6 @@ use App\Http\Controllers\Api\V1\ApiController;
 use App\Models\Customer;
 use App\Models\Order;
 use App\Models\Product;
-use App\Models\Store;
 use App\Models\Transaction;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
@@ -24,7 +23,7 @@ class DashboardController extends ApiController
 
         $businessId = $user->business_id;
 
-        $storeIds = $user->accessibleStores()->pluck('id');
+        $storeIds = $user->accessibleStoreIds();
         $storeFilter = $request->filled('store_id')
             ? $storeIds->intersect([(int) $request->integer('store_id')])
             : $storeIds;

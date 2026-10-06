@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1\Management;
 
+use App\Enums\OrderStatus;
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Models\Customer;
 use App\Models\Order;
@@ -25,7 +26,7 @@ class SearchController extends ApiController
         }
 
         $like = '%'.$term.'%';
-        $storeIds = $user->accessibleStores()->pluck('id');
+        $storeIds = $user->accessibleStoreIds();
 
         $products = Product::query()
             ->where('business_id', $user->business_id)
@@ -52,7 +53,7 @@ class SearchController extends ApiController
                 'id' => $order->id,
                 'order_number' => $order->order_number,
                 'total' => (float) $order->total,
-                'status' => $order->status instanceof \App\Enums\OrderStatus ? $order->status->value : $order->status,
+                'status' => $order->status instanceof OrderStatus ? $order->status->value : $order->status,
                 'store_id' => $order->store_id,
             ])->values()->all();
 
