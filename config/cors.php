@@ -7,7 +7,7 @@ $allowedOrigins = array_values(array_filter(array_map(
     explode(',', (string) env('API_ALLOWED_ORIGINS', ''))
 )));
 
-// Regex patterns (e.g. "^https://[a-z0-9-]+\.storyify\.ng$") for wildcard
+// Regex patterns (e.g. "^https://[a-z0-9-]+\.storify\.ng$") for wildcard
 // store subdomains, which cannot be expressed as exact origins.
 $allowedOriginPatterns = array_values(array_filter(array_map(
     'trim',

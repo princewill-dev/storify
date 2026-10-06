@@ -8,7 +8,7 @@ use Illuminate\Support\Facades\Route;
 | Home API (public marketing site)
 |--------------------------------------------------------------------------
 | Standalone from the storefront API on purpose: this surface only serves
-| the storyify.ng marketing site (company, plans, testimonials, services).
+| the storify.ng marketing site (company, plans, testimonials, services).
 */
 
 Route::prefix('home')->name('api.home.')->group(function () {
