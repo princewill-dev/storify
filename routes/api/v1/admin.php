@@ -61,4 +61,11 @@ Route::middleware(['auth:sanctum', 'token.audience:admin', 'team.context'])
             Route::post('coupons/{coupon}/toggle', [CouponController::class, 'toggle'])->name('coupons.toggle');
             Route::delete('coupons/{coupon}', [CouponController::class, 'destroy'])->name('coupons.destroy');
         });
+
+        // Feature modules register their own routes here — one file per domain,
+        // loaded in the group above so they inherit its prefix, name and
+        // middleware. Keeps concurrent work off this shared file.
+        foreach (glob(__DIR__.'/admin/*.php') ?: [] as $module) {
+            require $module;
+        }
     });

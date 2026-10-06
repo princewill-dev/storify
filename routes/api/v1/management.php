@@ -180,4 +180,11 @@ Route::middleware(['auth:sanctum', 'token.audience:management', 'team.context'])
             Route::get('expense-summary', [AccountingController::class, 'expenseSummary'])->name('expense-summary');
             Route::get('integrity', [AccountingController::class, 'integrity'])->name('integrity');
         });
+
+        // Feature modules register their own routes here — one file per domain,
+        // loaded in the group above so they inherit its prefix, name and
+        // middleware. Keeps concurrent work off this shared file.
+        foreach (glob(__DIR__.'/management/*.php') ?: [] as $module) {
+            require $module;
+        }
     });
