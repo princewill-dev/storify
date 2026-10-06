@@ -2,6 +2,7 @@
 
 use App\Models\Product;
 use App\Models\Store;
+use App\Models\Transaction;
 
 function storefrontBankContext(): array
 {
@@ -58,6 +59,14 @@ test('a bank transfer payment can be recorded without a slip', function () {
         'amount' => 500,
         'status' => 'pending',
     ]);
+
+    // 500 against a 1500 order is a part-payment, so it must be flagged as one.
+    // The Paystack branch already recorded this; the bank-transfer branch did
+    // not, which made a part-payment indistinguishable from a settled transfer.
+    $transaction = Transaction::query()->where('amount', 500)->where('status', 'pending')->firstOrFail();
+
+    expect($transaction->metadata['is_partial'])->toBeTrue()
+        ->and($transaction->metadata['payment_method'])->toBe('bank_transfer');
 });
 
 test('payment methods expose descriptions and bank accounts', function () {

@@ -154,3 +154,58 @@ test('me reports no impersonator for a normal session', function () {
         ->assertOk()
         ->assertJsonPath('data.impersonator', null);
 });
+
+test('a forced password change blocks the rest of the management api', function () {
+    [$owner] = createBusinessOwner([
+        'trial_ends_at' => now()->addWeek(),
+        'force_password_change' => true,
+    ]);
+
+    $this->withToken(onboardingToken($owner))
+        ->getJson('/api/v1/management/dashboard')
+        ->assertStatus(403)
+        ->assertJsonPath('code', 'change_password')
+        ->assertJsonPath('redirect', '/change-password');
+});
+
+test('the forced password change leaves the auth routes reachable', function () {
+    [$owner] = createBusinessOwner([
+        'trial_ends_at' => now()->addWeek(),
+        'force_password_change' => true,
+    ]);
+
+    // Without this the SPA could not sign the user out or learn that it is
+    // gated — legacy exempted the same set.
+    $this->withToken(onboardingToken($owner))
+        ->getJson('/api/v1/management/auth/me')
+        ->assertOk();
+});
+
+test('clearing the forced password change restores access', function () {
+    [$owner] = createBusinessOwner([
+        'trial_ends_at' => now()->addWeek(),
+        'force_password_change' => false,
+    ]);
+
+    $this->withToken(onboardingToken($owner))
+        ->getJson('/api/v1/management/dashboard')
+        ->assertOk();
+});
+
+test('staff are exempt from the forced password change gate', function () {
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+
+    $staff = User::factory()->create([
+        'role' => 'staff',
+        'status' => 'active',
+        'business_id' => $business->id,
+        'force_password_change' => true,
+    ]);
+
+    setPermissionsTeamId($business->id);
+    $staff->assignRole('Store Associate');
+
+    $this->withToken(onboardingToken($staff))
+        ->getJson('/api/v1/management/dashboard')
+        ->assertOk();
+});

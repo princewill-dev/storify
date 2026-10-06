@@ -425,6 +425,11 @@ test('the balance sheet and trial balance tie to the ledger and surface their ba
         ->assertJsonPath('data.statement.total_credit', 250000)
         ->assertJsonPath('data.statement.balanced', true);
 
+    // The legacy dashed alias still resolves.
+    $this->getJson('/api/v1/admin/accounting/reports?report=trial-balance', [
+        'Authorization' => 'Bearer '.$token,
+    ])->assertOk()->assertJsonPath('data.report', 'trial_balance');
+
     // As-of dates window the balance sheet; before any entry the books are
     // empty and still balance.
     $this->getJson('/api/v1/admin/accounting/reports?report=balance-sheet&as_of=2000-01-01', [

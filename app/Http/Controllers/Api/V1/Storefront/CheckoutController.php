@@ -296,7 +296,15 @@ class CheckoutController extends ApiController
             'status' => TransactionStatus::PENDING,
             'payment_slip' => $path,
             'store_bank_id' => $data['store_bank_id'] ?? null,
-            'metadata' => ['source' => 'storefront_api', 'payment_method' => 'bank_transfer'],
+            // is_partial marks a part-payment so the management side can tell it
+            // apart from a full bank transfer. The Paystack branch above already
+            // records it; this branch did not, so a partial bank transfer looked
+            // identical to a settled one.
+            'metadata' => [
+                'source' => 'storefront_api',
+                'payment_method' => 'bank_transfer',
+                'is_partial' => $amount < $order->remainingBalance(),
+            ],
         ]);
 
         return $this->ok([
