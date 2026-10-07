@@ -56,7 +56,7 @@ trait BuildsAuthResponses
             ] : null,
             'subscription' => $this->subscriptionPayload($user),
             'roles' => $user->getRoleNames()->values()->all(),
-            'permissions' => $user->getPermissionNames()->values()->all(),
+            'permissions' => $user->getAllPermissions()->pluck('name')->values()->all(),
             'stores' => $this->storesPayload($user),
             'last_login_at' => $user->last_login_at?->toISOString(),
         ];

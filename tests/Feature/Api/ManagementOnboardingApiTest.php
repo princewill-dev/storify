@@ -155,6 +155,23 @@ test('me reports no impersonator for a normal session', function () {
         ->assertJsonPath('data.impersonator', null);
 });
 
+test('me reports the permissions a user holds through their role', function () {
+    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+
+    // The owner holds no permissions directly — everything arrives through the
+    // business's Super Admin role. An earlier payload read getPermissionNames(),
+    // which returns only DIRECT assignments, so this came back empty and every
+    // permission-gated control in the SPA hid itself.
+    $permissions = $this->withToken(onboardingToken($owner))
+        ->getJson('/api/v1/management/auth/me')
+        ->assertOk()
+        ->json('data.user.permissions');
+
+    expect($permissions)->not->toBeEmpty()
+        ->and($permissions)->toContain('stores view')
+        ->and($permissions)->toContain('orders view');
+});
+
 test('a forced password change blocks the rest of the management api', function () {
     [$owner] = createBusinessOwner([
         'trial_ends_at' => now()->addWeek(),

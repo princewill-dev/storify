@@ -21,8 +21,11 @@ use Illuminate\Http\Resources\Json\JsonResource;
  * than one flag: a single order would silently rewrite one endpoint's JSON,
  * and these payloads are asserted exactly.
  *
- * `permissions` keeps `getPermissionNames()->toArray()` verbatim — the
- * collection is not re-keyed, matching every previous payload.
+ * `permissions` lists the EFFECTIVE set — direct permissions plus those
+ * inherited through roles — and is not re-keyed, matching every previous
+ * payload's shape. It used to read getPermissionNames(), which returns only
+ * direct assignments; since staff inherit everything through a role, that
+ * sent an empty array and every permission-gated control hid.
  */
 final class PosUserResource extends JsonResource
 {
@@ -59,7 +62,7 @@ final class PosUserResource extends JsonResource
             'name' => $user->name,
             'email' => $user->email,
             'role' => $user->role,
-            'permissions' => $user->getPermissionNames()->toArray(),
+            'permissions' => $user->getAllPermissions()->pluck('name')->toArray(),
         ];
 
         if ($this->withForcePasswordChange && $this->forcePasswordChangeBeforeTheme) {

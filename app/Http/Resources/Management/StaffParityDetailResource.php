@@ -33,7 +33,7 @@ final class StaffParityDetailResource extends StaffParityResource
         $data['created_at'] = $member->created_at?->toISOString();
         $data['stores'] = $member->assignedStores->map(fn ($store) => ['id' => $store->id, 'name' => $store->name])->values()->all();
         $data['warehouses'] = $member->assignedWarehouses->map(fn ($warehouse) => ['id' => $warehouse->id, 'name' => $warehouse->name])->values()->all();
-        $data['permissions'] = $member->getPermissionNames()->values()->all();
+        $data['permissions'] = $member->getAllPermissions()->pluck('name')->values()->all();
         $data['documents'] = $member->documents->map(fn (StaffDocument $document) => [
             'id' => $document->id,
             'original_name' => $document->original_name,

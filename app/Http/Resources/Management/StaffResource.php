@@ -59,7 +59,7 @@ final class StaffResource extends JsonResource
         if ($this->detailed) {
             $data['stores'] = $user->assignedStores->map(fn ($store) => ['id' => $store->id, 'name' => $store->name])->values()->all();
             $data['warehouses'] = $user->assignedWarehouses->map(fn ($warehouse) => ['id' => $warehouse->id, 'name' => $warehouse->name])->values()->all();
-            $data['permissions'] = $user->getPermissionNames()->values()->all();
+            $data['permissions'] = $user->getAllPermissions()->pluck('name')->values()->all();
         }
 
         return $data;
