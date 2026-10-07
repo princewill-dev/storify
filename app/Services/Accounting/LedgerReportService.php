@@ -12,6 +12,7 @@ use App\Models\LedgerAccount;
 use App\Models\Order;
 use App\Models\Store;
 use App\Models\Transaction;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -19,6 +20,15 @@ use Illuminate\Support\Facades\DB;
 
 class LedgerReportService
 {
+    /**
+     * The widest chart the monthly series will build. Twenty-four months is two
+     * full comparison windows at the largest range the dashboard offers.
+     */
+    private const MAX_SERIES_MONTHS = 24;
+
+    /** The account subtypes that count as spendable money. */
+    private const CASH_SUBTYPES = ['cash', 'bank', 'gateway_clearing'];
+
     /**
      * Trial balance: per-account debit/credit totals for a date range.
      */
@@ -192,6 +202,227 @@ class LedgerReportService
             'net_profit' => $netProfit,
             'as_of' => $asOf,
         ];
+    }
+
+    /**
+     * The ledger accumulated month by month — the series the dashboard charts.
+     *
+     * The incremental twin of balanceSheet() and profitAndLoss(): the same sign
+     * conventions (assets and expenses debit-normal, the rest credit-normal),
+     * but carried as a running balance so one pass yields every figure the
+     * dashboard needs. balanceSheet() answers "what are the totals today"; this
+     * answers "how did they get there". The two must agree, so the dashboard
+     * test pins the final point against balanceSheet() — that test is what
+     * stops this copy from drifting away from the reports.
+     *
+     * Two queries, not one: monthly buckets alone would understate every
+     * running balance unless they were seeded with what was posted before the
+     * range, so the opening sums are read separately rather than assumed zero.
+     *
+     * The month in progress is returned as a final point flagged `partial`, but
+     * is held out of the compared flows while incomplete — a month seven days
+     * old read against a full one looks like a collapse. `comparison_months` is
+     * how many complete months the totals and deltas actually cover, so the
+     * caller can say so rather than imply an N-vs-N comparison it did not make.
+     * A point's `partial` and the period's are therefore not the same question:
+     * the first is "is this month over", the second is "was it left out of the
+     * comparison" — they differ only in a single-month window.
+     *
+     * @return array{
+     *     series: array<int, array<string, mixed>>,
+     *     totals: array<string, int>,
+     *     previous: array<string, int>,
+     *     comparison_months: int,
+     *     partial: bool,
+     *     from: string,
+     *     to: string
+     * }
+     */
+    public function monthlyLedgerSeries(?int $businessId, int $months): array
+    {
+        $months = max(1, min(self::MAX_SERIES_MONTHS, $months));
+
+        // Two different things, deliberately kept apart. The point flag below
+        // says the month is not over, which is always worth showing. `$partial`
+        // says the compared flows leave it out — true unless it is the only
+        // month in the window, where excluding it would leave nothing to report
+        // (January under a year-to-date range). Then the period is simply "this
+        // month so far", measured against the month before it.
+        $monthInProgress = ! Carbon::now()->isEndOfMonth();
+        $partial = $monthInProgress && $months > 1;
+
+        $currentMonth = Carbon::now()->startOfMonth();
+        $windowStart = $currentMonth->copy()->subMonths($months - 1);
+        // One whole window behind the requested one, so every figure has a
+        // preceding period of its own length to be measured against.
+        $fetchStart = $windowStart->copy()->subMonths($months);
+
+        $running = ['asset' => 0, 'liability' => 0, 'equity' => 0, 'income' => 0, 'expense' => 0, 'cash' => 0];
+
+        foreach ($this->ledgerSumsBefore($businessId, $fetchStart->toDateString()) as $row) {
+            $running[$row->type] = ($running[$row->type] ?? 0) + $this->signed($row->type, (int) $row->debit, (int) $row->credit);
+
+            if (in_array($row->subtype, self::CASH_SUBTYPES, true)) {
+                $running['cash'] += (int) $row->debit - (int) $row->credit;
+            }
+        }
+
+        // Bucket by month first, so a month with no activity still gets a point:
+        // a gap in a chart reads as missing data rather than as a quiet month.
+        $deltas = [];
+
+        foreach ($this->ledgerSumsByMonth($businessId, $fetchStart->toDateString(), Carbon::now()->toDateString()) as $row) {
+            $month = (string) $row->month;
+            $deltas[$month] ??= ['asset' => 0, 'liability' => 0, 'equity' => 0, 'income' => 0, 'expense' => 0, 'cash' => 0];
+            $deltas[$month][$row->type] = ($deltas[$month][$row->type] ?? 0) + $this->signed($row->type, (int) $row->debit, (int) $row->credit);
+
+            if (in_array($row->subtype, self::CASH_SUBTYPES, true)) {
+                $deltas[$month]['cash'] += (int) $row->debit - (int) $row->credit;
+            }
+        }
+
+        $points = [];
+        $cursor = $fetchStart->copy();
+        $empty = ['asset' => 0, 'liability' => 0, 'equity' => 0, 'income' => 0, 'expense' => 0, 'cash' => 0];
+
+        while ($cursor->lessThanOrEqualTo($currentMonth)) {
+            $month = $cursor->format('Y-m');
+            $delta = $deltas[$month] ?? $empty;
+
+            foreach (array_keys($empty) as $key) {
+                $running[$key] += $delta[$key];
+            }
+
+            $net = $running['income'] - $running['expense'];
+
+            $points[] = [
+                'month' => $month,
+                'partial' => $monthInProgress && $cursor->equalTo($currentMonth),
+                'income' => $delta['income'],
+                'expenses' => $delta['expense'],
+                'net_profit' => $delta['income'] - $delta['expense'],
+                'assets' => $running['asset'],
+                'liabilities' => $running['liability'],
+                // Matches balanceSheet(): equity accounts plus retained
+                // earnings, which is the cumulative net profit.
+                'equity' => $running['equity'] + $net,
+                'cash' => $running['cash'],
+            ];
+
+            $cursor->addMonth();
+        }
+
+        $comparisonMonths = $partial ? $months - 1 : $months;
+        // Flows cover only the complete months in the window; a stock figure is
+        // "as of today" regardless, which is what the balance sheet means too.
+        $flowEnd = 2 * $months - 1 - ($partial ? 1 : 0);
+        $currentFlow = array_slice($points, $months, $flowEnd - $months + 1);
+        $previousFlow = array_slice($points, $months - $comparisonMonths, $comparisonMonths);
+
+        $last = $points[2 * $months - 1];
+        $beforeWindow = $points[$months - 1];
+
+        return [
+            'series' => array_slice($points, $months),
+            'totals' => $this->stockTotals($last) + $this->flowTotals($currentFlow),
+            'previous' => $this->stockTotals($beforeWindow) + $this->flowTotals($previousFlow),
+            'comparison_months' => $comparisonMonths,
+            'partial' => $partial,
+            'from' => $windowStart->toDateString(),
+            'to' => Carbon::now()->toDateString(),
+        ];
+    }
+
+    /**
+     * Where a month ends, for the stock half of a period's figures.
+     *
+     * @param  array<string, mixed>  $point
+     * @return array<string, int>
+     */
+    private function stockTotals(array $point): array
+    {
+        return [
+            'assets' => $point['assets'],
+            'liabilities' => $point['liabilities'],
+            'equity' => $point['equity'],
+            'cash' => $point['cash'],
+        ];
+    }
+
+    /**
+     * The flows a period accumulated, summed from its monthly points.
+     *
+     * @param  array<int, array<string, mixed>>  $points
+     * @return array<string, int>
+     */
+    private function flowTotals(array $points): array
+    {
+        $income = 0;
+        $expenses = 0;
+
+        foreach ($points as $point) {
+            $income += $point['income'];
+            $expenses += $point['expenses'];
+        }
+
+        return [
+            'income' => $income,
+            'expenses' => $expenses,
+            'net_profit' => $income - $expenses,
+        ];
+    }
+
+    /**
+     * Debit - credit for the debit-normal types (assets, expenses), credit -
+     * debit for the rest — the same rule balanceSheet() applies account by
+     * account.
+     */
+    private function signed(string $type, int $debit, int $credit): int
+    {
+        return in_array($type, [LedgerAccount::TYPE_ASSET, LedgerAccount::TYPE_EXPENSE], true)
+            ? $debit - $credit
+            : $credit - $debit;
+    }
+
+    /**
+     * Posted sums per ledger account type and subtype, bucketed by month.
+     */
+    private function ledgerSumsByMonth(?int $businessId, string $from, string $to): Collection
+    {
+        return $this->ledgerLineQuery($businessId)
+            ->whereDate('journal_entries.entry_date', '>=', $from)
+            ->whereDate('journal_entries.entry_date', '<=', $to)
+            ->groupByRaw("DATE_FORMAT(journal_entries.entry_date, '%Y-%m')")
+            ->groupBy('ledger_accounts.type')
+            ->groupBy('ledger_accounts.subtype')
+            ->selectRaw("DATE_FORMAT(journal_entries.entry_date, '%Y-%m') as month, ledger_accounts.type, ledger_accounts.subtype, SUM(journal_lines.debit_kobo) as debit, SUM(journal_lines.credit_kobo) as credit")
+            ->get();
+    }
+
+    /**
+     * The same sums for everything posted before a date — the opening balances
+     * the monthly buckets accumulate on top of.
+     */
+    private function ledgerSumsBefore(?int $businessId, string $from): Collection
+    {
+        return $this->ledgerLineQuery($businessId)
+            ->whereDate('journal_entries.entry_date', '<', $from)
+            ->groupBy('ledger_accounts.type')
+            ->groupBy('ledger_accounts.subtype')
+            ->selectRaw('ledger_accounts.type, ledger_accounts.subtype, SUM(journal_lines.debit_kobo) as debit, SUM(journal_lines.credit_kobo) as credit')
+            ->get();
+    }
+
+    /**
+     * Posted lines with their account, which every sums query above starts from.
+     */
+    private function ledgerLineQuery(?int $businessId): Builder
+    {
+        return JournalLine::query()
+            ->join('journal_entries', 'journal_entries.id', '=', 'journal_lines.journal_entry_id')
+            ->join('ledger_accounts', 'ledger_accounts.id', '=', 'journal_lines.ledger_account_id')
+            ->where('journal_entries.business_id', $businessId)
+            ->where('journal_entries.status', JournalEntry::STATUS_POSTED);
     }
 
     /**
