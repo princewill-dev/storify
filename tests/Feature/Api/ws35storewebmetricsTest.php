@@ -207,7 +207,7 @@ test('web metrics report the legacy tiles, chart, top products and activity', fu
     $response
         ->assertJsonPath('data.store.name', 'Lekki')
         ->assertJsonPath('data.store.has_website', true)
-        ->assertJsonPath('data.store.store_url', 'https://'.$store->slug.'.'.config('app.main_domain', 'storify.ng'))
+        ->assertJsonPath('data.store.store_url', 'https://'.$store->slug.'.'.config('frontend.storefront_main_domain'))
         // Lifetime counters.
         ->assertJsonPath('data.metrics.store_views', 500)
         ->assertJsonPath('data.metrics.product_views', 160)

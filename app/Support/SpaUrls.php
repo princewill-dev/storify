@@ -32,8 +32,12 @@ final class SpaUrls
      * A store's own storefront. Each store is served from its own subdomain,
      * so the link has to carry the slug — there is no single storefront origin.
      *
+     * The subdomains hang off `storefront_main_domain` (storify.buzz), which is
+     * a different domain from the one management and admin use.
+     *
      * A configured STOREFRONT_URL wins, which is what a single-store
-     * deployment (or a local dev server reached via ?store=) wants.
+     * deployment (or a local dev server reached via ?store=) wants. Note that
+     * it drops the slug — it identifies one origin, not a family of them.
      */
     public static function storefront(string $storeSlug, string $path = ''): string
     {
@@ -49,7 +53,9 @@ final class SpaUrls
             return "http://{$storeSlug}.localhost:{$port}".self::path($path);
         }
 
-        return 'https://'.$storeSlug.'.'.config('frontend.main_domain', 'storify.ng').self::path($path);
+        $domain = (string) config('frontend.storefront_main_domain', config('frontend.main_domain', 'storify.ng'));
+
+        return 'https://'.$storeSlug.'.'.$domain.self::path($path);
     }
 
     public static function home(string $path = ''): string

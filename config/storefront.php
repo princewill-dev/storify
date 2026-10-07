@@ -15,7 +15,6 @@ return [
 
     'reserved_subdomains' => [
         'www',
-        'api',
         'app',
         'admin',
         'pos',

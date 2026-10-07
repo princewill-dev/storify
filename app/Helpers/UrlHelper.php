@@ -11,7 +11,7 @@ class UrlHelper
     {
         $scheme = request()->secure() ? 'https' : 'http';
         $appUrl = config('app.url');
-        $baseDomain = config('app.main_domain', parse_url($appUrl, PHP_URL_HOST));
+        $baseDomain = config('frontend.storefront_main_domain', config('app.main_domain', parse_url($appUrl, PHP_URL_HOST)));
         $port = parse_url($appUrl, PHP_URL_PORT);
 
         $domainWithPort = $port ? "{$baseDomain}:{$port}" : $baseDomain;
@@ -37,7 +37,7 @@ class UrlHelper
         // Temporarily set the subdomain for route generation
         $scheme = request()->secure() ? 'https' : 'http';
         $appUrl = config('app.url');
-        $baseDomain = config('app.main_domain', parse_url($appUrl, PHP_URL_HOST));
+        $baseDomain = config('frontend.storefront_main_domain', config('app.main_domain', parse_url($appUrl, PHP_URL_HOST)));
         $port = parse_url($appUrl, PHP_URL_PORT);
 
         $domainWithPort = $port ? "{$baseDomain}:{$port}" : $baseDomain;

@@ -208,7 +208,7 @@ test('the store payload carries the fields the legacy detail header rendered', f
         ->assertJsonPath('data.store.physical_address', '1 Admiralty Way, Lekki')
         ->assertJsonPath('data.store.socials.instagram', 'https://instagram.com/lekki')
         ->assertJsonPath('data.store.categories_count', 1)
-        ->assertJsonPath('data.store.store_url', 'https://lekki-flagship.'.config('app.main_domain', 'storify.ng'));
+        ->assertJsonPath('data.store.store_url', 'https://lekki-flagship.'.config('frontend.storefront_main_domain'));
 });
 
 test('a store dashboard belonging to another business is refused', function () {
@@ -344,7 +344,7 @@ test('the pos and web cards report their live state', function () {
         ->assertJsonPath('data.pos.active_session.opened_by', $owner->name)
         ->assertJsonPath('data.pos.active_session.opening_balance', 5000)
         ->assertJsonPath('data.web.has_website', true)
-        ->assertJsonPath('data.web.url', 'https://card-store.'.config('app.main_domain', 'storify.ng'))
+        ->assertJsonPath('data.web.url', 'https://card-store.'.config('frontend.storefront_main_domain'))
         ->assertJsonPath('data.web.views', 42);
 });
 

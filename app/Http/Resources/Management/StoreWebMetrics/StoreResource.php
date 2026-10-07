@@ -14,9 +14,8 @@ use Illuminate\Http\Resources\Json\JsonResource;
  *
  * Field names, types and order are the controller's inline `storePayload()`
  * moved verbatim; the endpoint's tests assert this shape. The storefront URL
- * rule is this page's own — `{slug}.{main_domain}` with the `storify.ng`
- * fallback — not StoreOnboardingResource's local-env variant, which answers a
- * different URL in local development.
+ * comes from SpaUrls, so it follows the storefront domain (storify.buzz) and
+ * the local-development branch, not this app's own main_domain.
  *
  * @property Store $resource
  */

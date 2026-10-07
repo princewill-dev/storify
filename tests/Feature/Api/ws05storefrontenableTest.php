@@ -25,7 +25,7 @@ function ws05Store(User $owner, array $attributes = []): Store
 
 function ws05Url(string $slug): string
 {
-    return 'https://'.$slug.'.'.config('app.main_domain');
+    return 'https://'.$slug.'.'.config('frontend.storefront_main_domain');
 }
 
 test('the storefront overview lists accessible stores with their online state', function () {

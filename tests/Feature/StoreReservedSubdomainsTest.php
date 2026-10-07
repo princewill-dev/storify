@@ -14,8 +14,10 @@ use Illuminate\Support\Facades\Validator;
 
 test('reserved and invalid store slugs are rejected by validation', function () {
     // Includes the hosts the SPAs themselves occupy (app, office), so a store
-    // can never shadow the management or admin console.
-    foreach (['admin', 'app', 'office', 'pos', 'api', 'www', 'manage', 'status', 'Admin', 'ADMIN'] as $slug) {
+    // can never shadow the management or admin console. `api` was on this list
+    // until the API moved off a subdomain of ours onto its own origin; it is
+    // no longer reserved because nothing answers to api.<any domain> any more.
+    foreach (['admin', 'app', 'office', 'pos', 'www', 'manage', 'status', 'Admin', 'ADMIN'] as $slug) {
         expect(Validator::make(['slug' => $slug], ['slug' => [new ReservedStoreSlug]])->fails())->toBeTrue();
     }
 

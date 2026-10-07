@@ -7,6 +7,7 @@ use App\Models\ServiceCharge;
 use App\Models\Store;
 use App\Models\StoreBank;
 use App\Models\User;
+use App\Support\SpaUrls;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Support\Collection;
@@ -95,8 +96,10 @@ final class StoreSettingsResource extends JsonResource
             ],
             'storefront' => [
                 'enabled' => (bool) $store->has_website,
+                // Built through SpaUrls so the storefront domain stays in one
+                // place — it is not the platform domain this app is served on.
                 'url' => $store->has_website && $store->slug
-                    ? 'https://'.$store->slug.'.'.config('app.main_domain')
+                    ? SpaUrls::storefront($store->slug)
                     : null,
             ],
         ];

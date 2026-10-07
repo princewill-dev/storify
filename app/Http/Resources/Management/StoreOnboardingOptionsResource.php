@@ -72,6 +72,9 @@ final class StoreOnboardingOptionsResource extends JsonResource
                 'roles' => $member->roles->pluck('name')->all(),
             ])->values()->all(),
             'main_domain' => config('app.main_domain', parse_url((string) config('app.url'), PHP_URL_HOST)),
+            // The subdomain a store is actually published under. Kept separate
+            // from main_domain because storefronts live on their own domain.
+            'storefront_domain' => config('frontend.storefront_main_domain'),
         ];
     }
 }

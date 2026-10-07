@@ -8,6 +8,7 @@ use App\Models\PosSession;
 use App\Models\Product;
 use App\Models\Store;
 use App\Models\Transaction;
+use App\Support\SpaUrls;
 
 final class StoreAnalyticsService
 {
@@ -76,9 +77,8 @@ final class StoreAnalyticsService
             'topProducts' => Product::where('store_id', $store->id)->orderByDesc('views')->take(10)->get(['id', 'name', 'views']),
             'recentActivity' => ActivityLog::where('subject_type', Store::class)->where('subject_id', $store->id)->latest()->take(10)->get(),
             'monthlyWebOrders' => $this->sixMonthSeries($monthlyData, 'count'),
-            'storeUrl' => $store->slug
-                ? (app()->environment('local') ? url($store->slug) : 'https://'.$store->slug.'.'.config('app.main_domain', 'storify.ng'))
-                : null,
+            // SpaUrls carries the storefront domain and the local-dev branch.
+            'storeUrl' => $store->slug ? SpaUrls::storefront($store->slug) : null,
         ];
     }
 

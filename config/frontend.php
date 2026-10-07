@@ -13,9 +13,21 @@
 
 $mainDomain = (string) env('APP_MAIN_DOMAIN', 'storify.ng');
 
+/*
+| The storefronts do not live on the main domain. Every store is served from
+| its own subdomain of a separate domain — {slug}.storify.buzz — while
+| management, admin and the marketing site stay on APP_MAIN_DOMAIN. The two
+| are kept apart deliberately: nothing else derives from this value.
+|
+| The backend is not on a subdomain of either; it is its own origin, reached
+| through API_BASE_URL.
+*/
+$storefrontDomain = (string) env('STOREFRONT_MAIN_DOMAIN', 'storify.buzz');
+
 return [
 
     'main_domain' => $mainDomain,
+    'storefront_main_domain' => $storefrontDomain,
 
     // Absolute origins. Left null, each falls back to a conventional
     // subdomain of the main domain (or a local dev port).
