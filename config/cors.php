@@ -6,9 +6,10 @@ use App\Support\CorsOriginPatterns;
 // the other config file has loaded.
 $allowedOrigins = CorsOriginPatterns::origins((string) env('API_ALLOWED_ORIGINS', ''));
 
-// Regex patterns (e.g. "#^https://[a-z0-9-]+\.storify\.ng$#") for wildcard
-// store subdomains, which cannot be expressed as exact origins. Delimiters are
-// required; undelimited entries are wrapped rather than allowed to 500.
+// Regex patterns for wildcard store subdomains, which cannot be expressed as
+// exact origins. Write them undelimited in .env (e.g.
+// "^https://[a-z0-9-]+\.storify\.buzz$") — normalise() adds the delimiters, and
+// a bare "#...#" value would otherwise be read as a comment and parse empty.
 $allowedOriginPatterns = CorsOriginPatterns::normalise((string) env('API_ALLOWED_ORIGIN_PATTERNS', ''));
 
 return [

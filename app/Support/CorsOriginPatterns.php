@@ -11,6 +11,13 @@ namespace App\Support;
  * warning becomes an exception — every preflight returns 500 and no frontend
  * can talk to the API. Fixing the entry up is friendlier than taking the API
  * down over a paste mistake in an env file.
+ *
+ * Wrapping is also the form to document, for a reason that is not obvious:
+ * dotenv treats a leading "#" as an inline comment, so a delimited pattern
+ * written unquoted in a .env — `API_ALLOWED_ORIGIN_PATTERNS=#^https://…#` —
+ * parses to an empty string. Nothing errors; the origins simply stop matching
+ * and every browser call from those hosts fails as an opaque "Network Error".
+ * Undelimited entries never start with "#", so they cannot fall into it.
  */
 class CorsOriginPatterns
 {
