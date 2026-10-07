@@ -4,14 +4,16 @@ namespace App\Http\Controllers\Api\V1\Admin;
 
 use App\Http\Controllers\Api\V1\Admin\Concerns\EnsuresPlatformAdmin;
 use App\Http\Controllers\Api\V1\ApiController;
+use App\Http\Requests\Admin\ListTestimonialsRequest;
+use App\Http\Requests\Admin\StoreTestimonialRequest;
+use App\Http\Requests\Admin\UpdateTestimonialRequest;
+use App\Http\Resources\Admin\TestimonialResource;
 use App\Models\Testimonial;
-use App\Services\ActivityRecorder;
+use App\Repositories\Admin\TestimonialRepository;
+use App\Services\Admin\TestimonialLifecycleService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
-use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -30,10 +32,11 @@ use Illuminate\Validation\ValidationException;
  *   longText column while the home API serialises `asset('storage/'.$photo)` —
  *   so every legacy row renders as a broken image on the live marketing site.
  *   Uploads are real files on the `public` disk here (the convention the home
- *   app and its tests already expect), and `backfillPhotos()` converts the
- *   existing `data:` rows in place. The admin payload also resolves BOTH
- *   conventions, so the office screen keeps rendering rows the backfill has
- *   not reached yet.
+ *   app and its tests already expect), and the one-shot backfill converts the
+ *   existing `data:` rows in place; the file lifecycle and the backfill walk
+ *   live in {@see TestimonialLifecycleService}. The admin payload resolves
+ *   BOTH conventions, so the office screen keeps rendering rows the backfill
+ *   has not reached yet.
  * - **Escaping.** Legacy printed the message unescaped; a stored `<script>`
  *   executed in the office panel. Fields are stored as plain text and the
  *   API/SPA escape on output — never clone the raw render.
@@ -48,6 +51,20 @@ use Illuminate\Validation\ValidationException;
  * The table is platform-wide marketing content, so no tenant scoping applies;
  * the platform-admin guard still matters because an in-business "Super Admin"
  * role carries the full `admin.*` permission bundle.
+ *
+ * The controller keeps the HTTP shape only — status codes, message strings,
+ * the envelope and pagination meta. Validation lives in the Admin
+ * FormRequests (`ListTestimonialsRequest` for the list filters, the
+ * `Store`/`UpdateTestimonialRequest` pair for the create/edit payload), query
+ * building and the count aggregate in TestimonialRepository, the write
+ * workflows, file lifecycle and photo backfill in
+ * TestimonialLifecycleService, and response shaping in `TestimonialResource`;
+ * the platform-admin guard deliberately stays here so its order is unchanged.
+ *
+ * Text sanitation stays here too, on purpose: a markup-only field must fail
+ * as a normal 422 *before* an upload reaches the disk (the "no orphaned
+ * upload" invariant), and the lifecycle service's transaction-failure catch
+ * would otherwise swallow that ValidationException.
  */
 class TestimonialController extends ApiController
 {
@@ -60,42 +77,16 @@ class TestimonialController extends ApiController
      */
     public const PUBLIC_CAP = 6;
 
-    private const STATUSES = ['active', 'inactive'];
+    public function __construct(
+        private readonly TestimonialRepository $testimonials,
+        private readonly TestimonialLifecycleService $lifecycle,
+    ) {}
 
-    /**
-     * Whitelisted sort columns — an unknown `sort` is rejected by validation,
-     * never passed to orderBy.
-     */
-    private const SORTS = ['position', 'created_at', 'updated_at', 'name', 'id'];
-
-    public function index(Request $request): JsonResponse
+    public function index(ListTestimonialsRequest $request): JsonResponse
     {
         $this->authorizePlatformAdmin();
 
-        $filters = $request->validate([
-            'q' => ['nullable', 'string', 'max:100'],
-            'status' => ['nullable', Rule::in(self::STATUSES)],
-            'sort' => ['nullable', Rule::in(self::SORTS)],
-            'direction' => ['nullable', Rule::in(['asc', 'desc'])],
-            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
-        ]);
-
-        $term = trim((string) ($filters['q'] ?? ''));
-        $sort = $filters['sort'] ?? 'position';
-        $direction = $filters['direction'] ?? 'asc';
-
-        $testimonials = Testimonial::query()
-            ->when($term !== '', fn ($query) => $query->where(fn ($inner) => $inner
-                ->where('name', 'like', "%{$term}%")
-                ->orWhere('occupation', 'like', "%{$term}%")
-                ->orWhere('message', 'like', "%{$term}%")))
-            ->when($filters['status'] ?? null, fn ($query, $status) => $query->where('status', $status))
-            ->orderBy($sort, $direction)
-            // Stable tiebreak so pagination can never duplicate or skip a row.
-            // Legacy's `position` then `created_at desc` had no final tiebreak.
-            ->orderByDesc('id')
-            ->paginate($filters['per_page'] ?? 20)
-            ->withQueryString();
+        $testimonials = $this->testimonials->paginateForAdmin($request->validated());
 
         return $this->ok(
             [
@@ -104,7 +95,7 @@ class TestimonialController extends ApiController
                     ->values()
                     ->all(),
                 'public_cap' => self::PUBLIC_CAP,
-                'counts' => $this->counts(),
+                'counts' => $this->testimonials->counts(),
             ],
             null,
             200,
@@ -112,20 +103,18 @@ class TestimonialController extends ApiController
         );
     }
 
-    public function store(Request $request): JsonResponse
+    public function store(StoreTestimonialRequest $request): JsonResponse
     {
         $this->authorizePlatformAdmin();
 
-        $data = $this->validated($request, true);
-
         // Clean the text first, so a markup-only field is a normal 422 and
         // never reaches the disk as an orphaned upload.
-        $clean = $this->cleanText($data);
+        $data = $this->cleanText($request->validated());
 
         // Write the file before the row so a storage failure never leaves a
         // database row pointing at nothing.
         try {
-            $photo = $this->storePhoto($request);
+            $photo = $this->lifecycle->storePhoto($request->file('photo'));
         } catch (\Throwable $e) {
             Log::error('api.admin.testimonial_photo_store_failed', [
                 'admin_id' => $request->user()?->id,
@@ -136,29 +125,8 @@ class TestimonialController extends ApiController
         }
 
         try {
-            $testimonial = DB::transaction(function () use ($clean, $data, $photo) {
-                $testimonial = Testimonial::create([
-                    'name' => $clean['name'],
-                    'occupation' => $clean['occupation'],
-                    'message' => $clean['message'],
-                    'photo' => $photo,
-                    'status' => $data['status'],
-                    'position' => $data['position'] ?? 0,
-                ]);
-
-                ActivityRecorder::record(
-                    action: 'testimonial_created',
-                    description: "Testimonial from {$testimonial->name} created.",
-                    subject: $testimonial,
-                    new: $this->auditValues($testimonial),
-                );
-
-                return $testimonial;
-            });
+            $testimonial = $this->lifecycle->create($data, $photo);
         } catch (\Throwable $e) {
-            // The row did not persist, so the orphaned file must not either.
-            $this->deletePhotoFile($photo);
-
             Log::error('api.admin.testimonial_create_failed', [
                 'admin_id' => $request->user()?->id,
                 'error' => $e->getMessage(),
@@ -175,17 +143,13 @@ class TestimonialController extends ApiController
         return $this->ok(['testimonial' => $this->payload($testimonial)], 'Testimonial created.', 201);
     }
 
-    public function update(Request $request, Testimonial $testimonial): JsonResponse
+    public function update(UpdateTestimonialRequest $request, Testimonial $testimonial): JsonResponse
     {
         $this->authorizePlatformAdmin();
 
         // Photo is optional on edit — legacy's "Leave empty to keep current
         // photo" hint.
-        $data = $this->validated($request, false);
-
-        // Clean the text first, so a markup-only field is a normal 422 and
-        // never reaches the disk as an orphaned upload.
-        $clean = $this->cleanText($data);
+        $data = $this->cleanText($request->validated());
 
         // Store the replacement first: the old file is only deleted once the
         // row points at the new one.
@@ -193,7 +157,7 @@ class TestimonialController extends ApiController
 
         if ($request->hasFile('photo')) {
             try {
-                $newPhoto = $this->storePhoto($request);
+                $newPhoto = $this->lifecycle->storePhoto($request->file('photo'));
             } catch (\Throwable $e) {
                 Log::error('api.admin.testimonial_photo_store_failed', [
                     'admin_id' => $request->user()?->id,
@@ -205,41 +169,9 @@ class TestimonialController extends ApiController
             }
         }
 
-        // The replaced file is only removed once the transaction has
-        // committed: a rollback must find the row still pointing at its old
-        // file, so deletion can never run ahead of a durable write (legacy
-        // deleted the old file before storing the new one and could lose both).
-        $previousPhoto = $testimonial->photo;
-
         try {
-            DB::transaction(function () use ($newPhoto, $testimonial, $data, $clean) {
-                $before = $this->auditValues($testimonial);
-
-                $attributes = [
-                    'name' => $clean['name'],
-                    'occupation' => $clean['occupation'],
-                    'message' => $clean['message'],
-                    'status' => $data['status'],
-                    'position' => $data['position'] ?? 0,
-                ];
-
-                if ($newPhoto !== null) {
-                    $attributes['photo'] = $newPhoto;
-                }
-
-                $testimonial->update($attributes);
-
-                ActivityRecorder::record(
-                    action: 'testimonial_updated',
-                    description: "Testimonial from {$testimonial->name} updated.",
-                    subject: $testimonial,
-                    old: $before,
-                    new: $this->auditValues($testimonial),
-                );
-            });
+            $this->lifecycle->update($testimonial, $data, $newPhoto);
         } catch (\Throwable $e) {
-            $this->deletePhotoFile($newPhoto);
-
             Log::error('api.admin.testimonial_update_failed', [
                 'admin_id' => $request->user()?->id,
                 'testimonial_id' => $testimonial->id,
@@ -249,11 +181,6 @@ class TestimonialController extends ApiController
             return $this->error('Failed to update testimonial. Please try again.', 500);
         }
 
-        // The replacement is committed; the superseded file can go now.
-        if ($newPhoto !== null && $previousPhoto !== $newPhoto) {
-            $this->deletePhotoFile($previousPhoto);
-        }
-
         return $this->ok(['testimonial' => $this->payload($testimonial->fresh())], 'Testimonial updated.');
     }
 
@@ -261,22 +188,7 @@ class TestimonialController extends ApiController
     {
         $this->authorizePlatformAdmin();
 
-        $photo = $testimonial->photo;
-
-        DB::transaction(function () use ($testimonial) {
-            ActivityRecorder::record(
-                action: 'testimonial_deleted',
-                description: "Testimonial from {$testimonial->name} deleted.",
-                subject: $testimonial,
-                old: $this->auditValues($testimonial),
-            );
-
-            $testimonial->delete();
-        });
-
-        // Legacy hard-deleted the row and left the file behind; the rebuild
-        // keeps the disk clean. Base64 rows have no file to remove.
-        $this->deletePhotoFile($photo);
+        $this->lifecycle->delete($testimonial);
 
         Log::info('api.admin.testimonial_deleted', [
             'admin_id' => $request->user()?->id,
@@ -294,21 +206,7 @@ class TestimonialController extends ApiController
     {
         $this->authorizePlatformAdmin();
 
-        DB::transaction(function () use ($testimonial) {
-            $before = ['status' => $testimonial->status];
-
-            $testimonial->update([
-                'status' => $testimonial->status === 'active' ? 'inactive' : 'active',
-            ]);
-
-            ActivityRecorder::record(
-                action: 'testimonial_toggled',
-                description: "Testimonial from {$testimonial->name} set to {$testimonial->status}.",
-                subject: $testimonial,
-                old: $before,
-                new: ['status' => $testimonial->status],
-            );
-        });
+        $this->lifecycle->toggle($testimonial);
 
         return $this->ok(
             ['testimonial' => $this->payload($testimonial->fresh())],
@@ -320,171 +218,46 @@ class TestimonialController extends ApiController
      * One-shot repair for the live photo mismatch: legacy stored uploads as
      * `data:{mime};base64,…` strings in the same column the home API builds
      * `asset('storage/'.$photo)` from, so every legacy row renders a broken
-     * image. This decodes each base64 row to a real file on the public disk
-     * and rewrites the column to the stored path.
-     *
-     * Deliberately idempotent and safe to re-run: only rows still starting
-     * with `data:` are touched, rows whose payload cannot be decoded are
-     * skipped (never deleted), and the response reports what is left.
+     * image. The lifecycle service decodes each base64 row to a real file on
+     * the public disk and rewrites the column to the stored path; this action
+     * logs the actor and maps the run's counts to the response.
      */
     public function backfillPhotos(Request $request): JsonResponse
     {
         $this->authorizePlatformAdmin();
 
-        $converted = 0;
-        $skipped = 0;
-        $failed = 0;
-
-        Testimonial::query()
-            ->where('photo', 'like', 'data:%')
-            ->orderBy('id')
-            ->chunkById(50, function ($testimonials) use (&$converted, &$skipped, &$failed) {
-                foreach ($testimonials as $testimonial) {
-                    $decoded = $this->decodeLegacyPhoto($testimonial->photo);
-
-                    if ($decoded === null) {
-                        $skipped++;
-
-                        continue;
-                    }
-
-                    [$binary, $extension] = $decoded;
-                    $path = 'testimonials/legacy-'.$testimonial->id.'-'.substr(sha1((string) microtime(true)), 0, 8).'.'.$extension;
-
-                    try {
-                        Storage::disk('public')->put($path, $binary);
-                        $testimonial->update(['photo' => $path]);
-                        $converted++;
-                    } catch (\Throwable $e) {
-                        $failed++;
-
-                        Log::error('api.admin.testimonial_photo_backfill_failed', [
-                            'testimonial_id' => $testimonial->id,
-                            'error' => $e->getMessage(),
-                        ]);
-                    }
-                }
-            });
-
-        $remaining = Testimonial::query()->where('photo', 'like', 'data:%')->count();
-
-        if ($converted > 0) {
-            ActivityRecorder::record(
-                action: 'testimonials_photos_backfilled',
-                description: "Converted {$converted} legacy base64 testimonial photo(s) to storage files.",
-                new: ['converted' => $converted, 'skipped' => $skipped, 'failed' => $failed],
-            );
-        }
+        $result = $this->lifecycle->backfillLegacyPhotos();
 
         Log::info('api.admin.testimonial_photo_backfill', [
             'admin_id' => $request->user()?->id,
-            'converted' => $converted,
-            'skipped' => $skipped,
-            'failed' => $failed,
-            'remaining' => $remaining,
+            'converted' => $result['converted'],
+            'skipped' => $result['skipped'],
+            'failed' => $result['failed'],
+            'remaining' => $result['remaining'],
         ]);
 
         return $this->ok(
-            ['converted' => $converted, 'skipped' => $skipped, 'failed' => $failed, 'remaining' => $remaining],
-            $converted > 0
-                ? "Converted {$converted} legacy photo(s) to storage files."
+            $result,
+            $result['converted'] > 0
+                ? "Converted {$result['converted']} legacy photo(s) to storage files."
                 : 'No legacy photos could be converted.',
         );
     }
 
     /**
-     * @return array<string, mixed>
-     */
-    private function validated(Request $request, bool $creating): array
-    {
-        return $request->validate([
-            'name' => ['required', 'string', 'max:255'],
-            'occupation' => ['required', 'string', 'max:255'],
-            'message' => ['required', 'string', 'max:1000'],
-            'photo' => $creating
-                ? ['required', 'image', 'mimes:jpeg,png,jpg,gif', 'max:2048']
-                : ['nullable', 'image', 'mimes:jpeg,png,jpg,gif', 'max:2048'],
-            'status' => ['required', Rule::in(self::STATUSES)],
-            'position' => ['nullable', 'integer', 'min:0'],
-        ]);
-    }
-
-    /**
-     * Store the uploaded photo as a real file. Legacy base64-encoded it into
-     * the row; the home API and its tests both expect a `storage/`-relative
-     * path, so that is the contract here.
-     */
-    private function storePhoto(Request $request): string
-    {
-        return $request->file('photo')->store('testimonials', 'public');
-    }
-
-    /**
-     * Removes an uploaded file from disk. Legacy base64 rows and any absolute
-     * URL a seeder may have stored have no file to delete.
-     */
-    private function deletePhotoFile(?string $photo): void
-    {
-        if (! $photo || str_starts_with($photo, 'data:') || str_starts_with($photo, 'http')) {
-            return;
-        }
-
-        try {
-            Storage::disk('public')->delete($photo);
-        } catch (\Throwable $e) {
-            Log::warning('api.admin.testimonial_photo_delete_failed', [
-                'path' => $photo,
-                'error' => $e->getMessage(),
-            ]);
-        }
-    }
-
-    /**
-     * Decode a legacy `data:{mime};base64,…` photo.
+     * Clean the editable text fields, keeping every other validated key (the
+     * photo, status and position) on the same payload the service takes.
      *
-     * @return array{0: string, 1: string}|null [binary, extension] or null when
-     *                                          the value is not a usable image
-     */
-    private function decodeLegacyPhoto(?string $photo): ?array
-    {
-        if (! is_string($photo) || ! preg_match('/^data:(image\/(?:jpeg|jpg|png|gif|webp));base64,(.+)$/s', $photo, $matches)) {
-            return null;
-        }
-
-        $binary = base64_decode($matches[2], true);
-
-        if ($binary === false || strlen($binary) < 32) {
-            return null;
-        }
-
-        // Legacy validation capped uploads at 2 MB; do not write an absurd
-        // blob into the public disk just because a row contains one.
-        if (strlen($binary) > 4 * 1024 * 1024) {
-            return null;
-        }
-
-        $extension = match ($matches[1]) {
-            'image/jpeg', 'image/jpg' => 'jpg',
-            'image/png' => 'png',
-            'image/gif' => 'gif',
-            'image/webp' => 'webp',
-            default => null,
-        };
-
-        return $extension === null ? null : [$binary, $extension];
-    }
-
-    /**
      * @param  array<string, mixed>  $data
-     * @return array{name: string, occupation: string, message: string}
+     * @return array<string, mixed>
      */
     private function cleanText(array $data): array
     {
-        return [
-            'name' => $this->plainText($data['name'], 'name', 'Name'),
-            'occupation' => $this->plainText($data['occupation'], 'occupation', 'Occupation'),
-            'message' => $this->plainText($data['message'], 'message', 'Message'),
-        ];
+        $data['name'] = $this->plainText($data['name'], 'name', 'Name');
+        $data['occupation'] = $this->plainText($data['occupation'], 'occupation', 'Occupation');
+        $data['message'] = $this->plainText($data['message'], 'message', 'Message');
+
+        return $data;
     }
 
     /**
@@ -517,76 +290,13 @@ class TestimonialController extends ApiController
     }
 
     /**
+     * The row payload, shaped by TestimonialResource. Kept as a thin private
+     * seam so the response sites read as they did before the extraction.
+     *
      * @return array<string, mixed>
      */
     private function payload(Testimonial $testimonial): array
     {
-        return [
-            'id' => $testimonial->id,
-            'name' => $testimonial->name,
-            'occupation' => $testimonial->occupation,
-            'message' => $testimonial->message,
-            // Renders both conventions: a real storage path (post-backfill and
-            // every new upload) and a legacy `data:` URI that has not been
-            // converted yet.
-            'photo_url' => $this->photoUrl($testimonial->photo),
-            'has_photo' => (bool) $testimonial->photo,
-            'is_legacy_photo' => str_starts_with((string) $testimonial->photo, 'data:'),
-            'status' => $testimonial->status,
-            'position' => (int) $testimonial->position,
-            'created_at' => $testimonial->created_at?->toISOString(),
-            'updated_at' => $testimonial->updated_at?->toISOString(),
-        ];
-    }
-
-    private function photoUrl(?string $photo): ?string
-    {
-        if (! $photo) {
-            return null;
-        }
-
-        if (str_starts_with($photo, 'data:') || str_starts_with($photo, 'http')) {
-            return $photo;
-        }
-
-        return asset('storage/'.$photo);
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function auditValues(Testimonial $testimonial): array
-    {
-        return [
-            'name' => $testimonial->name,
-            'occupation' => $testimonial->occupation,
-            // Never copy base64 blobs into the audit table.
-            'photo' => str_starts_with((string) $testimonial->photo, 'data:') ? '[base64 photo]' : $testimonial->photo,
-            'status' => $testimonial->status,
-            'position' => (int) $testimonial->position,
-        ];
-    }
-
-    /**
-     * One aggregate instead of four counts — the screen shows total / active /
-     * inactive and how many rows still need the photo backfill.
-     *
-     * @return array<string, int>
-     */
-    private function counts(): array
-    {
-        $counts = Testimonial::query()->selectRaw("
-            count(*) as total,
-            sum(case when status = 'active' then 1 else 0 end) as active,
-            sum(case when status = 'inactive' then 1 else 0 end) as inactive,
-            sum(case when photo like 'data:%' then 1 else 0 end) as legacy_photos
-        ")->first();
-
-        return [
-            'total' => (int) ($counts->total ?? 0),
-            'active' => (int) ($counts->active ?? 0),
-            'inactive' => (int) ($counts->inactive ?? 0),
-            'legacy_photos' => (int) ($counts->legacy_photos ?? 0),
-        ];
+        return TestimonialResource::make($testimonial)->resolve();
     }
 }

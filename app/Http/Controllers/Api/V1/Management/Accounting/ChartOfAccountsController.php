@@ -4,14 +4,15 @@ namespace App\Http\Controllers\Api\V1\Management\Accounting;
 
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Http\Controllers\Api\V1\Management\Concerns\ResolvesManagementContext;
-use App\Models\JournalEntry;
-use App\Models\JournalLine;
+use App\Http\Requests\Management\Accounting\StoreLedgerAccountRequest;
+use App\Http\Requests\Management\Accounting\UpdateLedgerAccountRequest;
+use App\Http\Resources\Management\Accounting\LedgerAccountResource;
 use App\Models\LedgerAccount;
+use App\Repositories\Management\Accounting\LedgerAccountRepository;
+use App\Services\Access\TenantGuard;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -22,34 +23,41 @@ use Illuminate\Validation\ValidationException;
  * route file, so this registration wins and the computed balances land on the
  * endpoint the SPA already calls. The create/update/toggle routes are new.
  *
- * Balances are sign-corrected per account type exactly as legacy did: assets
- * and expenses grow on the debit side, everything else on the credit side.
+ * Layering: the HTTP shape (statuses, messages, envelope) stays here; field
+ * validation lives in App\Http\Requests\Management\Accounting, queries in
+ * App\Repositories\Management\Accounting\LedgerAccountRepository and the
+ * payload in App\Http\Resources\Management\Accounting\LedgerAccountResource
+ * (which documents the legacy sign correction).
  */
 class ChartOfAccountsController extends ApiController
 {
     use ResolvesManagementContext;
 
+    public function __construct(
+        private readonly LedgerAccountRepository $repository,
+        private readonly TenantGuard $tenant,
+    ) {}
+
     public function index(Request $request): JsonResponse
     {
         $businessId = $this->user($request)->business_id;
 
-        $accounts = LedgerAccount::query()
-            ->where('business_id', $businessId)
-            ->with('parent:id,code,name')
-            ->orderBy('code')
-            ->get();
+        $accounts = $this->repository->listForBusiness($businessId);
 
-        $balances = $this->postedBalances($businessId);
+        $balances = $this->repository->postedBalances($businessId);
 
-        $rows = $accounts->map(fn (LedgerAccount $account) => $this->accountPayload($account, $balances))->values()->all();
+        $rows = $accounts
+            ->map(fn (LedgerAccount $account) => (new LedgerAccountResource($account, $balances))->resolve())
+            ->values()
+            ->all();
 
         return $this->ok(['accounts' => $rows]);
     }
 
-    public function store(Request $request): JsonResponse
+    public function store(StoreLedgerAccountRequest $request): JsonResponse
     {
         $user = $this->user($request);
-        $data = $this->validated($request, $user->business_id);
+        $data = $request->validated();
 
         $account = LedgerAccount::create([
             'business_id' => $user->business_id,
@@ -72,14 +80,18 @@ class ChartOfAccountsController extends ApiController
             'code' => $account->code,
         ]);
 
-        return $this->ok(['account' => $this->accountPayload($account->load('parent'))], 'Account created.', 201);
+        return $this->ok(
+            ['account' => (new LedgerAccountResource($account->load('parent')))->resolve()],
+            'Account created.',
+            201,
+        );
     }
 
-    public function update(Request $request, LedgerAccount $account): JsonResponse
+    public function update(UpdateLedgerAccountRequest $request, LedgerAccount $account): JsonResponse
     {
         $this->authorizeAccount($request, $account);
 
-        $data = $this->validated($request, $account->business_id, $account->id);
+        $data = $request->validated();
 
         // Legacy's edit form could deactivate a system account even though the
         // toggle route refused it — the guard belongs on every write path.
@@ -99,7 +111,10 @@ class ChartOfAccountsController extends ApiController
             'is_active' => $data['is_active'] ?? $account->is_active,
         ]);
 
-        return $this->ok(['account' => $this->accountPayload($account->fresh()->load('parent'))], 'Account updated.');
+        return $this->ok(
+            ['account' => (new LedgerAccountResource($account->fresh()->load('parent')))->resolve()],
+            'Account updated.',
+        );
     }
 
     public function toggle(Request $request, LedgerAccount $account): JsonResponse
@@ -113,38 +128,17 @@ class ChartOfAccountsController extends ApiController
         $account->update(['is_active' => ! $account->is_active]);
 
         return $this->ok(
-            ['account' => $this->accountPayload($account->fresh()->load('parent'))],
+            ['account' => (new LedgerAccountResource($account->fresh()->load('parent')))->resolve()],
             $account->is_active ? 'Account activated.' : 'Account deactivated.',
         );
     }
 
     /**
-     * @return array<string, mixed>
-     */
-    private function validated(Request $request, int $businessId, ?int $ignoreId = null): array
-    {
-        return $request->validate([
-            'code' => [
-                'required', 'string', 'max:20',
-                Rule::unique('ledger_accounts', 'code')
-                    ->where(fn ($q) => $q->where('business_id', $businessId))
-                    ->ignore($ignoreId),
-            ],
-            'name' => ['required', 'string', 'max:255'],
-            'type' => ['required', Rule::in(LedgerAccount::TYPES)],
-            // Legacy stored a nullable subtype without exposing it in the form;
-            // the field stays optional rather than being dropped.
-            'subtype' => ['nullable', 'string', 'max:40'],
-            'parent_id' => ['nullable', Rule::exists('ledger_accounts', 'id')->where('business_id', $businessId)],
-            'description' => ['nullable', 'string', 'max:1000'],
-            'is_active' => ['nullable', 'boolean'],
-        ]);
-    }
-
-    /**
      * A parent must not be the account itself or anything beneath it —
      * legacy only hid the current account in the picker and never validated
-     * the tree, so a crafted request could close a loop.
+     * the tree, so a crafted request could close a loop. The subtree walk
+     * lives in the repository; the two refusals stay here, in the write
+     * sequence, because their response shape is HTTP.
      */
     private function assertParentAllowed(LedgerAccount $account, ?int $parentId): void
     {
@@ -158,74 +152,15 @@ class ChartOfAccountsController extends ApiController
             ]);
         }
 
-        $cursor = LedgerAccount::query()->find($parentId);
-
-        while ($cursor?->parent_id) {
-            if ((int) $cursor->parent_id === (int) $account->id) {
-                throw ValidationException::withMessages([
-                    'parent_id' => 'That account sits below this one, so it cannot be its parent.',
-                ]);
-            }
-
-            $cursor = $cursor->parent;
+        if ($this->repository->isInSubtreeOf($account, $parentId)) {
+            throw ValidationException::withMessages([
+                'parent_id' => 'That account sits below this one, so it cannot be its parent.',
+            ]);
         }
     }
 
     private function authorizeAccount(Request $request, LedgerAccount $account): void
     {
-        if ((int) $account->business_id !== (int) $this->user($request)->business_id) {
-            abort(403, 'You do not have access to this account.');
-        }
-    }
-
-    /**
-     * Posted debit/credit totals keyed by ledger account id.
-     *
-     * @return Collection<int, \stdClass>
-     */
-    private function postedBalances(int $businessId): Collection
-    {
-        return JournalLine::query()
-            ->join('journal_entries', 'journal_entries.id', '=', 'journal_lines.journal_entry_id')
-            ->where('journal_entries.business_id', $businessId)
-            ->where('journal_entries.status', JournalEntry::STATUS_POSTED)
-            ->groupBy('journal_lines.ledger_account_id')
-            ->selectRaw('journal_lines.ledger_account_id, SUM(journal_lines.debit_kobo) as debit, SUM(journal_lines.credit_kobo) as credit')
-            ->get()
-            ->keyBy('ledger_account_id');
-    }
-
-    /**
-     * @param  Collection<int, \stdClass>|null  $balances
-     * @return array<string, mixed>
-     */
-    private function accountPayload(LedgerAccount $account, ?Collection $balances = null): array
-    {
-        $balanceKobo = null;
-
-        if ($balances !== null) {
-            $row = $balances->get($account->id);
-            $debit = (int) ($row->debit ?? 0);
-            $credit = (int) ($row->credit ?? 0);
-
-            $balanceKobo = $account->isDebitNormal() ? $debit - $credit : $credit - $debit;
-        }
-
-        return [
-            'id' => $account->id,
-            'code' => $account->code,
-            'name' => $account->name,
-            'type' => $account->type,
-            'subtype' => $account->subtype,
-            'parent' => $account->parent ? [
-                'id' => $account->parent->id,
-                'code' => $account->parent->code,
-                'name' => $account->parent->name,
-            ] : null,
-            'description' => $account->description,
-            'is_system' => (bool) $account->is_system,
-            'is_active' => (bool) $account->is_active,
-            'balance_kobo' => $balanceKobo,
-        ];
+        $this->tenant->authorizeBusiness($account, $this->user($request), 'You do not have access to this account.');
     }
 }

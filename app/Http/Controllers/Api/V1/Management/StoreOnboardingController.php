@@ -7,18 +7,18 @@ use App\Enums\StoreType;
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Http\Controllers\Api\V1\Management\Concerns\ResolvesManagementContext;
 use App\Http\Requests\Management\CreateStoreRequest;
-use App\Models\Currency;
-use App\Models\Order;
+use App\Http\Requests\Management\StoreOnboardingIndexRequest;
+use App\Http\Resources\Management\StoreOnboardingFinalizeResource;
+use App\Http\Resources\Management\StoreOnboardingOptionsResource;
+use App\Http\Resources\Management\StoreOnboardingResource;
 use App\Models\Store;
-use App\Models\StoreBank;
-use App\Models\User;
+use App\Repositories\Management\StoreOnboardingRepository;
 use DomainException;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
-use Illuminate\Validation\Rule;
 
 /**
  * WS-02 — store onboarding: the parity store list, the create form's options,
@@ -28,55 +28,57 @@ use Illuminate\Validation\Rule;
  * routes/api/v1/management.php registers stores/{store} before feature modules
  * are loaded, so any two-segment GET under stores/ is captured by the bind of
  * that route. A third segment keeps this unambiguous.
+ *
+ * Layering: the HTTP shape (status codes, the envelope, message strings, the
+ * 403/422 refusals) stays here; the payload rules live in the Management
+ * FormRequests, the list scope, filters, slug walk and customer aggregates in
+ * StoreOnboardingRepository, the response shapes in the StoreOnboarding*
+ * resources, and the create workflow — with its transaction boundary — in the
+ * existing App\Actions\Stores\CreateStore action this controller has always
+ * called. No service wraps that action: the multi-table write and its
+ * transaction already live there.
+ *
+ * Provenance kept with the code it explains:
+ * - the verified-owner 403 and the bank/staff "invalid selection" 422s stay
+ *   in the controller body, at the same point in the sequence — a foreign
+ *   pick is refused as 422 by deliberate anti-id-probing, never as 403;
+ * - the slug unique rule moved into CreateStoreRequest, so a caller who is
+ *   both unverified and malformed now answers 422 where it answered 403 —
+ *   the known, accepted consequence of the extraction across this codebase.
+ *   A valid payload from an unverified caller still answers 403, so nothing
+ *   is escalated, and this is deliberately not worked around;
+ * - the store-create options carry their user-derived defaults in the
+ *   resource, while the staff/bank/currency reads stay business-scoped in
+ *   the repository.
  */
 class StoreOnboardingController extends ApiController
 {
     use ResolvesManagementContext;
 
-    public function index(Request $request): JsonResponse
+    public function __construct(
+        private readonly StoreOnboardingRepository $repository,
+    ) {}
+
+    public function index(StoreOnboardingIndexRequest $request): JsonResponse
     {
-        $filters = $request->validate([
-            'q' => ['nullable', 'string', 'max:100'],
-            'status' => ['nullable', Rule::in(['pending', 'active', 'inactive', 'suspended', 'deleted'])],
-            'from' => ['nullable', 'date'],
-            'to' => ['nullable', 'date'],
-            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
-        ]);
+        $user = $this->user($request);
+        $filters = $request->validated();
 
-        $stores = $this->user($request)->accessibleStores()
-            ->when(
-                $filters['status'] ?? null,
-                fn ($q, $status) => $q->where('status', $status),
-                // Deleted stores never leak back into the default list.
-                fn ($q) => $q->where('status', '!=', Store::STATUS_DELETED),
-            )
-            ->when($filters['q'] ?? null, function ($q, $term) {
-                $like = '%'.$term.'%';
-
-                $q->where(fn ($inner) => $inner
-                    ->where('name', 'like', $like)
-                    ->orWhere('store_id', 'like', $like));
-            })
-            ->when($filters['from'] ?? null, fn ($q, $from) => $q->whereDate('created_at', '>=', $from))
-            ->when($filters['to'] ?? null, fn ($q, $to) => $q->whereDate('created_at', '<=', $to))
-            ->withCount(['products', 'categories', 'orders'])
-            ->latest()
+        $stores = $this->repository->listQuery($user, $filters)
             ->paginate($filters['per_page'] ?? 12)
             ->withQueryString();
 
         // The legacy payload read a `customers_count` attribute that no store
         // ever had, so the count always rendered as null; count the distinct
         // buyers per store in one query for the whole page instead.
-        $customerCounts = Order::query()
-            ->whereIn('store_id', $stores->getCollection()->pluck('id'))
-            ->whereNotNull('customer_id')
-            ->selectRaw('store_id, count(distinct customer_id) as total')
-            ->groupBy('store_id')
-            ->pluck('total', 'store_id');
+        $customerCounts = $this->repository->customerCountsForStores(
+            $stores->getCollection()->pluck('id'),
+        );
 
         return $this->ok(
             ['stores' => $stores->getCollection()
-                ->map(fn (Store $store) => $this->payload($store, (int) $customerCounts->get($store->id, 0)))
+                ->map(fn (Store $store) => (new StoreOnboardingResource($store, (int) $customerCounts->get($store->id, 0)))
+                    ->resolve($request))
                 ->values()
                 ->all()],
             null,
@@ -93,51 +95,9 @@ class StoreOnboardingController extends ApiController
     {
         $user = $this->user($request);
 
-        $staff = User::query()
-            ->where('business_id', $user->business_id)
-            ->where('role', 'staff')
-            ->where('status', 'active')
-            ->with('roles')
-            ->orderBy('name')
-            ->get(['id', 'name', 'email']);
-
-        $banks = StoreBank::query()
-            ->where('business_id', $user->business_id)
-            ->orderBy('bank_name')
-            ->get();
-
-        return $this->ok([
-            'defaults' => [
-                'name' => $user->name,
-                'support_email' => $user->email,
-                'support_phone' => $user->phone,
-                'address' => $user->location,
-            ],
-            'currencies' => Currency::query()
-                ->orderBy('name')
-                ->get(['id', 'name', 'code', 'symbol'])
-                ->map(fn (Currency $currency) => [
-                    'id' => $currency->id,
-                    'name' => $currency->name,
-                    'code' => $currency->code,
-                    'symbol' => $currency->symbol,
-                ])->all(),
-            'banks' => $banks->map(fn (StoreBank $bank) => [
-                'id' => $bank->id,
-                'bank_name' => $bank->bank_name,
-                'account_name' => $bank->account_name,
-                'masked_account_number' => $bank->masked_account_number,
-                'is_primary' => (bool) $bank->is_primary,
-                'is_verified' => (bool) $bank->is_verified,
-            ])->all(),
-            'staff' => $staff->map(fn (User $member) => [
-                'id' => $member->id,
-                'name' => $member->name,
-                'email' => $member->email,
-                'roles' => $member->roles->pluck('name')->all(),
-            ])->all(),
-            'main_domain' => config('app.main_domain', parse_url((string) config('app.url'), PHP_URL_HOST)),
-        ]);
+        return $this->ok(
+            (new StoreOnboardingOptionsResource($user, $this->repository->formOptions($user)))->resolve($request),
+        );
     }
 
     public function store(CreateStoreRequest $request, CreateStore $createStore): JsonResponse
@@ -149,13 +109,6 @@ class StoreOnboardingController extends ApiController
         if (! $user->is_verified) {
             return $this->error('Please verify your email before creating a store.', 403);
         }
-
-        // The FormRequest already validated the payload; these extra rules
-        // close two gaps in it — a taken slug must fail validation rather than
-        // surfacing the unique index as a 500, and the slug is the live URL.
-        $request->validate([
-            'slug' => ['nullable', 'string', 'max:255', Rule::unique('stores', 'slug')],
-        ]);
 
         $data = $request->validated();
         $data['support_email'] ??= $user->email;
@@ -179,15 +132,15 @@ class StoreOnboardingController extends ApiController
         if (empty($data['slug'])) {
             // Prefer the deterministic -1, -2 suffix the slug check suggests
             // over the model's random suffix.
-            $data['slug'] = $this->availableSlug($data['name']);
+            $data['slug'] = $this->repository->availableSlug($data['name']);
         }
 
         // Legacy handed these ids straight to the action, where an out-of-
         // business pick bubbled out as an exception; refuse them as 422s.
-        if (! empty($data['bank_id']) && ! StoreBank::query()
-            ->where('business_id', $user->business_id)
-            ->whereKey($data['bank_id'])
-            ->exists()) {
+        // The queries are business-scoped in the repository; the refusals
+        // stay here, 422 by design rather than 403 — deliberate
+        // anti-id-probing.
+        if (! empty($data['bank_id']) && ! $this->repository->businessBankExists($user, $data['bank_id'])) {
             return $this->error('Invalid bank account selection.', 422, [
                 'bank_id' => ['The selected bank account is not available to this business.'],
             ]);
@@ -196,11 +149,7 @@ class StoreOnboardingController extends ApiController
         if (! empty($data['staff_ids'])) {
             $staffIds = array_map('intval', (array) $data['staff_ids']);
 
-            $validCount = User::query()
-                ->where('business_id', $user->business_id)
-                ->where('role', 'staff')
-                ->whereIn('id', $staffIds)
-                ->count();
+            $validCount = $this->repository->validStaffCount($user, $staffIds);
 
             if ($validCount !== count(array_unique($staffIds))) {
                 return $this->error('One or more selected staff members are invalid.', 422, [
@@ -228,10 +177,10 @@ class StoreOnboardingController extends ApiController
             return $this->error("We could not create your store. Please try again. (Ref: {$errorReference})", 500);
         }
 
-        $store->loadCount(['products', 'categories', 'orders']);
+        $store = $this->repository->loadCounts($store);
 
         return $this->ok([
-            'store' => $this->payload($store, 0),
+            'store' => (new StoreOnboardingResource($store, 0))->resolve($request),
         ], 'Store created successfully!', 201);
     }
 
@@ -243,102 +192,16 @@ class StoreOnboardingController extends ApiController
     {
         $this->authorizeStore($request, $store);
 
-        $store->loadCount(['products', 'categories', 'orders']);
+        $store = $this->repository->loadCounts($store);
 
         $subscriptionActive = (bool) $this->user($request)->business?->hasActiveSubscription();
 
-        return $this->ok([
-            'store' => $this->payload($store, $this->storeCustomerCount($store)),
-            'storefront_url' => $this->storefrontUrl($store),
-            'subscription_active' => $subscriptionActive,
-            'next_step' => $subscriptionActive ? 'dashboard' : 'settings',
-        ]);
-    }
-
-    /**
-     * The legacy slug check walked -1, -2… until it found a free name. Keep
-     * that contract for slugs generated server-side at create time.
-     */
-    private function availableSlug(string $name): string
-    {
-        $base = Str::slug($name);
-
-        if ($base === '') {
-            $base = 'store';
-        }
-
-        $reserved = config('storefront.reserved_subdomains', []);
-        $slug = $base;
-        $counter = 1;
-
-        while (in_array($slug, $reserved, true) || Store::query()->where('slug', $slug)->exists()) {
-            $slug = $base.'-'.$counter++;
-        }
-
-        return $slug;
-    }
-
-    private function storeCustomerCount(Store $store): int
-    {
-        return (int) Order::query()
-            ->where('store_id', $store->id)
-            ->whereNotNull('customer_id')
-            ->distinct()
-            ->count('customer_id');
-    }
-
-    private function storefrontUrl(Store $store): ?string
-    {
-        if (! $store->has_website || ! $store->slug) {
-            return null;
-        }
-
-        // Same rule the legacy links used: local dev serves storefronts from
-        // the root domain, everything else from {slug}.{main_domain}.
-        if (app()->environment('local')) {
-            return url($store->slug);
-        }
-
-        $domain = config('app.main_domain', parse_url((string) config('app.url'), PHP_URL_HOST));
-
-        return 'https://'.$store->slug.'.'.$domain;
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function payload(Store $store, ?int $customersCount = null): array
-    {
-        return [
-            'id' => $store->id,
-            'store_id' => $store->store_id,
-            'name' => $store->name,
-            'slug' => $store->slug,
-            'status' => $store->status,
-            'store_type' => $store->store_type,
-            'has_website' => (bool) $store->has_website,
-            'pos_enabled' => (bool) $store->pos_enabled,
-            'balance' => (int) $store->balance,
-            'payment_mode' => $store->payment_mode,
-            'description' => $store->description,
-            'location' => $store->physical_address ?: $store->address,
-            'address' => $store->address,
-            'physical_address' => $store->physical_address,
-            'support_email' => $store->support_email,
-            'support_phone' => $store->support_phone,
-            'instagram_url' => $store->instagram_url,
-            'facebook_url' => $store->facebook_url,
-            'twitter_url' => $store->twitter_url,
-            'tiktok_url' => $store->tiktok_url,
-            'currency_id' => $store->currency_id,
-            'views' => (int) $store->views,
-            'logo_url' => $store->logoUrl(),
-            'storefront_url' => $this->storefrontUrl($store),
-            'products_count' => $store->products_count ?? null,
-            'categories_count' => $store->categories_count ?? null,
-            'orders_count' => $store->orders_count ?? null,
-            'customers_count' => $customersCount ?? ($store->customers_count ?? null),
-            'created_at' => $store->created_at?->toISOString(),
-        ];
+        return $this->ok(
+            (new StoreOnboardingFinalizeResource(
+                $store,
+                $this->repository->customerCount($store),
+                $subscriptionActive,
+            ))->resolve($request),
+        );
     }
 }

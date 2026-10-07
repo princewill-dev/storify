@@ -4,17 +4,16 @@ namespace App\Http\Controllers\Api\V1\Admin;
 
 use App\Http\Controllers\Api\V1\Admin\Concerns\EnsuresPlatformAdmin;
 use App\Http\Controllers\Api\V1\ApiController;
-use App\Mail\AdminInvitationSpaMail;
+use App\Http\Requests\Admin\ListAdminsRequest;
+use App\Http\Requests\Admin\StoreAdminRequest;
+use App\Http\Requests\Admin\UpdateAdminRequest;
+use App\Http\Resources\Admin\AdminAccountResource;
+use App\Http\Resources\Admin\AdminRoleResource;
 use App\Models\User;
-use App\Services\ActivityRecorder;
+use App\Repositories\Admin\AdminAccountRepository;
+use App\Services\Admin\AdminAccountService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Mail;
-use Illuminate\Support\Str;
-use Illuminate\Validation\Rule;
-use Spatie\Permission\Models\Role;
 
 /**
  * WS-10 (admin console) — admin accounts & invitations.
@@ -58,6 +57,14 @@ use Spatie\Permission\Models\Role;
  * leaked admin-audience token manage platform accounts. Every action re-checks
  * the platform role via `EnsuresPlatformAdmin` (same hole WS-1/WS-5/WS-8
  * documented).
+ *
+ * The controller keeps the HTTP shape only — status codes, message strings,
+ * the envelope and pagination meta. Validation lives in the Admin FormRequests,
+ * queries in `AdminAccountRepository`, workflows and their transaction
+ * boundaries in `AdminAccountService`, response shaping in
+ * `AdminAccountResource` / `AdminRoleResource`. The platform-admin guard and
+ * the managed-role 404 deliberately stay here so their order (403 before 404)
+ * is unchanged.
  */
 class AdminController extends ApiController
 {
@@ -65,73 +72,35 @@ class AdminController extends ApiController
 
     /**
      * The platform account roles this console manages. Everything else in the
-     * users table is a tenant account and is WS-8's surface.
+     * users table is a tenant account and is WS-8's surface. The canonical
+     * list lives on AdminAccountRepository (the directory, the stats query and
+     * the managed-role 404 all ride it); re-exported here because
+     * AdminInvitationController resolves an invitation against the same list.
      */
-    public const PLATFORM_ROLES = [User::ROLE_SUPERADMIN, User::ROLE_ADMIN];
+    public const PLATFORM_ROLES = AdminAccountRepository::PLATFORM_ROLES;
 
-    /**
-     * The one platform role that can never be assigned or managed. Super Admin
-     * is seeded with every permission and is deliberately absent from the
-     * assignable-role list (legacy: `where('name', '!=', 'Super Admin')`).
-     */
-    private const SUPER_ADMIN_ROLE = 'Super Admin';
-
-    /**
-     * Columns the directory may be sorted by. Never pass a request-supplied
-     * column straight to orderBy (admin roadmap §3.3).
-     */
-    private const SORTABLE = ['name', 'email', 'status', 'invited_at', 'last_login_at', 'created_at'];
+    public function __construct(
+        private readonly AdminAccountRepository $accounts,
+        private readonly AdminAccountService $service,
+    ) {}
 
     /**
      * The admin directory. Legacy showed every platform account newest-first
-     * with no filters; this keeps that ordering and adds the search/status
-     * filters and pagination the modern lists use.
+     * with no filters; the repository keeps that ordering and adds the
+     * search/status filters and pagination the modern lists use.
      */
-    public function index(Request $request): JsonResponse
+    public function index(ListAdminsRequest $request): JsonResponse
     {
         $this->authorizePlatformAdmin();
 
-        $filters = $request->validate([
-            'q' => ['nullable', 'string', 'max:100'],
-            'status' => ['nullable', Rule::in(['invited', 'active', 'suspended'])],
-            'sort' => ['nullable', Rule::in(self::SORTABLE)],
-            'direction' => ['nullable', Rule::in(['asc', 'desc'])],
-            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
-        ]);
-
         $viewer = $request->user();
-
-        $query = User::query()
-            ->whereIn('role', self::PLATFORM_ROLES)
-            // No column restriction: Spatie's team constraint reads the pivot
-            // columns, and a `roles:id,name` select drops them.
-            ->with('roles');
-
-        if (($filters['q'] ?? null) !== null && $filters['q'] !== '') {
-            $term = '%'.trim($filters['q']).'%';
-            $query->where(fn ($inner) => $inner->where('name', 'like', $term)
-                ->orWhere('email', 'like', $term)
-                ->orWhere('account_code', 'like', $term));
-        }
-
-        if (($filters['status'] ?? null) !== null) {
-            $query->where('status', $filters['status']);
-        }
-
-        $sort = $filters['sort'] ?? 'created_at';
-        $direction = $filters['direction'] ?? 'desc';
-
-        $admins = $query
-            ->orderBy($sort, $direction)
-            ->orderByDesc('id')
-            ->paginate($filters['per_page'] ?? 20)
-            ->withQueryString();
+        $admins = $this->accounts->paginateForDirectory($request->validated());
 
         return $this->ok(
-            $admins->getCollection()->map(fn (User $admin) => $this->adminPayload($admin, $viewer))->values()->all(),
+            $admins->getCollection()->map(fn (User $admin) => $this->row($admin, $viewer))->values()->all(),
             null,
             200,
-            $this->paginationMeta($admins) + ['stats' => $this->stats()],
+            $this->paginationMeta($admins) + ['stats' => $this->accounts->stats()],
         );
     }
 
@@ -144,37 +113,23 @@ class AdminController extends ApiController
     {
         $this->authorizePlatformAdmin();
 
-        $roles = Role::query()
-            ->whereNull('business_id')
-            ->where('guard_name', 'web')
-            ->where('name', '!=', self::SUPER_ADMIN_ROLE)
-            ->orderBy('name')
-            ->get(['id', 'name'])
-            ->map(fn (Role $role) => ['id' => $role->id, 'name' => $role->name])
-            ->values()
-            ->all();
-
-        return $this->ok(['roles' => $roles]);
+        return $this->ok([
+            'roles' => AdminRoleResource::collection($this->accounts->assignableRoles())->resolve(),
+        ]);
     }
 
     /**
-     * Invite a platform admin. Mirrors the legacy `store()`: `role = admin`,
-     * `status = invited`, a 64-char token, a random unusable password and
-     * `force_password_change`, the Spatie role assigned under team `null`, and
-     * the invitation mailed. The audit row is new (legacy only wrote a log
-     * line), as is the `emailed` flag — a mail-queue failure must not lose the
-     * account, but the admin deserves to know the invite did not go out.
+     * Invite a platform admin. Legacy parity — the account shape, the Spatie
+     * role assignment and the audit row — lives in
+     * AdminAccountService::invite(), which also reports whether the invitation
+     * mail was queued.
      */
-    public function store(Request $request): JsonResponse
+    public function store(StoreAdminRequest $request): JsonResponse
     {
         $this->authorizePlatformAdmin();
 
-        $data = $request->validate([
-            'email' => ['required', 'email', 'max:255', 'unique:users,email', 'unique:customers,email'],
-            'role' => ['required', 'string', 'max:255', Rule::exists('roles', 'name')],
-        ]);
-
-        $role = $this->platformRole($data['role']);
+        $data = $request->validated();
+        $role = $this->accounts->platformRole($data['role']);
 
         if (! $role) {
             return $this->error('Please select a valid admin role.', 422, [
@@ -184,50 +139,20 @@ class AdminController extends ApiController
 
         $actor = $request->user();
 
-        $admin = DB::transaction(function () use ($data, $role, $actor) {
-            $admin = User::create([
-                'name' => '',
-                'email' => $data['email'],
-                'role' => User::ROLE_ADMIN,
-                'business_id' => null,
-                'status' => 'invited',
-                'invitation_token' => Str::random(64),
-                'invited_at' => now(),
-                // Unusable random password; the invitee sets their own on the
-                // accept screen. `password` is a hashed cast, so the plain
-                // string is hashed once by the model.
-                'password' => Str::random(32),
-                'force_password_change' => true,
-            ]);
-
-            setPermissionsTeamId(null);
-            $admin->assignRole($role);
-
-            ActivityRecorder::record(
-                action: 'admin.invited',
-                description: "Invited {$admin->email} as {$role->name}",
-                subject: $admin,
-                new: ['email' => $admin->email, 'role' => $role->name, 'status' => 'invited'],
-                metadata: ['invited_by' => $actor->id, 'role' => $role->name],
-                actor: $actor,
-            );
-
-            return $admin;
-        });
-
-        $emailed = $this->queueInvitation($admin, 'admin.invitation.mail_failed');
+        ['admin' => $admin, 'emailed' => $emailed] = $this->service->invite($data['email'], $role, $actor);
 
         return $this->ok([
-            'admin' => $this->adminPayload($admin->fresh(), $actor),
+            'admin' => $this->row($admin->fresh(), $actor),
             'emailed' => $emailed,
         ], "Invitation sent to {$admin->email} as {$role->name}.", 201);
     }
 
     /**
      * Resend an invitation: rotate the token, refresh `invited_at`, re-queue
-     * the mail. An already-accepted admin is answered with `changed: false`
-     * and a warning, never a silent mutation (legacy flashed a warning; the
-     * new stack returns it in the payload the SPA toasts).
+     * the mail (AdminAccountService::resendInvitation()). An already-accepted
+     * admin is answered with `changed: false` and a warning, never a silent
+     * mutation (legacy flashed a warning; the new stack returns it in the
+     * payload the SPA toasts).
      */
     public function resend(Request $request, User $admin): JsonResponse
     {
@@ -236,7 +161,7 @@ class AdminController extends ApiController
 
         if ($admin->status !== 'invited') {
             return $this->ok([
-                'admin' => $this->adminPayload($admin, $request->user()),
+                'admin' => $this->row($admin, $request->user()),
                 'changed' => false,
                 'emailed' => false,
                 'warning' => 'This admin has already accepted their invitation.',
@@ -244,27 +169,10 @@ class AdminController extends ApiController
         }
 
         $actor = $request->user();
-
-        DB::transaction(function () use ($admin, $actor) {
-            $admin->update([
-                'invitation_token' => Str::random(64),
-                'invited_at' => now(),
-            ]);
-
-            ActivityRecorder::record(
-                action: 'admin.invitation_resent',
-                description: "Resent the platform admin invitation to {$admin->email}",
-                subject: $admin,
-                new: ['invited_at' => $admin->invited_at?->toISOString()],
-                metadata: ['resent_by' => $actor->id],
-                actor: $actor,
-            );
-        });
-
-        $emailed = $this->queueInvitation($admin, 'admin.invitation.resend_mail_failed');
+        $emailed = $this->service->resendInvitation($admin, $actor);
 
         return $this->ok([
-            'admin' => $this->adminPayload($admin->fresh(), $actor),
+            'admin' => $this->row($admin->fresh(), $actor),
             'changed' => true,
             'emailed' => $emailed,
         ], 'Invitation resent.');
@@ -272,9 +180,10 @@ class AdminController extends ApiController
 
     /**
      * Change an admin's platform role. `syncRoles` (not `assignRole`) because
-     * a platform admin holds exactly one assignable role.
+     * a platform admin holds exactly one assignable role — the sync and its
+     * audit row live in AdminAccountService::changeRole().
      */
-    public function update(Request $request, User $admin): JsonResponse
+    public function update(UpdateAdminRequest $request, User $admin): JsonResponse
     {
         $this->authorizePlatformAdmin();
         $this->ensureManaged($admin);
@@ -287,11 +196,7 @@ class AdminController extends ApiController
             return $this->error('The superadmin role cannot be changed.');
         }
 
-        $data = $request->validate([
-            'role' => ['required', 'string', 'max:255'],
-        ]);
-
-        $role = $this->platformRole($data['role']);
+        $role = $this->accounts->platformRole($request->validated()['role']);
 
         if (! $role) {
             return $this->error('Please select a valid admin role.', 422, [
@@ -300,36 +205,22 @@ class AdminController extends ApiController
         }
 
         $actor = $request->user();
-        $previousRoles = $admin->roles->pluck('name')->values()->all();
 
-        DB::transaction(function () use ($admin, $role, $actor, $previousRoles) {
-            setPermissionsTeamId(null);
-            $admin->syncRoles([$role]);
+        $this->service->changeRole($admin, $role, $actor);
 
-            ActivityRecorder::record(
-                action: 'admin.role_changed',
-                description: "Changed {$admin->email}'s platform role to {$role->name}",
-                subject: $admin,
-                old: ['roles' => $previousRoles],
-                new: ['roles' => [$role->name]],
-                metadata: ['changed_by' => $actor->id, 'role' => $role->name],
-                actor: $actor,
-            );
-        });
-
-        $name = $this->displayName($admin->fresh()) ?? $admin->email;
+        $fresh = $admin->fresh();
+        $name = $this->displayName($fresh) ?? $fresh->email;
 
         return $this->ok(
-            ['admin' => $this->adminPayload($admin->fresh(), $actor)],
+            ['admin' => $this->row($fresh, $actor)],
             "{$name}'s role updated to {$role->name}.",
         );
     }
 
     /**
      * Remove a platform admin — legacy's hard delete, with its two guards.
-     * Roles and access tokens are detached first: the pivot rows have no FK
-     * cascade onto users in this schema and a live Sanctum token would outlive
-     * the account otherwise.
+     * Roles and access tokens are detached first; see
+     * AdminAccountService::remove() for why and in what order.
      */
     public function destroy(Request $request, User $admin): JsonResponse
     {
@@ -344,24 +235,9 @@ class AdminController extends ApiController
             return $this->error('The superadmin account cannot be removed.');
         }
 
-        $actor = $request->user();
         $email = $admin->email;
 
-        DB::transaction(function () use ($admin, $actor, $email) {
-            ActivityRecorder::record(
-                action: 'admin.removed',
-                description: "Removed platform admin {$email}",
-                subject: $admin,
-                old: ['email' => $email, 'roles' => $admin->roles->pluck('name')->values()->all()],
-                metadata: ['removed_by' => $actor->id],
-                actor: $actor,
-            );
-
-            setPermissionsTeamId(null);
-            $admin->roles()->detach();
-            $admin->tokens()->delete();
-            $admin->delete();
-        });
+        $this->service->remove($admin, $request->user());
 
         return $this->ok([], "{$email} has been removed.");
     }
@@ -377,106 +253,27 @@ class AdminController extends ApiController
     }
 
     /**
-     * Resolve an assignable platform role by name: global, `web` guard and not
-     * Super Admin.
-     */
-    private function platformRole(string $name): ?Role
-    {
-        return Role::query()
-            ->where('name', $name)
-            ->whereNull('business_id')
-            ->where('guard_name', 'web')
-            ->where('name', '!=', self::SUPER_ADMIN_ROLE)
-            ->first();
-    }
-
-    /**
-     * Queue the invitation mail, swallowing (and logging) delivery failures so
-     * a broken mailer cannot roll back an account the admin just created.
-     */
-    private function queueInvitation(User $admin, string $failureLog): bool
-    {
-        try {
-            Mail::to($admin->email)->queue(new AdminInvitationSpaMail($admin));
-
-            return true;
-        } catch (\Throwable $e) {
-            Log::error($failureLog, [
-                'user_id' => $admin->id,
-                'email' => $admin->email,
-                'error' => $e->getMessage(),
-            ]);
-
-            return false;
-        }
-    }
-
-    /**
-     * Directory row / mutation payload. `is_self`, `is_protected` and
-     * `can_manage` are computed server-side so the SPA never has to guess why
-     * an action is unavailable.
+     * The directory row / action response shaped by AdminAccountResource. Kept
+     * as a thin private seam so the response sites read as they did before the
+     * extraction.
      *
      * @return array<string, mixed>
      */
-    private function adminPayload(User $admin, ?User $viewer): array
+    private function row(User $admin, ?User $viewer): array
     {
-        $roleNames = $admin->roles->pluck('name')->values()->all();
-        $isSuperadmin = $admin->role === User::ROLE_SUPERADMIN;
-
-        return [
-            'id' => $admin->id,
-            'account_code' => $admin->account_code,
-            'name' => $admin->name,
-            // Legacy rendered the literal "Pending setup" for an invitee who
-            // had not chosen a name yet.
-            'display_name' => $this->displayName($admin) ?? 'Pending setup',
-            'email' => $admin->email,
-            'phone' => $admin->phone,
-            'role' => $admin->role,
-            'is_superadmin' => $isSuperadmin,
-            'status' => $admin->status,
-            'is_verified' => (bool) $admin->is_verified,
-            'force_password_change' => (bool) $admin->force_password_change,
-            'roles' => $roleNames,
-            'role_name' => $isSuperadmin ? self::SUPER_ADMIN_ROLE : ($roleNames[0] ?? 'Admin'),
-            'invited_at' => $admin->invited_at?->toISOString(),
-            'accepted_at' => $admin->accepted_at?->toISOString(),
-            'last_login_at' => $admin->last_login_at?->toISOString(),
-            'created_at' => $admin->created_at?->toISOString(),
-            'is_self' => $viewer !== null && $viewer->id === $admin->id,
-            'is_protected' => $isSuperadmin,
-            'can_manage' => $viewer !== null && $viewer->id !== $admin->id && ! $isSuperadmin,
-        ];
+        return AdminAccountResource::make($admin, $viewer)->resolve();
     }
 
     /**
-     * Display name for an account that may still be "Pending setup" (legacy
-     * created admins with an empty name and rendered that label literally).
+     * Display name for the update message on an account that may still be
+     * "Pending setup" (legacy created admins with an empty name and rendered
+     * that label literally). The resource applies the same normalisation for
+     * `display_name`; this message falls back to the email instead.
      */
     private function displayName(User $admin): ?string
     {
         $name = trim((string) $admin->name);
 
         return $name === '' ? null : $name;
-    }
-
-    /**
-     * The legacy stat pills the list needed but never had: total, pending and
-     * active platform accounts.
-     *
-     * @return array{total: int, pending: int, active: int}
-     */
-    private function stats(): array
-    {
-        $counts = User::query()
-            ->whereIn('role', self::PLATFORM_ROLES)
-            ->selectRaw("COUNT(*) as total, SUM(status = 'invited') as pending, SUM(status = 'active') as active")
-            ->first();
-
-        return [
-            'total' => (int) ($counts->total ?? 0),
-            'pending' => (int) ($counts->pending ?? 0),
-            'active' => (int) ($counts->active ?? 0),
-        ];
     }
 }

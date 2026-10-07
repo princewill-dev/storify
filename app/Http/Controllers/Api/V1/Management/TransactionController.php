@@ -6,27 +6,73 @@ use App\Enums\OrderStatus;
 use App\Enums\TransactionStatus;
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Http\Controllers\Api\V1\Management\Concerns\ResolvesManagementContext;
+use App\Http\Requests\Management\RefundTransactionRequest;
+use App\Http\Requests\Management\Transaction\RejectTransactionRequest;
+use App\Http\Resources\Management\Transaction\TransactionDetailResource;
+use App\Http\Resources\Management\Transaction\TransactionResource;
 use App\Models\Transaction;
+use App\Repositories\Management\Transaction\TransactionRepository;
+use App\Services\Access\TenantGuard;
+use App\Services\Management\Transaction\TransactionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 
+/**
+ * The base management transactions API — list, show, confirm, reject, refund.
+ *
+ * Layering: the HTTP shape (status codes, message strings, the envelope,
+ * pagination meta) stays here; the list query lives in
+ * App\Repositories\Management\Transaction\TransactionRepository, the
+ * confirm/refund money movement and its transaction boundaries in
+ * App\Services\Management\Transaction\TransactionService, and the list/detail
+ * payload shapes in App\Http\Resources\Management\Transaction\*. Reject is a
+ * single-row status + metadata write with no transaction, ledger or
+ * notification, so it stays inline like the other base slices' single-row
+ * writes. No service was invented for it.
+ *
+ * Every URI this controller declares is re-registered later by the WS-18
+ * module (routes/api/v1/management/ws18-transactions.php), which serves the
+ * richer parity contract through TransactionParityController; this slice's
+ * methods remain the in-repo fallback and keep their own contract — the layer
+ * docblocks spell out where the two disagree — rather than being converged
+ * into that work.
+ *
+ * Provenance kept with the code it explains:
+ *  - the transaction guard stays in the controller body so its 403 keeps its
+ *    place in the refusal order (route-binding 404 first, status 409s after),
+ *    rather than moving into FormRequest::authorize();
+ *  - the index deliberately has no FormRequest: this slice never validated its
+ *    list filters, and rules would turn inputs it used to answer (per_page=500
+ *    reaching the paginator) into 422s.
+ */
 class TransactionController extends ApiController
 {
     use ResolvesManagementContext;
 
+    private const ACCESS_DENIED = 'You do not have access to this transaction.';
+
+    public function __construct(
+        private readonly TransactionRepository $repository,
+        private readonly TransactionService $service,
+    ) {}
+
     public function index(Request $request): JsonResponse
     {
-        $transactions = Transaction::query()
-            ->where('business_id', $this->user($request)->business_id)
-            ->when($request->filled('status'), fn ($q) => $q->where('status', $request->string('status')))
-            ->when($request->filled('q'), fn ($q) => $q->where('reference', 'like', '%'.$request->string('q').'%'))
-            ->with(['order:id,order_number,store_id,customer_id', 'invoice:id,invoice_number,store_id', 'paymentMethod'])
-            ->latest()
-            ->paginate((int) $request->integer('per_page', 20));
+        // The same filled()/integer()/string() reading the inline query used,
+        // so a non-numeric per_page or a blank q keeps the meaning it had.
+        $filters = [
+            'status' => $request->filled('status') ? (string) $request->string('status') : null,
+            'q' => $request->filled('q') ? (string) $request->string('q') : null,
+            'per_page' => $request->integer('per_page', 20),
+        ];
+
+        $transactions = $this->repository->paginateForUser($this->user($request), $filters);
 
         return $this->ok(
-            $transactions->getCollection()->map(fn (Transaction $transaction) => $this->payload($transaction))->values()->all(),
+            $transactions->getCollection()
+                ->map(fn (Transaction $transaction) => (new TransactionResource($transaction))->resolve($request))
+                ->values()
+                ->all(),
             null,
             200,
             $this->paginationMeta($transactions)
@@ -39,7 +85,7 @@ class TransactionController extends ApiController
 
         $transaction->load(['order.items', 'order.customer', 'invoice.items', 'paymentMethod', 'storeBank']);
 
-        return $this->ok(['transaction' => $this->payload($transaction, detailed: true)]);
+        return $this->ok(['transaction' => (new TransactionDetailResource($transaction))->resolve($request)]);
     }
 
     public function confirm(Request $request, Transaction $transaction): JsonResponse
@@ -50,51 +96,15 @@ class TransactionController extends ApiController
             return $this->error('Only pending transactions can be confirmed.', 409);
         }
 
-        DB::transaction(function () use ($transaction) {
-            $transaction->update(['status' => TransactionStatus::CONFIRMED->value]);
+        $transaction = $this->service->confirm($transaction, $this->user($request)->id);
 
-            $store = $transaction->order?->store ?? $transaction->invoice?->store;
-
-            if (! $store) {
-                throw new \RuntimeException('Transaction has no associated store.');
-            }
-
-            $amountInKobo = (int) round((float) $transaction->amount * 100);
-            $store->lockForUpdate();
-            $balanceBefore = (int) $store->balance;
-            $store->creditBalance($amountInKobo);
-
-            $transaction->update([
-                'balance_updated_at' => now(),
-                'store_balance_before' => $balanceBefore,
-                'store_balance_after' => (int) $store->fresh()->balance,
-            ]);
-
-            $order = $transaction->order;
-
-            if ($order) {
-                $order->amount_paid = (float) $order->amount_paid + (float) $transaction->amount;
-
-                if ($order->isFullyPaid() && $order->status === OrderStatus::PENDING) {
-                    $order->status = OrderStatus::ACCEPTED;
-                }
-
-                $order->save();
-            }
-        });
-
-        $ledger = app(\App\Services\Accounting\LedgerPostingService::class);
-        $ledger->safe(fn () => $ledger->postPaymentReceived($transaction, $this->user($request)->id));
-
-        if ($transaction->order && $transaction->order->isFullyPaid()) {
-            $digital = app(\App\Services\Digital\DigitalDeliveryService::class);
-            $digital->deliverSafely($transaction->order);
-        }
-
-        return $this->ok(['transaction' => $this->payload($transaction->fresh())], 'Payment confirmed.');
+        return $this->ok(
+            ['transaction' => (new TransactionResource($transaction->fresh()))->resolve($request)],
+            'Payment confirmed.'
+        );
     }
 
-    public function reject(Request $request, Transaction $transaction): JsonResponse
+    public function reject(RejectTransactionRequest $request, Transaction $transaction): JsonResponse
     {
         $this->authorizeTransaction($request, $transaction);
 
@@ -102,21 +112,24 @@ class TransactionController extends ApiController
             return $this->error('Only pending transactions can be rejected.', 409);
         }
 
-        $data = $request->validate(['reason' => ['required', 'string', 'max:500']]);
-
+        // Single-row status + metadata write — no transaction, ledger or
+        // notification — so it stays here rather than gaining a service method.
         $transaction->update([
             'status' => TransactionStatus::CANCELED->value,
             'metadata' => array_merge($transaction->metadata ?? [], [
-                'rejection_reason' => $data['reason'],
+                'rejection_reason' => $request->validated('reason'),
                 'rejected_at' => now()->toDateTimeString(),
                 'rejected_by' => $this->user($request)->id,
             ]),
         ]);
 
-        return $this->ok(['transaction' => $this->payload($transaction->fresh())], 'Payment rejected.');
+        return $this->ok(
+            ['transaction' => (new TransactionResource($transaction->fresh()))->resolve($request)],
+            'Payment rejected.'
+        );
     }
 
-    public function refund(Request $request, Transaction $transaction): JsonResponse
+    public function refund(RefundTransactionRequest $request, Transaction $transaction): JsonResponse
     {
         $this->authorizeTransaction($request, $transaction);
 
@@ -134,85 +147,33 @@ class TransactionController extends ApiController
             return $this->error('Cannot refund delivered/completed orders. Mark the order as returned first.', 409);
         }
 
-        $data = $request->validate(['reason' => ['required', 'string', 'max:500']]);
-
-        $actorId = $this->user($request)->id;
-
         try {
-            DB::transaction(function () use ($transaction, $order, $data, $actorId) {
-                $store = $transaction->order->store;
-                $amountInKobo = (int) round((float) $transaction->amount * 100);
-
-                $store->lockForUpdate();
-                $balanceBefore = (int) $store->balance;
-                $store->debitBalance($amountInKobo);
-
-                $transaction->update([
-                    'status' => TransactionStatus::REFUNDED->value,
-                    'balance_updated_at' => now(),
-                    'metadata' => array_merge($transaction->metadata ?? [], [
-                        'refund_reason' => $data['reason'],
-                        'refunded_at' => now()->toDateTimeString(),
-                        'refunded_by' => $actorId,
-                        'refund_balance_before' => $balanceBefore,
-                        'refund_balance_after' => (int) $store->fresh()->balance,
-                    ]),
-                ]);
-
-                if ($order) {
-                    $order->amount_paid = max(0, (float) $order->amount_paid - (float) $transaction->amount);
-                    $order->save();
-                }
-            });
+            $this->service->refund($transaction, $order, $request->validated('reason'), $this->user($request)->id);
         } catch (\Throwable $e) {
+            // The base slice surfaces the raw failure message at 409; the WS-18
+            // slice rewrites it into a friendly 422 — deliberately not merged.
             return $this->error($e->getMessage(), 409);
         }
 
-        $ledger = app(\App\Services\Accounting\LedgerPostingService::class);
-        $ledger->safe(fn () => $ledger->postRefund($transaction, $this->user($request)->id));
-
-        return $this->ok(['transaction' => $this->payload($transaction->fresh())], 'Refund processed.');
+        return $this->ok(
+            ['transaction' => (new TransactionResource($transaction->fresh()))->resolve($request)],
+            'Refund processed.'
+        );
     }
 
     /**
-     * @return array<string, mixed>
+     * The business-only shape TenantGuard already encodes, with the same 403
+     * message the private method it replaces carried.
+     *
+     * Business-only, as this slice always was: it does not scope by the
+     * caller's stores — the WS-18 slice adds that check for its own contract.
      */
-    private function payload(Transaction $transaction, bool $detailed = false): array
-    {
-        $data = [
-            'id' => $transaction->id,
-            'reference' => $transaction->reference,
-            'amount' => (float) $transaction->amount,
-            'fee' => $transaction->fee_kobo !== null ? $transaction->fee_kobo / 100 : null,
-            'net' => $transaction->net_kobo !== null ? $transaction->net_kobo / 100 : null,
-            'currency' => $transaction->currency,
-            'status' => $transaction->status instanceof TransactionStatus ? $transaction->status->value : $transaction->status,
-            'order' => $transaction->order?->order_number,
-            'invoice' => $transaction->invoice?->invoice_number,
-            'payment_method' => $transaction->paymentMethod?->name,
-            'paid_at' => $transaction->paid_at?->toISOString(),
-            'created_at' => $transaction->created_at?->toISOString(),
-        ];
-
-        if ($detailed) {
-            $data['gateway_reference'] = $transaction->gateway_reference;
-            $data['store_balance_before'] = $transaction->store_balance_before;
-            $data['store_balance_after'] = $transaction->store_balance_after;
-            $data['bank'] = $transaction->storeBank ? [
-                'bank_name' => $transaction->storeBank->bank_name,
-                'account_number' => $transaction->storeBank->account_number,
-                'account_name' => $transaction->storeBank->account_name,
-            ] : null;
-            $data['metadata'] = $transaction->metadata;
-        }
-
-        return $data;
-    }
-
     private function authorizeTransaction(Request $request, Transaction $transaction): void
     {
-        if ((int) $transaction->business_id !== (int) $this->user($request)->business_id) {
-            abort(403, 'You do not have access to this transaction.');
-        }
+        app(TenantGuard::class)->authorizeBusiness(
+            $transaction,
+            $this->user($request),
+            self::ACCESS_DENIED,
+        );
     }
 }

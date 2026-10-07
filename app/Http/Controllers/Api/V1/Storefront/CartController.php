@@ -4,15 +4,49 @@ namespace App\Http\Controllers\Api\V1\Storefront;
 
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Http\Controllers\Api\V1\Storefront\Concerns\ResolvesStorefrontContext;
+use App\Http\Requests\Storefront\AddCartItemRequest;
+use App\Http\Requests\Storefront\UpdateCartItemRequest;
 use App\Models\CartItem;
-use App\Models\Product;
+use App\Repositories\Storefront\CartRepository;
+use App\Services\Storefront\CartService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 
+/**
+ * The public storefront cart.
+ *
+ * Guest carts are keyed by the X-Guest-Token header (or a customer session);
+ * the shared ResolvesStorefrontContext concern owns store/cart resolution and
+ * the payload shape, and stays untouched because four other storefront
+ * controllers also use it. This class keeps the HTTP contract: status codes,
+ * message strings, and the 404 that a line must belong to the resolved cart
+ * (`abort` never moves into the repository or service).
+ *
+ * Ordering is preserved. `add` still resolves the store, clamps qty to at
+ * least 1, reads the store-scoped product and answers the stock 422 *before*
+ * resolving (and possibly creating) the cart, so a rejected add leaves no
+ * empty cart behind; the transaction still opens after that point and closes
+ * before `fresh()` feeds the response. The one order change is the accepted
+ * codebase-wide one: validation now runs during parameter resolution, so a
+ * malformed body on an unknown store returns 422 rather than the old 404.
+ *
+ * MONEY — `products.amount` is a decimal(12,2) naira column and the unit kobo
+ * written to `cart_items.unit_amount` is produced by CartService with
+ * Naira::koboFromRounded's contract, exactly the `(int) round((float) $raw * 100)`
+ * this controller carried inline. Response fields are untouched.
+ *
+ * Layer map: validation in AddCartItemRequest / UpdateCartItemRequest, the
+ * tenancy-scoped product and line reads in CartRepository, the line write plus
+ * totals recalc workflow (and its transaction) in CartService.
+ */
 class CartController extends ApiController
 {
     use ResolvesStorefrontContext;
+
+    public function __construct(
+        private readonly CartRepository $repository,
+        private readonly CartService $service,
+    ) {}
 
     public function show(Request $request, string $store): JsonResponse
     {
@@ -22,19 +56,14 @@ class CartController extends ApiController
         return $this->ok($this->cartPayload($cart, $this->guestToken($request)));
     }
 
-    public function add(Request $request, string $store): JsonResponse
+    public function add(AddCartItemRequest $request, string $store): JsonResponse
     {
         $store = $this->resolveStore($store);
 
-        $data = $request->validate([
-            'product_id' => ['required', 'integer'],
-            'qty' => ['nullable', 'integer', 'min:1'],
-            'variant_key' => ['nullable', 'string', 'max:100'],
-        ]);
-
+        $data = $request->validated();
         $qty = max(1, (int) ($data['qty'] ?? 1));
 
-        $product = Product::where('store_id', $store->id)->findOrFail($data['product_id']);
+        $product = $this->repository->findProductInStore($store, $data['product_id']);
 
         if (! $product->is_digital && ! $product->has_variants && ! is_null($product->quantity)
             && $qty > (int) $product->quantity) {
@@ -43,47 +72,12 @@ class CartController extends ApiController
 
         $cart = $this->resolveCart($store, $request);
 
-        DB::transaction(function () use ($cart, $product, $data, $qty) {
-            $line = CartItem::where('cart_id', $cart->id)
-                ->where('product_id', $product->id)
-                ->where('variant_key', $data['variant_key'] ?? null)
-                ->first();
-
-            $raw = $product->amount ?? 0;
-            $unit = is_numeric($raw)
-                ? ((str_contains((string) $raw, '.') ? (int) round(((float) $raw) * 100) : (int) $raw))
-                : 0;
-
-            if ($product->bulk_quantity > 0 && $qty >= $product->bulk_quantity && $product->bulk_price > 0) {
-                $unit = (int) round(($product->bulk_price / $product->bulk_quantity) * 100);
-            }
-
-            if ($product->is_digital && $line) {
-                $line->update(['qty' => 1, 'line_subtotal' => $unit]);
-            } elseif ($line) {
-                $line->update([
-                    'qty' => $line->qty + $qty,
-                    'line_subtotal' => ($line->qty + $qty) * $line->unit_amount,
-                ]);
-            } else {
-                CartItem::create([
-                    'cart_id' => $cart->id,
-                    'product_id' => $product->id,
-                    'variant_key' => $data['variant_key'] ?? null,
-                    'name' => $product->name,
-                    'unit_amount' => $unit,
-                    'qty' => $qty,
-                    'line_subtotal' => $unit * $qty,
-                ]);
-            }
-
-            $cart->recalcTotals();
-        });
+        $this->service->addItem($cart, $product, $data['variant_key'] ?? null, $qty);
 
         return $this->ok($this->cartPayload($cart->fresh(), $this->guestToken($request)), 'Added to cart.');
     }
 
-    public function updateItem(Request $request, string $store, CartItem $item): JsonResponse
+    public function updateItem(UpdateCartItemRequest $request, string $store, CartItem $item): JsonResponse
     {
         $store = $this->resolveStore($store);
         $cart = $this->resolveCart($store, $request, create: false);
@@ -92,15 +86,7 @@ class CartController extends ApiController
             abort(404);
         }
 
-        $data = $request->validate(['qty' => ['required', 'integer', 'min:0']]);
-
-        if ($data['qty'] === 0) {
-            $item->delete();
-        } else {
-            $item->update(['qty' => $data['qty'], 'line_subtotal' => $data['qty'] * $item->unit_amount]);
-        }
-
-        $cart->recalcTotals();
+        $this->service->updateItem($cart, $item, $request->validated()['qty']);
 
         return $this->ok($this->cartPayload($cart->fresh(), $this->guestToken($request)), 'Cart updated.');
     }
@@ -114,8 +100,7 @@ class CartController extends ApiController
             abort(404);
         }
 
-        $item->delete();
-        $cart->recalcTotals();
+        $this->service->removeItem($cart, $item);
 
         return $this->ok($this->cartPayload($cart->fresh(), $this->guestToken($request)), 'Item removed.');
     }
@@ -126,8 +111,7 @@ class CartController extends ApiController
         $cart = $this->resolveCart($store, $request, create: false);
 
         if ($cart) {
-            $cart->items()->delete();
-            $cart->recalcTotals();
+            $this->service->clear($cart);
         }
 
         return $this->ok($this->cartPayload($cart?->fresh(), $this->guestToken($request)), 'Cart cleared.');

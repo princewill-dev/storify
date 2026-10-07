@@ -1,13 +1,15 @@
 <?php
 
-use App\Models\Business;
+use App\Enums\TransactionStatus;
 use App\Models\FiscalPeriod;
 use App\Models\JournalEntry;
 use App\Models\LedgerAccount;
 use App\Models\LedgerMapping;
+use App\Models\Order;
+use App\Models\OrderItem;
 use App\Models\Product;
-use App\Models\StockLocation;
 use App\Models\Store;
+use App\Models\Transaction;
 use App\Services\Accounting\LedgerPostingService;
 use App\Services\Accounting\LedgerSetupService;
 
@@ -146,7 +148,7 @@ test('a pos sale posts a balanced ledger entry with revenue split', function () 
         'status' => 'active',
     ]);
 
-    $order = App\Models\Order::create([
+    $order = Order::create([
         'business_id' => $business->id,
         'store_id' => $store->id,
         'user_id' => $owner->id,
@@ -158,7 +160,7 @@ test('a pos sale posts a balanced ledger entry with revenue split', function () 
         'status' => 'completed',
     ]);
 
-    App\Models\OrderItem::create([
+    OrderItem::create([
         'order_id' => $order->id,
         'product_id' => $product->id,
         'product_name' => $product->name,
@@ -168,12 +170,12 @@ test('a pos sale posts a balanced ledger entry with revenue split', function () 
         'cost_kobo' => 120000,
     ]);
 
-    App\Models\Transaction::create([
+    Transaction::create([
         'reference' => 'TXN-POS-TEST1',
         'order_id' => $order->id,
         'business_id' => $business->id,
         'amount' => 2000,
-        'status' => App\Enums\TransactionStatus::CONFIRMED,
+        'status' => TransactionStatus::CONFIRMED,
         'paid_at' => now(),
         'metadata' => ['leg_method' => 'cash'],
     ]);

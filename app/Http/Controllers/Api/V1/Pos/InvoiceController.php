@@ -3,55 +3,70 @@
 namespace App\Http\Controllers\Api\V1\Pos;
 
 use App\Enums\InvoiceStatus;
-use App\Enums\TransactionStatus;
 use App\Http\Controllers\Controller;
-use App\Mail\InvoiceMail;
+use App\Http\Requests\Pos\RecordInvoicePaymentRequest;
+use App\Http\Requests\Pos\StoreInvoiceRequest;
+use App\Http\Resources\Pos\InvoiceDetailResource;
+use App\Http\Resources\Pos\InvoiceResource;
+use App\Http\Resources\Pos\InvoiceSummaryResource;
 use App\Models\Invoice;
-use App\Models\ServiceCharge;
 use App\Models\Store;
-use App\Models\Transaction;
+use App\Repositories\Pos\InvoiceRepository;
+use App\Services\Pos\InvoiceService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Str;
 
+/**
+ * POS invoices (legacy `Pos\InvoiceController`), split into layers with the
+ * behaviour untouched.
+ *
+ * This controller keeps the HTTP contract only: the legacy
+ * `{success, data}` envelope (POS clients and this endpoint's tests read it),
+ * the status codes, the message strings and the list's pagination meta. The
+ * store reachability guard stays on the route middleware
+ * (EnsurePosStoreAccess), answering 403 before validation can answer 422.
+ *
+ * Reads and query composition live in App\Repositories\Pos\InvoiceRepository,
+ * the create/payment/send workflows and their transaction boundaries in
+ * App\Services\Pos\InvoiceService, validation in App\Http\Requests\Pos\* and
+ * response shaping in App\Http\Resources\Pos\*.
+ *
+ * The PIN gate stays here: its failure answers `{success: false, message:
+ * 'Invalid PIN.'}`, which a FormRequest field error would replace.
+ */
 class InvoiceController extends Controller
 {
+    public function __construct(
+        private readonly InvoiceRepository $repository,
+        private readonly InvoiceService $service,
+    ) {}
+
+    /**
+     * GET /pos/stores/{store}/invoices — the store's invoices, filtered by
+     * the status tab and the number/recipient search.
+     */
     public function index(Request $request, Store $store): JsonResponse
     {
-        $query = Invoice::where('store_id', $store->id)
-            ->with(['customer', 'items'])
-            ->latest();
+        // Presence, trimming and the enum check are read here with the same
+        // filled()/in_array()/trim() semantics the inline query used (an
+        // invalid status is ignored, not a 422); the repository composes the
+        // query from the resolved values.
+        $status = $request->filled('status') && in_array($request->status, array_column(InvoiceStatus::cases(), 'value'))
+            ? $request->status
+            : null;
 
-        if ($request->filled('status') && in_array($request->status, array_column(InvoiceStatus::cases(), 'value'))) {
-            $query->where('status', $request->status);
-        }
-
-        if ($request->filled('q')) {
-            $q = trim($request->q);
-            $query->where(function ($x) use ($q) {
-                $x->where('invoice_number', 'like', "%{$q}%")
-                    ->orWhere('recipient_name', 'like', "%{$q}%");
-            });
-        }
-
-        $invoices = $query->paginate(20)->withQueryString();
+        $invoices = $this->repository->paginateForStore($store, [
+            'status' => $status,
+            'q' => $request->filled('q') ? trim($request->q) : null,
+        ]);
 
         return response()->json([
             'success' => true,
             'data' => [
-                'invoices' => $invoices->map(fn ($inv) => [
-                    'id' => $inv->id,
-                    'invoice_number' => $inv->invoice_number,
-                    'recipient_name' => $inv->recipient_name ?? $inv->customer?->full_name,
-                    'total' => (float) $inv->total,
-                    'amount_paid' => (float) $inv->amount_paid,
-                    'status' => $inv->status->value,
-                    'status_label' => $inv->status->label(),
-                    'due_date' => $inv->due_date->toISOString(),
-                    'created_at' => $inv->created_at->toISOString(),
-                ]),
+                'invoices' => $invoices->getCollection()
+                    ->map(fn (Invoice $invoice) => (new InvoiceSummaryResource($invoice))->resolve($request))
+                    ->all(),
                 'pagination' => [
                     'current_page' => $invoices->currentPage(),
                     'last_page' => $invoices->lastPage(),
@@ -61,261 +76,80 @@ class InvoiceController extends Controller
         ]);
     }
 
-    public function show(Store $store, $invoiceId): JsonResponse
+    /**
+     * GET /pos/stores/{store}/invoices/{invoiceId} — the invoice document.
+     */
+    public function show(Request $request, Store $store, $invoiceId): JsonResponse
     {
-        $invoice = Invoice::where('store_id', $store->id)
-            ->where('id', $invoiceId)
-            ->with(['items', 'customer', 'transactions.paymentMethod'])
-            ->firstOrFail();
+        $invoice = $this->repository->findForStore($store, $invoiceId, ['items', 'customer', 'transactions.paymentMethod']);
 
         return response()->json([
             'success' => true,
             'data' => [
-                'invoice' => [
-                    'id' => $invoice->id,
-                    'invoice_number' => $invoice->invoice_number,
-                    'recipient_name' => $invoice->recipient_name ?? $invoice->customer?->full_name,
-                    'recipient_email' => $invoice->recipient_email,
-                    'recipient_phone' => $invoice->recipient_phone,
-                    'status' => $invoice->status->value,
-                    'status_label' => $invoice->status->label(),
-                    'issue_date' => $invoice->issue_date->toISOString(),
-                    'due_date' => $invoice->due_date->toISOString(),
-                    'subtotal' => (float) $invoice->subtotal,
-                    'tax_rate' => (float) $invoice->tax_rate,
-                    'tax_amount' => (float) $invoice->tax_amount,
-                    'discount_value' => (float) $invoice->discount_value,
-                    'total' => (float) $invoice->total,
-                    'amount_paid' => (float) $invoice->amount_paid,
-                    'remaining' => $invoice->remainingBalance(),
-                    'notes' => $invoice->notes,
-                    'created_at' => $invoice->created_at->toISOString(),
-                    'items' => $invoice->items->map(fn ($i) => [
-                        'description' => $i->description,
-                        'quantity' => $i->quantity,
-                        'unit_price' => (float) $i->unit_price,
-                        'amount' => (float) $i->amount,
-                    ]),
-                    'transactions' => $invoice->transactions->where('status', '!=', 'pending')->map(fn ($tx) => [
-                        'reference' => $tx->reference,
-                        'amount' => (float) $tx->amount,
-                        'status' => $tx->status->value,
-                        'status_label' => $tx->status->label(),
-                        'created_at' => $tx->created_at->toISOString(),
-                    ]),
-                ],
+                'invoice' => (new InvoiceDetailResource($invoice))->resolve($request),
             ],
         ]);
     }
 
-    public function store(Request $request, Store $store): JsonResponse
+    /**
+     * POST /pos/stores/{store}/invoices — create; totals are always
+     * recomputed by the service, never read from the payload.
+     */
+    public function store(StoreInvoiceRequest $request, Store $store): JsonResponse
     {
-        $user = $request->user();
-
-        $validated = $request->validate([
-            'recipient_name' => 'required|string|max:255',
-            'recipient_email' => 'nullable|email|max:255',
-            'recipient_phone' => 'nullable|string|max:50',
-            'customer_id' => 'nullable|exists:customers,id',
-            'issue_date' => 'required|date',
-            'due_date' => 'required|date|after_or_equal:issue_date',
-            'subtotal' => 'required|numeric|min:0',
-            'tax_rate' => 'nullable|numeric|min:0|max:100',
-            'tax_amount' => 'nullable|numeric|min:0',
-            'discount_value' => 'nullable|numeric|min:0',
-            'total' => 'required|numeric|min:0',
-            'notes' => 'nullable|string|max:500',
-            'send_now' => 'nullable|boolean',
-            'service_charge_id' => 'nullable|exists:service_charges,id',
-            'items' => 'required|array|min:1',
-            'items.*.description' => 'required|string|max:500',
-            'items.*.quantity' => 'required|integer|min:1',
-            'items.*.unit_price' => 'required|numeric|min:0',
-        ]);
-
-        $invoice = DB::transaction(function () use ($validated, $store, $user) {
-            $subtotal = round(collect($validated['items'])->sum(fn (array $item) => (int) $item['quantity'] * (float) $item['unit_price']), 2);
-
-            $serviceChargeAmount = 0.0;
-            if ($validated['service_charge_id'] ?? null) {
-                $charge = ServiceCharge::where('store_id', $store->id)->where('is_active', true)->find($validated['service_charge_id']);
-                $serviceChargeAmount = (float) ($charge?->amount ?? 0);
-            }
-
-            $total = round(
-                $subtotal
-                + (float) ($validated['tax_amount'] ?? 0)
-                - (float) ($validated['discount_value'] ?? 0)
-                + $serviceChargeAmount,
-                2
-            );
-
-            $invoice = Invoice::create([
-                'business_id' => $store->business_id,
-                'user_id' => $user->id,
-                'store_id' => $store->id,
-                'customer_id' => $validated['customer_id'] ?? null,
-                'recipient_name' => $validated['recipient_name'],
-                'recipient_email' => $validated['recipient_email'] ?? null,
-                'recipient_phone' => $validated['recipient_phone'] ?? null,
-                'status' => InvoiceStatus::DRAFT,
-                'issue_date' => $validated['issue_date'],
-                'due_date' => $validated['due_date'],
-                'subtotal' => $subtotal,
-                'tax_rate' => $validated['tax_rate'] ?? 0,
-                'tax_amount' => $validated['tax_amount'] ?? 0,
-                'discount_value' => $validated['discount_value'] ?? 0,
-                'total' => $total,
-                'notes' => $validated['notes'] ?? null,
-                'payment_token' => Str::random(32),
-            ]);
-
-            foreach ($validated['items'] as $i => $item) {
-                $invoice->items()->create([
-                    'description' => $item['description'],
-                    'quantity' => (int) $item['quantity'],
-                    'unit_price' => (float) $item['unit_price'],
-                    'amount' => (int) $item['quantity'] * (float) $item['unit_price'],
-                    'sort_order' => $i,
-                ]);
-            }
-
-            if ($validated['send_now'] ?? false) {
-                $this->doSendInvoice($invoice);
-            }
-
-            return $invoice->load('items');
-        });
+        $invoice = $this->service->createInvoice($store, $request->user(), $request->validated());
 
         return response()->json([
             'success' => true,
-            'data' => $this->formatInvoice($invoice),
+            'data' => (new InvoiceResource($invoice))->resolve($request),
         ], 201);
     }
 
+    /**
+     * POST /pos/stores/{store}/invoices/{invoiceId}/send — send (or resend)
+     * the invoice mail. The service swallows mail failures and returns
+     * quietly when no recipient is reachable, so this answers "Invoice sent."
+     * either way, exactly as before.
+     */
     public function sendInvoice(Request $request, Store $store, $invoiceId): JsonResponse
     {
-        $invoice = Invoice::where('store_id', $store->id)->findOrFail($invoiceId);
+        $invoice = $this->repository->findForStore($store, $invoiceId);
 
         if ($invoice->status === InvoiceStatus::PAID || $invoice->status === InvoiceStatus::VOID) {
             return response()->json(['success' => false, 'message' => 'Cannot send a paid or voided invoice.'], 400);
         }
 
-        $this->doSendInvoice($invoice);
+        $this->service->send($invoice);
 
         return response()->json(['success' => true, 'message' => 'Invoice sent.']);
     }
 
-    public function recordPayment(Request $request, Store $store, $invoiceId): JsonResponse
+    /**
+     * POST /pos/stores/{store}/invoices/{invoiceId}/record-payment — one
+     * manual payment, PIN-gated when the operator has a POS PIN.
+     */
+    public function recordPayment(RecordInvoicePaymentRequest $request, Store $store, $invoiceId): JsonResponse
     {
         $user = $request->user();
-        $invoice = Invoice::where('store_id', $store->id)->findOrFail($invoiceId);
+        $data = $request->validated();
+
+        $invoice = $this->repository->findForStore($store, $invoiceId);
 
         if (in_array($invoice->status, [InvoiceStatus::PAID, InvoiceStatus::VOID])) {
             return response()->json(['success' => false, 'message' => 'Cannot record payment on this invoice.'], 400);
         }
 
-        $validated = $request->validate([
-            'amount' => ['required', 'numeric', 'min:0.01', 'max:'.$invoice->remainingBalance()],
-            'payment_method' => ['required', 'in:cash,bank_transfer,cheque'],
-            'pin' => $user->pos_pin ? ['required', 'string', 'size:6'] : ['nullable'],
-        ]);
-
-        if ($user->pos_pin && ! Hash::check($validated['pin'], $user->pos_pin)) {
+        if ($user->pos_pin && ! Hash::check($data['pin'], $user->pos_pin)) {
             return response()->json(['success' => false, 'message' => 'Invalid PIN.'], 422);
         }
 
-        DB::transaction(function () use ($invoice, $user, $validated) {
-            $methodLabels = ['cash' => 'Cash', 'bank_transfer' => 'Bank Transfer', 'cheque' => 'Cheque'];
+        $this->service->recordPayment($invoice, $user, $data);
 
-            $transaction = Transaction::create([
-                'reference' => 'PMT-'.strtoupper(Str::random(12)),
-                'invoice_id' => $invoice->id,
-                'business_id' => $invoice->business_id,
-                'amount' => $validated['amount'],
-                'currency' => 'NGN',
-                'status' => TransactionStatus::CONFIRMED,
-                'paid_at' => now(),
-                'metadata' => [
-                    'method' => 'manual',
-                    'source' => $validated['payment_method'],
-                    'recorded_by' => $user->id,
-                ],
-            ]);
-
-            $invoice->amount_paid = (float) $invoice->amount_paid + (float) $validated['amount'];
-
-            if ($invoice->isFullyPaid()) {
-                $invoice->status = InvoiceStatus::PAID;
-                $invoice->paid_at = now();
-            } elseif ($invoice->amount_paid > 0) {
-                $invoice->status = InvoiceStatus::PARTIAL;
-            }
-
-            $invoice->save();
-
-            if ($invoice->store) {
-                $invoice->store->creditBalance((int) ($validated['amount'] * 100));
-            }
-        });
-
-        $invoice->refresh()->load('items', 'transactions');
+        $invoice = $this->repository->refreshDetail($invoice);
 
         return response()->json([
             'success' => true,
-            'data' => $this->formatInvoice($invoice),
+            'data' => (new InvoiceResource($invoice))->resolve($request),
         ]);
-    }
-
-    private function formatInvoice($invoice): array
-    {
-        return [
-            'id' => $invoice->id,
-            'invoice_number' => $invoice->invoice_number,
-            'recipient_name' => $invoice->recipient_name ?? $invoice->customer?->full_name,
-            'status' => $invoice->status->value,
-            'status_label' => $invoice->status->label(),
-            'total' => (float) $invoice->total,
-            'amount_paid' => (float) $invoice->amount_paid,
-            'remaining' => $invoice->remainingBalance(),
-            'created_at' => $invoice->created_at->toISOString(),
-            'items' => $invoice->items->map(fn ($i) => [
-                'description' => $i->description,
-                'quantity' => $i->quantity,
-                'unit_price' => (float) $i->unit_price,
-                'amount' => (float) $i->amount,
-            ]),
-            'transactions' => $invoice->transactions->where('status', '!=', 'pending')->map(fn ($tx) => [
-                'reference' => $tx->reference,
-                'amount' => (float) $tx->amount,
-                'status' => $tx->status->value,
-                'status_label' => $tx->status->label(),
-                'created_at' => $tx->created_at->toISOString(),
-            ]),
-        ];
-    }
-
-    private function doSendInvoice(Invoice $invoice): void
-    {
-        $to = $invoice->recipient_email ?: $invoice->customer?->email;
-        if (! $to || str_contains($to, '@walkin.local')) {
-            return;
-        }
-
-        try {
-            $invoice->load(['items', 'store']);
-            if (! $invoice->payment_token) {
-                $invoice->payment_token = Str::random(32);
-                $invoice->save();
-            }
-            $paymentUrl = route('invoice.pay.show', ['token' => $invoice->payment_token]);
-            \Mail::to($to)->queue(new InvoiceMail($invoice, $paymentUrl));
-
-            if ($invoice->isDraft()) {
-                $invoice->update(['status' => InvoiceStatus::SENT, 'sent_at' => now()]);
-            }
-        } catch (\Throwable $e) {
-            \Log::error('pos_invoice_send_failed', ['invoice_id' => $invoice->id, 'error' => $e->getMessage()]);
-        }
     }
 }

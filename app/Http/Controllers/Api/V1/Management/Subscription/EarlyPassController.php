@@ -5,12 +5,13 @@ namespace App\Http\Controllers\Api\V1\Management\Subscription;
 use App\Actions\Subscriptions\ActivateSubscriptionWithEarlyPass;
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Http\Controllers\Api\V1\Management\Concerns\ResolvesManagementContext;
+use App\Http\Requests\Management\Subscription\ApplyEarlyPassRequest;
+use App\Http\Resources\Subscription\SubscriptionResource;
 use App\Models\EarlyPass;
 use App\Models\SubscriptionPlan;
 use App\Services\StoreActivationNotifier;
 use DomainException;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -37,9 +38,9 @@ class EarlyPassController extends ApiController
         private readonly StoreActivationNotifier $activationNotifier,
     ) {}
 
-    public function apply(Request $request): JsonResponse
+    public function apply(ApplyEarlyPassRequest $request): JsonResponse
     {
-        $data = $request->validate(['code' => ['required', 'string', 'max:100']]);
+        $data = $request->validated();
 
         $user = $this->user($request);
         $earlyPass = EarlyPass::query()->where('code', trim($data['code']))->first();
@@ -79,14 +80,7 @@ class EarlyPassController extends ApiController
             'success' => true,
             'activated' => true,
             'redirect' => '/',
-            'subscription' => [
-                'id' => $subscription->id,
-                'subscription_code' => $subscription->subscription_code,
-                'status' => $subscription->status,
-                'starts_at' => $subscription->starts_at?->toISOString(),
-                'expires_at' => $subscription->expires_at?->toISOString(),
-                'plan_name' => $plan->name,
-            ],
+            'subscription' => SubscriptionResource::make($subscription)->resolve(),
         ], 'Early access activated! Taking you to your dashboard…');
     }
 }

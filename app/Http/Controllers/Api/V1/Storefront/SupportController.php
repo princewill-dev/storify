@@ -4,57 +4,42 @@ namespace App\Http\Controllers\Api\V1\Storefront;
 
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Http\Controllers\Api\V1\Storefront\Concerns\ResolvesStorefrontContext;
-use App\Mail\AdminNewSupportMessageMail;
-use App\Mail\SupportMessageReceivedMail;
-use App\Models\SupportMessage;
+use App\Http\Requests\Storefront\SupportRequest;
+use App\Services\Storefront\SupportMessageService;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Mail;
 
+/**
+ * The per-store storefront support form
+ * (`POST /api/v1/storefront/{store}/support`).
+ *
+ * Layering: the HTTP shape — the 200, the `{data}` envelope and the exact
+ * success message — stays here; the rules live in SupportRequest and the
+ * record-and-notify workflow (insert, creation log, customer receipt, store
+ * admin notification) in App\Services\Storefront\SupportMessageService. No
+ * repository was extracted: the only reads are the shared storefront-context
+ * slug lookup in ResolvesStorefrontContext and the workflow's single INSERT,
+ * both far below the composition bar. The response carries no data payload,
+ * so there is nothing for a resource to shape.
+ *
+ * `resolveStore()` still fronts the workflow, so an unknown or deleted store
+ * 404s before anything is written or mailed. The FormRequest runs earlier,
+ * during parameter resolution — the accepted consequence of extracting
+ * validation, applied codebase-wide: a malformed payload aimed at an unknown
+ * store is answered 422 by validation before the store lookup can 404.
+ */
 class SupportController extends ApiController
 {
     use ResolvesStorefrontContext;
 
-    public function store(Request $request, string $store): JsonResponse
+    public function __construct(
+        private readonly SupportMessageService $supportMessages,
+    ) {}
+
+    public function store(SupportRequest $request, string $store): JsonResponse
     {
         $store = $this->resolveStore($store);
 
-        $validated = $request->validate([
-            'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'email', 'max:255'],
-            'phone' => ['nullable', 'string', 'max:20'],
-            'message' => ['required', 'string', 'max:2000'],
-        ]);
-
-        $supportMessage = SupportMessage::create([
-            'store_id' => $store->id,
-            'name' => $validated['name'],
-            'email' => $validated['email'],
-            'phone' => $validated['phone'] ?? null,
-            'message' => $validated['message'],
-            'status' => 'pending',
-        ]);
-
-        Log::info('api.store.support_message.created', [
-            'message_id' => $supportMessage->id,
-            'store_id' => $store->id,
-        ]);
-
-        try {
-            Mail::to($validated['email'])->queue(new SupportMessageReceivedMail($supportMessage));
-        } catch (\Exception $e) {
-            Log::error('api.store.support_message.customer_email_failed', ['error' => $e->getMessage()]);
-        }
-
-        try {
-            $adminEmail = $store->support_email ?? config('mail.from.address');
-            if ($adminEmail) {
-                Mail::to($adminEmail)->queue(new AdminNewSupportMessageMail($supportMessage));
-            }
-        } catch (\Exception $e) {
-            Log::error('api.store.support_message.admin_email_failed', ['error' => $e->getMessage()]);
-        }
+        $this->supportMessages->record($store, $request->validated());
 
         return $this->ok([], 'Thank you! Your message has been received.');
     }

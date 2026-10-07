@@ -9,6 +9,7 @@ use App\Mail\InvoicePaymentReceiptMail;
 use App\Models\Invoice;
 use App\Models\PaymentMethod;
 use App\Models\Transaction;
+use App\Services\Accounting\LedgerPostingService;
 use App\Services\PaystackService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -219,7 +220,7 @@ class InvoicePaymentController extends Controller
             }
         });
 
-        $ledger = app(\App\Services\Accounting\LedgerPostingService::class);
+        $ledger = app(LedgerPostingService::class);
         $ledger->safe(function () use ($ledger, $invoice, $transaction) {
             $ledger->postInvoice($invoice);
             $ledger->postPaymentReceived($transaction);

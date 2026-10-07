@@ -2,15 +2,13 @@
 
 namespace App\Http\Controllers\Api\V1\Admin;
 
-use App\Enums\TransactionStatus;
 use App\Http\Controllers\Api\V1\Admin\Concerns\EnsuresPlatformAdmin;
 use App\Http\Controllers\Api\V1\ApiController;
+use App\Http\Requests\Admin\UpdateTransactionStatusRequest;
+use App\Http\Resources\Admin\TransactionStatusOverrideResource;
 use App\Models\Transaction;
-use App\Services\ActivityRecorder;
+use App\Services\Admin\TransactionStatusService;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Validation\Rule;
 
 /**
  * WS-5 — admin transaction status override.
@@ -21,51 +19,38 @@ use Illuminate\Validation\Rule;
  *
  * The enum-validated override is the only admin lever on money already taken:
  * dashboard/order revenue figures count CONFIRMED totals, so legacy's silent
- * update is now audit-logged (it wrote nothing to ActivityLog).
+ * update is now audit-logged (it wrote nothing to ActivityLog) — the write and
+ * its audit row share one transaction inside TransactionStatusService.
+ *
+ * The controller keeps the HTTP shape only — the status code and message
+ * string. Validation lives in UpdateTransactionStatusRequest, the
+ * transactional write + audit in TransactionStatusService, and response
+ * shaping in TransactionStatusOverrideResource. No repository is involved:
+ * the route-bound model is a single `update` with no query composition. The
+ * platform-admin guard deliberately stays here (not in FormRequest::authorize())
+ * so its order relative to route binding is unchanged.
  */
 class TransactionStatusController extends ApiController
 {
     use EnsuresPlatformAdmin;
 
-    public function update(Request $request, Transaction $transaction): JsonResponse
+    public function __construct(
+        private readonly TransactionStatusService $statuses,
+    ) {}
+
+    public function update(UpdateTransactionStatusRequest $request, Transaction $transaction): JsonResponse
     {
         $this->authorizePlatformAdmin();
 
-        $data = $request->validate([
-            'status' => ['required', Rule::enum(TransactionStatus::class)],
-        ]);
+        $transaction = $this->statuses->update(
+            $transaction,
+            $request->validated(),
+            $request->user(),
+        );
 
-        $oldStatus = $transaction->status instanceof TransactionStatus
-            ? $transaction->status->value
-            : (string) $transaction->status;
-
-        DB::transaction(function () use ($request, $transaction, $data, $oldStatus) {
-            $transaction->update(['status' => $data['status']]);
-
-            ActivityRecorder::record(
-                action: 'transaction_status_updated',
-                description: "Changed transaction {$transaction->reference} status from {$oldStatus} to {$data['status']}",
-                subject: $transaction,
-                old: ['status' => $oldStatus],
-                new: ['status' => $data['status']],
-                actor: $request->user(),
-            );
-        });
-
-        $transaction->refresh()->loadMissing('order:id,order_number');
-
-        return $this->ok([
-            'transaction' => [
-                'id' => $transaction->id,
-                'reference' => $transaction->reference,
-                'amount' => (float) $transaction->amount,
-                'currency' => $transaction->currency,
-                'status' => $transaction->status?->value,
-                'status_label' => $transaction->status?->label(),
-                'order' => $transaction->order?->order_number,
-                'paid_at' => $transaction->paid_at?->toISOString(),
-                'created_at' => $transaction->created_at?->toISOString(),
-            ],
-        ], 'Transaction status updated.');
+        return $this->ok(
+            ['transaction' => TransactionStatusOverrideResource::make($transaction)->resolve()],
+            'Transaction status updated.',
+        );
     }
 }

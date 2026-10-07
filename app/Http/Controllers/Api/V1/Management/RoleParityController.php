@@ -4,11 +4,13 @@ namespace App\Http\Controllers\Api\V1\Management;
 
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Http\Controllers\Api\V1\Management\Concerns\ResolvesManagementContext;
+use App\Http\Requests\Management\RoleParityStoreRequest;
+use App\Http\Requests\Management\RoleParityUpdateRequest;
+use App\Http\Resources\Management\RoleParityResource;
+use App\Repositories\Management\RoleParityRepository;
+use App\Services\Management\RoleParityService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Validation\Rule;
-use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 
 /**
@@ -20,119 +22,64 @@ use Spatie\Permission\Models\Role;
  * a duplicate used to 500 on the DB index) and every role the platform
  * protects — Super Admin, Developer, Store Associate — refuses deletion and
  * renaming instead of only Super Admin.
+ *
+ * The read queries (the business-scoped role list and the permission catalog)
+ * live in RoleParityRepository together with the protected-role policy the
+ * resource's `protected` flag shares; the create/edit workflows and their
+ * transaction boundaries live in RoleParityService; the role payload lives in
+ * RoleParityResource and the request rules in the two FormRequests beside it.
+ * This class keeps the HTTP contract: status codes (201/404/409), refusal
+ * messages, the envelope and the order of the guards.
  */
 class RoleParityController extends ApiController
 {
     use ResolvesManagementContext;
 
-    /**
-     * System roles seeded per business. Deleting or renaming them breaks
-     * permission defaults, so both are refused.
-     */
-    public const PROTECTED_ROLES = ['Super Admin', 'Developer', 'Store Associate'];
+    public function __construct(
+        private readonly RoleParityRepository $repository,
+        private readonly RoleParityService $service,
+    ) {}
 
     public function index(Request $request): JsonResponse
     {
-        $businessId = $this->user($request)->business_id;
-
-        $roles = Role::query()
-            ->where('business_id', $businessId)
-            ->with('permissions:id,name')
-            ->withCount('users')
-            ->orderBy('name')
-            ->get()
-            ->map(fn (Role $role) => [
-                'id' => $role->id,
-                'name' => $role->name,
-                'users_count' => $role->users_count ?? 0,
-                'permissions' => $role->permissions->pluck('name')->values()->all(),
-                'protected' => $this->isProtected($role->name),
-            ])->values()->all();
-
-        // Business roles cannot grant the platform `admin.*` abilities (admin
-        // routes additionally require an admin-audience token), so the catalog
-        // hides them rather than rendering 20 dead one-item groups.
-        $permissions = Permission::query()
-            ->where('name', 'not like', 'admin.%')
-            ->orderBy('name')
-            ->pluck('name')
-            ->values()
-            ->all();
-
-        return $this->ok(['roles' => $roles, 'permissions' => $permissions]);
+        return $this->ok([
+            'roles' => RoleParityResource::collection($this->repository->rolesFor($this->user($request)))
+                ->resolve($request),
+            'permissions' => $this->repository->permissionCatalog()->all(),
+        ]);
     }
 
-    public function store(Request $request): JsonResponse
+    public function store(RoleParityStoreRequest $request): JsonResponse
     {
-        $businessId = $this->user($request)->business_id;
-
-        $data = $request->validate([
-            'name' => [
-                'required', 'string', 'max:100',
-                Rule::unique('roles', 'name')->where('business_id', $businessId),
-            ],
-            'permissions' => ['required', 'array'],
-            'permissions.*' => ['string', Rule::exists('permissions', 'name')],
-        ]);
-
-        setPermissionsTeamId($businessId);
-
-        $role = DB::transaction(function () use ($data, $businessId) {
-            $role = Role::create([
-                'name' => $data['name'],
-                'business_id' => $businessId,
-                'guard_name' => 'web',
-            ]);
-
-            $role->syncPermissions($data['permissions']);
-
-            return $role;
-        });
+        $role = $this->service->create($this->user($request), $request->validated());
 
         return $this->ok([
-            'role' => $this->payload($role),
+            'role' => (new RoleParityResource($role))->resolve($request),
         ], 'Role created.', 201);
     }
 
-    public function update(Request $request, Role $role): JsonResponse
+    public function update(RoleParityUpdateRequest $request, Role $role): JsonResponse
     {
         $this->authorizeRole($request, $role);
 
-        $businessId = $this->user($request)->business_id;
-
-        $data = $request->validate([
-            'name' => [
-                'sometimes', 'string', 'max:100',
-                Rule::unique('roles', 'name')->where('business_id', $businessId)->ignore($role->id),
-            ],
-            'permissions' => ['sometimes', 'array'],
-            'permissions.*' => ['string', Rule::exists('permissions', 'name')],
-        ]);
+        $data = $request->validated();
 
         if (isset($data['name'])
             && $data['name'] !== $role->name
-            && $this->isProtected($role->name)) {
+            && RoleParityRepository::isProtected($role->name)) {
             return $this->error('This is a protected system role and cannot be renamed.', 409);
         }
 
-        DB::transaction(function () use ($role, $data) {
-            if (isset($data['name'])) {
-                $role->update(['name' => $data['name']]);
-            }
+        $this->service->update($role, $data);
 
-            if (isset($data['permissions'])) {
-                $role->syncPermissions($data['permissions']);
-            }
-        });
-
-        return $this->ok(['role' => $this->payload($role->fresh())], 'Role updated.');
+        return $this->ok(['role' => (new RoleParityResource($role->fresh()))->resolve($request)], 'Role updated.');
     }
 
     public function destroy(Request $request, Role $role): JsonResponse
     {
         $this->authorizeRole($request, $role);
 
-        if ($this->isProtected($role->name)) {
+        if (RoleParityRepository::isProtected($role->name)) {
             return $this->error('This is a protected system role and cannot be deleted.', 409);
         }
 
@@ -145,31 +92,15 @@ class RoleParityController extends ApiController
         return $this->ok([], 'Role deleted.');
     }
 
+    /**
+     * A role of another business is invisible: a 404, not a 403. That is
+     * deliberate anti-id-probing and the reason this stays private here
+     * rather than moving to TenantGuard, whose business shapes abort 403.
+     */
     private function authorizeRole(Request $request, Role $role): void
     {
         if ((int) $role->business_id !== (int) $this->user($request)->business_id) {
             abort(404);
         }
-    }
-
-    private function isProtected(string $name): bool
-    {
-        return in_array(strtolower($name), array_map('strtolower', self::PROTECTED_ROLES), true);
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function payload(Role $role): array
-    {
-        $role->loadMissing('permissions:id,name');
-
-        return [
-            'id' => $role->id,
-            'name' => $role->name,
-            'users_count' => $role->users()->count(),
-            'permissions' => $role->permissions->pluck('name')->values()->all(),
-            'protected' => $this->isProtected($role->name),
-        ];
     }
 }

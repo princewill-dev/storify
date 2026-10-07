@@ -3,66 +3,91 @@
 namespace App\Http\Controllers\Api\V1\Storefront;
 
 use App\Actions\Checkout\PlaceStorefrontOrder;
-use App\Enums\OrderStatus;
 use App\Enums\TransactionStatus;
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Http\Controllers\Api\V1\Storefront\Concerns\ResolvesStorefrontContext;
+use App\Http\Requests\Storefront\BankTransferRequest;
+use App\Http\Requests\Storefront\InitializePaymentRequest;
+use App\Http\Requests\Storefront\PlaceOrderRequest;
+use App\Http\Requests\Storefront\VerifyPaymentRequest;
+use App\Http\Resources\Storefront\CheckoutBankAccountResource;
+use App\Http\Resources\Storefront\CheckoutDownloadResource;
+use App\Http\Resources\Storefront\CheckoutOrderDetailResource;
+use App\Http\Resources\Storefront\CheckoutOrderResource;
+use App\Http\Resources\Storefront\CheckoutPaymentMethodResource;
 use App\Models\Order;
-use App\Models\PaymentMethod;
 use App\Models\Store;
 use App\Models\Transaction;
-use App\Services\Accounting\LedgerPostingService;
-use App\Services\Digital\DigitalDeliveryService;
-use App\Services\PaystackService;
+use App\Repositories\Storefront\CheckoutRepository;
+use App\Services\Storefront\CheckoutPaymentService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
+/**
+ * Storefront checkout: the payment options, order placement, the two Paystack
+ * steps and the bank-transfer slip.
+ *
+ * Layering: the HTTP contract — the 409/422/502/500 refusals, the message
+ * strings, the status codes and the envelope — stays here; the payload rules
+ * live in the Storefront FormRequests, every store-scoped read (orders,
+ * transactions, payment options, downloads) in CheckoutRepository, the
+ * Paystack money movement with its transaction boundaries in
+ * CheckoutPaymentService, and the response shapes in the Checkout* resources,
+ * moved verbatim so field names, types and order are unchanged.
+ *
+ * `place` keeps calling the existing PlaceStorefrontOrder action: its
+ * multi-table write and transaction already live there, so no service wraps
+ * it. `bankTransfer` keeps its single INSERT in the body — one row, no
+ * transaction boundary, ledger, mail or notification to coordinate — and the
+ * three-scalar initialize response has no model to shape, so neither got an
+ * invented layer.
+ *
+ * PlaceOrderRequest resolves the store and cart the same way the controller
+ * does (through the shared ResolvesStorefrontContext concern) because its
+ * rules are conditional on that server state — which cart, which products,
+ * whether a customer session is present — and it returns no rules while the
+ * cart cannot be checked out, so the controller's "Your cart is empty." 422
+ * still answers a malformed payload exactly as before.
+ *
+ * MONEY — the two kobo conversions this controller carried inline were
+ * (int) round($amount * 100); both now call Naira::koboFromRounded, whose
+ * contract is that exact expression. The amounts written to the transaction
+ * rows are unchanged naira floats.
+ *
+ * Provenance kept with the code it explains:
+ *  - the bank-transfer `is_partial` metadata: a part-payment must be
+ *    distinguishable from a settled transfer (the Paystack branch already
+ *    recorded it; this branch did not);
+ *  - the cart-empty 422 is a state guard in the body, still ahead of the
+ *    action and behind the (now earlier) validation;
+ *  - the transaction lookup for verify is scoped through the order's
+ *    store_id, so a reference from another store 404s.
+ */
 class CheckoutController extends ApiController
 {
     use ResolvesStorefrontContext;
 
-    public function __construct(private readonly PaystackService $paystack) {}
+    public function __construct(
+        private readonly CheckoutRepository $repository,
+        private readonly CheckoutPaymentService $payments,
+    ) {}
 
-    public function paymentMethods(string $store): JsonResponse
+    public function paymentMethods(Request $request, string $store): JsonResponse
     {
         $store = $this->resolveStore($store);
 
-        $methods = $store->paymentMethods()
-            ->wherePivot('is_active', true)
-            ->get()
-            ->map(fn (PaymentMethod $method) => [
-                'id' => $method->id,
-                'name' => $method->name,
-                'code' => $method->code,
-                'type' => $method->type,
-                'description' => $method->description,
-            ])->values()->all();
-
-        if (empty($methods)) {
-            $methods = PaymentMethod::active()->get()->map(fn (PaymentMethod $method) => [
-                'id' => $method->id,
-                'name' => $method->name,
-                'code' => $method->code,
-                'type' => $method->type,
-                'description' => $method->description,
-            ])->values()->all();
-        }
-
         return $this->ok([
-            'payment_methods' => $methods,
-            'bank_accounts' => $store->assignedBanks()->where('is_verified', true)->get()->map(fn ($bank) => [
-                'id' => $bank->id,
-                'bank_name' => $bank->bank_name,
-                'account_number' => $bank->account_number,
-                'account_name' => $bank->account_name,
-            ])->values()->all(),
+            'payment_methods' => CheckoutPaymentMethodResource::collection(
+                $this->repository->paymentMethodsFor($store)
+            )->resolve($request),
+            'bank_accounts' => CheckoutBankAccountResource::collection(
+                $this->repository->verifiedBankAccountsFor($store)
+            )->resolve($request),
         ]);
     }
 
-    public function place(Request $request, string $store): JsonResponse
+    public function place(PlaceOrderRequest $request, PlaceStorefrontOrder $placeOrder, string $store): JsonResponse
     {
         $store = $this->resolveStore($store);
 
@@ -74,56 +99,24 @@ class CheckoutController extends ApiController
             return $this->error('Your cart is empty.', 422);
         }
 
-        $requiresShipping = $cart->items()->whereHas('product', fn ($q) => $q->where('is_digital', false))->exists();
-
-        $rules = [
-            'notes' => ['nullable', 'string'],
-            'delivery_route_id' => ['nullable', 'integer'],
-            'email' => [$customer ? 'nullable' : 'required', 'email', 'max:255'],
-            'first_name' => [$customer ? 'nullable' : 'required', 'string', 'max:255'],
-            'last_name' => [$customer ? 'nullable' : 'required', 'string', 'max:255'],
-            'phone' => [$customer ? 'nullable' : 'required', 'string', 'max:20'],
-        ];
-
-        if ($requiresShipping) {
-            $rules['street_address'] = ['required', 'string'];
-            $rules['state'] = ['required', 'string', 'max:255'];
-            $rules['city'] = ['required', 'string', 'max:255'];
-        } else {
-            $rules['street_address'] = ['nullable', 'string'];
-            $rules['state'] = ['nullable', 'string', 'max:255'];
-            $rules['city'] = ['nullable', 'string', 'max:255'];
-        }
-
-        $rules['apartment'] = ['nullable', 'string', 'max:255'];
-        $rules['country'] = ['nullable', 'string', 'max:255'];
-        $rules['landmark'] = ['nullable', 'string', 'max:255'];
-
-        $data = $request->validate($rules);
-
         try {
-            $order = app(PlaceStorefrontOrder::class)
-                ->execute($store, $customer, $data, $guestToken, $request->ip());
+            $order = $placeOrder->execute($store, $customer, $request->validated(), $guestToken, $request->ip());
         } catch (\Throwable $e) {
             return $this->error($e->getMessage(), 422);
         }
 
         return $this->ok([
-            'order' => $this->orderPayload($order, $store),
+            'order' => $this->orderPayload($request, $order, $store),
         ], 'Order placed. Proceed to payment.', 201);
     }
 
-    public function paystackInitialize(Request $request, string $store): JsonResponse
+    public function paystackInitialize(InitializePaymentRequest $request, string $store): JsonResponse
     {
         $store = $this->resolveStore($store);
 
-        $data = $request->validate([
-            'order_number' => ['required', 'string'],
-            'callback_url' => ['nullable', 'url', 'max:255'],
-            'amount' => ['nullable', 'numeric', 'min:0.01'],
-        ]);
+        $data = $request->validated();
 
-        $order = Order::where('store_id', $store->id)->where('order_number', $data['order_number'])->firstOrFail();
+        $order = $this->repository->findOrderByNumber($store, $data['order_number']);
 
         $remaining = $order->remainingBalance();
 
@@ -137,145 +130,53 @@ class CheckoutController extends ApiController
             return $this->error('Invalid payment amount.', 422);
         }
 
-        $this->useStorePaystackKeys($store);
+        $outcome = $this->payments->initialize($store, $order, $amount, $data);
 
-        $reference = $this->paystack->generateReference('API');
-        $email = $order->customer?->email ?: $data['email'] ?? null;
-
-        if (! $email || str_contains($email, '@walkin.local')) {
-            $email = config('mail.from.address', 'no-reply@storify.test');
-        }
-
-        DB::beginTransaction();
-
-        try {
-            $transaction = Transaction::create([
-                'reference' => $reference,
-                'order_id' => $order->id,
-                'business_id' => $order->business_id,
-                'amount' => $amount,
-                'currency' => 'NGN',
-                'status' => TransactionStatus::PENDING,
-                'metadata' => [
-                    'order_number' => $order->order_number,
-                    'is_partial' => $amount < $remaining,
-                    'source' => 'storefront_api',
-                ],
-            ]);
-
-            $result = $this->paystack->initializePayment([
-                'email' => $email,
-                'amount' => (int) round($amount * 100),
-                'currency' => 'NGN',
-                'reference' => $reference,
-                'callback_url' => $data['callback_url'] ?? url('/'),
-                'metadata' => [
-                    'order_id' => $order->id,
-                    'order_number' => $order->order_number,
-                    'transaction_id' => $transaction->id,
-                ],
-            ]);
-
-            if (! ($result['success'] ?? false)) {
-                DB::rollBack();
-
-                return $this->error($result['message'] ?? 'Payment initialization failed.', 502);
-            }
-
-            $transaction->update(['gateway_response' => $result['data']]);
-            DB::commit();
-
-            return $this->ok([
-                'authorization_url' => $result['data']['authorization_url'],
-                'reference' => $reference,
-                'amount' => $amount,
-            ], 'Payment initialized.');
-        } catch (\Throwable $e) {
-            DB::rollBack();
-            Log::error('storefront_api.paystack_initialize_failed', ['error' => $e->getMessage(), 'order' => $data['order_number']]);
-
+        if ($outcome->unexpectedFailure) {
             return $this->error('Unable to initialize payment.', 500);
         }
-    }
 
-    public function paystackVerify(Request $request, string $store): JsonResponse
-    {
-        $store = $this->resolveStore($store);
-
-        $data = $request->validate(['reference' => ['required', 'string']]);
-
-        $transaction = Transaction::where('reference', $data['reference'])
-            ->whereHas('order', fn ($q) => $q->where('store_id', $store->id))
-            ->firstOrFail();
-
-        $this->useStorePaystackKeys($store);
-
-        $verification = $this->paystack->doubleVerifyPayment($data['reference']);
-
-        $order = $transaction->order;
-
-        if (($verification['success'] ?? false) && strtolower((string) ($verification['data']['status'] ?? '')) === 'success') {
-            DB::transaction(function () use ($transaction, $order, $verification) {
-                $transaction->update([
-                    'status' => TransactionStatus::CONFIRMED->value,
-                    'gateway_reference' => $verification['data']['id'] ?? null,
-                    'gateway_response' => $verification['data'],
-                    'paid_at' => now(),
-                ]);
-
-                $order->amount_paid = (float) $order->amount_paid + (float) $transaction->amount;
-
-                if ($order->isFullyPaid() && $order->status === OrderStatus::PENDING) {
-                    $order->status = OrderStatus::ACCEPTED;
-                }
-
-                $order->save();
-
-                $storeModel = $order->store;
-
-                if ($storeModel) {
-                    $amountKobo = (int) round((float) $transaction->amount * 100);
-                    $before = (int) $storeModel->balance;
-                    $storeModel->creditBalance($amountKobo);
-                    $transaction->update([
-                        'balance_updated_at' => now(),
-                        'store_balance_before' => $before,
-                        'store_balance_after' => (int) $storeModel->fresh()->balance,
-                    ]);
-                }
-            });
-
-            $ledger = app(LedgerPostingService::class);
-            $ledger->safe(fn () => $ledger->postPaymentReceived($transaction, null));
-
-            if ($order->isFullyPaid()) {
-                app(DigitalDeliveryService::class)->deliverSafely($order);
-            }
-
-            $order->refresh();
-
-            return $this->ok([
-                'order' => $this->orderPayload($order, $store),
-                'fully_paid' => $order->isFullyPaid(),
-                'downloads' => $this->downloadsPayload($order),
-            ], $order->isFullyPaid() ? 'Payment successful.' : 'Partial payment received.');
+        if (! $outcome->initialized) {
+            return $this->error($outcome->gatewayMessage ?? 'Payment initialization failed.', 502);
         }
 
-        return $this->error($verification['message'] ?? 'Payment could not be verified.', 402);
+        return $this->ok([
+            'authorization_url' => $outcome->authorizationUrl,
+            'reference' => $outcome->reference,
+            'amount' => $outcome->amount,
+        ], 'Payment initialized.');
     }
 
-    public function bankTransfer(Request $request, string $store): JsonResponse
+    public function paystackVerify(VerifyPaymentRequest $request, string $store): JsonResponse
     {
         $store = $this->resolveStore($store);
 
-        $data = $request->validate([
-            'order_number' => ['required', 'string'],
-            'amount' => ['required', 'numeric', 'min:0.01'],
-            'store_bank_id' => ['nullable', 'integer'],
-            'payment_slip' => ['nullable', 'file', 'mimes:jpeg,png,jpg,heic,pdf', 'max:5120'],
-        ]);
+        $data = $request->validated();
 
-        $order = Order::where('store_id', $store->id)->where('order_number', $data['order_number'])->firstOrFail();
+        $transaction = $this->repository->findTransactionByReference($store, $data['reference']);
+
+        $outcome = $this->payments->verify($store, $transaction, $data['reference']);
+
+        if (! $outcome->verified) {
+            return $this->error($outcome->message ?? 'Payment could not be verified.', 402);
+        }
+
+        $order = $outcome->order;
+
+        return $this->ok([
+            'order' => $this->orderPayload($request, $order, $store),
+            'fully_paid' => $order->isFullyPaid(),
+            'downloads' => $this->downloadsPayload($request, $order),
+        ], $order->isFullyPaid() ? 'Payment successful.' : 'Partial payment received.');
+    }
+
+    public function bankTransfer(BankTransferRequest $request, string $store): JsonResponse
+    {
+        $store = $this->resolveStore($store);
+
+        $data = $request->validated();
+
+        $order = $this->repository->findOrderByNumber($store, $data['order_number']);
 
         $amount = min((float) $data['amount'], $order->remainingBalance());
 
@@ -312,95 +213,49 @@ class CheckoutController extends ApiController
         ], 'Payment slip submitted. Your payment will be confirmed shortly.', 201);
     }
 
-    public function orderShow(string $store, string $orderNumber): JsonResponse
+    public function orderShow(Request $request, string $store, string $orderNumber): JsonResponse
     {
         $store = $this->resolveStore($store);
 
-        $order = Order::where('store_id', $store->id)
-            ->where('order_number', $orderNumber)
-            ->with(['items', 'transactions'])
-            ->firstOrFail();
+        $order = $this->repository->findOrderByNumber($store, $orderNumber, ['items', 'transactions']);
 
         return $this->ok([
-            'order' => $this->orderPayload($order, $store, detailed: true),
-            'downloads' => $this->downloadsPayload($order),
+            'order' => $this->orderPayload($request, $order, $store, detailed: true),
+            'downloads' => $this->downloadsPayload($request, $order),
         ]);
     }
 
-    private function useStorePaystackKeys(Store $store): void
-    {
-        $gateway = $store->paymentMethods()->where('code', 'paystack')->first();
-        $keys = $gateway?->pivot?->api_keys ?? [];
-
-        if (is_string($keys)) {
-            $keys = json_decode($keys, true) ?: [];
-        }
-
-        if (! empty($keys['secret_key'])) {
-            $this->paystack->usingGateway((object) [
-                'secret_key' => $keys['secret_key'],
-                'public_key' => $keys['public_key'] ?? '',
-            ]);
-        }
-    }
-
     /**
+     * The order payload the place/verify/track responses share — the inline
+     * map moved to the Storefront resources verbatim.
+     *
      * @return array<string, mixed>
      */
-    private function orderPayload(Order $order, Store $store, bool $detailed = false): array
+    private function orderPayload(Request $request, Order $order, Store $store, bool $detailed = false): array
     {
-        $data = [
-            'order_number' => $order->order_number,
-            'total' => (float) $order->total,
-            'amount_paid' => (float) $order->amount_paid,
-            'remaining' => (float) $order->remainingBalance(),
-            'shipping_fee' => (float) $order->shipping_fee,
-            'tax' => (float) $order->tax,
-            'status' => $order->status instanceof OrderStatus ? $order->status->value : $order->status,
-            'payment_status' => $order->payment_status?->value,
-            'store' => ['name' => $store->name, 'slug' => $store->slug],
-            'created_at' => $order->created_at?->toISOString(),
-        ];
+        $resource = $detailed
+            ? new CheckoutOrderDetailResource($order, $store)
+            : new CheckoutOrderResource($order, $store);
 
-        if ($detailed) {
-            $data['customer_email'] = $order->customer?->email;
-            $data['items'] = $order->items->map(fn ($item) => [
-                'name' => $item->product_name,
-                'quantity' => (int) $item->quantity,
-                'unit_price' => (float) $item->unit_price,
-                'subtotal' => (float) $item->subtotal,
-                'is_digital' => (bool) $item->is_digital,
-            ])->values()->all();
-            $data['transactions'] = $order->transactions->map(fn (Transaction $transaction) => [
-                'reference' => $transaction->reference,
-                'amount' => (float) $transaction->amount,
-                'status' => $transaction->status instanceof TransactionStatus ? $transaction->status->value : $transaction->status,
-                'paid_at' => $transaction->paid_at?->toISOString(),
-            ])->values()->all();
-        }
-
-        return $data;
+        return $resource->resolve($request);
     }
 
     /**
+     * Downloads are an entitlement: only a fully paid order exposes them. The
+     * orphan-product filter lives in the repository; values() keeps the
+     * payload a JSON array, as the inline ->values()->all() did after filter()
+     * had preserved the original keys.
+     *
      * @return array<int, array<string, mixed>>
      */
-    private function downloadsPayload(Order $order): array
+    private function downloadsPayload(Request $request, Order $order): array
     {
         if (! $order->isFullyPaid()) {
             return [];
         }
 
-        return $order->digitalDownloads()
-            ->with('product')
-            ->get()
-            ->filter(fn ($download) => $download->product !== null)
-            ->map(fn ($download) => [
-                'product_name' => $download->product->name,
-                'token' => $download->token,
-                'downloads_remaining' => $download->downloadsRemaining(),
-                'expires_at' => $download->expires_at?->toISOString(),
-                'status' => $download->status_label,
-            ])->values()->all();
+        return CheckoutDownloadResource::collection(
+            $this->repository->downloadsFor($order)->values()
+        )->resolve($request);
     }
 }

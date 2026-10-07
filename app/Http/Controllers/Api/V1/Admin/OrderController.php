@@ -3,21 +3,18 @@
 namespace App\Http\Controllers\Api\V1\Admin;
 
 use App\Enums\OrderStatus;
-use App\Enums\TransactionStatus;
 use App\Http\Controllers\Api\V1\Admin\Concerns\EnsuresPlatformAdmin;
 use App\Http\Controllers\Api\V1\Admin\Concerns\SerializesAdminOrders;
 use App\Http\Controllers\Api\V1\ApiController;
-use App\Mail\CustomerOrderStatusUpdatedMail;
+use App\Http\Requests\Admin\UpdateOrderPaymentStatusRequest;
+use App\Http\Requests\Admin\UpdateOrderRequest;
+use App\Http\Requests\Admin\UpdateOrderStatusRequest;
 use App\Models\Order;
-use App\Models\PaymentMethod;
 use App\Services\ActivityRecorder;
+use App\Services\Admin\OrderOversightService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Mail;
-use Illuminate\Support\Str;
-use Illuminate\Validation\Rule;
 
 /**
  * WS-5 — platform order oversight (admin console).
@@ -32,11 +29,25 @@ use Illuminate\Validation\Rule;
  * orderBy, the model-level no-op payment_status select on the edit form, the
  * "cannot be undone" delete copy, and the Shop4Me payment badge that never
  * matched its enum.
+ *
+ * Layer split: validation lives in the Admin FormRequests, and the mutation
+ * workflows — the edit's fee/total recompute, the status transition (audit +
+ * customer email) and the transaction-syncing payment override — in
+ * OrderOversightService. The list filters, queries, stats and every payload
+ * shape deliberately stay in the shared {@see SerializesAdminOrders} concern,
+ * which the Shop4Me queue renders from too; pulling a method out would fork
+ * that serializer. The edit and delete therefore keep their transaction and
+ * their audit rows here, around the service calls, because those audit
+ * payloads are that shared snapshot.
  */
 class OrderController extends ApiController
 {
     use EnsuresPlatformAdmin;
     use SerializesAdminOrders;
+
+    public function __construct(
+        private readonly OrderOversightService $orders,
+    ) {}
 
     public function index(Request $request): JsonResponse
     {
@@ -65,50 +76,20 @@ class OrderController extends ApiController
      * customer/delivery inputs legacy rendered were never validated or
      * fillable, and its payment_status select was a model-level no-op — none
      * of them are rebuilt here.
+     *
+     * One controller-owned transaction keeps the audit row (whose payload is
+     * the shared SerializesAdminOrders snapshot) rolled back with the write.
      */
-    public function update(Request $request, Order $order): JsonResponse
+    public function update(UpdateOrderRequest $request, Order $order): JsonResponse
     {
         $this->authorizePlatformAdmin();
 
-        $data = $request->validate([
-            'shipping_fee' => ['sometimes', 'numeric', 'min:0'],
-            'tax' => ['sometimes', 'numeric', 'min:0'],
-            'status' => ['sometimes', Rule::in(array_column(OrderStatus::cases(), 'value'))],
-            'notes' => ['nullable', 'string', 'max:1000'],
-        ]);
+        $data = $request->validated();
 
         DB::transaction(function () use ($request, $order, $data) {
             $before = $this->orderAuditSnapshot($order);
 
-            $shippingFee = array_key_exists('shipping_fee', $data)
-                ? round((float) $data['shipping_fee'], 2)
-                : (float) $order->shipping_fee;
-            $tax = array_key_exists('tax', $data)
-                ? round((float) $data['tax'], 2)
-                : (float) $order->tax;
-
-            // Recomputed from the persisted parts so editing a fee cannot
-            // leave the stored total — and every payment badge derived from it
-            // — out of step. Service charge is the one component this form
-            // must not touch.
-            $total = round(
-                (float) $order->subtotal + $shippingFee + $tax + (float) ($order->service_charge_amount ?? 0),
-                2,
-            );
-
-            $order->update([
-                'shipping_fee' => $shippingFee,
-                'tax' => $tax,
-                'total' => $total,
-                'notes' => array_key_exists('notes', $data) ? $data['notes'] : $order->notes,
-            ]);
-
-            // A status posted through this form takes the same transition
-            // path (audit + customer email) as the status card, so the email
-            // still fires exactly once per real transition.
-            if (isset($data['status'])) {
-                $this->transitionStatus($order, $data['status'], null, $request);
-            }
+            $this->orders->applyEdit($order, $data, $request->user());
 
             ActivityRecorder::record(
                 action: 'updated',
@@ -123,14 +104,11 @@ class OrderController extends ApiController
         return $this->ok(['order' => $this->orderDetail($order->fresh())], 'Order updated.');
     }
 
-    public function updateStatus(Request $request, Order $order): JsonResponse
+    public function updateStatus(UpdateOrderStatusRequest $request, Order $order): JsonResponse
     {
         $this->authorizePlatformAdmin();
 
-        $data = $request->validate([
-            'status' => ['required', Rule::in(array_column(OrderStatus::cases(), 'value'))],
-            'notes' => ['nullable', 'string', 'max:500'],
-        ]);
+        $data = $request->validated();
 
         $current = $order->status instanceof OrderStatus ? $order->status->value : (string) $order->status;
 
@@ -138,7 +116,7 @@ class OrderController extends ApiController
             return $this->ok(['order' => $this->orderDetail($order)], 'Order is already '.$data['status'].'.');
         }
 
-        $notified = DB::transaction(fn (): bool => $this->transitionStatus($order, $data['status'], $data['notes'] ?? null, $request));
+        $notified = $this->orders->transitionStatus($order, $data['status'], $data['notes'] ?? null, $request->user());
 
         return $this->ok(
             ['order' => $this->orderDetail($order->fresh())],
@@ -150,71 +128,25 @@ class OrderController extends ApiController
     }
 
     /**
-     * The payment-status override maps onto the order's transactions, all
-     * inside one transaction: unpaid clears the recorded legs, the other three
-     * states update the latest leg or create a manual `MAN-…` row through the
-     * cash method (legacy's fallback chain).
+     * The payment-status override. The workflow, its transaction boundary and
+     * its audit row live in OrderOversightService; the "before" badge is read
+     * here, from the shared serializer, at the same point in the sequence as
+     * before.
      */
-    public function updatePaymentStatus(Request $request, Order $order): JsonResponse
+    public function updatePaymentStatus(UpdateOrderPaymentStatusRequest $request, Order $order): JsonResponse
     {
         $this->authorizePlatformAdmin();
 
-        // Legacy validated `required|string` and quietly defaulted unknown
-        // values to pending; only the four transitions its UI exposed are
-        // accepted.
-        $data = $request->validate([
-            'payment_status' => ['required', Rule::in(['unpaid', 'paid', 'refunded', 'failed'])],
-        ]);
+        $data = $request->validated();
 
         $previous = $this->derivedPaymentStatus($order)->value;
 
-        DB::transaction(function () use ($request, $order, $data, $previous) {
-            if ($data['payment_status'] === 'unpaid') {
-                // Clears every recorded leg, not just the latest one: leaving
-                // a paid leg behind would keep the derived badge "partially
-                // paid" after the admin marked the order unpaid.
-                $order->transactions()->delete();
-            } else {
-                $status = match ($data['payment_status']) {
-                    'paid' => TransactionStatus::CONFIRMED,
-                    'refunded' => TransactionStatus::REFUNDED,
-                    'failed' => TransactionStatus::CANCELED,
-                };
-
-                $transaction = $order->transactions()->latest('id')->first();
-
-                if ($transaction) {
-                    $transaction->update([
-                        'status' => $status,
-                        'paid_at' => $status === TransactionStatus::CONFIRMED
-                            ? ($transaction->paid_at ?? now())
-                            : $transaction->paid_at,
-                    ]);
-                } else {
-                    $paymentMethod = PaymentMethod::where('code', 'cash')->first()
-                        ?? PaymentMethod::orderBy('id')->first();
-
-                    $order->transactions()->create([
-                        'business_id' => $order->business_id,
-                        'payment_method_id' => $paymentMethod?->id,
-                        'reference' => 'MAN-'.strtoupper(Str::random(10)),
-                        'amount' => $order->total,
-                        'currency' => $order->transactions()->orderByDesc('id')->value('currency') ?? 'NGN',
-                        'status' => $status,
-                        'paid_at' => $status === TransactionStatus::CONFIRMED ? now() : null,
-                    ]);
-                }
-            }
-
-            ActivityRecorder::record(
-                action: 'payment_status_updated',
-                description: 'Changed payment status to '.$data['payment_status'],
-                subject: $order,
-                old: ['payment_status' => $previous],
-                new: ['payment_status' => $data['payment_status']],
-                actor: $request->user(),
-            );
-        });
+        $this->orders->updatePaymentStatus(
+            $order,
+            $data['payment_status'],
+            $previous,
+            $request->user(),
+        );
 
         return $this->ok(
             ['order' => $this->orderDetail($order->fresh())],
@@ -226,6 +158,9 @@ class OrderController extends ApiController
      * Soft delete only — the row (and its items and transactions) is retained
      * for refunds and audit, and nothing cascades. Legacy promised the
      * opposite in its confirm copy.
+     *
+     * Kept here with the edit: its "old" payload is the shared serializer's
+     * snapshot, and a service method would only wrap the soft delete.
      */
     public function destroy(Request $request, Order $order): JsonResponse
     {
@@ -246,79 +181,5 @@ class OrderController extends ApiController
         });
 
         return $this->ok([], "Order #{$orderNumber} deleted.");
-    }
-
-    /**
-     * Applies one status transition: the order update, the dated note append,
-     * the audit row and the customer email. Returns whether the customer was
-     * emailed. Callers guard against same-status saves, so the email fires
-     * exactly once per real transition.
-     */
-    private function transitionStatus(Order $order, string $newStatus, ?string $note, Request $request): bool
-    {
-        $oldStatus = $order->status instanceof OrderStatus ? $order->status->value : (string) $order->status;
-
-        if ($oldStatus === $newStatus) {
-            return false;
-        }
-
-        $order->update(['status' => $newStatus]);
-
-        if ($note !== null && $note !== '') {
-            $currentNotes = $order->notes ? $order->notes."\n\n" : '';
-            $order->update([
-                'notes' => $currentNotes.'['.now()->format('Y-m-d H:i').'] Status changed to '.$newStatus.': '.$note,
-            ]);
-        }
-
-        ActivityRecorder::record(
-            action: 'status_updated',
-            description: "Changed order status from {$oldStatus} to {$newStatus}",
-            subject: $order,
-            old: ['status' => $oldStatus],
-            new: ['status' => $newStatus],
-            metadata: $note !== null && $note !== '' ? ['note' => $note] : [],
-            actor: $request->user(),
-        );
-
-        return $this->notifyCustomerOfStatusChange($order, $oldStatus, $newStatus);
-    }
-
-    private function notifyCustomerOfStatusChange(Order $order, string $oldStatus, string $newStatus): bool
-    {
-        $email = $order->customer?->email;
-
-        // POS/walk-in orders have no customer email; legacy assumed one and
-        // crashed the whole transition on them.
-        if (! $email) {
-            Log::info('customer_order_status_email_skipped', [
-                'order_id' => $order->id,
-                'reason' => 'no customer email',
-            ]);
-
-            return false;
-        }
-
-        try {
-            Mail::to($email)->send(new CustomerOrderStatusUpdatedMail($order->fresh(), $oldStatus, $newStatus));
-
-            Log::info('customer_order_status_email_sent', [
-                'order_id' => $order->id,
-                'customer_email' => $email,
-                'old_status' => $oldStatus,
-                'new_status' => $newStatus,
-            ]);
-
-            return true;
-        } catch (\Throwable $e) {
-            // The notification must never fail the transition itself.
-            Log::error('customer_order_status_email_failed', [
-                'order_id' => $order->id,
-                'customer_email' => $email,
-                'error' => $e->getMessage(),
-            ]);
-
-            return false;
-        }
     }
 }

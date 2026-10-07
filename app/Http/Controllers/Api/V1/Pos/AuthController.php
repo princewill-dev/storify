@@ -3,27 +3,52 @@
 namespace App\Http\Controllers\Api\V1\Pos;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Pos\PosLoginRequest;
+use App\Http\Requests\Pos\PosSwitchStoreRequest;
+use App\Http\Requests\Pos\PosUpdateThemeRequest;
+use App\Http\Requests\Pos\PosVerifyPinRequest;
+use App\Http\Resources\Pos\PosStoreResource;
+use App\Http\Resources\Pos\PosUserResource;
 use App\Models\Store;
-use App\Models\User;
+use App\Repositories\Pos\PosAuthRepository;
+use App\Services\Pos\PosAuthService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
 
+/**
+ * POS terminal authentication.
+ *
+ * Layering: this class keeps the HTTP shape — status codes, message strings,
+ * the envelope and which branch renders which of them. Validation lives in
+ * the `App\Http\Requests\Pos\Pos*` classes, the store scoping and PIN
+ * lookups in `PosAuthRepository`, the PIN-switch and token-issuing workflows
+ * in `PosAuthService`, and the payload blocks in `PosUserResource` /
+ * `PosStoreResource`.
+ *
+ * Deliberate non-changes:
+ * - The session adoption stays here: `Auth::guard('web')->attempt()` signs
+ *   the caller into the web guard AND mints the Sanctum token — two guards in
+ *   one request, exactly as before — and the role/PIN refusals that gate it
+ *   are policy with message strings, so they stay controller-owned.
+ * - The envelope is this terminal's own `success` + `data` shape, not
+ *   `ApiController::ok()`, so it is not converted to that helper.
+ * - `switchStore` answers 403 for a store the scoping query rejects and then
+ *   loads the row with `findOrFail` (404 if it vanished in between) — the
+ *   order and the code are as they always were.
+ * - No transaction was introduced: none of these flows had one.
+ */
 class AuthController extends Controller
 {
-    public function login(Request $request): JsonResponse
-    {
-        $request->merge([
-            'email' => trim($request->input('email', '')),
-        ]);
+    public function __construct(
+        private readonly PosAuthRepository $repository,
+        private readonly PosAuthService $service,
+    ) {}
 
-        $validated = $request->validate([
-            'email' => 'required|email',
-            'password' => 'required|string',
-        ]);
+    public function login(PosLoginRequest $request): JsonResponse
+    {
+        $validated = $request->validated();
 
         if (! Auth::guard('web')->attempt($validated, false)) {
             throw ValidationException::withMessages([
@@ -47,40 +72,18 @@ class AuthController extends Controller
             ], 403);
         }
 
-        $token = $user->createToken('pos-terminal', ['pos'])->plainTextToken;
-
-        $stores = $this->getAccessibleStores($user);
-        $singleStore = $stores->count() === 1 ? $stores->first() : null;
-        $activeStore = $singleStore;
+        $token = $this->service->issueTerminalToken($user);
+        $stores = $this->repository->accessibleStoresFor($user);
+        $activeStore = $stores->count() === 1 ? $stores->first() : null;
 
         return response()->json([
             'success' => true,
             'data' => [
                 'token' => $token,
                 'idle_timeout_minutes' => (int) config('pos.idle_timeout_minutes'),
-                'user' => [
-                    'id' => $user->id,
-                    'name' => $user->name,
-                    'email' => $user->email,
-                    'role' => $user->role,
-                    'permissions' => $user->getPermissionNames()->toArray(),
-                    'force_password_change' => (bool) $user->force_password_change,
-                    'theme' => $user->theme_preference ?? 'dark',
-                ],
-                'stores' => $stores->map(fn ($s) => [
-                    'id' => $s->id,
-                    'store_id' => $s->store_id,
-                    'name' => $s->name,
-                    'address' => $s->address,
-                    'logo' => $s->logo_path ? asset('storage/'.$s->logo_path) : null,
-                ]),
-                'active_store' => $activeStore ? [
-                    'id' => $activeStore->id,
-                    'store_id' => $activeStore->store_id,
-                    'name' => $activeStore->name,
-                    'address' => $activeStore->address,
-                    'logo' => $activeStore->logo_path ? asset('storage/'.$activeStore->logo_path) : null,
-                ] : null,
+                'user' => (new PosUserResource($user))->forLogin()->resolve($request),
+                'stores' => $stores->map(fn (Store $store) => (new PosStoreResource($store))->resolve($request))->all(),
+                'active_store' => $activeStore ? (new PosStoreResource($activeStore))->resolve($request) : null,
             ],
         ]);
     }
@@ -88,25 +91,13 @@ class AuthController extends Controller
     public function me(Request $request): JsonResponse
     {
         $user = $request->user();
-        $stores = $this->getAccessibleStores($user);
+        $stores = $this->repository->accessibleStoresFor($user);
 
         return response()->json([
             'success' => true,
             'data' => [
-                'user' => [
-                    'id' => $user->id,
-                    'name' => $user->name,
-                    'email' => $user->email,
-                    'role' => $user->role,
-                    'permissions' => $user->getPermissionNames()->toArray(),
-                    'theme' => $user->theme_preference ?? 'dark',
-                ],
-                'stores' => $stores->map(fn ($s) => [
-                    'id' => $s->id,
-                    'store_id' => $s->store_id,
-                    'name' => $s->name,
-                    'address' => $s->address,
-                ]),
+                'user' => (new PosUserResource($user))->resolve($request),
+                'stores' => $stores->map(fn (Store $store) => (new PosStoreResource($store))->withoutLogo()->resolve($request))->all(),
             ],
         ]);
     }
@@ -118,27 +109,11 @@ class AuthController extends Controller
         return response()->json(['success' => true, 'message' => 'Logged out.']);
     }
 
-    public function switchStore(Request $request): JsonResponse
+    public function switchStore(PosSwitchStoreRequest $request): JsonResponse
     {
-        $validated = $request->validate([
-            'store_id' => 'required|exists:stores,id',
-        ]);
+        $validated = $request->validated();
 
-        $user = $request->user();
-        $assigned = $user->assignedStores()
-            ->where('stores.id', $validated['store_id'])
-            ->where('status', '!=', 'deleted')
-            ->exists();
-
-        if (! $assigned && ! $user->isRestrictedStaff()) {
-            $assigned = Store::where('id', $validated['store_id'])
-                ->when(! $user->isPlatformAdmin(), fn ($query) => $query->where('business_id', $user->business_id))
-                ->where('pos_enabled', true)
-                ->where('status', '!=', 'deleted')
-                ->exists();
-        }
-
-        if (! $assigned) {
+        if (! $this->repository->userCanSwitchToStore($request->user(), (int) $validated['store_id'])) {
             return response()->json(['success' => false, 'message' => 'You are not assigned to this store.'], 403);
         }
 
@@ -147,51 +122,28 @@ class AuthController extends Controller
         return response()->json([
             'success' => true,
             'data' => [
-                'store' => [
-                    'id' => $store->id,
-                    'store_id' => $store->store_id,
-                    'name' => $store->name,
-                    'address' => $store->address,
-                    'logo' => $store->logo_path ? asset('storage/'.$store->logo_path) : null,
-                ],
+                'store' => (new PosStoreResource($store))->resolve($request),
             ],
         ]);
     }
 
-    public function verifyPin(Request $request): JsonResponse
+    public function verifyPin(PosVerifyPinRequest $request): JsonResponse
     {
-        $validated = $request->validate([
-            'pin' => 'required|string|size:6',
-        ]);
-
-        $pin = $validated['pin'];
+        $validated = $request->validated();
         $currentUser = $request->user();
 
-        if ($currentUser->pos_pin && Hash::check($pin, $currentUser->pos_pin)) {
-            return response()->json(['success' => true, 'data' => ['switched' => false]]);
-        }
+        $target = $this->service->switchUserByPin($currentUser, $validated['pin']);
 
-        $staffUsers = User::where('business_id', $currentUser->business_id)
-            ->where('role', 'staff')
-            ->where('id', '!=', $currentUser->id)
-            ->whereNotNull('pos_pin')
-            ->get(['id', 'pos_pin']);
-
-        $matchedUser = null;
-        foreach ($staffUsers as $staff) {
-            if (Hash::check($pin, $staff->pos_pin)) {
-                $matchedUser = $staff;
-                break;
-            }
-        }
-
-        if (! $matchedUser) {
+        if ($target === null) {
             return response()->json(['success' => false, 'message' => 'Invalid PIN.'], 422);
         }
 
-        $matchedUser = User::find($matchedUser->id);
-        $token = $matchedUser->createToken('pos-terminal', ['pos'])->plainTextToken;
-        $stores = $this->getAccessibleStores($matchedUser);
+        if ($target === $currentUser) {
+            return response()->json(['success' => true, 'data' => ['switched' => false]]);
+        }
+
+        $token = $this->service->issueTerminalToken($target);
+        $stores = $this->repository->accessibleStoresFor($target);
         $activeStore = $stores->count() === 1 ? $stores->first() : null;
 
         return response()->json([
@@ -200,56 +152,19 @@ class AuthController extends Controller
                 'switched' => true,
                 'token' => $token,
                 'idle_timeout_minutes' => (int) config('pos.idle_timeout_minutes'),
-                'user' => [
-                    'id' => $matchedUser->id,
-                    'name' => $matchedUser->name,
-                    'email' => $matchedUser->email,
-                    'role' => $matchedUser->role,
-                    'permissions' => $matchedUser->getPermissionNames()->toArray(),
-                    'theme' => $matchedUser->theme_preference ?? 'dark',
-                    'force_password_change' => (bool) $matchedUser->force_password_change,
-                ],
-                'stores' => $stores->map(fn ($s) => [
-                    'id' => $s->id,
-                    'store_id' => $s->store_id,
-                    'name' => $s->name,
-                    'address' => $s->address,
-                    'logo' => $s->logo_path ? asset('storage/'.$s->logo_path) : null,
-                ]),
-                'active_store' => $activeStore ? [
-                    'id' => $activeStore->id,
-                    'store_id' => $activeStore->store_id,
-                    'name' => $activeStore->name,
-                    'address' => $activeStore->address,
-                    'logo' => $activeStore->logo_path ? asset('storage/'.$activeStore->logo_path) : null,
-                ] : null,
+                'user' => (new PosUserResource($target))->forPinSwitch()->resolve($request),
+                'stores' => $stores->map(fn (Store $store) => (new PosStoreResource($store))->resolve($request))->all(),
+                'active_store' => $activeStore ? (new PosStoreResource($activeStore))->resolve($request) : null,
             ],
         ]);
     }
 
-    public function updateTheme(Request $request): JsonResponse
+    public function updateTheme(PosUpdateThemeRequest $request): JsonResponse
     {
-        $validated = $request->validate([
-            'theme' => 'required|in:light,dark',
-        ]);
+        $validated = $request->validated();
 
         $request->user()->update(['theme_preference' => $validated['theme']]);
 
         return response()->json(['success' => true, 'data' => ['theme' => $validated['theme']]]);
-    }
-
-    private function getAccessibleStores($user): Collection
-    {
-        if ($user->isRestrictedStaff()) {
-            return $user->assignedStores()
-                ->where('pos_enabled', true)
-                ->where('status', '!=', 'deleted')
-                ->get();
-        }
-
-        return Store::where('pos_enabled', true)
-            ->where('status', '!=', 'deleted')
-            ->when(! $user->isPlatformAdmin(), fn ($query) => $query->where('business_id', $user->business_id))
-            ->get();
     }
 }

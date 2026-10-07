@@ -3,23 +3,53 @@
 namespace App\Http\Controllers\Api\V1\Home;
 
 use App\Http\Controllers\Api\V1\ApiController;
-use App\Mail\SupportMessageAdmin;
-use App\Mail\SupportMessageReceipt;
+use App\Http\Requests\Home\SupportRequest;
+use App\Http\Resources\Home\CompanyResource;
+use App\Http\Resources\Home\CompanyServiceResource;
+use App\Http\Resources\Home\PlanResource;
+use App\Http\Resources\Home\StoreResource;
+use App\Http\Resources\Home\TestimonialResource;
 use App\Models\CompanyService;
 use App\Models\Product;
 use App\Models\Setting;
 use App\Models\Store;
 use App\Models\SubscriptionPlan;
 use App\Models\Testimonial;
+use App\Services\Home\SupportMessageService;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Schema;
 
+/**
+ * The public marketing site surface (`/api/v1/home`): the home page payload,
+ * the full featured-store list and the contact form.
+ *
+ * Layering: the HTTP shape — statuses, message strings, the `{data}` envelope
+ * and field order — stays here; the contact-form rules live in SupportRequest,
+ * the mail workflow in SupportMessageService and the payload shaping in
+ * App\Http\Resources\Home. No repository was extracted: every read is a single
+ * scoped Eloquent call under the eight-line composition bar, each is used by
+ * one endpoint (featuredStores() by two, and it is a status filter plus an
+ * optional `latest()->take(6)`), and the marketing tables are platform-wide,
+ * so none of them is a tenancy risk that centralising would protect.
+ *
+ * `company()` caches the *shaped array* — not the row — for ten minutes under
+ * `home_api_company`, the key SettingsService and StoreLifecycleService bust
+ * after every save; both the key and the TTL are a contract with those
+ * services.
+ *
+ * The `support` failure path stays here: any exception from the mail workflow
+ * (including the settings read inside it) is logged and mapped to the same
+ * 500 the endpoint has always returned.
+ */
 class HomeController extends ApiController
 {
+    public function __construct(
+        private readonly SupportMessageService $supportMessages,
+    ) {}
+
     public function index(): JsonResponse
     {
         return $this->ok([
@@ -28,40 +58,26 @@ class HomeController extends ApiController
                 'stores' => Store::where('status', 'active')->count(),
                 'products' => Product::where('status', 'active')->count(),
             ],
-            'plans' => $this->plans(),
-            'testimonials' => $this->testimonials(),
-            'services' => $this->services(),
-            'stores' => $this->featuredStores(),
+            'plans' => PlanResource::collection($this->plans())->resolve(),
+            'testimonials' => TestimonialResource::collection($this->testimonials())->resolve(),
+            'services' => CompanyServiceResource::collection($this->services())->resolve(),
+            'stores' => StoreResource::collection($this->featuredStores())->resolve(),
         ]);
     }
 
     public function stores(): JsonResponse
     {
-        return $this->ok(['stores' => $this->featuredStores(all: true)]);
+        return $this->ok([
+            'stores' => StoreResource::collection($this->featuredStores(all: true))->resolve(),
+        ]);
     }
 
-    public function support(Request $request): JsonResponse
+    public function support(SupportRequest $request): JsonResponse
     {
-        $validated = $request->validate([
-            'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'email', 'max:255'],
-            'phone' => ['required', 'string', 'max:20'],
-            'subject' => ['required', 'string', 'max:255'],
-            'message' => ['required', 'string'],
-        ]);
+        $validated = $request->validated();
 
         try {
-            $adminEmail = Setting::query()->first()?->support_email ?? config('mail.from.address');
-
-            if ($adminEmail) {
-                Mail::to($adminEmail)->send(new SupportMessageAdmin($validated));
-            } else {
-                Log::warning('Support email not configured. Message logged but not sent to admin.', $validated);
-            }
-
-            Mail::to($validated['email'])->send(new SupportMessageReceipt($validated));
-
-            Log::info('Home support message sent', ['email' => $validated['email'], 'subject' => $validated['subject']]);
+            $this->supportMessages->send($validated);
 
             return $this->ok([], 'Your message has been received. We will get back to you shortly.');
         } catch (\Exception $e) {
@@ -75,104 +91,73 @@ class HomeController extends ApiController
     }
 
     /**
+     * The company block: the singleton settings row is read behind a
+     * table-existence guard (a fresh install can serve the page before
+     * `settings` exists) and the whole shaped payload is cached for ten
+     * minutes under the key the admin services bust.
+     *
      * @return array<string, mixed>
      */
     private function company(): array
     {
-        return Cache::remember('home_api_company', 600, function () {
+        return Cache::remember('home_api_company', 600, function (): array {
             try {
                 $setting = Schema::hasTable('settings') ? Setting::query()->first() : null;
             } catch (\Throwable $e) {
                 $setting = null;
             }
 
-            return [
-                'name' => $setting->company_name ?? config('app.name'),
-                'description' => $setting->company_description ?? null,
-                'logo_url' => $setting?->company_logo_path ? asset('storage/'.$setting->company_logo_path) : asset('logo.png'),
-                'favicon_url' => $setting?->company_favicon_path ? asset('storage/'.$setting->company_favicon_path) : asset('favicon.png'),
-                'email' => $setting->support_email ?? null,
-                'phone' => $setting->support_phone ?? null,
-                'address' => $setting->company_address ?? null,
-                'seo' => [
-                    'title' => $setting->og_title ?? config('app.name'),
-                    'description' => $setting->og_description ?? null,
-                    'image' => $setting?->og_image_path ? asset('storage/'.$setting->og_image_path) : null,
-                    'url' => $setting->og_url ?? url('/'),
-                    'type' => $setting->og_type ?? 'website',
-                ],
-            ];
+            return CompanyResource::make($setting)->resolve();
         });
     }
 
     /**
-     * @return array<int, array<string, mixed>>
+     * Active, non-trial plans in display order.
+     *
+     * @return Collection<int, SubscriptionPlan>
      */
-    private function plans(): array
+    private function plans(): Collection
     {
         return SubscriptionPlan::active()
             ->where('is_trial', false)
             ->orderBy('sort_order')
-            ->get()
-            ->map(fn (SubscriptionPlan $plan) => [
-                'id' => $plan->id,
-                'name' => $plan->name,
-                'description' => $plan->description,
-                'amount' => (float) $plan->amount,
-                'currency' => $plan->currency,
-                'interval' => $plan->interval,
-                'interval_count' => (int) $plan->interval_count,
-                'features' => $plan->features ?? [],
-                'is_default' => (bool) $plan->is_default,
-            ])
-            ->values()
-            ->all();
+            ->get();
     }
 
     /**
-     * @return array<int, array<string, mixed>>
+     * Active testimonials, position first and newest as the tiebreak, capped
+     * at six.
+     *
+     * @return Collection<int, Testimonial>
      */
-    private function testimonials(): array
+    private function testimonials(): Collection
     {
         return Testimonial::where('status', 'active')
             ->orderBy('position')
             ->latest()
             ->take(6)
-            ->get()
-            ->map(fn (Testimonial $testimonial) => [
-                'id' => $testimonial->id,
-                'name' => $testimonial->name,
-                'occupation' => $testimonial->occupation,
-                'message' => $testimonial->message,
-                'photo_url' => $testimonial->photo ? asset('storage/'.$testimonial->photo) : null,
-            ])
-            ->values()
-            ->all();
+            ->get();
     }
 
     /**
-     * @return array<int, array<string, mixed>>
+     * Active company services in display order.
+     *
+     * @return Collection<int, CompanyService>
      */
-    private function services(): array
+    private function services(): Collection
     {
         return CompanyService::where('status', 'active')
             ->ordered()
-            ->get()
-            ->map(fn (CompanyService $service) => [
-                'id' => $service->id,
-                'title' => $service->title,
-                'description' => $service->description,
-                'page_link' => $service->page_link,
-                'image_url' => $service->background_image_path ? asset('storage/'.$service->background_image_path) : null,
-            ])
-            ->values()
-            ->all();
+            ->get();
     }
 
     /**
-     * @return array<int, array<string, mixed>>
+     * Active stores with a live storefront; the six newest for the home page,
+     * every one of them for the dedicated stores endpoint.
+     *
+     * @return Collection<int, Store>
      */
-    private function featuredStores(bool $all = false): array
+    private function featuredStores(bool $all = false): Collection
     {
         $query = Store::where('status', 'active')
             ->where('has_website', true);
@@ -181,15 +166,6 @@ class HomeController extends ApiController
             $query->latest()->take(6);
         }
 
-        return $query->get()
-            ->map(fn (Store $store) => [
-                'id' => $store->id,
-                'name' => $store->name,
-                'slug' => $store->slug,
-                'description' => $store->description,
-                'logo_url' => $store->logo_path ? asset('storage/'.$store->logo_path) : null,
-            ])
-            ->values()
-            ->all();
+        return $query->get();
     }
 }

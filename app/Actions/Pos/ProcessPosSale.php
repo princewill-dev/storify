@@ -16,6 +16,8 @@ use App\Models\StoreBank;
 use App\Models\Transaction;
 use App\Models\User;
 use App\Models\Vat;
+use App\Services\Accounting\InventoryCostingService;
+use App\Services\Accounting\LedgerPostingService;
 use App\Services\StockLedgerService;
 use DomainException;
 use Illuminate\Support\Facades\DB;
@@ -25,7 +27,7 @@ final class ProcessPosSale
 {
     public function __construct(
         private readonly StockLedgerService $stockLedger,
-        private readonly \App\Services\Accounting\InventoryCostingService $costing,
+        private readonly InventoryCostingService $costing,
     ) {}
 
     public function execute(Store $store, User $staff, PosSession $session, array $data): PosSaleResult
@@ -170,7 +172,7 @@ final class ProcessPosSale
             $this->recordPayments($order, $lockedStore, $payments);
             $this->removeStock($order, $lockedStore, $staff, $items, $products);
 
-            $ledger = app(\App\Services\Accounting\LedgerPostingService::class);
+            $ledger = app(LedgerPostingService::class);
             $ledger->safe(fn () => $ledger->postSale($order, $staff->id));
 
             return new PosSaleResult($order->load(['items', 'transactions.paymentMethod']));

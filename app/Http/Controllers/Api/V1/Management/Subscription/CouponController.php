@@ -5,16 +5,20 @@ namespace App\Http\Controllers\Api\V1\Management\Subscription;
 use App\Actions\Subscriptions\ActivateSubscriptionWithCoupon;
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Http\Controllers\Api\V1\Management\Concerns\ResolvesManagementContext;
-use App\Mail\CouponExhaustedMail;
+use App\Http\Requests\Management\Subscription\ValidateCouponRequest;
+use App\Http\Resources\Subscription\CouponActivationResource;
+use App\Http\Resources\Subscription\CouponValidationResource;
 use App\Models\Coupon;
 use App\Models\SubscriptionPlan;
 use App\Models\User;
-use App\Services\StoreActivationNotifier;
+use App\Repositories\Subscription\SubscriptionPaymentRepository;
+use App\Services\Subscription\SubscriptionPaymentService;
+use App\Services\Subscription\SubscriptionPricingService;
+use App\Support\Money\Naira;
 use DomainException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Mail;
 use Throwable;
 
 /**
@@ -41,7 +45,9 @@ class CouponController extends ApiController
 
     public function __construct(
         private readonly ActivateSubscriptionWithCoupon $activator,
-        private readonly StoreActivationNotifier $activationNotifier,
+        private readonly SubscriptionPaymentRepository $payments,
+        private readonly SubscriptionPricingService $pricing,
+        private readonly SubscriptionPaymentService $paymentService,
     ) {}
 
     /**
@@ -52,22 +58,16 @@ class CouponController extends ApiController
      * plans page and the checkout alike, unlike legacy where the plans-page
      * branch only fired for a plan-scoped coupon.
      */
-    public function validateCoupon(Request $request): JsonResponse
+    public function validateCoupon(ValidateCouponRequest $request): JsonResponse
     {
-        $data = $request->validate([
-            'code' => ['required', 'string', 'max:100'],
-            'plan_id' => ['nullable', 'integer', 'exists:subscription_plans,id'],
-        ]);
+        $data = $request->validated();
 
         $user = $this->user($request);
         $code = strtoupper(trim($data['code']));
 
         // Platform coupons carry no business; a business-scoped coupon must
         // belong to the authenticated business (never another tenant's).
-        $coupon = Coupon::query()
-            ->where('code', $code)
-            ->where(fn ($query) => $query->whereNull('business_id')->orWhere('business_id', $user->business_id))
-            ->first();
+        $coupon = $this->payments->findCouponByCode($code, $user->business_id);
 
         if (! $coupon?->isValid()) {
             return $this->error('Invalid or expired coupon code.', 422);
@@ -95,8 +95,11 @@ class CouponController extends ApiController
             return $this->activate($user, $coupon, $targetPlan);
         }
 
-        $baseAmountKobo = $targetPlan ? $this->toKobo($targetPlan->amount) : null;
-        $discountKobo = $baseAmountKobo !== null ? $this->discountKobo($coupon, $baseAmountKobo) : null;
+        // koboFromStrict is the contract this controller already carried: a
+        // malformed amount converts to zero rather than being guessed at. The
+        // percentage/fixed arithmetic lives in SubscriptionPricingService.
+        $baseAmountKobo = $targetPlan ? Naira::koboFromStrict($targetPlan->amount) : null;
+        $discountKobo = $baseAmountKobo !== null ? $this->pricing->discountKobo($coupon, $baseAmountKobo) : null;
 
         Log::info('api.management.coupon_validated', [
             'user_id' => $user->id,
@@ -104,21 +107,17 @@ class CouponController extends ApiController
             'plan_id' => $targetPlan?->id,
         ]);
 
-        return $this->ok([
-            'valid' => true,
-            'code' => $code,
-            'activated' => false,
-            'discount_type' => $coupon->discount_type,
-            'discount_value' => (string) $coupon->discount_value,
-            'discount_label' => $coupon->discount_label,
-            'plan_name' => $coupon->subscriptionPlan?->name,
-            'plan_id' => $coupon->subscription_plan_id,
-            // Legacy's sentence: what the coupon gives and where it applies.
-            'description' => $this->discountSentence($coupon).' applied! The discount is shown at checkout.',
-            'base_amount_kobo' => $baseAmountKobo,
-            'discount_kobo' => $discountKobo,
-            'total_kobo' => $baseAmountKobo !== null ? max(0, $baseAmountKobo - $discountKobo) : null,
-        ], 'Coupon applied. The discount is shown at checkout.');
+        return $this->ok(
+            CouponValidationResource::make([
+                'coupon' => $coupon,
+                'code' => $code,
+                // Legacy's sentence: what the coupon gives and where it applies.
+                'description' => $this->discountSentence($coupon).' applied! The discount is shown at checkout.',
+                'base_amount_kobo' => $baseAmountKobo,
+                'discount_kobo' => $discountKobo,
+            ])->resolve(),
+            'Coupon applied. The discount is shown at checkout.',
+        );
     }
 
     /**
@@ -135,11 +134,14 @@ class CouponController extends ApiController
 
     /**
      * The full-cover path: activate now, notify, and tell the SPA where to go.
+     *
+     * The activation workflow and the post-activation fan-out are shared with
+     * WS-08's checkout coupon path — see SubscriptionPaymentService.
      */
     private function activate(User $user, Coupon $coupon, SubscriptionPlan $plan): JsonResponse
     {
         try {
-            $result = $this->activator->execute($user, $plan, $coupon);
+            $result = $this->paymentService->activateWithCoupon($user, $plan, $coupon);
         } catch (DomainException $e) {
             return $this->error($e->getMessage(), 422);
         } catch (Throwable $e) {
@@ -153,43 +155,18 @@ class CouponController extends ApiController
             return $this->error('Could not activate this plan. Please try again.', 500);
         }
 
-        if ($result->couponExhausted) {
-            $this->notifyCouponExhausted($result->coupon);
-        }
+        $this->paymentService->announceCouponActivation($user, $coupon, $result);
 
-        $this->activationNotifier->send($user);
-
-        Log::info('api.management.coupon_activated', [
-            'user_id' => $user->id,
-            'subscription_id' => $result->subscription->id,
-            'coupon_code' => $coupon->code,
-        ]);
-
-        return $this->ok([
-            'valid' => true,
-            'code' => $coupon->code,
-            'activated' => true,
-            'redirect' => '/',
-            'discount_type' => $coupon->discount_type,
-            'discount_value' => (string) $coupon->discount_value,
-            'discount_label' => $coupon->discount_label,
-            'plan_name' => $plan->name,
-            'plan_id' => $plan->id,
-            // The whole plan amount is covered, so the payable total is zero.
-            'description' => $this->discountSentence($coupon).' — applied to '.$plan->name.'.',
-            'base_amount_kobo' => $this->toKobo($plan->amount),
-            'discount_kobo' => $this->toKobo($plan->amount),
-            'total_kobo' => 0,
-            'subscription' => [
-                'id' => $result->subscription->id,
-                'subscription_code' => $result->subscription->subscription_code,
-                'status' => $result->subscription->status,
-                'starts_at' => $result->subscription->starts_at?->toISOString(),
-                'expires_at' => $result->subscription->expires_at?->toISOString(),
-                'plan_name' => $plan->name,
-            ],
-            'coupon_exhausted' => $result->couponExhausted,
-        ], $plan->name.' activated! Taking you to your dashboard…');
+        return $this->ok(
+            CouponActivationResource::make([
+                'coupon' => $coupon,
+                'plan' => $plan,
+                'description' => $this->discountSentence($coupon).' — applied to '.$plan->name.'.',
+                'subscription' => $result->subscription,
+                'coupon_exhausted' => $result->couponExhausted,
+            ])->resolve(),
+            $plan->name.' activated! Taking you to your dashboard…',
+        );
     }
 
     /**
@@ -204,52 +181,5 @@ class CouponController extends ApiController
         $scope = $coupon->subscriptionPlan ? ' on '.$coupon->subscriptionPlan->name : ' on any plan';
 
         return $discount.$scope;
-    }
-
-    private function notifyCouponExhausted(Coupon $coupon): void
-    {
-        $adminEmail = config('mail.admin_email');
-        if (! $adminEmail) {
-            return;
-        }
-
-        try {
-            Mail::to($adminEmail)->queue(new CouponExhaustedMail($coupon));
-        } catch (Throwable $e) {
-            Log::error('coupon.exhausted_email_failed', ['coupon_code' => $coupon->code, 'error' => $e->getMessage()]);
-        }
-    }
-
-    /**
-     * Percentage coupons store "20.00" meaning 20%; basis points (2000) keep
-     * the discount arithmetic integer-only.
-     */
-    private function discountKobo(Coupon $coupon, int $amountKobo): int
-    {
-        if ($coupon->discount_type === 'percentage') {
-            return intdiv($amountKobo * $this->toKobo($coupon->discount_value), 10000);
-        }
-
-        return min($this->toKobo($coupon->discount_value), $amountKobo);
-    }
-
-    /**
-     * Naira decimal string -> integer kobo, without floating point.
-     */
-    private function toKobo(string|int|float|null $amount): int
-    {
-        $value = trim((string) $amount);
-
-        if ($value === '' || ! preg_match('/^-?\d+(\.\d+)?$/', $value)) {
-            return 0;
-        }
-
-        $negative = str_starts_with($value, '-');
-        $value = ltrim($value, '-');
-
-        [$whole, $fraction] = array_pad(explode('.', $value, 2), 2, '');
-        $kobo = ((int) $whole) * 100 + (int) str_pad(substr($fraction, 0, 2), 2, '0');
-
-        return $negative ? -$kobo : $kobo;
     }
 }

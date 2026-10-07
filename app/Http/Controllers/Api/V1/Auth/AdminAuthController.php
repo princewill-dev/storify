@@ -4,15 +4,50 @@ namespace App\Http\Controllers\Api\V1\Auth;
 
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Http\Controllers\Api\V1\Auth\Concerns\BuildsAuthResponses;
+use App\Http\Requests\Auth\AdminEmailRequest;
+use App\Http\Requests\Auth\AdminLoginRequest;
+use App\Http\Requests\Auth\AdminLogoutRequest;
+use App\Http\Requests\Auth\AdminResetPasswordRequest;
+use App\Http\Requests\Auth\AdminSetupRequest;
+use App\Http\Requests\Auth\AdminVerifyOtpRequest;
 use App\Models\User;
+use App\Repositories\Auth\AdminAuthRepository;
+use App\Services\Auth\AdminAuthService;
 use App\Services\Auth\ApiTokenService;
 use App\Services\Auth\RefreshTokenService;
-use App\Services\OtpService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 
+/**
+ * Platform-admin authentication — the console's one-time bootstrap, sign-in
+ * and session endpoints (public except `me`, `logout` and `logout-all`).
+ *
+ * Layering: this class keeps the HTTP shape — status codes, message strings,
+ * the envelope, the failure log lines that belong to a branch. Validation
+ * lives in the `App\Http\Requests\Auth\Admin*` classes, the platform-role
+ * scoped account lookups in `AdminAuthRepository`, and the three multi-table
+ * workflows (bootstrap, login-OTP completion, password reset) in
+ * `AdminAuthService`.
+ *
+ * Deliberate non-changes:
+ * - The account lookup keeps its platform-role scope. Without it a tenant
+ *   account could take the OTP route into the admin console; a wrong email
+ *   and a wrong password also share one 422, so the endpoint cannot be used
+ *   to probe which addresses exist.
+ * - `setup()`'s 409 guard stays in the body, in order (guard order is
+ *   asserted behaviour). Extracting `AdminSetupRequest` means validation now
+ *   runs before the guard, so an already-set-up request with a malformed
+ *   payload earns 422 instead of 409 — the accepted, codebase-wide
+ *   consequence of the extraction. A valid payload still meets the guard
+ *   first.
+ * - No transaction was introduced anywhere: these flows had none, and the
+ *   bootstrap's best-effort role provisioning is caught and warned in
+ *   `AdminAuthService` rather than rolled back.
+ * - `BuildsAuthResponses::userPayload` still shapes the `user` block — it is
+ *   the shared contract every auth controller emits.
+ */
 class AdminAuthController extends ApiController
 {
     use BuildsAuthResponses;
@@ -20,51 +55,24 @@ class AdminAuthController extends ApiController
     public function __construct(
         private readonly ApiTokenService $tokens,
         private readonly RefreshTokenService $refreshTokens,
+        private readonly AdminAuthRepository $accounts,
+        private readonly AdminAuthService $auth,
     ) {}
 
     public function setupStatus(): JsonResponse
     {
         return $this->ok([
-            'requires_setup' => ! User::where('role', User::ROLE_SUPERADMIN)->exists(),
+            'requires_setup' => ! $this->accounts->superAdminExists(),
         ]);
     }
 
-    public function setup(Request $request): JsonResponse
+    public function setup(AdminSetupRequest $request): JsonResponse
     {
-        if (User::where('role', User::ROLE_SUPERADMIN)->exists()) {
+        if ($this->accounts->superAdminExists()) {
             return $this->error('Platform is already set up. Please sign in.', 409);
         }
 
-        $data = $request->validate([
-            'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'email', 'max:255', 'unique:users,email'],
-            'phone' => ['nullable', 'string', 'max:20'],
-            'password' => ['required', 'string', 'min:8', 'confirmed'],
-        ]);
-
-        $user = User::create([
-            'name' => $data['name'],
-            'email' => $data['email'],
-            'phone' => $data['phone'] ?? null,
-            'password' => $data['password'],
-            'role' => User::ROLE_SUPERADMIN,
-            'status' => 'active',
-            'is_verified' => true,
-            'email_verified_at' => now(),
-            'ip_address' => $request->ip(),
-        ]);
-
-        try {
-            app(\Database\Seeders\SpatiePermissionSeeder::class)->run();
-            setPermissionsTeamId(null);
-            $user->assignRole('Super Admin');
-        } catch (\Throwable $e) {
-            Log::warning('api.admin.setup_role_failed', ['user_id' => $user->id, 'error' => $e->getMessage()]);
-        }
-
-        $pair = $this->tokens->issuePair($user, 'admin', $request);
-
-        Log::info('api.admin.onboarded', ['user_id' => $user->id]);
+        ['user' => $user, 'pair' => $pair] = $this->auth->provision($request->validated(), $request);
 
         return $this->ok([
             ...$pair,
@@ -72,16 +80,11 @@ class AdminAuthController extends ApiController
         ], 'Admin account created.', 201);
     }
 
-    public function login(Request $request): JsonResponse
+    public function login(AdminLoginRequest $request): JsonResponse
     {
-        $data = $request->validate([
-            'email' => ['required', 'email'],
-            'password' => ['required', 'string'],
-        ]);
+        $data = $request->validated();
 
-        $user = User::where('email', $data['email'])
-            ->whereIn('role', [User::ROLE_SUPERADMIN, User::ROLE_ADMIN])
-            ->first();
+        $user = $this->accounts->findPlatformAccountByEmail($data['email']);
 
         if (! $user || ! Hash::check($data['password'], $user->password)) {
             Log::warning('api.admin.login_failed', ['email' => substr($data['email'], 0, 3).'***']);
@@ -102,26 +105,22 @@ class AdminAuthController extends ApiController
         ], 'We emailed you a one-time code.');
     }
 
-    public function verifyOtp(Request $request): JsonResponse
+    public function verifyOtp(AdminVerifyOtpRequest $request): JsonResponse
     {
-        $data = $request->validate([
-            'email' => ['required', 'email'],
-            'otp' => ['required', 'digits:6'],
-        ]);
+        $data = $request->validated();
 
-        $user = User::where('email', $data['email'])
-            ->whereIn('role', [User::ROLE_SUPERADMIN, User::ROLE_ADMIN])
-            ->first();
+        $user = $this->accounts->findPlatformAccountByEmail($data['email']);
 
-        if (! $user || ! OtpService::verify($data['email'], $data['otp'], 'login')) {
+        // A missing account skips the OTP check entirely, exactly as the
+        // original short-circuited condition did; a wrong or expired code
+        // comes back as null.
+        $pair = $user
+            ? $this->auth->completeLogin($user, $data['email'], $data['otp'], $request)
+            : null;
+
+        if ($pair === null) {
             return $this->error('Invalid or expired verification code.');
         }
-
-        $user->forceFill(['last_login_at' => now()])->save();
-
-        $pair = $this->tokens->issuePair($user, 'admin', $request);
-
-        Log::info('api.admin.login_success', ['user_id' => $user->id]);
 
         return $this->ok([
             ...$pair,
@@ -129,13 +128,9 @@ class AdminAuthController extends ApiController
         ], 'Signed in successfully.');
     }
 
-    public function resendOtp(Request $request): JsonResponse
+    public function resendOtp(AdminEmailRequest $request): JsonResponse
     {
-        $data = $request->validate(['email' => ['required', 'email']]);
-
-        $user = User::where('email', $data['email'])
-            ->whereIn('role', [User::ROLE_SUPERADMIN, User::ROLE_ADMIN])
-            ->first();
+        $user = $this->accounts->findPlatformAccountByEmail($request->validated()['email']);
 
         if ($user) {
             $this->sendOtp($user->email, 'login');
@@ -144,13 +139,9 @@ class AdminAuthController extends ApiController
         return $this->ok([], 'If the account exists, a new verification code has been sent.');
     }
 
-    public function forgotPassword(Request $request): JsonResponse
+    public function forgotPassword(AdminEmailRequest $request): JsonResponse
     {
-        $data = $request->validate(['email' => ['required', 'email']]);
-
-        $user = User::where('email', $data['email'])
-            ->whereIn('role', [User::ROLE_SUPERADMIN, User::ROLE_ADMIN])
-            ->first();
+        $user = $this->accounts->findPlatformAccountByEmail($request->validated()['email']);
 
         if ($user) {
             $this->sendOtp($user->email, 'password_reset');
@@ -159,28 +150,15 @@ class AdminAuthController extends ApiController
         return $this->ok([], 'If the email exists, a verification code will be sent.');
     }
 
-    public function resetPassword(Request $request): JsonResponse
+    public function resetPassword(AdminResetPasswordRequest $request): JsonResponse
     {
-        $data = $request->validate([
-            'email' => ['required', 'email'],
-            'otp' => ['required', 'digits:6'],
-            'password' => ['required', 'string', 'min:8', 'confirmed'],
-        ]);
+        $data = $request->validated();
 
-        $user = User::where('email', $data['email'])
-            ->whereIn('role', [User::ROLE_SUPERADMIN, User::ROLE_ADMIN])
-            ->first();
+        $user = $this->accounts->findPlatformAccountByEmail($data['email']);
 
-        if (! $user || ! OtpService::verify($data['email'], $data['otp'], 'password_reset')) {
+        if (! $user || ! $this->auth->resetPassword($user, $data['email'], $data['otp'], $data['password'])) {
             return $this->error('Invalid or expired verification code.');
         }
-
-        $user->forceFill(['password' => $data['password']])->save();
-
-        $this->tokens->revokeAllAccessTokens($user, 'admin');
-        $this->refreshTokens->revokeAllFor($user, 'admin');
-
-        Log::info('api.admin.password_reset', ['user_id' => $user->id]);
 
         return $this->ok([], 'Password reset. You can now sign in.');
     }
@@ -193,9 +171,9 @@ class AdminAuthController extends ApiController
         return $this->ok(['user' => $this->userPayload($user)]);
     }
 
-    public function logout(Request $request): JsonResponse
+    public function logout(AdminLogoutRequest $request): JsonResponse
     {
-        $data = $request->validate(['refresh_token' => ['nullable', 'string']]);
+        $data = $request->validated();
 
         $this->tokens->revokeCurrentAccessToken($request);
 

@@ -4,46 +4,55 @@ namespace App\Http\Controllers\Api\V1\Management;
 
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Http\Controllers\Api\V1\Management\Concerns\ResolvesManagementContext;
+use App\Http\Requests\Management\DeliveryRoute\DeliveryRouteRequest;
+use App\Http\Resources\Management\DeliveryRoute\DeliveryRouteResource;
 use App\Models\DeliveryRoute;
 use App\Models\Store;
+use App\Services\Management\DeliveryRouteService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
+/**
+ * WS-04 — a store's delivery routes.
+ *
+ * Layering: the HTTP shape (status codes, message strings, the envelope and
+ * the audit log lines) stays here; the create/edit payload rules live in
+ * App\Http\Requests\Management\DeliveryRoute\DeliveryRouteRequest, the row
+ * shape in App\Http\Resources\Management\DeliveryRoute\DeliveryRouteResource,
+ * and the one write that spans two statements — the insert plus the
+ * `business_id` stamp, which the transaction makes atomic — in
+ * App\Services\Management\DeliveryRouteService. No repository: this surface
+ * has no list, no filter and no aggregate, and the two scoped `{route}`
+ * lookups are a single relation call each, which a repository method would
+ * only wrap.
+ *
+ * Two things deliberately stay in this body, both so their place in the
+ * refusal order is unchanged:
+ *  - the store guard is ResolvesManagementContext::authorizeStore() called
+ *    first, not middleware and not FormRequest::authorize();
+ *  - `{route}` is resolved through the store relation, so a route belonging
+ *    to another store (or business) is a 404 rather than an edit target —
+ *    the legacy update only compared ids and leaked the difference at times.
+ */
 class StoreDeliveryRouteController extends ApiController
 {
     use ResolvesManagementContext;
 
+    public function __construct(
+        private readonly DeliveryRouteService $service,
+    ) {}
+
     /**
      * Fees travel in kobo (integers) — the storefront checkout divides by 100
-     * when it charges shipping. The SPA form shows naira and converts.
+     * when it charges shipping. The SPA form shows naira and converts; `fee`
+     * arrives here already kobo and nothing on this endpoint converts money.
      */
-    public function store(Request $request, Store $store): JsonResponse
+    public function store(DeliveryRouteRequest $request, Store $store): JsonResponse
     {
         $this->authorizeStore($request, $store);
 
-        $data = $this->validated($request);
-
-        $route = DB::transaction(function () use ($store, $data) {
-            $route = $store->deliveryRoutes()->create([
-                'country' => $data['country'],
-                'state' => $data['state'],
-                // delivery_routes.area is NOT NULL with no default and MySQL
-                // runs strict, so an omitted area must persist as '' — a null
-                // insert would 500 instead of saving the route.
-                'area' => $data['area'] ?? '',
-                'fee' => (int) $data['fee'],
-                'delivery_days' => (int) $data['delivery_days'],
-                'active' => $data['active'] ?? true,
-            ]);
-
-            // business_id is not fillable on DeliveryRoute, so stamp it here
-            // rather than leaving the column null on new routes.
-            $route->forceFill(['business_id' => $store->business_id])->save();
-
-            return $route;
-        });
+        $route = $this->service->createForStore($store, $request->validated());
 
         Log::info('business.delivery_route.created', [
             'user_id' => $this->user($request)->id,
@@ -54,17 +63,12 @@ class StoreDeliveryRouteController extends ApiController
         return $this->ok(['delivery_route' => $this->payload($route)], 'Delivery route added successfully.', 201);
     }
 
-    /**
-     * `{route}` is resolved through the store relation, so a route belonging
-     * to another store (or business) is a 404 rather than an edit target —
-     * the legacy update only compared ids and leaked the difference at times.
-     */
-    public function update(Request $request, Store $store, int $route): JsonResponse
+    public function update(DeliveryRouteRequest $request, Store $store, int $route): JsonResponse
     {
         $this->authorizeStore($request, $store);
 
         $deliveryRoute = $store->deliveryRoutes()->whereKey($route)->firstOrFail();
-        $data = $this->validated($request);
+        $data = $request->validated();
 
         $deliveryRoute->update([
             'country' => $data['country'],
@@ -104,33 +108,13 @@ class StoreDeliveryRouteController extends ApiController
     }
 
     /**
-     * @return array<string, mixed>
-     */
-    private function validated(Request $request): array
-    {
-        return $request->validate([
-            'country' => ['required', 'string', 'max:255'],
-            'state' => ['required', 'string', 'max:255'],
-            'area' => ['nullable', 'string', 'max:255'],
-            'fee' => ['required', 'integer', 'min:0'],
-            'delivery_days' => ['required', 'integer', 'min:1'],
-            'active' => ['nullable', 'boolean'],
-        ]);
-    }
-
-    /**
+     * Thin seam so the response sites read as they did before the extraction;
+     * the row shape lives in DeliveryRouteResource.
+     *
      * @return array<string, mixed>
      */
     private function payload(DeliveryRoute $route): array
     {
-        return [
-            'id' => $route->id,
-            'country' => $route->country,
-            'state' => $route->state,
-            'area' => $route->area,
-            'fee' => (int) $route->fee,
-            'delivery_days' => (int) $route->delivery_days,
-            'active' => (bool) $route->active,
-        ];
+        return DeliveryRouteResource::make($route)->resolve();
     }
 }

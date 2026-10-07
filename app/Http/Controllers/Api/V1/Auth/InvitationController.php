@@ -4,64 +4,60 @@ namespace App\Http\Controllers\Api\V1\Auth;
 
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Http\Controllers\Api\V1\Auth\Concerns\BuildsAuthResponses;
-use App\Models\User;
-use App\Services\Auth\ApiTokenService;
+use App\Http\Requests\Auth\AcceptAdminInvitationRequest;
+use App\Http\Requests\Auth\AcceptStaffInvitationRequest;
+use App\Http\Resources\Auth\AdminInvitationPreviewResource;
+use App\Http\Resources\Auth\StaffInvitationPreviewResource;
+use App\Repositories\Auth\InvitationRepository;
+use App\Services\Auth\InvitationAcceptanceService;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Log;
 
+/**
+ * Public invitation endpoints for the management (staff) and admin apps.
+ *
+ * The invitee has no session yet, so the invitation token is the credential.
+ * Token resolution is role-scoped in InvitationRepository — a staff token must
+ * not resolve a platform account and the reverse — the accept workflow and its
+ * ordering live in InvitationAcceptanceService, validation in the two Auth
+ * FormRequests, and the preview shapes in the Auth preview resources. This
+ * controller keeps the HTTP shape only: the envelope, the message strings and
+ * the single 404 ("invalid or has expired") that both an unknown token and a
+ * no-longer-invited account collapse into on these routes.
+ *
+ * The POSTs resolve the token after validation now (FormRequest parameter
+ * resolution), so an invalid token plus a malformed payload answers 422
+ * instead of 404; with a valid payload the 404 order is unchanged. That is the
+ * accepted extraction consequence.
+ */
 class InvitationController extends ApiController
 {
     use BuildsAuthResponses;
 
-    public function __construct(private readonly ApiTokenService $tokens) {}
+    public function __construct(
+        private readonly InvitationRepository $invitations,
+        private readonly InvitationAcceptanceService $acceptance,
+    ) {}
 
     public function showStaff(string $token): JsonResponse
     {
-        $user = User::where('invitation_token', $token)
-            ->where('role', 'staff')
-            ->first();
+        $user = $this->invitations->findStaffByToken($token);
 
         if (! $user || $user->status !== 'invited') {
             return $this->error('This invitation link is invalid or has expired.', 404);
         }
 
-        return $this->ok([
-            'email' => $user->email,
-            'name' => $user->name,
-            'business' => $user->business?->name,
-        ]);
+        return $this->ok(StaffInvitationPreviewResource::make($user)->resolve());
     }
 
-    public function acceptStaff(Request $request, string $token): JsonResponse
+    public function acceptStaff(AcceptStaffInvitationRequest $request, string $token): JsonResponse
     {
-        $user = User::where('invitation_token', $token)
-            ->where('role', 'staff')
-            ->first();
+        $user = $this->invitations->findStaffByToken($token);
 
         if (! $user || $user->status !== 'invited') {
             return $this->error('This invitation link is invalid or has expired.', 404);
         }
 
-        $data = $request->validate([
-            'name' => ['nullable', 'string', 'max:255'],
-            'password' => ['required', 'string', 'min:8', 'confirmed'],
-        ]);
-
-        $user->update([
-            'name' => $data['name'] ?? $user->name,
-            'password' => $data['password'],
-            'invitation_token' => null,
-            'accepted_at' => now(),
-            'status' => 'active',
-            'force_password_change' => false,
-        ]);
-
-        setPermissionsTeamId($user->business_id);
-
-        $pair = $this->tokens->issuePair($user, 'management', $request);
-
-        Log::info('api.staff.invitation.accepted', ['user_id' => $user->id]);
+        $pair = $this->acceptance->acceptStaff($user, $request->validated(), $request);
 
         return $this->ok([
             ...$pair,
@@ -71,46 +67,24 @@ class InvitationController extends ApiController
 
     public function showAdmin(string $token): JsonResponse
     {
-        $user = User::where('invitation_token', $token)
-            ->whereIn('role', [User::ROLE_ADMIN, User::ROLE_SUPERADMIN])
-            ->first();
+        $user = $this->invitations->findAdminByToken($token);
 
         if (! $user || $user->status !== 'invited') {
             return $this->error('This invitation link is invalid or has expired.', 404);
         }
 
-        return $this->ok(['email' => $user->email]);
+        return $this->ok(AdminInvitationPreviewResource::make($user)->resolve());
     }
 
-    public function acceptAdmin(Request $request, string $token): JsonResponse
+    public function acceptAdmin(AcceptAdminInvitationRequest $request, string $token): JsonResponse
     {
-        $user = User::where('invitation_token', $token)
-            ->whereIn('role', [User::ROLE_ADMIN, User::ROLE_SUPERADMIN])
-            ->first();
+        $user = $this->invitations->findAdminByToken($token);
 
         if (! $user || $user->status !== 'invited') {
             return $this->error('This invitation link is invalid or has expired.', 404);
         }
 
-        $data = $request->validate([
-            'name' => ['required', 'string', 'max:255'],
-            'password' => ['required', 'string', 'min:8', 'confirmed'],
-        ]);
-
-        $user->update([
-            'name' => $data['name'],
-            'password' => $data['password'],
-            'invitation_token' => null,
-            'accepted_at' => now(),
-            'status' => 'active',
-            'is_verified' => true,
-            'email_verified_at' => now(),
-            'force_password_change' => false,
-        ]);
-
-        $pair = $this->tokens->issuePair($user, 'admin', $request);
-
-        Log::info('api.admin.invitation.accepted', ['user_id' => $user->id]);
+        $pair = $this->acceptance->acceptAdmin($user, $request->validated(), $request);
 
         return $this->ok([
             ...$pair,

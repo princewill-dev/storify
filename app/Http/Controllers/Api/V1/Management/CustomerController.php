@@ -4,33 +4,52 @@ namespace App\Http\Controllers\Api\V1\Management;
 
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Http\Controllers\Api\V1\Management\Concerns\ResolvesManagementContext;
+use App\Http\Requests\Management\SuspendCustomerRequest;
+use App\Http\Requests\Management\UpdateCustomerRequest;
+use App\Http\Resources\Management\CustomerRecentOrderResource;
+use App\Http\Resources\Management\CustomerResource;
 use App\Models\Customer;
+use App\Repositories\Management\CustomerRepository;
+use App\Services\Access\TenantGuard;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Validation\Rule;
 
+/**
+ * The base customers API.
+ *
+ * Layer split: the list query and the show screen's aggregates live in
+ * CustomerRepository; the row shapes in CustomerResource /
+ * CustomerRecentOrderResource; the update and suspend payloads in their
+ * FormRequests; the business scoping check in TenantGuard.
+ *
+ * No service on purpose: every write here changes one customers row, with no
+ * transaction, ledger entry, mail or notification to coordinate.
+ */
 class CustomerController extends ApiController
 {
     use ResolvesManagementContext;
 
+    private const ACCESS_DENIED = 'You do not have access to this customer.';
+
+    public function __construct(
+        private readonly CustomerRepository $repository,
+        private readonly TenantGuard $tenantGuard,
+    ) {}
+
     public function index(Request $request): JsonResponse
     {
-        $customers = Customer::query()
-            ->where('business_id', $this->user($request)->business_id)
-            ->when($request->filled('status'), fn ($q) => $q->where('status', strtoupper($request->string('status'))))
-            ->when($request->filled('q'), function ($q) use ($request) {
-                $term = '%'.$request->string('q').'%';
-                $q->where(fn ($inner) => $inner->where('first_name', 'like', $term)
-                    ->orWhere('last_name', 'like', $term)
-                    ->orWhere('email', 'like', $term)
-                    ->orWhere('phone', 'like', $term));
-            })
-            ->withCount('orders')
-            ->latest()
+        // Presence is decided here, with the same filled() semantics as
+        // before: a blank status or search stays unfiltered, "0" is a term.
+        $filters = [
+            'status' => $request->filled('status') ? (string) $request->string('status') : null,
+            'q' => $request->filled('q') ? (string) $request->string('q') : null,
+        ];
+
+        $customers = $this->repository->listQuery($this->user($request), $filters)
             ->paginate((int) $request->integer('per_page', 20));
 
         return $this->ok(
-            $customers->getCollection()->map(fn (Customer $customer) => $this->payload($customer))->values()->all(),
+            CustomerResource::collection($customers->getCollection())->resolve($request),
             null,
             200,
             $this->paginationMeta($customers)
@@ -41,54 +60,31 @@ class CustomerController extends ApiController
     {
         $this->authorizeCustomer($request, $customer);
 
-        $stats = [
-            'total_orders' => $customer->orders()->count(),
-            'completed_orders' => $customer->orders()->where('status', 'completed')->count(),
-            'total_spent' => (float) $customer->orders()->where('status', 'completed')->sum('total'),
-        ];
-
-        $recentOrders = $customer->orders()->latest()->limit(10)->get()
-            ->map(fn ($order) => [
-                'id' => $order->id,
-                'order_number' => $order->order_number,
-                'total' => (float) $order->total,
-                'status' => $order->status instanceof \App\Enums\OrderStatus ? $order->status->value : $order->status,
-                'created_at' => $order->created_at?->toISOString(),
-            ])->values()->all();
-
         return $this->ok([
-            'customer' => $this->payload($customer),
-            'stats' => $stats,
-            'recent_orders' => $recentOrders,
+            'customer' => (new CustomerResource($customer))->resolve($request),
+            'stats' => $this->repository->orderStats($customer),
+            'recent_orders' => CustomerRecentOrderResource::collection(
+                $customer->orders()->latest()->limit(10)->get()
+            )->resolve($request),
         ]);
     }
 
-    public function update(Request $request, Customer $customer): JsonResponse
+    public function update(UpdateCustomerRequest $request, Customer $customer): JsonResponse
     {
         $this->authorizeCustomer($request, $customer);
 
-        $data = $request->validate([
-            'first_name' => ['sometimes', 'string', 'max:190'],
-            'last_name' => ['nullable', 'string', 'max:190'],
-            'email' => ['sometimes', 'email', 'max:190', Rule::unique('customers', 'email')->ignore($customer->id)],
-            'phone' => ['nullable', 'string', 'max:50'],
-            'location' => ['nullable', 'string', 'max:190'],
-        ]);
+        $customer->update($request->validated());
 
-        $customer->update($data);
-
-        return $this->ok(['customer' => $this->payload($customer->fresh())], 'Customer updated.');
+        return $this->ok(['customer' => (new CustomerResource($customer->fresh()))->resolve($request)], 'Customer updated.');
     }
 
-    public function suspend(Request $request, Customer $customer): JsonResponse
+    public function suspend(SuspendCustomerRequest $request, Customer $customer): JsonResponse
     {
         $this->authorizeCustomer($request, $customer);
-
-        $request->validate(['reason' => ['nullable', 'string', 'max:500']]);
 
         $customer->update(['status' => Customer::STATUS_SUSPENDED, 'email_verified_at' => null]);
 
-        return $this->ok(['customer' => $this->payload($customer->fresh())], 'Customer suspended.');
+        return $this->ok(['customer' => (new CustomerResource($customer->fresh()))->resolve($request)], 'Customer suspended.');
     }
 
     public function activate(Request $request, Customer $customer): JsonResponse
@@ -100,32 +96,11 @@ class CustomerController extends ApiController
             'email_verified_at' => $customer->email_verified_at ?? now(),
         ]);
 
-        return $this->ok(['customer' => $this->payload($customer->fresh())], 'Customer activated.');
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function payload(Customer $customer): array
-    {
-        return [
-            'id' => $customer->id,
-            'account_id' => $customer->account_id,
-            'name' => $customer->full_name,
-            'first_name' => $customer->first_name,
-            'last_name' => $customer->last_name,
-            'email' => $customer->email,
-            'phone' => $customer->phone,
-            'status' => strtolower($customer->status),
-            'orders_count' => $customer->orders_count ?? null,
-            'created_at' => $customer->created_at?->toISOString(),
-        ];
+        return $this->ok(['customer' => (new CustomerResource($customer->fresh()))->resolve($request)], 'Customer activated.');
     }
 
     private function authorizeCustomer(Request $request, Customer $customer): void
     {
-        if ((int) $customer->business_id !== (int) $this->user($request)->business_id) {
-            abort(403, 'You do not have access to this customer.');
-        }
+        $this->tenantGuard->authorizeBusiness($customer, $this->user($request), self::ACCESS_DENIED);
     }
 }

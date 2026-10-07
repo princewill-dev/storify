@@ -7,6 +7,8 @@ use App\Enums\TransactionStatus;
 use App\Http\Controllers\Controller;
 use App\Models\PaymentMethod;
 use App\Models\Transaction;
+use App\Services\Accounting\LedgerPostingService;
+use App\Services\Digital\DigitalDeliveryService;
 use App\Services\PaystackService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -135,13 +137,13 @@ class PaystackWebhookController extends Controller
                     'transaction_id' => $transaction->id,
                 ]);
 
-                $ledger = app(\App\Services\Accounting\LedgerPostingService::class);
+                $ledger = app(LedgerPostingService::class);
                 $ledger->safe(fn () => $ledger->postPaymentReceived($transaction));
 
                 // Deliver digital products once the order is fully paid
                 $order = $transaction->order;
                 if ($order && $order->isFullyPaid()) {
-                    app(\App\Services\Digital\DigitalDeliveryService::class)->deliverSafely($order);
+                    app(DigitalDeliveryService::class)->deliverSafely($order);
                 }
 
                 return response()->json(['status' => 'success']);

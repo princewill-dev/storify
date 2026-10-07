@@ -2,10 +2,20 @@
 
 namespace App\Services\Accounting;
 
+use App\Enums\TransactionStatus;
+use App\Models\Bill;
+use App\Models\Expense;
+use App\Models\Invoice;
 use App\Models\JournalEntry;
 use App\Models\JournalLine;
 use App\Models\LedgerAccount;
+use App\Models\Order;
+use App\Models\Store;
+use App\Models\Transaction;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 class LedgerReportService
 {
@@ -264,7 +274,7 @@ class LedgerReportService
      */
     public function arAging(?int $businessId, string $asOf): array
     {
-        $invoices = \App\Models\Invoice::query()
+        $invoices = Invoice::query()
             ->where('business_id', $businessId)
             ->whereIn('status', ['sent', 'partial', 'overdue'])
             ->whereColumn('amount_paid', '<', 'total')
@@ -286,7 +296,7 @@ class LedgerReportService
      */
     public function apAging(?int $businessId, string $asOf): array
     {
-        $bills = \App\Models\Bill::query()
+        $bills = Bill::query()
             ->where('business_id', $businessId)
             ->whereIn('status', ['open', 'partial'])
             ->whereColumn('amount_paid_kobo', '<', 'total_kobo')
@@ -304,7 +314,7 @@ class LedgerReportService
     }
 
     /**
-     * @param  \Illuminate\Support\Collection<int, \Illuminate\Database\Eloquent\Model>  $records
+     * @param  Collection<int, Model>  $records
      */
     private function ageBuckets(Collection $records, string $asOf, callable $map): array
     {
@@ -316,7 +326,7 @@ class LedgerReportService
             'over_90' => ['label' => '90+ days', 'total' => 0, 'rows' => []],
         ];
 
-        $asOfDate = \Illuminate\Support\Carbon::parse($asOf);
+        $asOfDate = Carbon::parse($asOf);
         $grandTotal = 0;
 
         foreach ($records as $record) {
@@ -327,7 +337,7 @@ class LedgerReportService
                 continue;
             }
 
-            $dueDate = $mapped['due_date'] ? \Illuminate\Support\Carbon::parse($mapped['due_date']) : $asOfDate;
+            $dueDate = $mapped['due_date'] ? Carbon::parse($mapped['due_date']) : $asOfDate;
             $daysPastDue = $dueDate->greaterThan($asOfDate) ? 0 : $dueDate->diffInDays($asOfDate);
 
             $key = match (true) {
@@ -382,7 +392,7 @@ class LedgerReportService
      */
     public function expenseSummary(?int $businessId, string $from, string $to): array
     {
-        $expenses = \App\Models\Expense::query()
+        $expenses = Expense::query()
             ->where('business_id', $businessId)
             ->where('status', '!=', 'void')
             ->whereDate('expense_date', '>=', $from)
@@ -421,7 +431,7 @@ class LedgerReportService
 
         // Wallet vs ledger per store (cash, bank, gateway clearing)
         $walletRows = [];
-        $stores = \App\Models\Store::query()
+        $stores = Store::query()
             ->where('business_id', $businessId)
             ->orderBy('name')
             ->get();
@@ -446,17 +456,17 @@ class LedgerReportService
         }
 
         // Unposted confirmed transactions
-        $unpostedTransactions = \App\Models\Transaction::query()
+        $unpostedTransactions = Transaction::query()
             ->where('business_id', $businessId)
-            ->whereIn('status', [\App\Enums\TransactionStatus::CONFIRMED, \App\Enums\TransactionStatus::PAID])
+            ->whereIn('status', [TransactionStatus::CONFIRMED, TransactionStatus::PAID])
             ->whereNotNull('order_id')
             ->whereNotExists(function ($q) {
-                $q->select(\Illuminate\Support\Facades\DB::raw(1))
+                $q->select(DB::raw(1))
                     ->from('journal_entries')
                     ->whereColumn('journal_entries.business_id', 'transactions.business_id')
                     ->where(function ($inner) {
-                        $inner->whereColumn('journal_entries.idempotency_key', \Illuminate\Support\Facades\DB::raw("CONCAT('payment:txn:', transactions.id)"))
-                            ->orWhereColumn('journal_entries.idempotency_key', \Illuminate\Support\Facades\DB::raw("CONCAT('sale:order:', transactions.order_id)"));
+                        $inner->whereColumn('journal_entries.idempotency_key', DB::raw("CONCAT('payment:txn:', transactions.id)"))
+                            ->orWhereColumn('journal_entries.idempotency_key', DB::raw("CONCAT('sale:order:', transactions.order_id)"));
                     });
             })
             ->count();
@@ -471,14 +481,14 @@ class LedgerReportService
             ->selectRaw('COALESCE(SUM(journal_lines.debit_kobo), 0) - COALESCE(SUM(journal_lines.credit_kobo), 0) as balance')
             ->value('balance');
 
-        $orderAr = (int) round(((float) \App\Models\Order::query()
+        $orderAr = (int) round(((float) Order::query()
             ->where('business_id', $businessId)
             ->whereNotIn('status', ['cancelled', 'returned'])
             ->whereColumn('amount_paid', '<', 'total')
             ->selectRaw('COALESCE(SUM(total - amount_paid), 0) as balance')
             ->value('balance')) * 100);
 
-        $invoiceAr = (int) round(((float) \App\Models\Invoice::query()
+        $invoiceAr = (int) round(((float) Invoice::query()
             ->where('business_id', $businessId)
             ->whereIn('status', ['sent', 'partial', 'overdue'])
             ->whereColumn('amount_paid', '<', 'total')

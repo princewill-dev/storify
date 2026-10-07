@@ -587,13 +587,23 @@ test('every settings route refuses another business store', function () {
     $theirs = ws04Store($otherOwner, ['name' => 'Theirs']);
     $token = ws04Token($owner);
 
+    // Staff assignment validation scopes user_id to the caller's own business
+    // and to role=staff, so the payload has to be a plausible one. The point of
+    // this test is the STORE being another business's, not the payload — a
+    // valid body is what makes the store guard the thing under test.
+    $staff = User::factory()->create([
+        'role' => 'staff',
+        'status' => 'active',
+        'business_id' => $owner->business_id,
+    ]);
+
     $this->withToken($token)->getJson(ws04Url($theirs, '/settings'))->assertStatus(403);
     $this->withToken($token)->putJson(ws04Url($theirs), ['name' => 'Hijacked'])->assertStatus(403);
     $this->withToken($token)->patchJson(ws04Url($theirs, '/suspend'))->assertStatus(403);
     $this->withToken($token)->patchJson(ws04Url($theirs, '/activate'))->assertStatus(403);
     $this->withToken($token)->deleteJson(ws04Url($theirs))->assertStatus(403);
     $this->withToken($token)->postJson(ws04Url($theirs, '/service-charges'), ['name' => 'X', 'amount' => 1])->assertStatus(403);
-    $this->withToken($token)->postJson(ws04Url($theirs, '/staff'), ['user_id' => $otherOwner->id])->assertStatus(403);
+    $this->withToken($token)->postJson(ws04Url($theirs, '/staff'), ['user_id' => $staff->id])->assertStatus(403);
     $this->withToken($token)->postJson(ws04Url($theirs, '/delivery-routes'), [
         'country' => 'Nigeria', 'state' => 'Lagos', 'fee' => 100, 'delivery_days' => 1,
     ])->assertStatus(403);

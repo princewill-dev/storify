@@ -13,6 +13,8 @@ use App\Models\StockLocation;
 use App\Models\Store;
 use App\Models\User;
 use App\Models\Vat;
+use App\Services\Accounting\InventoryCostingService;
+use App\Services\Accounting\LedgerPostingService;
 use App\Services\StockLedgerService;
 use DomainException;
 use Illuminate\Support\Facades\DB;
@@ -123,7 +125,7 @@ final class PlaceStorefrontOrder
 
                 $costKobo = $isDigital
                     ? 0
-                    : app(\App\Services\Accounting\InventoryCostingService::class)->costForSale($product, $quantity);
+                    : app(InventoryCostingService::class)->costForSale($product, $quantity);
 
                 $orderItems[] = [
                     'product' => $product,
@@ -228,7 +230,7 @@ final class PlaceStorefrontOrder
             $cart->items()->delete();
             $cart->update(['status' => 'completed']);
 
-            $ledger = app(\App\Services\Accounting\LedgerPostingService::class);
+            $ledger = app(LedgerPostingService::class);
             $ledger->safe(fn () => $ledger->postOrderRevenue($order));
 
             return $order;

@@ -4,18 +4,17 @@ namespace App\Http\Controllers\Api\V1\Management;
 
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Http\Controllers\Api\V1\Management\Concerns\ResolvesManagementContext;
-use App\Mail\SupportMessageReplyMail;
+use App\Http\Requests\Management\SupportMessageIndexRequest;
+use App\Http\Requests\Management\SupportMessageReplyRequest;
+use App\Http\Resources\Management\SupportMessageResource;
+use App\Http\Resources\Management\SupportMessageStoreOptionResource;
 use App\Models\Store;
 use App\Models\SupportMessage;
-use App\Models\User;
-use App\Services\ActivityLogger;
+use App\Repositories\Management\SupportMessageRepository;
+use App\Services\Management\SupportMessageService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Mail;
-use Illuminate\Validation\Rule;
 
 /**
  * WS-33 — support messaging.
@@ -26,62 +25,63 @@ use Illuminate\Validation\Rule;
  * view never rendered a reply form, so businesses could not actually use it.
  * This controller is that capability plus the reply UI it never had.
  *
+ * Layering: this class keeps the HTTP shape — status codes, message strings,
+ * the envelope, the pagination meta — and the store guards, whose order is
+ * asserted. The list filters validate in SupportMessageIndexRequest and the
+ * reply body in SupportMessageReplyRequest, the inbox query / counts /
+ * one-query replier-name lookup live in
+ * App\Repositories\Management\SupportMessageRepository, the reply's
+ * transaction, audit row and customer email in
+ * App\Services\Management\SupportMessageService, and the row shapes in
+ * Management\SupportMessageResource and SupportMessageStoreOptionResource.
+ *
  * Deliberate departures from the legacy:
  * - the legacy list was deliberately thin (no store/phone/status/reply); the
- *   payload below carries them so the SPA can be worked in, and adds q /
- *   status / store_id filters the legacy never had;
- * - ordering surfaces `pending` first. Legacy ordered `status asc`
- *   alphabetically, which put `closed` above `pending`;
+ *   resource carries them so the SPA can be worked in, and adds q / status /
+ *   store_id filters the legacy never had;
+ * - ordering surfaces `pending` first (in the repository); legacy ordered
+ *   `status asc` alphabetically, which put `closed` above `pending`;
  * - replies are refused on a closed conversation (admin-side) instead of
  *   silently overwriting it;
  * - soft-deleted stores are excluded, matching the WS-06 policy that deleted
  *   records must not leak back into read endpoints;
  * - the audit entry goes to `activity_logs` (ActivityLogger) so it is
  *   queryable, mirroring the legacy's Log::info intent without cloning the
- *   legacy log key that AGENTS.md forbids.
+ *   legacy log key that AGENTS.md forbids — the call now sits in the service,
+ *   after its transaction, exactly where this controller ran it.
+ *
+ * The FormRequest extraction moves validation ahead of the controller body, so
+ * a caller who is both unauthorised and malformed now answers 422 where it
+ * answered 403 on `reply` — the known, accepted consequence of the extraction
+ * across this codebase. A valid payload from an unauthorised caller still gets
+ * 403, and route-binding 404 still precedes both, so nothing is escalated;
+ * this is deliberately not worked around.
  */
 class SupportMessageController extends ApiController
 {
     use ResolvesManagementContext;
 
-    private const STATUSES = ['pending', 'replied', 'closed'];
+    public function __construct(
+        private readonly SupportMessageRepository $messages,
+        private readonly SupportMessageService $support,
+    ) {}
 
-    public function index(Request $request): JsonResponse
+    public function index(SupportMessageIndexRequest $request): JsonResponse
     {
-        $filters = $request->validate([
-            'q' => ['nullable', 'string', 'max:100'],
-            'status' => ['nullable', Rule::in(self::STATUSES)],
-            'store_id' => ['nullable', 'integer'],
-            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
-        ]);
+        $filters = $request->validated();
 
         $storeIds = $this->accessibleStoreIds($request);
 
         // Never trust an id from the request; an inaccessible store filter is
-        // rejected rather than silently returning everything.
+        // rejected rather than silently returning everything. 422 by design,
+        // not 403 — deliberate anti-id-probing.
         if (($filters['store_id'] ?? null) !== null && ! $storeIds->contains((int) $filters['store_id'])) {
             return $this->error('Invalid store selection.', 422);
         }
 
-        $messages = SupportMessage::query()
-            ->whereIn('store_id', $storeIds)
-            ->with('store')
-            ->when($filters['q'] ?? null, function ($query, $term) {
-                $term = trim((string) $term);
-                $query->where(fn ($inner) => $inner
-                    ->where('name', 'like', "%{$term}%")
-                    ->orWhere('email', 'like', "%{$term}%")
-                    ->orWhere('phone', 'like', "%{$term}%")
-                    ->orWhere('message', 'like', "%{$term}%"));
-            })
-            ->when($filters['status'] ?? null, fn ($query, $status) => $query->where('status', $status))
-            ->when($filters['store_id'] ?? null, fn ($query, $storeId) => $query->where('store_id', (int) $storeId))
-            ->orderByRaw("case status when 'pending' then 0 when 'replied' then 1 else 2 end")
-            ->latest()
-            ->paginate($filters['per_page'] ?? 20)
-            ->withQueryString();
+        $messages = $this->messages->paginateForStores($storeIds, $filters);
 
-        $replierNames = $this->replierNames($messages->getCollection());
+        $replierNames = $this->messages->replierNames($messages->getCollection());
 
         return $this->ok(
             [
@@ -91,12 +91,8 @@ class SupportMessageController extends ApiController
                     ->all(),
                 // The store filter source. Legacy's view had no store column at
                 // all; the SPA uses this for the filter and the no-stores state.
-                'stores' => $this->accessibleStores($request)->map(fn (Store $store) => [
-                    'id' => $store->id,
-                    'store_id' => $store->store_id,
-                    'name' => $store->name,
-                ])->values()->all(),
-                'counts' => $this->counts($storeIds),
+                'stores' => SupportMessageStoreOptionResource::collection($this->accessibleStores($request))->resolve(),
+                'counts' => $this->messages->counts($storeIds),
             ],
             null,
             200,
@@ -111,7 +107,7 @@ class SupportMessageController extends ApiController
      */
     public function stats(Request $request): JsonResponse
     {
-        return $this->ok(['counts' => $this->counts($this->accessibleStoreIds($request))]);
+        return $this->ok(['counts' => $this->messages->counts($this->accessibleStoreIds($request))]);
     }
 
     public function show(Request $request, SupportMessage $supportMessage): JsonResponse
@@ -121,89 +117,35 @@ class SupportMessageController extends ApiController
         $supportMessage->loadMissing('store');
 
         return $this->ok([
-            'message' => $this->payload($supportMessage, $this->replierNames(collect([$supportMessage]))),
+            'message' => $this->payload($supportMessage, $this->messages->replierNames(collect([$supportMessage]))),
         ]);
     }
 
-    public function reply(Request $request, SupportMessage $supportMessage): JsonResponse
+    public function reply(SupportMessageReplyRequest $request, SupportMessage $supportMessage): JsonResponse
     {
         $this->authorizeMessage($request, $supportMessage);
-
-        $data = $request->validate([
-            'reply' => ['required', 'string', 'max:2000'],
-        ]);
 
         // A closed conversation is admin-final; legacy would overwrite it.
         if ($supportMessage->status === 'closed') {
             return $this->error('This conversation has been closed and can no longer be replied to.', 422);
         }
 
-        $user = $this->user($request);
-
-        DB::transaction(function () use ($supportMessage, $data, $user) {
-            $supportMessage->update([
-                'reply' => $data['reply'],
-                'status' => 'replied',
-                'replied_by_type' => 'business',
-                'replied_by_id' => $user->id,
-                'replied_at' => now(),
-            ]);
-        });
-
-        ActivityLogger::log(
-            'support_message_replied',
-            'Business replied to a support message from '.$supportMessage->name,
-            [
-                'support_message_id' => $supportMessage->id,
-                'store_id' => $supportMessage->store_id,
-            ],
-            $user->id,
-        );
-
-        $fresh = $supportMessage->fresh()->load('store');
-
-        // The status flip above is the durable record; a transient mail failure
-        // must not lose the reply (legacy wrapped the queue call the same way).
-        try {
-            Mail::to($fresh->email)->queue(new SupportMessageReplyMail($fresh));
-
-            Log::info('support.message.reply_email_queued', [
-                'message_id' => $fresh->id,
-                'user_id' => $user->id,
-            ]);
-        } catch (\Throwable $e) {
-            Log::error('support.message.reply_email_failed', [
-                'message_id' => $fresh->id,
-                'error' => $e->getMessage(),
-            ]);
-        }
+        $fresh = $this->support->reply($supportMessage, $request->validated()['reply'], $this->user($request));
 
         return $this->ok(
-            ['message' => $this->payload($fresh, $this->replierNames(collect([$fresh])))],
+            ['message' => $this->payload($fresh, $this->messages->replierNames(collect([$fresh])))],
             'Reply sent successfully to the customer.',
         );
-    }
-
-    /**
-     * @param  Collection<int, int>  $storeIds
-     * @return array{pending: int, replied: int, closed: int, total: int}
-     */
-    private function counts(Collection $storeIds): array
-    {
-        $query = SupportMessage::query()->whereIn('store_id', $storeIds);
-
-        return [
-            'pending' => (clone $query)->where('status', 'pending')->count(),
-            'replied' => (clone $query)->where('status', 'replied')->count(),
-            'closed' => (clone $query)->where('status', 'closed')->count(),
-            'total' => (clone $query)->count(),
-        ];
     }
 
     /**
      * Stores the caller may read messages for. Legacy scoped by
      * `Store::where('user_id', $user->id)`, which silently gave staff nothing;
      * accessibleStores() covers owners and staff alike, minus deleted stores.
+     *
+     * Deliberately shadows ResolvesManagementContext::accessibleStoreIds(),
+     * whose plain User::accessibleStoreIds() includes deleted stores: both the
+     * list scope and the per-message 403 below depend on the exclusion.
      *
      * @return Collection<int, Store>
      */
@@ -222,61 +164,35 @@ class SupportMessageController extends ApiController
      */
     private function accessibleStoreIds(Request $request): Collection
     {
+        // accessibleStores() runs ->get(), so this is a Collection of Store
+        // models — the key is plain `id`. Qualifying it as `stores.id`
+        // (correct against a query builder) matches nothing here.
         return $this->accessibleStores($request)->pluck('id');
     }
 
     private function authorizeMessage(Request $request, SupportMessage $supportMessage): void
     {
+        // The check stays inline rather than using TenantGuard::authorizeStoreId():
+        // that reads accessibleStores() without the deleted-store exclusion,
+        // which is load-bearing here (a message in a deleted store is not
+        // reachable). It also stays in the controller body, never
+        // FormRequest::authorize(), so its 403 keeps its place in the refusal
+        // order.
         if (! $this->accessibleStoreIds($request)->contains((int) $supportMessage->store_id)) {
             abort(403, 'You do not have access to this support message.');
         }
     }
 
     /**
-     * `replied_by_id` carries no relation on the model, so resolve the names in
-     * one query per page instead of an N+1 (or touching a shared model).
+     * The message-row shape, kept as a thin private seam so the response sites
+     * read as they did before the extraction; the fields live in
+     * SupportMessageResource.
      *
-     * @param  Collection<int, SupportMessage>  $messages
-     * @return array<int, string>
-     */
-    private function replierNames(Collection $messages): array
-    {
-        $ids = $messages
-            ->where('replied_by_type', 'business')
-            ->pluck('replied_by_id')
-            ->filter()
-            ->unique();
-
-        return $ids->isEmpty() ? [] : User::whereIn('id', $ids)->pluck('name', 'id')->all();
-    }
-
-    /**
      * @param  array<int, string>  $replierNames
      * @return array<string, mixed>
      */
     private function payload(SupportMessage $message, array $replierNames = []): array
     {
-        return [
-            'id' => $message->id,
-            'name' => $message->name,
-            'email' => $message->email,
-            'phone' => $message->phone,
-            'message' => $message->message,
-            'status' => $message->status,
-            'reply' => $message->reply,
-            'replied_by_type' => $message->replied_by_type,
-            'replied_by_id' => $message->replied_by_id,
-            'replied_by_name' => $message->replied_by_type === 'business'
-                ? ($replierNames[$message->replied_by_id] ?? null)
-                : null,
-            'replied_at' => $message->replied_at?->toISOString(),
-            'created_at' => $message->created_at?->toISOString(),
-            'updated_at' => $message->updated_at?->toISOString(),
-            'store' => $message->store ? [
-                'id' => $message->store->id,
-                'store_id' => $message->store->store_id,
-                'name' => $message->store->name,
-            ] : null,
-        ];
+        return SupportMessageResource::make($message, $replierNames)->resolve();
     }
 }

@@ -3,11 +3,11 @@
 namespace App\Http\Controllers\Api\V1\Auth;
 
 use App\Http\Controllers\Api\V1\ApiController;
+use App\Http\Requests\Auth\RefreshTokenRequest;
 use App\Models\RefreshToken;
 use App\Services\Auth\ApiTokenService;
 use App\Services\Auth\RefreshTokenService;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
 class TokenController extends ApiController
@@ -21,11 +21,9 @@ class TokenController extends ApiController
      * Exchange a refresh token for a new access + refresh token pair.
      * Implements rotation with reuse detection.
      */
-    public function refresh(Request $request): JsonResponse
+    public function refresh(RefreshTokenRequest $request): JsonResponse
     {
-        $data = $request->validate([
-            'refresh_token' => ['required', 'string'],
-        ]);
+        $data = $request->validated();
 
         $rotated = $this->refreshTokens->rotate($data['refresh_token'], $request);
 

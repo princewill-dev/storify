@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\Business;
 use App\Models\Customer;
 use App\Models\DigitalDownload;
 use App\Models\Order;
@@ -7,7 +8,7 @@ use App\Models\Product;
 use App\Models\Store;
 
 /**
- * @return array{0: Store, 1: \App\Models\Business}
+ * @return array{0: Store, 1: Business}
  */
 function storefrontContext(): array
 {

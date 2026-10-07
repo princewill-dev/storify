@@ -4,14 +4,17 @@ namespace App\Http\Controllers\Api\V1\Admin;
 
 use App\Http\Controllers\Api\V1\Admin\Concerns\EnsuresPlatformAdmin;
 use App\Http\Controllers\Api\V1\ApiController;
+use App\Http\Requests\Admin\ListEarlyPassesRequest;
+use App\Http\Requests\Admin\StoreEarlyPassRequest;
+use App\Http\Requests\Admin\UpdateEarlyPassRequest;
+use App\Http\Resources\Admin\EarlyPassResource;
+use App\Http\Resources\Admin\EarlyPassUsageResource;
 use App\Models\EarlyPass;
 use App\Models\EarlyPassUsage;
-use App\Services\ActivityRecorder;
-use Illuminate\Database\Eloquent\Builder;
+use App\Repositories\Admin\EarlyPassRepository;
+use App\Services\Admin\EarlyPassService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -24,7 +27,9 @@ use Illuminate\Validation\ValidationException;
  *  - codes are uppercased on the way in and immutable after creation; the
  *    uniqueness check runs *after* uppercasing (legacy validated the raw
  *    input first, which leaned on the column collation to catch `earlybird`
- *    vs `EARLYBIRD`);
+ *    vs `EARLYBIRD`) — the uppercasing and its uniqueness check live in
+ *    `StoreEarlyPassRequest::prepareForValidation()`, the immutability
+ *    refusal stays in `update()` beside the platform guard;
  *  - the model auto-deactivates a pass when usage reaches `max_uses`, so an
  *    operator can flip an exhausted pass back active and it still cannot be
  *    redeemed — the payload exposes `is_exhausted`/`is_available` and the
@@ -32,35 +37,40 @@ use Illuminate\Validation\ValidationException;
  *  - delete is refused while any usage exists (the usages FK cascades, so the
  *    guard is the only protection for who-redeemed-what history). The payload
  *    carries `can_delete` so the SPA disables the action up front.
+ *
+ * The controller keeps the HTTP shape only — status codes, message strings,
+ * the envelope and pagination meta. Validation lives in the Admin FormRequests
+ * (`ListEarlyPassesRequest`, `StoreEarlyPassRequest`, `UpdateEarlyPassRequest`),
+ * the directory/usage queries in `EarlyPassRepository`, the write workflows
+ * with their transaction boundaries and audit rows in `EarlyPassService`, and
+ * the row shaping in `EarlyPassResource`/`EarlyPassUsageResource`. The
+ * platform-admin guard deliberately stays in the body — it must not move into
+ * FormRequest::authorize() or middleware — and the code-immutability refusal
+ * stays beside it so an unauthorised caller sending a changed code is still
+ * refused 403 first.
  */
 class EarlyPassController extends ApiController
 {
     use EnsuresPlatformAdmin;
 
-    public function index(Request $request): JsonResponse
+    public function __construct(
+        private readonly EarlyPassRepository $passes,
+        private readonly EarlyPassService $service,
+    ) {}
+
+    public function index(ListEarlyPassesRequest $request): JsonResponse
     {
         $this->authorizePlatformAdmin();
 
-        $filters = $this->listFilters($request);
-        $term = trim((string) ($filters['q'] ?? ''));
+        $filters = $request->validated();
 
-        $passes = EarlyPass::query()
-            ->withCount('usages')
-            ->when($term !== '', fn (Builder $query) => $query->where(function (Builder $inner) use ($term) {
-                $inner->where('code', 'like', "%{$term}%")
-                    ->orWhere('description', 'like', "%{$term}%");
-            }))
-            ->when(($filters['status'] ?? null) !== null, fn (Builder $query) => $query->where('is_active', $filters['status'] === 'active'))
-            ->orderByDesc('created_at')
-            ->orderByDesc('id')
-            ->paginate($filters['per_page'] ?? 20)
-            ->withQueryString();
+        $passes = $this->passes->paginateDirectory($filters, (int) ($filters['per_page'] ?? 20));
 
         return $this->ok(
             $passes->getCollection()->map(fn (EarlyPass $pass) => $this->payload($pass))->values()->all(),
             null,
             200,
-            $this->paginationMeta($passes) + ['status_counts' => $this->statusCounts()],
+            $this->paginationMeta($passes) + ['status_counts' => $this->passes->statusCounts()],
         );
     }
 
@@ -68,84 +78,34 @@ class EarlyPassController extends ApiController
     {
         $this->authorizePlatformAdmin();
 
-        $usages = $earlyPass->usages()
-            ->with([
-                'user:id,account_code,name,email,business_id',
-                'user.business:id,name,business_code',
-                'store:id,store_id,name',
-            ])
-            ->orderByDesc('used_at')
-            ->orderByDesc('id')
-            ->paginate((int) $request->integer('per_page', 20));
+        $usages = $this->passes->paginateUsages($earlyPass, (int) $request->integer('per_page', 20));
 
         return $this->ok([
             'pass' => $this->payload($earlyPass->loadCount('usages')),
-            'usages' => $usages->getCollection()->map(fn (EarlyPassUsage $usage) => [
-                'id' => $usage->id,
-                'used_at' => $usage->used_at?->toISOString(),
-                'user' => $usage->user ? [
-                    'id' => $usage->user->id,
-                    'account_code' => $usage->user->account_code,
-                    'name' => $usage->user->name,
-                    'email' => $usage->user->email,
-                ] : null,
-                'business' => $usage->user?->business ? [
-                    'id' => $usage->user->business->id,
-                    'name' => $usage->user->business->name,
-                    'business_code' => $usage->user->business->business_code,
-                ] : null,
-                'store' => $usage->store ? [
-                    'id' => $usage->store->id,
-                    'store_id' => $usage->store->store_id,
-                    'name' => $usage->store->name,
-                ] : null,
-            ])->values()->all(),
+            'usages' => $usages->getCollection()
+                ->map(fn (EarlyPassUsage $usage) => EarlyPassUsageResource::make($usage)->resolve())
+                ->values()->all(),
         ], null, 200, $this->paginationMeta($usages));
     }
 
-    public function store(Request $request): JsonResponse
+    public function store(StoreEarlyPassRequest $request): JsonResponse
     {
         $this->authorizePlatformAdmin();
 
-        // Uppercase before validation so the unique check sees the stored
-        // shape ("Codes are handled in uppercase").
-        $request->merge(['code' => strtoupper(trim((string) $request->input('code', '')))]);
-
-        $data = $request->validate([
-            'code' => ['required', 'string', 'min:3', 'max:50', Rule::unique('early_passes', 'code')],
-            'description' => ['nullable', 'string', 'max:255'],
-            'max_uses' => ['nullable', 'integer', 'min:1', 'max:100000'],
-        ]);
-
-        $pass = DB::transaction(function () use ($request, $data) {
-            $pass = EarlyPass::create([
-                'code' => $data['code'],
-                'description' => $data['description'] ?? null,
-                'max_uses' => $data['max_uses'] ?? null,
-                'is_active' => true,
-            ]);
-
-            ActivityRecorder::record(
-                action: 'early_pass_created',
-                description: "Early access pass '{$pass->code}' created",
-                subject: $pass,
-                new: $this->auditValues($pass),
-                actor: $request->user(),
-            );
-
-            return $pass;
-        });
+        $pass = $this->service->create($request->validated(), $request->user());
 
         return $this->ok(['pass' => $this->payload($pass->loadCount('usages'))], 'Early access pass created.', 201);
     }
 
-    public function update(Request $request, EarlyPass $earlyPass): JsonResponse
+    public function update(UpdateEarlyPassRequest $request, EarlyPass $earlyPass): JsonResponse
     {
         $this->authorizePlatformAdmin();
 
         // The code is immutable after creation. Reject a changed value loudly
         // (echoing the same code back is fine for idempotent form posts)
-        // instead of silently ignoring it the way the legacy PUT did.
+        // instead of silently ignoring it the way the legacy PUT did. The
+        // refusal stays in the controller, after the platform guard, so
+        // guard order (403 before this 422) is unchanged.
         $submittedCode = $request->input('code');
         if ($submittedCode !== null && strtoupper(trim((string) $submittedCode)) !== $earlyPass->code) {
             throw ValidationException::withMessages([
@@ -153,37 +113,7 @@ class EarlyPassController extends ApiController
             ]);
         }
 
-        $data = $request->validate([
-            'description' => ['nullable', 'string', 'max:255'],
-            'max_uses' => ['nullable', 'integer', 'min:1', 'max:100000'],
-        ]);
-
-        $old = $this->auditValues($earlyPass);
-        $maxUses = $data['max_uses'] ?? null;
-        $usageCount = $earlyPass->usages()->count();
-
-        // Lowering the cap to (or below) current usage makes the pass
-        // unredeemable, and the redemption action auto-deactivates at the
-        // limit — mirror that so the row is not active-but-dead. Raising the
-        // cap never auto-reactivates; the operator toggles deliberately.
-        $exhausted = $maxUses !== null && $usageCount >= $maxUses;
-
-        DB::transaction(function () use ($request, $earlyPass, $data, $old, $maxUses, $exhausted) {
-            $earlyPass->update([
-                'description' => $data['description'] ?? null,
-                'max_uses' => $maxUses,
-                'is_active' => $exhausted ? false : $earlyPass->is_active,
-            ]);
-
-            ActivityRecorder::record(
-                action: 'early_pass_updated',
-                description: "Early access pass '{$earlyPass->code}' updated",
-                subject: $earlyPass,
-                old: $old,
-                new: $this->auditValues($earlyPass->fresh()),
-                actor: $request->user(),
-            );
-        });
+        $this->service->update($earlyPass, $request->validated(), $request->user());
 
         return $this->ok(['pass' => $this->payload($earlyPass->fresh()->loadCount('usages'))], 'Pass updated.');
     }
@@ -192,18 +122,7 @@ class EarlyPassController extends ApiController
     {
         $this->authorizePlatformAdmin();
 
-        DB::transaction(function () use ($request, $earlyPass) {
-            $earlyPass->update(['is_active' => ! $earlyPass->is_active]);
-
-            ActivityRecorder::record(
-                action: 'early_pass_status_toggled',
-                description: "Early access pass '{$earlyPass->code}' ".($earlyPass->is_active ? 'activated' : 'deactivated'),
-                subject: $earlyPass,
-                old: ['is_active' => ! $earlyPass->is_active],
-                new: ['is_active' => (bool) $earlyPass->is_active],
-                actor: $request->user(),
-            );
-        });
+        $this->service->toggleStatus($earlyPass, $request->user());
 
         $pass = $earlyPass->fresh()->loadCount('usages');
         $payload = $this->payload($pass);
@@ -221,97 +140,25 @@ class EarlyPassController extends ApiController
     {
         $this->authorizePlatformAdmin();
 
+        // The usages FK cascades, so this guard is the only protection for the
+        // who-redeemed-what history.
         if ($earlyPass->usages()->exists()) {
             return $this->error('Cannot delete a used pass. Deactivate it instead.', 422);
         }
 
-        $values = $this->auditValues($earlyPass);
-        $code = $earlyPass->code;
-
-        DB::transaction(function () use ($request, $earlyPass, $values, $code) {
-            $earlyPass->delete();
-
-            ActivityRecorder::record(
-                action: 'early_pass_deleted',
-                description: "Early access pass '{$code}' deleted",
-                old: $values,
-                actor: $request->user(),
-            );
-        });
+        $this->service->delete($earlyPass, $request->user());
 
         return $this->ok([], 'Pass deleted successfully.');
     }
 
     /**
-     * @return array<string, mixed>
-     */
-    private function listFilters(Request $request): array
-    {
-        return $request->validate([
-            'q' => ['nullable', 'string', 'max:100'],
-            'status' => ['nullable', Rule::in(['active', 'inactive'])],
-            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
-        ]);
-    }
-
-    /**
-     * @return array<string, int>
-     */
-    private function statusCounts(): array
-    {
-        $counts = EarlyPass::query()
-            ->selectRaw('is_active, COUNT(*) as aggregate')
-            ->groupBy('is_active')
-            ->pluck('aggregate', 'is_active')
-            ->map(fn ($count) => (int) $count);
-
-        $active = $counts[1] ?? 0;
-        $inactive = $counts[0] ?? 0;
-
-        return [
-            'active' => $active,
-            'inactive' => $inactive,
-            'all' => $active + $inactive,
-        ];
-    }
-
-    /**
+     * The row shape, kept as a thin seam the list and every write echo share;
+     * the fields live in EarlyPassResource.
+     *
      * @return array<string, mixed>
      */
     private function payload(EarlyPass $pass): array
     {
-        $usageCount = (int) ($pass->usages_count ?? $pass->usages()->count());
-        $maxUses = $pass->max_uses !== null ? (int) $pass->max_uses : null;
-        $exhausted = $maxUses !== null && $usageCount >= $maxUses;
-
-        return [
-            'id' => $pass->id,
-            'code' => $pass->code,
-            'description' => $pass->description,
-            'is_active' => (bool) $pass->is_active,
-            // Same rule as the model's isAvailable(), computed from the count
-            // we already loaded instead of firing a query per row.
-            'is_available' => (bool) $pass->is_active && ! $exhausted,
-            'is_exhausted' => $exhausted,
-            'max_uses' => $maxUses,
-            'usage_count' => $usageCount,
-            'remaining_uses' => $maxUses !== null ? max(0, $maxUses - $usageCount) : null,
-            'usage_label' => $usageCount.' / '.($maxUses ?? 'unlimited'),
-            'can_delete' => $usageCount === 0,
-            'created_at' => $pass->created_at?->toISOString(),
-        ];
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function auditValues(EarlyPass $pass): array
-    {
-        return [
-            'code' => $pass->code,
-            'description' => $pass->description,
-            'max_uses' => $pass->max_uses !== null ? (int) $pass->max_uses : null,
-            'is_active' => (bool) $pass->is_active,
-        ];
+        return EarlyPassResource::make($pass)->resolve();
     }
 }

@@ -2,164 +2,86 @@
 
 namespace App\Http\Controllers\Api\V1\Pos;
 
-use App\Enums\OrderStatus;
-use App\Enums\TransactionStatus;
-use App\Http\Controllers\Controller;
+use App\Http\Controllers\Api\V1\ApiController;
+use App\Http\Requests\Pos\RefundOrderRequest;
+use App\Http\Resources\Pos\OrderHistoryResource;
+use App\Http\Resources\Pos\OrderReceiptResource;
 use App\Models\Order;
-use App\Models\PosSession;
 use App\Models\Store;
-use App\Models\Transaction;
+use App\Models\User;
+use App\Repositories\Pos\OrderRepository;
+use App\Services\Pos\OrderRefundService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Str;
 
-final class OrderController extends Controller
+/**
+ * The POS orders screens — the cashier's history, one order's receipt and the
+ * refund request.
+ *
+ * Layering: only the HTTP shape stays here — the `success` envelope, status
+ * codes, message strings and pagination meta. The history query (including the
+ * session-vs-staff scoping) is OrderRepository::paginateHistory(); the refund's
+ * transaction boundary, row write and post-commit log are
+ * OrderRefundService::requestRefund(); the payload rules are
+ * RefundOrderRequest; the row shapes are OrderHistoryResource and
+ * OrderReceiptResource.
+ *
+ * The receipt query deliberately stays inline: it is a single store-scoped
+ * findOrFail with its eager loads and one call site, so a repository method
+ * would be indirection with no benefit.
+ *
+ * The store these endpoints are aimed at is authorised by the
+ * EnsurePosStoreAccess route middleware (403) before the controller body runs —
+ * the guard deliberately stays out of these classes.
+ */
+final class OrderController extends ApiController
 {
+    public function __construct(
+        private readonly OrderRepository $orders,
+        private readonly OrderRefundService $refunds,
+    ) {}
+
     public function history(Request $request, Store $store): JsonResponse
     {
+        /** @var User $user */
         $user = $request->user();
-        $query = Order::query()
-            ->where('store_id', $store->id)
-            ->where('source', 'pos')
-            ->when($request->filled('q'), function ($query) use ($request) {
-                $search = $request->string('q')->toString();
-                $query->where(function ($nested) use ($search) {
-                    $nested->where('order_number', 'like', "%{$search}%")
-                        ->orWhereHas('items', fn ($items) => $items->where('product_name', 'like', "%{$search}%"));
-                });
-            })
-            ->with(['items', 'transactions.paymentMethod']);
 
-        $session = PosSession::query()
-            ->where('store_id', $store->id)
-            ->where('staff_id', $user->id)
-            ->where('status', PosSession::STATUS_OPEN)
-            ->latest()
-            ->first();
-
-        $session
-            ? $query->where('pos_session_id', $session->id)
-            : $query->where('staff_id', $user->id);
-
-        $orders = $query->latest()->paginate(20)->withQueryString();
+        $orders = $this->orders->paginateHistory(
+            $store,
+            $user,
+            $request->filled('q') ? $request->string('q')->toString() : null,
+        );
 
         return response()->json([
             'success' => true,
             'data' => [
-                'orders' => $orders->map(fn (Order $order) => [
-                    'id' => $order->id,
-                    'order_number' => $order->order_number,
-                    'total' => (float) $order->total,
-                    'status' => $order->status instanceof OrderStatus ? $order->status->value : $order->status,
-                    'created_at' => $order->created_at->toISOString(),
-                    'items_count' => $order->items->count(),
-                    'items' => $order->items->take(3)->map(fn ($item) => $item->product_name),
-                    'more_items' => max(0, $order->items->count() - 3),
-                    'has_refund' => $order->transactions->contains(fn ($transaction) => in_array($transaction->status?->value, ['refunded', 'refund_pending'], true)),
-                    'refund_status' => $order->transactions->first(fn ($transaction) => in_array($transaction->status?->value, ['refunded', 'refund_pending'], true))?->status?->value,
-                ]),
-                'pagination' => [
-                    'current_page' => $orders->currentPage(),
-                    'last_page' => $orders->lastPage(),
-                    'per_page' => $orders->perPage(),
-                    'total' => $orders->total(),
-                ],
+                'orders' => OrderHistoryResource::collection($orders->getCollection())->resolve($request),
+                'pagination' => $this->paginationMeta($orders),
             ],
         ]);
     }
 
-    public function receipt(Store $store, int $orderId): JsonResponse
+    public function receipt(Request $request, Store $store, int $orderId): JsonResponse
     {
         $order = Order::query()
             ->where('store_id', $store->id)
             ->with(['items', 'transactions.paymentMethod', 'customer'])
             ->findOrFail($orderId);
 
-        $transaction = $order->transactions->first();
-        $meta = $order->meta ?? [];
-        $amountTendered = (int) ($meta['amount_tendered'] ?? 0);
-
         return response()->json([
             'success' => true,
             'data' => [
-                'order' => [
-                    'order_number' => $order->order_number,
-                    'total' => (float) $order->total,
-                    'status' => $order->status instanceof OrderStatus ? $order->status->value : $order->status,
-                    'date' => $order->created_at->toISOString(),
-                    'created_at' => $order->created_at->toISOString(),
-                    'store_name' => $store->name,
-                    'store_address' => $store->address,
-                    'payment_method' => $transaction?->paymentMethod?->name ?? 'Cash',
-                    'reference' => $transaction?->reference,
-                    'customer_name' => $meta['customer_name'] ?? $order->customer?->full_name,
-                    'customer_phone' => $meta['customer_phone'] ?? $order->customer?->phone,
-                    'amount_tendered' => $amountTendered,
-                    'change' => $amountTendered > 0 ? max(0, $amountTendered - (int) round((float) $order->total * 100)) : 0,
-                    'tax' => (float) $order->tax,
-                    'service_charge_name' => $meta['service_charge_name'] ?? null,
-                    'service_charge_amount' => (float) ($order->service_charge_amount ?? 0),
-                    'payments' => $order->transactions->map(fn (Transaction $transaction) => [
-                        'method' => $transaction->metadata['leg_method'] ?? ($transaction->paymentMethod?->code ?? 'cash'),
-                        'method_label' => $transaction->paymentMethod?->name ?? 'Cash',
-                        'amount' => (float) $transaction->amount,
-                    ])->values(),
-                    'items' => $order->items->map(fn ($item) => [
-                        'name' => $item->product_name,
-                        'qty' => $item->quantity,
-                        'price' => (float) $item->unit_price,
-                        'subtotal' => (float) $item->subtotal,
-                    ]),
-                ],
+                'order' => (new OrderReceiptResource($order, $store))->resolve($request),
             ],
         ]);
     }
 
-    public function refund(Request $request, Store $store, int $orderId): JsonResponse
+    public function refund(RefundOrderRequest $request, Store $store, int $orderId): JsonResponse
     {
-        $data = $request->validate(['reason' => ['required', 'string', 'max:500']]);
+        /** @var User $user */
         $user = $request->user();
 
-        $result = DB::transaction(function () use ($orderId, $store, $user, $data): string {
-            $order = Order::query()
-                ->where('store_id', $store->id)
-                ->lockForUpdate()
-                ->findOrFail($orderId);
-
-            $confirmedTransaction = $order->transactions()
-                ->where('status', TransactionStatus::CONFIRMED)
-                ->first();
-
-            if (! $confirmedTransaction) {
-                return 'not_confirmed';
-            }
-
-            if ($order->transactions()->whereIn('status', [
-                TransactionStatus::REFUNDED,
-                TransactionStatus::REFUND_PENDING,
-            ])->exists()) {
-                return 'duplicate';
-            }
-
-            Transaction::create([
-                'reference' => 'RFND-'.Str::upper(Str::random(10)),
-                'order_id' => $order->id,
-                'business_id' => $store->business_id,
-                'payment_method_id' => $confirmedTransaction->payment_method_id,
-                'amount' => $order->total,
-                'status' => TransactionStatus::REFUND_PENDING,
-                'metadata' => [
-                    'refund_reason' => $data['reason'],
-                    'refund_requested_by' => $user->id,
-                    'refund_requested_at' => now()->toDateTimeString(),
-                    'original_transaction_id' => $confirmedTransaction->id,
-                ],
-            ]);
-
-            return 'created';
-        });
+        $result = $this->refunds->requestRefund($store, $orderId, $user, $request->validated('reason'));
 
         if ($result === 'not_confirmed') {
             return response()->json(['success' => false, 'message' => 'Only confirmed orders can be refunded.'], 400);
@@ -168,13 +90,6 @@ final class OrderController extends Controller
         if ($result === 'duplicate') {
             return response()->json(['success' => false, 'message' => 'A refund has already been requested for this order.'], 400);
         }
-
-        Log::info('pos.refund_requested', [
-            'order_id' => $orderId,
-            'staff_id' => $user->id,
-            'store_id' => $store->id,
-            'reason' => $data['reason'],
-        ]);
 
         return response()->json([
             'success' => true,

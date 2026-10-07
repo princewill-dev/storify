@@ -4,15 +4,15 @@ namespace App\Http\Controllers\Api\V1\Management;
 
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Http\Controllers\Api\V1\Management\Concerns\ResolvesManagementContext;
-use App\Models\ActivityLog;
+use App\Http\Requests\Management\CategoryIndexRequest;
+use App\Http\Requests\Management\StoreCategoryRequest;
+use App\Http\Requests\Management\UpdateCategoryRequest;
+use App\Http\Resources\Management\CategoryResource;
 use App\Models\Category;
-use App\Models\Store;
+use App\Repositories\Management\CategoryRepository;
+use App\Services\Management\CategoryService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
-use Illuminate\Validation\Rule;
 
 /**
  * WS-31 — categories polish & audit logging.
@@ -43,127 +43,70 @@ use Illuminate\Validation\Rule;
  * category to another store would strand its products in the old store under
  * a category the new store owns — legacy allowed that blindly. The base API
  * already dropped the field; the SPA shows the owning store read-only.
+ *
+ * The HTTP shape (status codes, refusal messages, envelope, pagination meta)
+ * stays here; the list query and the shared store-id scope live in
+ * App\Repositories\Management\CategoryRepository, the write workflows with
+ * their transaction boundaries and audit rows in
+ * App\Services\Management\CategoryService, the payloads in
+ * App\Http\Resources\Management\CategoryResource and the request rules beside
+ * them in App\Http\Requests\Management.
  */
 class CategoryParityController extends ApiController
 {
     use ResolvesManagementContext;
 
-    /** The per-page sizes the list UI offers (same whitelist as the products list). */
-    private const PER_PAGE_OPTIONS = [10, 20, 50, 100];
+    public function __construct(
+        private readonly CategoryRepository $repository,
+        private readonly CategoryService $service,
+    ) {}
 
-    public function index(Request $request): JsonResponse
+    public function index(CategoryIndexRequest $request): JsonResponse
     {
-        $filters = $request->validate([
-            'q' => ['nullable', 'string', 'max:100'],
-            // The internal `stores.id` — the SPA sends `auth.stores[].id`.
-            // Legacy accepted the public `store_id` code behind this same
-            // parameter name; the verify pass calls the divergence out, so the
-            // internal id is now the documented convention (as products/orders
-            // already use).
-            'store_id' => ['nullable', 'integer'],
-            'per_page' => ['nullable', 'integer', Rule::in(self::PER_PAGE_OPTIONS)],
-        ]);
+        $filters = $request->validated();
 
         if (isset($filters['store_id'])) {
             $this->authorizeStoreId($request, (int) $filters['store_id']);
         }
 
-        $categories = Category::query()
-            ->where('business_id', $this->user($request)->business_id)
-            ->whereIn('store_id', $this->storeIds($request))
-            ->when($filters['store_id'] ?? null, fn ($q, $storeId) => $q->where('store_id', $storeId))
-            ->when($filters['q'] ?? null, fn ($q, $term) => $q->where('name', 'like', '%'.trim($term).'%'))
-            ->withCount('products')
-            ->orderBy('name')
-            ->paginate($filters['per_page'] ?? 20);
+        $categories = $this->repository->paginateForUser($this->user($request), $filters);
 
         return $this->ok(
-            $categories->getCollection()->map(fn (Category $category) => $this->row($category))->values()->all(),
+            CategoryResource::collection($categories->getCollection())->resolve($request),
             null,
             200,
             $this->paginationMeta($categories),
         );
     }
 
-    public function store(Request $request): JsonResponse
+    public function store(StoreCategoryRequest $request): JsonResponse
     {
         $user = $this->user($request);
+        $data = $request->validated();
 
-        $data = $request->validate([
-            'name' => ['required', 'string', 'max:255'],
-            'store_id' => ['required', 'integer'],
-            // Optional because the legacy create form omitted the field its
-            // own controller required — every submission from that page
-            // bounced with "The status field is required." Active stays the
-            // default so the modern modal never dead-ends on a hidden field.
-            'status' => ['nullable', Rule::in(['active', 'inactive'])],
-            'parent_id' => ['nullable', 'prohibited'],
-        ], [
-            'parent_id.prohibited' => 'Category hierarchy is not supported yet.',
-        ]);
-
-        if (! $this->storeIds($request)->contains((int) $data['store_id'])) {
+        if (! $this->repository->storeIds($user)->contains((int) $data['store_id'])) {
             return $this->error('Invalid store selection.', 422);
         }
 
-        $category = DB::transaction(function () use ($request, $user, $data) {
-            $category = Category::create([
-                'name' => $data['name'],
-                'store_id' => $data['store_id'],
-                'business_id' => $user->business_id,
-                'status' => $data['status'] ?? 'active',
-                'slug' => $this->generateSlug((int) $data['store_id'], $data['name']),
-            ]);
+        $category = $this->service->create($request, $user, $data);
 
-            $this->log($request, $category, 'category_created', 'Category created', null, [
-                'name' => $category->name,
-                'slug' => $category->slug,
-                'status' => $category->status,
-                'store_id' => $category->store_id,
-            ]);
-
-            return $category;
-        });
-
-        return $this->ok(['category' => $this->row($category->loadCount('products'))], 'Category created.', 201);
+        return $this->ok(
+            ['category' => (new CategoryResource($category->loadCount('products')))->resolve($request)],
+            'Category created.',
+            201,
+        );
     }
 
-    public function update(Request $request, Category $category): JsonResponse
+    public function update(UpdateCategoryRequest $request, Category $category): JsonResponse
     {
         $this->authorizeCategory($request, $category);
 
-        $data = $request->validate([
-            'name' => ['sometimes', 'string', 'max:255'],
-            'status' => ['sometimes', Rule::in(['active', 'inactive'])],
-            'parent_id' => ['nullable', 'prohibited'],
-        ], [
-            'parent_id.prohibited' => 'Category hierarchy is not supported yet.',
-        ]);
+        $category = $this->service->update($request, $this->user($request), $category, $request->validated());
 
-        $renamed = array_key_exists('name', $data) && $data['name'] !== $category->name;
-        $before = ['name' => $category->name, 'slug' => $category->slug, 'status' => $category->status];
-
-        $category = DB::transaction(function () use ($request, $category, $data, $renamed, $before) {
-            if ($renamed) {
-                // Legacy regenerated the slug whenever the name changed; the
-                // base API update never touched it, so a rename left the
-                // storefront resolving the category under its stale slug.
-                $data['slug'] = $this->generateSlug((int) $category->store_id, $data['name']);
-            }
-
-            $category->update($data);
-
-            $this->log($request, $category, 'category_updated', 'Category updated', $before, [
-                'name' => $category->name,
-                'slug' => $category->slug,
-                'status' => $category->status,
-                'store_id' => $category->store_id,
-            ]);
-
-            return $category;
-        });
-
-        return $this->ok(['category' => $this->row($category->fresh()->loadCount('products'))], 'Category updated.');
+        return $this->ok(
+            ['category' => (new CategoryResource($category->fresh()->loadCount('products')))->resolve($request)],
+            'Category updated.',
+        );
     }
 
     public function destroy(Request $request, Category $category): JsonResponse
@@ -178,100 +121,14 @@ class CategoryParityController extends ApiController
             return $this->error('Move or delete the products in this category first.', 409);
         }
 
-        DB::transaction(function () use ($request, $category) {
-            $snapshot = [
-                'name' => $category->name,
-                'slug' => $category->slug,
-                'status' => $category->status,
-                'store_id' => $category->store_id,
-            ];
-
-            $category->delete();
-
-            $this->log($request, $category, 'category_deleted', 'Category deleted', $snapshot, null);
-        });
+        $this->service->delete($request, $this->user($request), $category);
 
         return $this->ok([], 'Category deleted.');
     }
 
-    /**
-     * @return array<string, mixed>
-     */
-    private function row(Category $category): array
-    {
-        return [
-            'id' => $category->id,
-            'name' => $category->name,
-            // Parity gap the verify pass named: the legacy table had a slug
-            // column the modern list dropped.
-            'slug' => $category->slug,
-            'store_id' => $category->store_id,
-            'status' => $category->status,
-            'products_count' => (int) ($category->products_count ?? 0),
-            // `parent_id` is deliberately absent from the payload as well as
-            // the write rules — the hierarchy is schema-only in every stack
-            // until the storefront consumes it (roadmap D9).
-        ];
-    }
-
-    /**
-     * Legacy format: slugified name plus six random characters, regenerated
-     * from the *new* name. The uniqueness probe is not legacy, but without it
-     * the `(store_id, slug)` index can surface a raw 500 the caller cannot act
-     * on; six characters make a retry a formality.
-     */
-    private function generateSlug(int $storeId, string $name): string
-    {
-        do {
-            $slug = Str::slug($name).'-'.Str::lower(Str::random(6));
-        } while (Category::query()->where('store_id', $storeId)->where('slug', $slug)->exists());
-
-        return $slug;
-    }
-
-    /**
-     * @param  array<string, mixed>|null  $old
-     * @param  array<string, mixed>|null  $new
-     */
-    private function log(Request $request, Category $category, string $action, string $description, ?array $old, ?array $new): void
-    {
-        ActivityLog::create([
-            'user_id' => $this->user($request)->id,
-            'business_id' => $category->business_id,
-            'action' => $action,
-            'subject_type' => Category::class,
-            'subject_id' => $category->id,
-            'description' => $description,
-            'old_values' => $old,
-            'new_values' => $new,
-            'ip_address' => $request->ip(),
-            'user_agent' => (string) $request->userAgent(),
-        ]);
-    }
-
-    /**
-     * Accessible stores minus soft-deleted ones — legacy filtered
-     * `status != 'deleted'` on the category index; accessibleStores() only
-     * applies that for the staff/admin paths, so an owner would otherwise see
-     * the categories of a store they deleted.
-     *
-     * The column is qualified because a restricted staff member's branch is the
-     * `staff_assignments` pivot join, which also carries an `id` — an
-     * unqualified `pluck('id')` is ambiguous there (SQLSTATE 1052).
-     *
-     * @return Collection<int, int>
-     */
-    private function storeIds(Request $request): Collection
-    {
-        return $this->user($request)
-            ->accessibleStores()
-            ->where('status', '!=', Store::STATUS_DELETED)
-            ->pluck('stores.id');
-    }
-
     private function authorizeStoreId(Request $request, int $storeId): void
     {
-        if (! $this->storeIds($request)->contains($storeId)) {
+        if (! $this->repository->storeIds($this->user($request))->contains($storeId)) {
             abort(403, 'You do not have access to this store.');
         }
     }
@@ -280,8 +137,12 @@ class CategoryParityController extends ApiController
     {
         $user = $this->user($request);
 
+        // The store set is the repository's deleted-store-filtered one, not
+        // TenantGuard::authorizeStoreId(): that reads accessibleStores()
+        // directly, which admits a deleted store for an owner — the WS-31
+        // deleted-store refusals (asserted) depend on the filtered scope.
         if ((int) $category->business_id !== (int) $user->business_id
-            || ! $this->storeIds($request)->contains((int) $category->store_id)) {
+            || ! $this->repository->storeIds($user)->contains((int) $category->store_id)) {
             abort(403, 'You do not have access to this category.');
         }
     }

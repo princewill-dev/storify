@@ -4,10 +4,10 @@ namespace App\Http\Controllers\Api\V1\Admin;
 
 use App\Http\Controllers\Api\V1\Admin\Concerns\EnsuresPlatformAdmin;
 use App\Http\Controllers\Api\V1\ApiController;
+use App\Http\Requests\Admin\UpdateCouponRequest;
+use App\Http\Resources\Admin\CouponResource;
 use App\Models\Coupon;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
-use Illuminate\Validation\Rule;
 
 /**
  * WS-12 — coupon edit parity (OF-4.2).
@@ -22,31 +22,34 @@ use Illuminate\Validation\Rule;
  *
  * The payload shape deliberately matches CouponController's so the existing
  * SPA type stays valid.
+ *
+ * The controller keeps the HTTP shape only — status codes, message strings and
+ * the envelope. Validation lives in `UpdateCouponRequest` (including `code`'s
+ * unique-ignoring-self rule), the row shaping in `CouponResource`, and the
+ * uppercase-code / boolean normalisation stays here, after validation, exactly
+ * as before. The write is a single `update()` with no query building, no
+ * transaction and no ledger/mail step, so no repository or service is
+ * warranted. The platform-admin guard deliberately stays in the body: it must
+ * not move into FormRequest::authorize() or middleware.
  */
 class CouponUpdateController extends ApiController
 {
     use EnsuresPlatformAdmin;
 
-    public function update(Request $request, Coupon $coupon): JsonResponse
+    public function update(UpdateCouponRequest $request, Coupon $coupon): JsonResponse
     {
         $this->authorizePlatformAdmin();
 
-        $data = $request->validate([
-            'code' => ['sometimes', 'string', 'max:50', Rule::unique('coupons', 'code')->ignore($coupon->getKey())],
-            'name' => ['nullable', 'string', 'max:255'],
-            'subscription_plan_id' => ['nullable', 'integer', 'exists:subscription_plans,id'],
-            'discount_type' => ['sometimes', Rule::in(['percentage', 'fixed'])],
-            'discount_value' => ['sometimes', 'numeric', 'min:0.01'],
-            'max_uses' => ['nullable', 'integer', 'min:1'],
-            'expires_at' => ['nullable', 'date'],
-            'is_active' => ['sometimes', 'boolean'],
-        ]);
+        $data = $request->validated();
 
         // Codes are stored uppercase (legacy uppercased on create and on edit).
         if (array_key_exists('code', $data)) {
             $data['code'] = strtoupper($data['code']);
         }
 
+        // `has`/`boolean` are read here, not in the rules: an omitted flag
+        // leaves the stored value alone, and sending `false` is not the same
+        // as sending nothing.
         if ($request->has('is_active')) {
             $data['is_active'] = $request->boolean('is_active');
         }
@@ -57,23 +60,13 @@ class CouponUpdateController extends ApiController
     }
 
     /**
+     * The row payload, shaped by CouponResource. Kept as a thin private seam
+     * so the response site reads as it did before the extraction.
+     *
      * @return array<string, mixed>
      */
     private function payload(Coupon $coupon): array
     {
-        return [
-            'id' => $coupon->id,
-            'code' => $coupon->code,
-            'name' => $coupon->name,
-            'plan' => $coupon->subscriptionPlan?->name,
-            'subscription_plan_id' => $coupon->subscription_plan_id,
-            'discount_type' => $coupon->discount_type,
-            'discount_value' => (float) $coupon->discount_value,
-            'discount_label' => $coupon->discount_label,
-            'uses_count' => (int) $coupon->uses_count,
-            'max_uses' => $coupon->max_uses,
-            'expires_at' => $coupon->expires_at?->toISOString(),
-            'is_active' => (bool) $coupon->is_active,
-        ];
+        return CouponResource::make($coupon)->resolve();
     }
 }

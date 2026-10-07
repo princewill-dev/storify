@@ -4,13 +4,15 @@ namespace App\Http\Controllers\Api\V1\Admin;
 
 use App\Http\Controllers\Api\V1\Admin\Concerns\EnsuresPlatformAdmin;
 use App\Http\Controllers\Api\V1\ApiController;
+use App\Http\Requests\Admin\BankAccountRequest;
+use App\Http\Requests\Admin\ListBankAccountsRequest;
+use App\Http\Resources\Admin\BankAccountResource;
 use App\Models\BankAccount;
+use App\Repositories\Admin\BankAccountRepository;
+use App\Services\Admin\BankAccountService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
-use Illuminate\Validation\Rule;
 
 /**
  * WS-12 — platform receiving bank accounts.
@@ -21,32 +23,31 @@ use Illuminate\Validation\Rule;
  *
  * The legacy resource route also exposed a `show` action whose Blade view
  * never existed (every hit 500'd); there is deliberately no show route here.
+ *
+ * The controller keeps the HTTP shape only — status codes, message strings,
+ * the envelope and pagination meta. Validation lives in the Admin FormRequests
+ * (`ListBankAccountsRequest` for the list filters, `BankAccountRequest` for
+ * the shared create/edit payload), query building in BankAccountRepository,
+ * the row/file writes and their transaction boundary in BankAccountService,
+ * and response shaping in `BankAccountResource`; the platform-admin guard
+ * deliberately stays here so its order is unchanged. The toggle is a single
+ * model write with no transaction or shared query, so it stays on the
+ * controller (wrapping it would be indirection with no benefit).
  */
 class BankAccountController extends ApiController
 {
     use EnsuresPlatformAdmin;
 
-    public function index(Request $request): JsonResponse
+    public function __construct(
+        private readonly BankAccountRepository $accounts,
+        private readonly BankAccountService $service,
+    ) {}
+
+    public function index(ListBankAccountsRequest $request): JsonResponse
     {
         $this->authorizePlatformAdmin();
 
-        $filters = $request->validate([
-            'q' => ['nullable', 'string', 'max:100'],
-            'status' => ['nullable', Rule::in(['active', 'inactive'])],
-            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
-        ]);
-
-        $accounts = BankAccount::query()
-            ->when($filters['q'] ?? null, fn ($query, $term) => $query->where(function ($query) use ($term) {
-                $query->where('bank_name', 'like', "%{$term}%")
-                    ->orWhere('account_number', 'like', "%{$term}%")
-                    ->orWhere('account_name', 'like', "%{$term}%");
-            }))
-            ->when($filters['status'] ?? null, fn ($query, $status) => $query->where('is_active', $status === 'active'))
-            ->orderBy('sort_order')
-            ->orderBy('id')
-            ->paginate($filters['per_page'] ?? 15)
-            ->withQueryString();
+        $accounts = $this->accounts->paginateForAdmin($request->validated());
 
         return $this->ok(
             ['bank_accounts' => $accounts->getCollection()->map(fn (BankAccount $account) => $this->payload($account))->values()->all()],
@@ -56,26 +57,15 @@ class BankAccountController extends ApiController
         );
     }
 
-    public function store(Request $request): JsonResponse
+    public function store(BankAccountRequest $request): JsonResponse
     {
         $this->authorizePlatformAdmin();
 
-        $data = $request->validate($this->rules());
-
-        $account = DB::transaction(function () use ($request, $data) {
-            if ($request->hasFile('logo')) {
-                $data['logo'] = $request->file('logo')->store('bank-logos', 'public');
-            }
-
-            return BankAccount::create([
-                'bank_name' => $data['bank_name'],
-                'account_number' => $data['account_number'],
-                'account_name' => $data['account_name'] ?? null,
-                'logo' => $data['logo'] ?? null,
-                'sort_order' => $data['sort_order'] ?? 0,
-                'is_active' => $request->boolean('is_active', true),
-            ]);
-        });
+        $account = $this->service->create(
+            $request->validated(),
+            $request->hasFile('logo') ? $request->file('logo') : null,
+            $request->boolean('is_active', true),
+        );
 
         Log::info('api.admin.bank_account_created', [
             'actor_user_id' => $request->user()?->id,
@@ -86,28 +76,19 @@ class BankAccountController extends ApiController
         return $this->ok(['bank_account' => $this->payload($account)], 'Bank account created successfully.', 201);
     }
 
-    public function update(Request $request, BankAccount $bankAccount): JsonResponse
+    public function update(BankAccountRequest $request, BankAccount $bankAccount): JsonResponse
     {
         $this->authorizePlatformAdmin();
 
-        $data = $request->validate($this->rules());
-
-        DB::transaction(function () use ($request, $bankAccount, $data) {
-            if ($request->hasFile('logo')) {
-                // A replacement logo supersedes the old file on the public disk.
-                $this->deleteLogo($bankAccount->logo);
-                $data['logo'] = $request->file('logo')->store('bank-logos', 'public');
-            }
-
-            $bankAccount->update([
-                'bank_name' => $data['bank_name'],
-                'account_number' => $data['account_number'],
-                'account_name' => array_key_exists('account_name', $data) ? $data['account_name'] : $bankAccount->account_name,
-                'logo' => $data['logo'] ?? $bankAccount->logo,
-                'sort_order' => $data['sort_order'] ?? $bankAccount->sort_order,
-                'is_active' => $request->has('is_active') ? $request->boolean('is_active') : $bankAccount->is_active,
-            ]);
-        });
+        // `has`/`boolean` are read here, not in the rules: an omitted flag
+        // leaves the stored value alone, and sending `false` is not the same
+        // as sending nothing.
+        $this->service->update(
+            $bankAccount,
+            $request->validated(),
+            $request->hasFile('logo') ? $request->file('logo') : null,
+            $request->has('is_active') ? $request->boolean('is_active') : null,
+        );
 
         Log::info('api.admin.bank_account_updated', [
             'actor_user_id' => $request->user()?->id,
@@ -122,10 +103,7 @@ class BankAccountController extends ApiController
     {
         $this->authorizePlatformAdmin();
 
-        DB::transaction(function () use ($bankAccount) {
-            $this->deleteLogo($bankAccount->logo);
-            $bankAccount->delete();
-        });
+        $this->service->delete($bankAccount);
 
         Log::info('api.admin.bank_account_deleted', [
             'actor_user_id' => $request->user()?->id,
@@ -155,53 +133,13 @@ class BankAccountController extends ApiController
     }
 
     /**
-     * @return array<string, mixed>
-     */
-    private function rules(): array
-    {
-        return [
-            'bank_name' => ['required', 'string', 'max:255'],
-            'account_number' => ['required', 'string', 'max:255'],
-            'account_name' => ['nullable', 'string', 'max:255'],
-            'logo' => ['nullable', 'image', 'mimes:jpeg,png,jpg,gif', 'max:2048'],
-            'is_active' => ['sometimes', 'boolean'],
-            'sort_order' => ['nullable', 'integer', 'min:0', 'max:1000000'],
-        ];
-    }
-
-    private function deleteLogo(?string $path): void
-    {
-        if (! $path) {
-            return;
-        }
-
-        try {
-            Storage::disk('public')->delete($path);
-        } catch (\Throwable $e) {
-            // A missing/unwritable file must not fail the row mutation; the
-            // legacy controller let a storage exception abort the request.
-            Log::warning('api.admin.bank_account_logo_delete_failed', [
-                'path' => $path,
-                'error' => $e->getMessage(),
-            ]);
-        }
-    }
-
-    /**
+     * The row payload, shaped by BankAccountResource. Kept as a thin private
+     * seam so the response sites read as they did before the extraction.
+     *
      * @return array<string, mixed>
      */
     private function payload(BankAccount $account): array
     {
-        return [
-            'id' => $account->id,
-            'bank_name' => $account->bank_name,
-            'account_number' => $account->account_number,
-            'account_name' => $account->account_name,
-            'logo_url' => $account->logo ? asset('storage/'.$account->logo) : null,
-            'sort_order' => (int) $account->sort_order,
-            'is_active' => (bool) $account->is_active,
-            'created_at' => $account->created_at?->toISOString(),
-            'updated_at' => $account->updated_at?->toISOString(),
-        ];
+        return BankAccountResource::make($account)->resolve();
     }
 }

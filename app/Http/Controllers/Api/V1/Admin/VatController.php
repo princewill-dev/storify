@@ -4,10 +4,14 @@ namespace App\Http\Controllers\Api\V1\Admin;
 
 use App\Http\Controllers\Api\V1\Admin\Concerns\EnsuresPlatformAdmin;
 use App\Http\Controllers\Api\V1\ApiController;
+use App\Http\Requests\Admin\ListVatsRequest;
+use App\Http\Requests\Admin\VatRequest;
+use App\Http\Resources\Admin\VatResource;
 use App\Models\Vat;
+use App\Repositories\Admin\VatRepository;
+use App\Services\Admin\VatService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -25,25 +29,32 @@ use Illuminate\Support\Facades\Log;
  * the previous rate active, so several rows claimed to be active at once. The
  * single-active invariant is now enforced on every path — create, update,
  * toggle and delete.
+ *
+ * The controller keeps the HTTP shape only — status codes, message strings,
+ * the envelope and pagination meta. Validation lives in the Admin FormRequests
+ * (`ListVatsRequest` for the list filter and `VatRequest`, the shared
+ * create/edit contract — the legacy controller validated both actions with
+ * the same rule set), the list query in VatRepository, the write workflows and
+ * their transaction boundaries in VatService, and row shaping in
+ * `VatResource`; the platform-admin guard and the refusal messages
+ * deliberately stay here so their order is unchanged. The delete is a single
+ * model write with no transaction or shared query, so it stays on the
+ * controller — wrapping it would be indirection with no benefit.
  */
 class VatController extends ApiController
 {
     use EnsuresPlatformAdmin;
 
-    public function index(Request $request): JsonResponse
+    public function __construct(
+        private readonly VatRepository $vats,
+        private readonly VatService $service,
+    ) {}
+
+    public function index(ListVatsRequest $request): JsonResponse
     {
         $this->authorizePlatformAdmin();
 
-        $filters = $request->validate([
-            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
-        ]);
-
-        $vats = Vat::query()
-            ->orderByDesc('active')
-            ->orderByDesc('effective_at')
-            ->orderByDesc('id')
-            ->paginate($filters['per_page'] ?? 20)
-            ->withQueryString();
+        $vats = $this->vats->paginateForAdmin($request->validated());
 
         return $this->ok(
             ['vats' => $vats->getCollection()->map(fn (Vat $vat) => $this->payload($vat))->values()->all()],
@@ -53,28 +64,11 @@ class VatController extends ApiController
         );
     }
 
-    public function store(Request $request): JsonResponse
+    public function store(VatRequest $request): JsonResponse
     {
         $this->authorizePlatformAdmin();
 
-        $data = $request->validate([
-            'percentage' => ['required', 'numeric', 'min:0', 'max:100'],
-            'effective_at' => ['nullable', 'date'],
-            'active' => ['sometimes', 'boolean'],
-        ]);
-
-        $vat = DB::transaction(function () use ($data) {
-            // A new record always becomes the active one (legacy forced it
-            // regardless of the modal's checkbox) and effective_at defaults to
-            // now, so at most one row is ever active.
-            Vat::query()->update(['active' => false]);
-
-            return Vat::create([
-                'percentage' => $data['percentage'],
-                'active' => true,
-                'effective_at' => $data['effective_at'] ?? now(),
-            ]);
-        });
+        $vat = $this->service->create($request->validated());
 
         Log::info('api.admin.vat_created', [
             'actor_user_id' => $request->user()?->id,
@@ -85,18 +79,14 @@ class VatController extends ApiController
         return $this->ok(['vat' => $this->payload($vat)], 'VAT created.', 201);
     }
 
-    public function update(Request $request, Vat $vat): JsonResponse
+    public function update(VatRequest $request, Vat $vat): JsonResponse
     {
         $this->authorizePlatformAdmin();
 
-        $data = $request->validate([
-            'percentage' => ['required', 'numeric', 'min:0', 'max:100'],
-            'effective_at' => ['nullable', 'date'],
-            'active' => ['sometimes', 'boolean'],
-        ]);
-
         // No `active` flag means "leave the current state alone"; marking a row
-        // active supersedes whatever was active before.
+        // active supersedes whatever was active before. `has`/`boolean` are
+        // read here, not in the rules, because sending `false` is not the same
+        // as sending nothing.
         $activate = $request->has('active') ? $request->boolean('active') : $vat->active;
 
         if (! $activate && $vat->active) {
@@ -106,17 +96,7 @@ class VatController extends ApiController
             return $this->error('VAT cannot be switched off directly. Use the Disable VAT action to create a 0% rate, or activate another rate first.');
         }
 
-        DB::transaction(function () use ($vat, $data, $activate) {
-            if ($activate) {
-                Vat::query()->whereKeyNot($vat->getKey())->update(['active' => false]);
-            }
-
-            $vat->update([
-                'percentage' => $data['percentage'],
-                'effective_at' => array_key_exists('effective_at', $data) ? $data['effective_at'] : $vat->effective_at,
-                'active' => $activate,
-            ]);
-        });
+        $this->service->update($vat, $request->validated(), $activate);
 
         Log::info('api.admin.vat_updated', [
             'actor_user_id' => $request->user()?->id,
@@ -151,20 +131,10 @@ class VatController extends ApiController
         $this->authorizePlatformAdmin();
 
         // "Disable VAT" writes a 0% record that supersedes every other rate.
-        // The legacy toggle only created the row; the previous rate stayed
-        // active too. Both writes now share one transaction so the
+        // The legacy toggle only created the row and left the previous rate
+        // active too; both writes now share one transaction so the
         // single-active invariant holds on this path as well.
-        $zero = DB::transaction(function () {
-            $zero = Vat::create([
-                'percentage' => 0,
-                'active' => true,
-                'effective_at' => now(),
-            ]);
-
-            Vat::query()->whereKeyNot($zero->getKey())->update(['active' => false]);
-
-            return $zero;
-        });
+        $zero = $this->service->createZeroRate();
 
         Log::info('api.admin.vat_zero_created', [
             'actor_user_id' => $request->user()?->id,
@@ -176,16 +146,13 @@ class VatController extends ApiController
     }
 
     /**
+     * The row payload, shaped by VatResource. Kept as a thin private seam so
+     * the response sites read as they did before the extraction.
+     *
      * @return array<string, mixed>
      */
     private function payload(Vat $vat): array
     {
-        return [
-            'id' => $vat->id,
-            'percentage' => (float) $vat->percentage,
-            'active' => (bool) $vat->active,
-            'effective_at' => $vat->effective_at?->toISOString(),
-            'created_at' => $vat->created_at?->toISOString(),
-        ];
+        return VatResource::make($vat)->resolve();
     }
 }

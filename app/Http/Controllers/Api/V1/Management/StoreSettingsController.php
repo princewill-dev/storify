@@ -4,33 +4,74 @@ namespace App\Http\Controllers\Api\V1\Management;
 
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Http\Controllers\Api\V1\Management\Concerns\ResolvesManagementContext;
-use App\Models\ServiceCharge;
+use App\Http\Requests\Management\StoreSettings\AssignStoreStaffRequest;
+use App\Http\Requests\Management\StoreSettings\ServiceChargeRequest;
+use App\Http\Requests\Management\StoreSettings\UpdateStoreSettingsRequest;
+use App\Http\Resources\Management\StoreSettings\ServiceChargeResource;
+use App\Http\Resources\Management\StoreSettings\StaffResource;
+use App\Http\Resources\Management\StoreSettings\StoreResource;
+use App\Http\Resources\Management\StoreSettings\StoreSettingsResource;
 use App\Models\Store;
 use App\Models\User;
+use App\Repositories\Management\StoreSettingsRepository;
 use App\Rules\ReservedStoreSlug;
+use App\Services\Management\StoreSettingsService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
-use Illuminate\Validation\Rule;
 
+/**
+ * WS-04 — the store settings workspace.
+ *
+ * Layering: the HTTP shape (status codes, message strings, the envelope and
+ * the refusal order) and the audit log lines stay here. The payload rules live
+ * in App\Http\Requests\Management\StoreSettings, the settings reads (the eager
+ * load the workspace renders, the available-staff query and the slug
+ * de-duplication) in App\Repositories\Management\StoreSettingsRepository, the
+ * details/logo write workflow — transaction boundary, orphan cleanup and
+ * old-logo deletion — in App\Services\Management\StoreSettingsService, and the
+ * workspace payload in App\Http\Resources\Management\StoreSettings.
+ *
+ * Three things deliberately stay in this body, so their place in the refusal
+ * order is unchanged:
+ *  - the store guard is ResolvesManagementContext::authorizeStore() called
+ *    first, not middleware and not FormRequest::authorize();
+ *  - the live-storefront slug refusal (422, keyed on `slug`) runs before the
+ *    service, and the `ReservedStoreSlug` check still runs only while the
+ *    storefront is offline — a store-independent FormRequest rule set cannot
+ *    express that order without changing which refusal a live storefront
+ *    sees;
+ *  - `{charge}` rows are resolved through the store relation, so an id from
+ *    another store is a 404 rather than an edit target (the legacy overloaded
+ *    PUT did no such check).
+ *
+ * Known consequence of the FormRequest extraction: a request that is both
+ * unauthorised and malformed is now a 422 rather than a 403, codebase-wide.
+ * A valid payload from an unauthorised caller still gets 403.
+ */
 class StoreSettingsController extends ApiController
 {
     use ResolvesManagementContext;
 
-    /**
-     * Everything the settings workspace renders: the detail cards, service
-     * charges, delivery routes, assigned/available staff, read-only bank
-     * accounts, POS session state and storefront status.
-     */
+    public function __construct(
+        private readonly StoreSettingsRepository $repository,
+        private readonly StoreSettingsService $service,
+    ) {}
+
     public function show(Request $request, Store $store): JsonResponse
     {
         $this->authorizeStore($request, $store);
 
-        return $this->ok($this->settingsPayload($store));
+        $store = $this->repository->settingsLoad($store);
+
+        $available = $this->repository->availableStaff(
+            $store->business_id,
+            $store->assignedStaff->pluck('id'),
+        );
+
+        return $this->ok((new StoreSettingsResource($store, $available))->resolve($request));
     }
 
     /**
@@ -39,50 +80,17 @@ class StoreSettingsController extends ApiController
      * Legacy sent the slug implicitly on every save (Str::slug of the name),
      * which silently moved a live storefront's URL. Here the slug only moves
      * when explicitly submitted, is refused once the storefront is live, and
-     * is reserved-word checked with `-1`, `-2`… de-duplication like the wizard.
+     * is reserved-word checked with `-1`, `-2`… de-duplication like the
+     * wizard. The two refusals stay in this body (see the class docblock); the
+     * de-duplication query lives in the repository and the write workflow in
+     * the service.
      */
-    public function update(Request $request, Store $store): JsonResponse
+    public function update(UpdateStoreSettingsRequest $request, Store $store): JsonResponse
     {
         $this->authorizeStore($request, $store);
 
-        $user = $this->user($request);
-
-        $data = $request->validate([
-            'name' => ['sometimes', 'required', 'string', 'max:255'],
-            'slug' => ['nullable', 'string', 'max:255'],
-            'description' => ['nullable', 'string', 'max:2000'],
-            'support_email' => ['nullable', 'email', 'max:255'],
-            'support_phone' => ['nullable', 'string', 'max:50'],
-            'address' => ['nullable', 'string', 'max:500'],
-            'instagram_url' => ['nullable', 'url', 'max:255'],
-            'facebook_url' => ['nullable', 'url', 'max:255'],
-            'twitter_url' => ['nullable', 'url', 'max:255'],
-            'tiktok_url' => ['nullable', 'url', 'max:255'],
-            'logo' => ['nullable', 'image', 'mimes:jpeg,png,jpg,webp', 'max:2048'],
-            'remove_logo' => ['nullable', 'boolean'],
-        ]);
-
-        // Partial-update semantics: only the fields present in the request are
-        // touched, so saving the Socials card cannot blank the address the way
-        // a full-attribute overwrite would. Sending an empty string clears a
-        // nullable field (ConvertEmptyStringsToNull turns it into null).
-        $attributes = [];
-
-        foreach ([
-            'name',
-            'description',
-            'support_email',
-            'support_phone',
-            'address',
-            'instagram_url',
-            'facebook_url',
-            'twitter_url',
-            'tiktok_url',
-        ] as $field) {
-            if (array_key_exists($field, $data)) {
-                $attributes[$field] = $data[$field];
-            }
-        }
+        $data = $request->validated();
+        $slug = null;
 
         if (! empty($data['slug'])) {
             $slug = Str::slug($data['slug']);
@@ -101,68 +109,45 @@ class StoreSettingsController extends ApiController
                     ['slug' => ['required', 'string', 'max:255', new ReservedStoreSlug]],
                 )->validate();
 
-                $attributes['slug'] = $this->uniqueSlug($slug, $store);
+                $slug = $this->repository->uniqueSlug($slug, $store);
+            } else {
+                // Live storefront, current slug re-submitted: nothing to write,
+                // exactly as the original skipped it.
+                $slug = null;
             }
         }
 
-        $oldLogo = $store->logo_path;
-        $newLogo = $request->file('logo')?->store('stores/logos', 'public');
-        $removeLogo = $request->boolean('remove_logo');
-
-        if ($newLogo) {
-            $attributes['logo_path'] = $newLogo;
-        } elseif ($removeLogo) {
-            $attributes['logo_path'] = null;
-        }
-
-        try {
-            DB::transaction(fn () => $store->update($attributes));
-        } catch (\Throwable $e) {
-            // The file exists before the row does; clean it up when the save
-            // fails so a rejected update never leaves an orphan on disk.
-            if ($newLogo) {
-                Storage::disk('public')->delete($newLogo);
-            }
-
-            throw $e;
-        }
-
-        // Only delete the previous logo after the row carrying the new path is
-        // safely persisted — legacy did the same, and it is the safe order.
-        if (($newLogo || $removeLogo) && $oldLogo) {
-            Storage::disk('public')->delete($oldLogo);
-        }
+        $this->service->update(
+            $store,
+            $data,
+            $slug,
+            $request->file('logo'),
+            $request->boolean('remove_logo'),
+        );
 
         Log::info('api.management.store_settings_updated', [
-            'user_id' => $user->id,
+            'user_id' => $this->user($request)->id,
             'store_id' => $store->id,
         ]);
 
-        return $this->ok(['store' => $this->storePayload($store->fresh())], 'Store updated successfully.');
+        return $this->ok(
+            ['store' => (new StoreResource($store->fresh()))->resolve($request)],
+            'Store updated successfully.',
+        );
     }
 
     /**
      * Assign an existing business staff member to this store (store-context
-     * counterpart of the staff `store_ids` sync).
+     * counterpart of the staff `store_ids` sync). The business and
+     * deactivation scoping is the FormRequest's exists rule; the pivot sync
+     * itself is a single call, so it stays here.
      */
-    public function assignStaff(Request $request, Store $store): JsonResponse
+    public function assignStaff(AssignStoreStaffRequest $request, Store $store): JsonResponse
     {
         $this->authorizeStore($request, $store);
 
         $user = $this->user($request);
-
-        $data = $request->validate([
-            'user_id' => [
-                'required',
-                'integer',
-                // Deactivated staff (status = deleted, per WS-20's soft
-                // deactivation) are no longer assignable anywhere.
-                Rule::exists('users', 'id')->where(fn ($query) => $query
-                    ->where('business_id', $user->business_id)
-                    ->where('role', 'staff')
-                    ->where('status', '!=', 'deleted')),
-            ],
-        ]);
+        $data = $request->validated();
 
         $staff = User::query()->findOrFail($data['user_id']);
 
@@ -175,7 +160,7 @@ class StoreSettingsController extends ApiController
         ]);
 
         return $this->ok(
-            ['staff' => $this->staffPayload($staff->load('roles'))],
+            ['staff' => (new StaffResource($staff->load('roles')))->resolve($request)],
             $staff->name.' assigned to this store.',
         );
     }
@@ -202,15 +187,16 @@ class StoreSettingsController extends ApiController
         return $this->ok([], $staff->name.' removed from this store.');
     }
 
-    public function storeServiceCharge(Request $request, Store $store): JsonResponse
+    public function storeServiceCharge(ServiceChargeRequest $request, Store $store): JsonResponse
     {
         $this->authorizeStore($request, $store);
 
-        $data = $this->validateServiceCharge($request);
+        $data = $request->validated();
 
         // Service charges stay naira-decimal: POS checkout (ProcessPosSale)
         // adds this column straight onto naira order totals, and the POS read
-        // endpoint returns the same unit. Delivery route fees are kobo.
+        // endpoint returns the same unit. Delivery route fees are kobo. The
+        // round() is deliberately not one of the Naira kobo converters.
         $charge = $store->serviceCharges()->create([
             'name' => $data['name'],
             'amount' => round((float) $data['amount'], 2),
@@ -224,19 +210,23 @@ class StoreSettingsController extends ApiController
             'service_charge_id' => $charge->id,
         ]);
 
-        return $this->ok(['service_charge' => $this->chargePayload($charge)], 'Service charge saved.', 201);
+        return $this->ok(
+            ['service_charge' => (new ServiceChargeResource($charge))->resolve($request)],
+            'Service charge saved.',
+            201,
+        );
     }
 
     /**
      * `{charge}` is resolved through the store relation so an id from another
      * store can never be edited (the legacy overloaded PUT did no such check).
      */
-    public function updateServiceCharge(Request $request, Store $store, int $charge): JsonResponse
+    public function updateServiceCharge(ServiceChargeRequest $request, Store $store, int $charge): JsonResponse
     {
         $this->authorizeStore($request, $store);
 
         $serviceCharge = $store->serviceCharges()->whereKey($charge)->firstOrFail();
-        $data = $this->validateServiceCharge($request);
+        $data = $request->validated();
 
         $serviceCharge->update([
             'name' => $data['name'],
@@ -251,7 +241,10 @@ class StoreSettingsController extends ApiController
             'service_charge_id' => $serviceCharge->id,
         ]);
 
-        return $this->ok(['service_charge' => $this->chargePayload($serviceCharge->fresh())], 'Service charge updated.');
+        return $this->ok(
+            ['service_charge' => (new ServiceChargeResource($serviceCharge->fresh()))->resolve($request)],
+            'Service charge updated.',
+        );
     }
 
     public function destroyServiceCharge(Request $request, Store $store, int $charge): JsonResponse
@@ -284,170 +277,8 @@ class StoreSettingsController extends ApiController
         ]);
 
         return $this->ok(
-            ['service_charge' => $this->chargePayload($serviceCharge->fresh())],
+            ['service_charge' => (new ServiceChargeResource($serviceCharge->fresh()))->resolve($request)],
             $serviceCharge->is_active ? 'Service charge enabled.' : 'Service charge disabled.',
         );
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function settingsPayload(Store $store): array
-    {
-        $store->load(['businessType', 'serviceCharges', 'deliveryRoutes', 'assignedStaff.roles', 'assignedBanks']);
-        $store->loadMissing('activePosSession.staff');
-
-        $assignedIds = $store->assignedStaff->pluck('id');
-
-        $available = User::query()
-            ->where('business_id', $store->business_id)
-            ->where('role', 'staff')
-            ->where('status', '!=', 'deleted')
-            ->whereNotIn('id', $assignedIds)
-            ->with('roles')
-            ->orderBy('name')
-            ->get(['id', 'account_code', 'name', 'email']);
-
-        $session = $store->activePosSession;
-
-        return [
-            'store' => $this->storePayload($store),
-            'service_charges' => $store->serviceCharges
-                ->sortBy('name')
-                ->values()
-                ->map(fn (ServiceCharge $charge) => $this->chargePayload($charge))
-                ->all(),
-            'delivery_routes' => $store->deliveryRoutes
-                ->sortBy('state')
-                ->values()
-                ->map(fn ($route) => [
-                    'id' => $route->id,
-                    'country' => $route->country,
-                    'state' => $route->state,
-                    'area' => $route->area,
-                    'fee' => (int) $route->fee,
-                    'delivery_days' => (int) $route->delivery_days,
-                    'active' => (bool) $route->active,
-                ])->all(),
-            'staff' => [
-                'assigned' => $store->assignedStaff
-                    ->map(fn (User $member) => $this->staffPayload($member))
-                    ->values()
-                    ->all(),
-                'available' => $available
-                    ->map(fn (User $member) => $this->staffPayload($member))
-                    ->values()
-                    ->all(),
-            ],
-            'banks' => $store->assignedBanks->map(fn ($bank) => [
-                'id' => $bank->id,
-                'bank_name' => $bank->bank_name,
-                'account_name' => $bank->account_name,
-                'masked_account_number' => $bank->masked_account_number,
-                'is_primary' => (bool) $bank->is_primary,
-                'is_verified' => (bool) $bank->is_verified,
-            ])->values()->all(),
-            'pos' => [
-                'enabled' => (bool) $store->pos_enabled,
-                'active_session' => $session ? [
-                    'id' => $session->id,
-                    'session_code' => $session->session_code,
-                    'opened_by' => $session->staff?->name,
-                    'opened_at' => $session->opened_at?->toISOString(),
-                    'opening_balance' => (int) $session->opening_balance,
-                ] : null,
-            ],
-            'storefront' => [
-                'enabled' => (bool) $store->has_website,
-                'url' => $store->has_website && $store->slug
-                    ? 'https://'.$store->slug.'.'.config('app.main_domain')
-                    : null,
-            ],
-        ];
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function storePayload(Store $store): array
-    {
-        return [
-            'id' => $store->id,
-            'store_id' => $store->store_id,
-            'name' => $store->name,
-            'slug' => $store->slug,
-            'status' => $store->status,
-            'store_type' => $store->store_type,
-            'has_website' => (bool) $store->has_website,
-            'pos_enabled' => (bool) $store->pos_enabled,
-            'description' => $store->description,
-            'support_email' => $store->support_email,
-            'support_phone' => $store->support_phone,
-            'address' => $store->address,
-            'instagram_url' => $store->instagram_url,
-            'facebook_url' => $store->facebook_url,
-            'twitter_url' => $store->twitter_url,
-            'tiktok_url' => $store->tiktok_url,
-            'logo_url' => $store->logo_path ? asset('storage/'.$store->logo_path) : null,
-            'business' => [
-                'id' => $store->business_id,
-                'name' => $store->business?->name,
-                'type' => $store->businessType?->name,
-            ],
-            'created_at' => $store->created_at?->toISOString(),
-        ];
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function staffPayload(User $staff): array
-    {
-        return [
-            'id' => $staff->id,
-            'account_code' => $staff->account_code,
-            'name' => $staff->name,
-            'email' => $staff->email,
-            'roles' => $staff->relationLoaded('roles') ? $staff->roles->pluck('name')->values()->all() : [],
-        ];
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function chargePayload(ServiceCharge $charge): array
-    {
-        return [
-            'id' => $charge->id,
-            'name' => $charge->name,
-            'amount' => round((float) $charge->amount, 2),
-            'description' => $charge->description,
-            'is_active' => (bool) $charge->is_active,
-        ];
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function validateServiceCharge(Request $request): array
-    {
-        return $request->validate([
-            'name' => ['required', 'string', 'max:255'],
-            'amount' => ['required', 'numeric', 'min:0'],
-            'description' => ['nullable', 'string', 'max:500'],
-            'is_active' => ['nullable', 'boolean'],
-        ]);
-    }
-
-    private function uniqueSlug(string $base, Store $store): string
-    {
-        $slug = $base;
-        $counter = 1;
-
-        while (Store::where('slug', $slug)->whereKeyNot($store->getKey())->exists()) {
-            $slug = $base.'-'.$counter++;
-        }
-
-        return $slug;
     }
 }

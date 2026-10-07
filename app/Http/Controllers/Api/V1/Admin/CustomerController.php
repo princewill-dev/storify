@@ -2,25 +2,19 @@
 
 namespace App\Http\Controllers\Api\V1\Admin;
 
-use App\Enums\OrderStatus;
-use App\Enums\TransactionStatus;
 use App\Http\Controllers\Api\V1\Admin\Concerns\EnsuresPlatformAdmin;
 use App\Http\Controllers\Api\V1\ApiController;
-use App\Mail\CustomerAccountActivatedMail;
-use App\Mail\CustomerAccountSuspendedMail;
-use App\Models\ActivityLog;
+use App\Http\Requests\Admin\ListCustomersRequest;
+use App\Http\Requests\Admin\SuspendCustomerRequest;
+use App\Http\Requests\Admin\UpdateCustomerRequest;
+use App\Http\Resources\Admin\CustomerConsoleResource;
+use App\Http\Resources\Admin\CustomerDetailResource;
+use App\Http\Resources\Admin\CustomerResource;
 use App\Models\Customer;
-use App\Models\Order;
-use App\Models\Transaction;
-use App\Services\ActivityRecorder;
-use Illuminate\Database\Eloquent\Builder;
+use App\Repositories\Admin\CustomerRepository;
+use App\Services\Admin\CustomerModerationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Mail;
-use Illuminate\Validation\Rule;
 
 /**
  * WS-9 (admin console) — platform customer console.
@@ -52,84 +46,62 @@ use Illuminate\Validation\Rule;
  * - Legacy `Customer::STATUS_*` is uppercase in the schema; payloads speak
  *   lowercase (matching the management API) and inputs are normalised, so an
  *   uppercase legacy-shaped client still works.
+ *
+ * The controller keeps the HTTP shape only — status codes, message strings,
+ * the envelope and pagination meta. Validation lives in the Admin
+ * FormRequests (`ListCustomersRequest`, `UpdateCustomerRequest`,
+ * `SuspendCustomerRequest`), queries in `CustomerRepository`, the
+ * multi-table workflows and their transaction boundaries in
+ * `CustomerModerationService`, and response shaping in `CustomerResource` /
+ * `CustomerDetailResource` / `CustomerConsoleResource`; the platform-admin
+ * guard deliberately stays here so its order (403 before the refusals) is
+ * unchanged.
  */
 class CustomerController extends ApiController
 {
+    /**
+     * The admin console is a platform surface. Audience + `admin.customers`
+     * alone are not enough: every business's in-business "Super Admin" role is
+     * seeded with the full permission bundle, which contains the admin.* names,
+     * so a business-scoped account holding a leaked admin-audience token would
+     * otherwise read and mutate every tenant's customers (the same hole WS-1
+     * and WS-4 documented).
+     */
     use EnsuresPlatformAdmin;
+
+    public function __construct(
+        private readonly CustomerRepository $customers,
+        private readonly CustomerModerationService $moderation,
+    ) {}
 
     /**
      * The directory. Stats are platform-wide and deliberately independent of
      * the active filters — they are the cards above the table, not the page
      * count (the pagination meta answers that).
      */
-    public function index(Request $request): JsonResponse
+    public function index(ListCustomersRequest $request): JsonResponse
     {
         $this->authorizePlatformAdmin();
 
-        if ($request->filled('status')) {
-            $request->merge(['status' => strtolower(trim((string) $request->input('status')))]);
-        }
-
-        $filters = $request->validate([
-            'q' => ['nullable', 'string', 'max:100'],
-            'status' => ['nullable', Rule::in(['active', 'suspended', 'deleted'])],
-            'country' => ['nullable', 'string', 'max:100'],
-            // Legacy handed these straight to orderBy; whitelist only.
-            'sort' => ['nullable', Rule::in(['first_name', 'last_name', 'email', 'status', 'orders_count', 'created_at', 'last_login'])],
-            'direction' => ['nullable', Rule::in(['asc', 'desc'])],
-            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
-        ]);
-
-        $customers = Customer::query()
-            ->with(['business:id,name,business_code'])
-            ->withCount('orders')
-            ->when($filters['q'] ?? null, fn (Builder $q, string $term) => $this->applySearch($q, $term))
-            ->when($filters['status'] ?? null, fn (Builder $q, string $status) => $q->where('status', strtoupper($status)))
-            ->when($filters['country'] ?? null, fn (Builder $q, string $country) => $this->applyCountryFilter($q, $country))
-            ->orderBy($filters['sort'] ?? 'created_at', $filters['direction'] ?? 'desc')
-            ->paginate($filters['per_page'] ?? 20)
-            ->withQueryString();
+        $page = $this->customers->paginateForDirectory($request->validated());
 
         return $this->ok(
-            ['customers' => $customers->getCollection()->map(fn (Customer $customer) => $this->summary($customer))->values()->all()],
+            ['customers' => $page->getCollection()->map(fn (Customer $customer) => $this->row($customer))->values()->all()],
             null,
             200,
-            [...$this->paginationMeta($customers), 'stats' => $this->stats()],
+            [...$this->paginationMeta($page), 'stats' => $this->customers->stats()],
         );
     }
 
     /**
-     * The country filter's options.
-     *
-     * Two sources, same as the management parity screen: the address columns
-     * on the customer (what the legacy address card rendered) and the
-     * delivery-route country the legacy filter joined. Cached for ten minutes
-     * instead of running the join per request; the customer count changes far
-     * slower than the page is loaded.
+     * The country filter's options, derived from the two sources the legacy
+     * screen joined and served from the repository's ten-minute cache.
      */
-    public function countries(Request $request): JsonResponse
+    public function countries(): JsonResponse
     {
         $this->authorizePlatformAdmin();
 
-        $countries = Cache::remember('admin.customer_countries', now()->addMinutes(10), function () {
-            $fromCustomers = Customer::query()
-                ->whereNotNull('country')
-                ->where('country', '!=', '')
-                ->distinct()
-                ->orderBy('country')
-                ->pluck('country');
-
-            $fromRoutes = DB::table('delivery_routes')
-                ->whereNotNull('country')
-                ->where('country', '!=', '')
-                ->distinct()
-                ->orderBy('country')
-                ->pluck('country');
-
-            return $fromCustomers->merge($fromRoutes)->unique()->sort()->values()->all();
-        });
-
-        return $this->ok(['countries' => $countries]);
+        return $this->ok(['countries' => $this->customers->countryOptions()]);
     }
 
     /**
@@ -141,201 +113,43 @@ class CustomerController extends ApiController
     {
         $this->authorizePlatformAdmin();
 
-        $orders = $customer->orders();
+        $this->customers->loadDetailRelations($customer);
 
-        // Aggregated in SQL: the money column is summed as a decimal, never
-        // accumulated in PHP.
-        $aggregate = (clone $orders)->selectRaw("
-            COUNT(*) as total_orders,
-            SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed_orders,
-            SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending_orders
-        ")->first();
-
-        // Legacy's spend basis: the order total only counts when a confirmed
-        // transaction backs it.
-        $totalSpent = (clone $orders)
-            ->whereHas('transactions', fn ($query) => $query->where('status', TransactionStatus::CONFIRMED->value))
-            ->sum('total');
-
-        $recentOrders = (clone $orders)
-            ->with(['store:id,name'])
-            ->withCount('items')
-            ->latest()
-            ->limit(10)
-            ->get()
-            ->map(fn (Order $order) => [
-                'id' => $order->id,
-                'order_number' => $order->order_number,
-                'store' => $order->store?->name,
-                'items_count' => (int) ($order->items_count ?? 0),
-                'total' => (float) $order->total,
-                'status' => $order->status instanceof OrderStatus ? $order->status->value : $order->status,
-                'status_label' => $order->status_label,
-                'source' => $order->source,
-                'created_at' => $order->created_at?->toISOString(),
-            ])->values()->all();
-
-        $transactions = Transaction::query()
-            ->whereIn('order_id', (clone $orders)->select('orders.id'))
-            ->with(['paymentMethod:id,name', 'order:id,order_number'])
-            ->latest()
-            ->limit(10)
-            ->get()
-            ->map(fn (Transaction $transaction) => [
-                'id' => $transaction->id,
-                'reference' => $transaction->reference,
-                'order_number' => $transaction->order?->order_number,
-                'amount' => (float) $transaction->amount,
-                'currency' => $transaction->currency,
-                'status' => $transaction->status?->value,
-                'status_label' => $transaction->status?->label(),
-                'payment_method' => $transaction->paymentMethod?->name,
-                'paid_at' => $transaction->paid_at?->toISOString(),
-                'created_at' => $transaction->created_at?->toISOString(),
-            ])->values()->all();
-
-        // The list's withCount alias has no counterpart on the bound model, so
-        // the same figure the tiles use is written into the payload here.
-        $detail = $this->detail($customer);
-        $detail['orders_count'] = (int) ($aggregate->total_orders ?? 0);
-
-        return $this->ok([
-            'customer' => $detail,
-            'stats' => [
-                'total_orders' => (int) ($aggregate->total_orders ?? 0),
-                'completed_orders' => (int) ($aggregate->completed_orders ?? 0),
-                'pending_orders' => (int) ($aggregate->pending_orders ?? 0),
-                'total_spent' => (float) $totalSpent,
-                'spend_basis' => 'orders with confirmed transactions',
-            ],
-            'recent_orders' => $recentOrders,
-            'transactions' => $transactions,
-            'activity' => $this->activity($customer),
-        ]);
+        return $this->ok(
+            CustomerConsoleResource::make($customer, $this->customers->detailBlocks($customer))->resolve($request),
+        );
     }
 
     /**
-     * Edit details and status from the list or the console.
-     *
-     * Legacy's status side effect is kept: an explicit Active verifies the
-     * e-mail, any other explicit status clears it. A partial payload that
-     * omits status leaves verification untouched (the legacy form always
-     * posted the status, but nothing else in this API requires a full form).
+     * Edit details and status from the list or the console. Legacy's status
+     * side effect and the partial-payload semantics live in
+     * CustomerModerationService.
      */
-    public function update(Request $request, Customer $customer): JsonResponse
+    public function update(UpdateCustomerRequest $request, Customer $customer): JsonResponse
     {
         $this->authorizePlatformAdmin();
 
-        if ($request->has('status')) {
-            $request->merge(['status' => strtolower(trim((string) $request->input('status')))]);
-        }
+        $this->moderation->update($customer, $request->validated(), $request->user());
 
-        $data = $request->validate([
-            'first_name' => ['sometimes', 'required', 'string', 'max:190'],
-            'last_name' => ['sometimes', 'required', 'string', 'max:190'],
-            // Emails are unique per business in the schema; the same address
-            // may legitimately exist for customers of two different businesses.
-            'email' => [
-                'sometimes', 'required', 'email', 'max:190',
-                Rule::unique('customers', 'email')
-                    ->where(fn ($query) => $query->where('business_id', $customer->business_id))
-                    ->ignore($customer->id),
-            ],
-            'phone' => ['sometimes', 'nullable', 'string', 'max:50'],
-            'location' => ['sometimes', 'nullable', 'string', 'max:190'],
-            'status' => ['sometimes', 'required', Rule::in(['active', 'suspended', 'deleted'])],
-        ]);
-
-        if (isset($data['status'])) {
-            $data['status'] = strtoupper($data['status']);
-        }
-
-        DB::transaction(function () use ($request, $customer, $data) {
-            $before = $this->snapshot($customer);
-
-            $customer->fill($data);
-
-            $status = $data['status'] ?? null;
-
-            if ($status === Customer::STATUS_ACTIVE) {
-                $customer->hasVerifiedEmail() ? $customer->save() : $customer->markEmailAsVerified();
-            } elseif ($status !== null) {
-                $customer->email_verified_at = null;
-                $customer->save();
-            } else {
-                $customer->save();
-            }
-
-            $after = $this->snapshot($customer);
-
-            if ($before !== $after) {
-                ActivityRecorder::record(
-                    action: 'customer_updated',
-                    description: 'Customer details updated ('.implode(', ', array_keys(array_diff_assoc($after, $before))).')',
-                    subject: $customer,
-                    old: $before,
-                    new: $after,
-                    actor: $request->user(),
-                    businessId: $customer->business_id,
-                );
-            }
-        });
-
-        return $this->ok(['customer' => $this->detail($customer->fresh())], 'Customer updated.');
+        return $this->ok(['customer' => $this->card($customer->fresh(), $request)], 'Customer updated.');
     }
 
     /**
      * Suspend with a required, persisted reason and the customer e-mail the
-     * legacy screen sent.
+     * legacy screen sent. The already-suspended refusal stays here so its 422
+     * precedes the workflow.
      */
-    public function suspend(Request $request, Customer $customer): JsonResponse
+    public function suspend(SuspendCustomerRequest $request, Customer $customer): JsonResponse
     {
         $this->authorizePlatformAdmin();
-
-        $data = $request->validate([
-            'reason' => ['required', 'string', 'max:500'],
-        ]);
 
         if ($customer->status === Customer::STATUS_SUSPENDED) {
             return $this->error('This customer is already suspended.', 422);
         }
 
-        $oldStatus = $customer->status;
-        $oldVerifiedAt = $customer->email_verified_at;
+        $this->moderation->suspend($customer, $request->validated()['reason'], $request->user());
 
-        DB::transaction(function () use ($request, $customer, $data, $oldStatus, $oldVerifiedAt) {
-            // Suspending also un-verifies the e-mail, legacy's enable/disable
-            // semantics: a suspended account cannot sign back in on the
-            // strength of a previously verified address.
-            $customer->update([
-                'status' => Customer::STATUS_SUSPENDED,
-                'email_verified_at' => null,
-            ]);
-
-            ActivityRecorder::record(
-                action: 'customer_suspended',
-                description: "Suspended customer: {$customer->full_name}. Reason: {$data['reason']}",
-                subject: $customer,
-                old: ['status' => $oldStatus, 'email_verified_at' => $oldVerifiedAt?->toISOString()],
-                new: ['status' => Customer::STATUS_SUSPENDED, 'email_verified_at' => null, 'reason' => $data['reason']],
-                actor: $request->user(),
-                businessId: $customer->business_id,
-            );
-        });
-
-        Log::info('api.admin.customer_suspended', [
-            'customer_id' => $customer->id,
-            'account_id' => $customer->account_id,
-            'actor_user_id' => $request->user()?->id,
-        ]);
-
-        $this->notifyCustomer(
-            $customer,
-            fn () => new CustomerAccountSuspendedMail($customer, $data['reason']),
-            'api.admin.customer_suspension_email_failed',
-        );
-
-        return $this->ok(['customer' => $this->detail($customer->fresh())], 'Customer suspended.');
+        return $this->ok(['customer' => $this->card($customer->fresh(), $request)], 'Customer suspended.');
     }
 
     /**
@@ -350,226 +164,35 @@ class CustomerController extends ApiController
             return $this->error('This customer is already active.', 422);
         }
 
-        $oldStatus = $customer->status;
-        $oldVerifiedAt = $customer->email_verified_at;
+        $this->moderation->activate($customer, $request->user());
 
-        DB::transaction(function () use ($request, $customer, $oldStatus, $oldVerifiedAt) {
-            $customer->status = Customer::STATUS_ACTIVE;
-
-            $customer->hasVerifiedEmail() ? $customer->save() : $customer->markEmailAsVerified();
-
-            ActivityRecorder::record(
-                action: 'customer_activated',
-                description: "Activated customer: {$customer->full_name}",
-                subject: $customer,
-                old: ['status' => $oldStatus, 'email_verified_at' => $oldVerifiedAt?->toISOString()],
-                new: ['status' => Customer::STATUS_ACTIVE, 'email_verified_at' => $customer->email_verified_at?->toISOString()],
-                actor: $request->user(),
-                businessId: $customer->business_id,
-            );
-        });
-
-        Log::info('api.admin.customer_activated', [
-            'customer_id' => $customer->id,
-            'account_id' => $customer->account_id,
-            'actor_user_id' => $request->user()?->id,
-        ]);
-
-        $this->notifyCustomer(
-            $customer,
-            fn () => new CustomerAccountActivatedMail($customer),
-            'api.admin.customer_activation_email_failed',
-        );
-
-        return $this->ok(['customer' => $this->detail($customer->fresh())], 'Customer activated.');
+        return $this->ok(['customer' => $this->card($customer->fresh(), $request)], 'Customer activated.');
     }
 
     /**
-     * Legacy's search: name (including the composed full name), e-mail, phone
-     * and account id.
-     */
-    private function applySearch(Builder $query, string $term): void
-    {
-        $like = '%'.trim($term).'%';
-
-        $query->where(function ($inner) use ($like) {
-            $inner->where('first_name', 'like', $like)
-                ->orWhere('last_name', 'like', $like)
-                ->orWhere('email', 'like', $like)
-                ->orWhere('phone', 'like', $like)
-                ->orWhere('account_id', 'like', $like)
-                ->orWhereRaw("CONCAT(first_name, ' ', last_name) LIKE ?", [$like]);
-        });
-    }
-
-    /**
-     * The country filter matches what the detail card shows (the customer
-     * address columns) and the delivery-route country legacy filtered on.
-     */
-    private function applyCountryFilter(Builder $query, string $country): void
-    {
-        $query->where(fn ($inner) => $inner
-            ->where('country', $country)
-            ->orWhereHas('deliveryAddresses.deliveryRoute', fn ($route) => $route->where('country', $country)));
-    }
-
-    /**
-     * Platform-wide stat cards. `total` includes suspended and deleted
-     * accounts (the directory lists them); `orders` counts live orders only,
-     * where legacy's raw table count also counted soft-deleted rows.
-     *
-     * @return array<string, int>
-     */
-    private function stats(): array
-    {
-        $counts = Customer::query()
-            ->selectRaw('status, COUNT(*) as aggregate')
-            ->groupBy('status')
-            ->pluck('aggregate', 'status');
-
-        return [
-            'total' => (int) $counts->sum(),
-            'active' => (int) ($counts[Customer::STATUS_ACTIVE] ?? 0),
-            'suspended' => (int) ($counts[Customer::STATUS_SUSPENDED] ?? 0),
-            'orders' => Order::query()->count(),
-        ];
-    }
-
-    /**
-     * @return array<int, array<string, mixed>>
-     */
-    private function activity(Customer $customer): array
-    {
-        return ActivityLog::query()
-            ->where('subject_type', Customer::class)
-            ->where('subject_id', $customer->id)
-            ->with('user:id,name')
-            ->latest()
-            ->limit(20)
-            ->get()
-            ->map(fn (ActivityLog $log) => [
-                'id' => $log->id,
-                'action' => $log->action,
-                'description' => $log->description,
-                'user' => $log->user?->name,
-                'old_values' => $log->old_values,
-                'new_values' => $log->new_values,
-                'created_at' => $log->created_at?->toISOString(),
-                'created_at_human' => $log->created_at?->diffForHumans(),
-            ])->values()->all();
-    }
-
-    /**
-     * Scalar view of the fields the edit form owns, so the audit entry
-     * compares like with like.
+     * The directory row shaped by CustomerResource. Kept as a thin private
+     * seam so the response sites read as they did before the extraction.
      *
      * @return array<string, mixed>
      */
-    private function snapshot(Customer $customer): array
+    private function row(Customer $customer): array
     {
-        return [
-            'first_name' => $customer->first_name,
-            'last_name' => $customer->last_name,
-            'email' => $customer->email,
-            'phone' => $customer->phone,
-            'location' => $customer->location,
-            'status' => $customer->status,
-            'email_verified_at' => $customer->email_verified_at?->toISOString(),
-        ];
+        return CustomerResource::make($customer)->resolve();
     }
 
     /**
+     * The action responses' customer card — the console detail payload
+     * without the stats/orders/transactions/activity blocks. Kept as a thin
+     * private seam so the response sites read as they did before the
+     * extraction.
+     *
      * @return array<string, mixed>
      */
-    private function summary(Customer $customer): array
+    private function card(Customer $customer, Request $request): array
     {
-        return [
-            'id' => $customer->id,
-            'account_id' => $customer->account_id,
-            'name' => $customer->full_name,
-            'first_name' => $customer->first_name,
-            'last_name' => $customer->last_name,
-            'email' => $customer->email,
-            'phone' => $customer->phone,
-            'location' => $customer->location,
-            'country' => $customer->country,
-            'status' => strtolower($customer->status),
-            'email_verified' => $customer->hasVerifiedEmail(),
-            'orders_count' => isset($customer->orders_count) ? (int) $customer->orders_count : null,
-            'business' => $customer->business?->name,
-            'business_code' => $customer->business?->business_code,
-            'business_id' => $customer->business_id,
-            'last_login' => $customer->last_login?->toISOString(),
-            'created_at' => $customer->created_at?->toISOString(),
-            'updated_at' => $customer->updated_at?->toISOString(),
-        ];
+        $this->customers->loadDetailRelations($customer);
+
+        return CustomerDetailResource::make($customer, $this->customers->defaultDeliveryAddress($customer))
+            ->resolve($request);
     }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function detail(Customer $customer): array
-    {
-        $customer->loadMissing('business:id,name,business_code');
-
-        // The legacy detail card read the customer-table address columns; the
-        // default delivery address (what the storefront actually ships to) is
-        // surfaced alongside them as a nullable extra.
-        $deliveryAddress = $customer->deliveryAddresses()
-            ->orderByDesc('is_default')
-            ->latest()
-            ->first();
-
-        return [
-            ...$this->summary($customer),
-            'address' => [
-                'street_address' => $customer->street_address,
-                'city' => $customer->city,
-                'state' => $customer->state,
-                'country' => $customer->country,
-            ],
-            'default_delivery_address' => $deliveryAddress ? [
-                'id' => $deliveryAddress->id,
-                'recipient_name' => $deliveryAddress->recipient_name,
-                'recipient_phone' => $deliveryAddress->recipient_phone,
-                'street_address' => $deliveryAddress->street_address,
-                'apartment' => $deliveryAddress->apartment,
-                'city' => $deliveryAddress->city,
-                'state' => $deliveryAddress->state,
-                'country' => $deliveryAddress->country,
-                'zip_code' => $deliveryAddress->zip_code,
-                'is_default' => (bool) $deliveryAddress->is_default,
-                'full_address' => $deliveryAddress->full_address,
-            ] : null,
-        ];
-    }
-
-    /**
-     * A failed notification must never undo the mutation — it is queued after
-     * the commit and the failure is logged, as legacy did.
-     */
-    private function notifyCustomer(Customer $customer, callable $mailable, string $failureLog): void
-    {
-        if (empty($customer->email)) {
-            return;
-        }
-
-        try {
-            Mail::to($customer->email)->queue($mailable());
-        } catch (\Throwable $e) {
-            Log::error($failureLog, [
-                'customer_id' => $customer->id,
-                'error' => $e->getMessage(),
-            ]);
-        }
-    }
-
-    /**
-     * The admin console is a platform surface. Audience + `admin.customers`
-     * alone are not enough: every business's in-business "Super Admin" role is
-     * seeded with the full permission bundle, which contains the admin.* names,
-     * so a business-scoped account holding a leaked admin-audience token would
-     * otherwise read and mutate every tenant's customers (the same hole WS-1
-     * and WS-4 documented).
-     */
 }

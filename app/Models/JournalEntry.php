@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
+use Illuminate\Support\Str;
 
 class JournalEntry extends Model
 {
@@ -36,7 +37,7 @@ class JournalEntry extends Model
 
         static::creating(function (JournalEntry $entry) {
             if (empty($entry->entry_number)) {
-                $entry->entry_number = 'JE-'.strtoupper(\Illuminate\Support\Str::random(10));
+                $entry->entry_number = 'JE-'.strtoupper(Str::random(10));
             }
             if (empty($entry->entry_date)) {
                 $entry->entry_date = now()->toDateString();

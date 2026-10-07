@@ -6,23 +6,43 @@ use App\Enums\OrderStatus;
 use App\Enums\TransactionStatus;
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Http\Controllers\Api\V1\Management\Concerns\ResolvesManagementContext;
-use App\Mail\StoreReactivated;
-use App\Mail\StoreSuspended;
+use App\Http\Requests\Management\StoreLifecycleRequest;
+use App\Http\Resources\Management\StoreLifecycleResource;
 use App\Models\KycApplication;
 use App\Models\Order;
 use App\Models\Store;
 use App\Models\Transaction;
 use App\Models\User;
+use App\Services\Management\StoreLifecycleService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Mail;
 
+/**
+ * WS-04 — store suspend, activate and soft delete.
+ *
+ * Layering: the HTTP shape (status codes, message strings, the envelope and
+ * the order of the refusals) stays here; the shared reason rules live in
+ * Management\StoreLifecycleRequest, the suspend/activate workflows (status
+ * write, owner mail, log) in App\Services\Management\StoreLifecycleService,
+ * and the response row shape in Management\StoreLifecycleResource.
+ *
+ * No repository: the only queries are `destroy`'s two refusal guards, one
+ * exists() statement each, never reused and never composed on, so wrapping
+ * either in a repository method would be indirection without benefit. Both
+ * stay in the controller body, where their 422s and message strings live.
+ * `destroy` itself is a single-row update with no notification, so it stays
+ * here rather than moving into the service.
+ */
 class StoreLifecycleController extends ApiController
 {
     use ResolvesManagementContext;
 
-    public function suspend(Request $request, Store $store): JsonResponse
+    public function __construct(
+        private readonly StoreLifecycleService $lifecycle,
+    ) {}
+
+    public function suspend(StoreLifecycleRequest $request, Store $store): JsonResponse
     {
         $this->authorizeStore($request, $store);
 
@@ -34,26 +54,16 @@ class StoreLifecycleController extends ApiController
             return $this->error('This store is already suspended.', 422);
         }
 
-        $data = $request->validate([
-            'reason' => ['nullable', 'string', 'max:2000'],
-        ]);
+        $this->lifecycle->suspend(
+            $store,
+            $request->validated('reason') ?? 'Suspended by store owner',
+            $this->user($request),
+        );
 
-        $reason = $data['reason'] ?? 'Suspended by store owner';
-
-        $store->update(['status' => Store::STATUS_SUSPENDED]);
-
-        // Deliberate change from legacy: the mail goes to the store owner, not
-        // to whoever happened to click Suspend (a staff member could act, and
-        // legacy addressed the mail to their own inbox instead of the owner's).
-        $this->sendStatusMail($store, new StoreSuspended($store, $reason));
-
-        Log::info('api.management.store_suspended', [
-            'user_id' => $this->user($request)->id,
-            'store_id' => $store->id,
-            'reason' => $reason,
-        ]);
-
-        return $this->ok(['store' => $this->lifecyclePayload($store->fresh())], 'Store suspended successfully.');
+        return $this->ok(
+            ['store' => (new StoreLifecycleResource($store->fresh()))->resolve($request)],
+            'Store suspended successfully.',
+        );
     }
 
     /**
@@ -61,9 +71,10 @@ class StoreLifecycleController extends ApiController
      *
      * Legacy gated on the *acting* user's KYC application, so a staff member
      * with `stores settings` could never reactivate a store and the owner's
-     * approved KYC was ignored. The gate and the mail both target the owner now.
+     * approved KYC was ignored. The gate and the mail both target the owner
+     * now (the mail targeting lives in StoreLifecycleService::owner()).
      */
-    public function activate(Request $request, Store $store): JsonResponse
+    public function activate(StoreLifecycleRequest $request, Store $store): JsonResponse
     {
         $this->authorizeStore($request, $store);
 
@@ -82,23 +93,16 @@ class StoreLifecycleController extends ApiController
             return $this->error('Complete KYC verification before activating this store.', 422);
         }
 
-        $data = $request->validate([
-            'reason' => ['nullable', 'string', 'max:2000'],
-        ]);
+        $this->lifecycle->activate(
+            $store,
+            $request->validated('reason') ?? 'Reactivated by store owner',
+            $this->user($request),
+        );
 
-        $reason = $data['reason'] ?? 'Reactivated by store owner';
-
-        $store->update(['status' => Store::STATUS_ACTIVE]);
-
-        $this->sendStatusMail($store, new StoreReactivated($store, $reason));
-
-        Log::info('api.management.store_activated', [
-            'user_id' => $this->user($request)->id,
-            'store_id' => $store->id,
-            'reason' => $reason,
-        ]);
-
-        return $this->ok(['store' => $this->lifecyclePayload($store->fresh())], 'Store activated successfully.');
+        return $this->ok(
+            ['store' => (new StoreLifecycleResource($store->fresh()))->resolve($request)],
+            'Store activated successfully.',
+        );
     }
 
     /**
@@ -136,43 +140,10 @@ class StoreLifecycleController extends ApiController
 
     /**
      * The business owner rather than the store row's creator — a staff member
-     * may have created the store, and the KYC gate and lifecycle mails are the
-     * owner's business.
+     * may have created the store, and the KYC gate is the owner's business.
      */
     private function owner(Store $store): ?User
     {
         return $store->business?->owner ?? $store->user;
-    }
-
-    private function sendStatusMail(Store $store, StoreSuspended|StoreReactivated $mail): void
-    {
-        $owner = $this->owner($store);
-
-        if (! $owner?->email) {
-            return;
-        }
-
-        try {
-            Mail::to($owner->email)->queue($mail);
-        } catch (\Throwable $e) {
-            // A mail failure must never roll back or block the status change.
-            Log::error('store.status_mail_failed', [
-                'store_id' => $store->id,
-                'error' => $e->getMessage(),
-            ]);
-        }
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function lifecyclePayload(Store $store): array
-    {
-        return [
-            'id' => $store->id,
-            'store_id' => $store->store_id,
-            'name' => $store->name,
-            'status' => $store->status,
-        ];
     }
 }

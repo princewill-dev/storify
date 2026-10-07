@@ -5,16 +5,26 @@ namespace App\Http\Controllers\Api\V1\Management;
 use App\Enums\SectionStatus;
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Http\Controllers\Api\V1\Management\Concerns\ResolvesManagementContext;
+use App\Http\Requests\Management\Section\SectionAvailableProductsRequest;
+use App\Http\Requests\Management\Section\SectionIndexRequest;
+use App\Http\Requests\Management\Section\SectionPayloadRequest;
+use App\Http\Requests\Management\Section\SectionPickerRequest;
+use App\Http\Requests\Management\Section\SectionProductIdsRequest;
+use App\Http\Requests\Management\Section\SectionProductsRequest;
+use App\Http\Resources\Management\Section\SectionDetailResource;
+use App\Http\Resources\Management\Section\SectionPickerResource;
+use App\Http\Resources\Management\Section\SectionProductResource;
+use App\Http\Resources\Management\Section\SectionStatsResource;
+use App\Http\Resources\Management\Section\SectionSummaryResource;
+use App\Http\Resources\Management\Section\SectionWarehouseResource;
 use App\Models\Product;
 use App\Models\Section;
-use App\Models\Store;
 use App\Models\Warehouse;
-use App\Services\ActivityLogger;
+use App\Repositories\Management\Section\SectionRepository;
+use App\Services\Access\TenantGuard;
+use App\Services\Management\Section\SectionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Validation\Rule;
 
 /**
  * WS-36 — Sections and the product↔section link.
@@ -25,12 +35,31 @@ use Illuminate\Validation\Rule;
  * optional description and an active/inactive status, and they live and die
  * with their warehouse.
  *
+ * Layering: the HTTP shape (status codes, message strings, the envelope,
+ * pagination meta), the authorization guards and the 422 refusals stay here;
+ * the request rules live in App\Http\Requests\Management\Section, the query
+ * building and the access scopes in
+ * App\Repositories\Management\Section\SectionRepository, the write workflows
+ * with their transaction boundaries and audit rows in
+ * App\Services\Management\Section\SectionService, and the payload shapes in
+ * App\Http\Resources\Management\Section. The guards stay in the controller
+ * body so their 403s keep their place in the refusal order (route-binding 404
+ * first), rather than moving into FormRequest::authorize(); extraction moves
+ * validation ahead of the controller body on purpose, which is the
+ * codebase-wide accepted consequence.
+ *
+ * Money at this boundary: the private `nairaToKobo()`/`koboToNaira()` pair
+ * the controller carried is now `Naira::koboFromLenient()` /
+ * `Naira::decimalFromKobo()` inside the resources — the same exact-parsing,
+ * sign-aware contracts (see SectionStatsResource).
+ *
  * Deliberate changes from legacy, each named in the audit:
  *
  * 1. Deleted sections stay deleted. Legacy soft-deleted (`status = 'deleted'`)
  *    but kept counting and listing them in places — the warehouse card's
  *    section count included deleted rows and the pickers offered them back.
- *    Every read here goes through {@see sectionQuery()} and excludes them.
+ *    Every read here goes through the repository's warehouse scope, which
+ *    excludes them.
  * 2. Mutations are gated by `warehouses create|edit|delete`, not the legacy's
  *    blanket `warehouses view` — a read-only user could delete a section.
  * 3. A section in the URL must actually belong to the warehouse in the URL.
@@ -51,35 +80,24 @@ class SectionController extends ApiController
 {
     use ResolvesManagementContext;
 
-    public function index(Request $request, Warehouse $warehouse): JsonResponse
+    public function __construct(
+        private readonly SectionRepository $repository,
+        private readonly SectionService $service,
+    ) {}
+
+    public function index(SectionIndexRequest $request, Warehouse $warehouse): JsonResponse
     {
         $this->authorizeWarehouse($request, $warehouse);
 
-        $filters = $request->validate([
-            'q' => ['nullable', 'string', 'max:100'],
-            'status' => ['nullable', Rule::in([Section::STATUS_ACTIVE, Section::STATUS_INACTIVE])],
-            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
-        ]);
-
-        $sections = $this->sectionQuery($warehouse)
-            ->withCount('products')
-            ->withCount(['products as active_products_count' => fn ($q) => $q->where('status', 'active')])
-            ->when($filters['q'] ?? null, fn ($q, $term) => $q->where('name', 'like', "%{$term}%"))
-            ->when($filters['status'] ?? null, fn ($q, $status) => $q->where('status', $status))
-            ->orderBy('name')
-            ->paginate($filters['per_page'] ?? 25);
+        $sections = $this->repository->paginateForWarehouse($warehouse, $request->validated());
 
         return $this->ok(
             [
-                'warehouse' => $this->warehouseSummary($warehouse),
-                'sections' => $sections->getCollection()->map(fn (Section $section) => $this->summary($section))->all(),
+                'warehouse' => (new SectionWarehouseResource($warehouse))->resolve($request),
+                'sections' => SectionSummaryResource::collection($sections->getCollection())->resolve($request),
                 // Stats are computed unfiltered so the header keeps describing
                 // the warehouse, not the current search.
-                'stats' => [
-                    'total' => $this->sectionQuery($warehouse)->count(),
-                    'active' => $this->sectionQuery($warehouse)->where('status', Section::STATUS_ACTIVE)->count(),
-                    'inactive' => $this->sectionQuery($warehouse)->where('status', Section::STATUS_INACTIVE)->count(),
-                ],
+                'stats' => $this->repository->countsForWarehouse($warehouse),
             ],
             null,
             200,
@@ -87,58 +105,26 @@ class SectionController extends ApiController
         );
     }
 
-    public function store(Request $request, Warehouse $warehouse): JsonResponse
+    public function store(SectionPayloadRequest $request, Warehouse $warehouse): JsonResponse
     {
         $this->authorizeWarehouse($request, $warehouse);
 
-        $data = $this->validated($request);
+        $section = $this->service->create($this->user($request), $warehouse, $request->validated());
 
-        $section = DB::transaction(function () use ($request, $warehouse, $data) {
-            // section_code is generated by the model (sec_ + 10 chars), as legacy did.
-            return Section::create([
-                'warehouse_id' => $warehouse->id,
-                'business_id' => $this->user($request)->business_id,
-                'name' => $data['name'],
-                'description' => $data['description'] ?? null,
-                'status' => ($data['is_active'] ?? true) ? Section::STATUS_ACTIVE : Section::STATUS_INACTIVE,
-            ]);
-        });
-
-        ActivityLogger::log(
-            'business_create_section',
-            'Business created a section: '.$section->name,
-            ['user_id' => $this->user($request)->id, 'section_id' => $section->id, 'warehouse_id' => $warehouse->id],
-            $this->user($request)->id,
-        );
-
-        return $this->ok(['section' => $this->detail($section)], 'Section created.', 201);
+        return $this->ok(['section' => $this->detail($request, $section)], 'Section created.', 201);
     }
 
-    public function show(Request $request, Warehouse $warehouse, Section $section): JsonResponse
+    public function show(SectionProductsRequest $request, Warehouse $warehouse, Section $section): JsonResponse
     {
         $this->authorizeSection($request, $warehouse, $section);
 
-        $filters = $request->validate([
-            'q' => ['nullable', 'string', 'max:100'],
-            'status' => ['nullable', Rule::in(['active', 'inactive'])],
-            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
-        ]);
-
-        // Legacy paginated the section's products at 50/page. `images` is
-        // eager-loaded because every row renders its primary image.
-        $products = $section->products()
-            ->with(['store', 'images'])
-            ->when($filters['q'] ?? null, fn ($q, $term) => $q->where(fn ($inner) => $inner->where('name', 'like', "%{$term}%")
-                ->orWhere('product_code', 'like', "%{$term}%")))
-            ->when($filters['status'] ?? null, fn ($q, $status) => $q->where('status', $status))
-            ->orderBy('name')
-            ->paginate($filters['per_page'] ?? 50);
+        $products = $this->repository->paginateProducts($section, $request->validated());
 
         return $this->ok(
             [
-                'section' => $this->detail($section),
-                'stats' => $this->stats($section),
-                'products' => $products->getCollection()->map(fn (Product $product) => $this->productRow($product))->all(),
+                'section' => $this->detail($request, $section),
+                'stats' => (new SectionStatsResource($this->repository->statsForSection($section)))->resolve($request),
+                'products' => SectionProductResource::collection($products->getCollection())->resolve($request),
             ],
             null,
             200,
@@ -146,28 +132,13 @@ class SectionController extends ApiController
         );
     }
 
-    public function update(Request $request, Warehouse $warehouse, Section $section): JsonResponse
+    public function update(SectionPayloadRequest $request, Warehouse $warehouse, Section $section): JsonResponse
     {
         $this->authorizeSection($request, $warehouse, $section);
 
-        $data = $this->validated($request);
+        $this->service->update($this->user($request), $section, $request->validated());
 
-        DB::transaction(function () use ($section, $data) {
-            $section->update([
-                'name' => $data['name'],
-                'description' => $data['description'] ?? null,
-                'status' => ($data['is_active'] ?? true) ? Section::STATUS_ACTIVE : Section::STATUS_INACTIVE,
-            ]);
-        });
-
-        ActivityLogger::log(
-            'business_update_section',
-            'Business updated a section: '.$section->name,
-            ['user_id' => $this->user($request)->id, 'section_id' => $section->id],
-            $this->user($request)->id,
-        );
-
-        return $this->ok(['section' => $this->detail($section->fresh())], 'Section updated.');
+        return $this->ok(['section' => $this->detail($request, $section->fresh())], 'Section updated.');
     }
 
     public function destroy(Request $request, Warehouse $warehouse, Section $section): JsonResponse
@@ -178,14 +149,7 @@ class SectionController extends ApiController
             return $this->error('Cannot delete a section with products.', 422);
         }
 
-        DB::transaction(fn () => $section->update(['status' => Section::STATUS_DELETED]));
-
-        ActivityLogger::log(
-            'business_delete_section',
-            'Business deleted a section: '.$section->name,
-            ['user_id' => $this->user($request)->id, 'section_id' => $section->id, 'warehouse_id' => $warehouse->id],
-            $this->user($request)->id,
-        );
+        $this->service->delete($this->user($request), $warehouse, $section);
 
         return $this->ok([], 'Section deleted.');
     }
@@ -195,41 +159,17 @@ class SectionController extends ApiController
      * every non-deleted section the caller can reach, optionally narrowed to
      * one warehouse.
      */
-    public function picker(Request $request): JsonResponse
+    public function picker(SectionPickerRequest $request): JsonResponse
     {
         $user = $this->user($request);
+        $filters = $request->validated();
 
-        $filters = $request->validate([
-            'warehouse_id' => ['nullable', 'integer'],
-            'q' => ['nullable', 'string', 'max:100'],
-            'status' => ['nullable', Rule::in([Section::STATUS_ACTIVE, Section::STATUS_INACTIVE])],
-        ]);
-
-        if (isset($filters['warehouse_id']) && ! $this->accessibleWarehouseIdExists($request, (int) $filters['warehouse_id'])) {
+        if (isset($filters['warehouse_id']) && ! $this->repository->userCanAccessWarehouse($user, (int) $filters['warehouse_id'])) {
             abort(403, 'You do not have access to this warehouse.');
         }
 
-        $sections = Section::query()
-            ->where('business_id', $user->business_id)
-            ->whereIn('warehouse_id', $this->accessibleWarehouseIds($request))
-            ->notDeleted()
-            ->with('warehouse:id,warehouse_code,name')
-            ->when($filters['warehouse_id'] ?? null, fn ($q, $warehouseId) => $q->where('warehouse_id', $warehouseId))
-            ->when($filters['q'] ?? null, fn ($q, $term) => $q->where('name', 'like', "%{$term}%"))
-            ->when($filters['status'] ?? null, fn ($q, $status) => $q->where('status', $status))
-            ->orderBy('name')
-            ->get();
-
         return $this->ok([
-            'sections' => $sections->map(fn (Section $section) => [
-                'id' => $section->id,
-                'section_code' => $section->section_code,
-                'name' => $section->name,
-                'status' => $section->status->value,
-                'warehouse_id' => $section->warehouse_id,
-                'warehouse_code' => $section->warehouse?->warehouse_code,
-                'warehouse_name' => $section->warehouse?->name,
-            ])->values()->all(),
+            'sections' => SectionPickerResource::collection($this->repository->sectionsForPicker($user, $filters))->resolve($request),
         ]);
     }
 
@@ -240,46 +180,33 @@ class SectionController extends ApiController
      * on each row so the picker can show that an assignment would move a
      * product out of its present zone.
      */
-    public function availableProducts(Request $request, Warehouse $warehouse, Section $section): JsonResponse
+    public function availableProducts(SectionAvailableProductsRequest $request, Warehouse $warehouse, Section $section): JsonResponse
     {
         $this->authorizeSection($request, $warehouse, $section);
 
-        $filters = $request->validate([
-            'q' => ['nullable', 'string', 'max:100'],
-            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
-        ]);
-
-        $products = $this->assignableQuery($request, $warehouse)
-            ->where(fn ($q) => $q->whereNull('section_id')->orWhere('section_id', '!=', $section->id))
-            ->when($filters['q'] ?? null, fn ($q, $term) => $q->where(fn ($inner) => $inner->where('name', 'like', "%{$term}%")
-                ->orWhere('product_code', 'like', "%{$term}%")))
-            ->with(['store', 'section', 'images'])
-            ->orderBy('name')
-            ->paginate($filters['per_page'] ?? 25);
+        $products = $this->repository->paginateAvailableProducts($this->user($request), $warehouse, $section, $request->validated());
 
         return $this->ok(
-            ['products' => $products->getCollection()->map(fn (Product $product) => $this->productRow($product, withSection: true))->all()],
+            [
+                'products' => $products->getCollection()
+                    ->map(fn (Product $product) => (new SectionProductResource($product, withSection: true))->resolve($request))
+                    ->values()
+                    ->all(),
+            ],
             null,
             200,
             $this->paginationMeta($products),
         );
     }
 
-    public function assignProducts(Request $request, Warehouse $warehouse, Section $section): JsonResponse
+    public function assignProducts(SectionProductIdsRequest $request, Warehouse $warehouse, Section $section): JsonResponse
     {
         $this->authorizeSection($request, $warehouse, $section);
 
-        $data = $request->validate([
-            'product_ids' => ['required', 'array', 'min:1'],
-            'product_ids.*' => ['integer'],
-        ]);
+        $user = $this->user($request);
+        $ids = array_values(array_unique(array_map('intval', $request->validated()['product_ids'])));
 
-        $ids = array_values(array_unique(array_map('intval', $data['product_ids'])));
-
-        $products = Product::query()
-            ->where('business_id', $this->user($request)->business_id)
-            ->whereIn('id', $ids)
-            ->get();
+        $products = $this->repository->productsForAssignment($user, $ids);
 
         if ($products->count() !== count($ids)) {
             return $this->error('One or more products could not be found.', 422, [
@@ -287,156 +214,47 @@ class SectionController extends ApiController
             ]);
         }
 
-        $toAssign = [];
+        $result = $this->service->assignProducts($user, $warehouse, $section, $products, $ids);
 
-        foreach ($products as $product) {
-            if ((int) $product->section_id === (int) $section->id) {
-                continue;
-            }
-
-            if ($message = $this->assignmentError($request, $product, $warehouse)) {
-                return $this->error($message, 422, ['product_ids' => [$message]]);
-            }
-
-            $toAssign[] = $product;
+        if ($result['error'] !== null) {
+            return $this->error($result['error'], 422, ['product_ids' => [$result['error']]]);
         }
 
-        $assigned = DB::transaction(function () use ($toAssign, $section) {
-            foreach ($toAssign as $product) {
-                $product->update([
-                    'section_id' => $section->id,
-                    // The model's saving hook re-derives this when section_id
-                    // is dirty; set it explicitly so the intent is local.
-                    'warehouse_id' => $product->warehouse_id ?: $section->warehouse_id,
-                ]);
-            }
-
-            return count($toAssign);
-        });
-
-        ActivityLogger::log(
-            'business_assign_section_products',
-            'Business assigned '.$assigned.' product(s) to section: '.$section->name,
-            ['user_id' => $this->user($request)->id, 'section_id' => $section->id, 'product_ids' => $ids],
-            $this->user($request)->id,
-        );
+        $assigned = $result['assigned'];
 
         return $this->ok(
-            ['assigned' => $assigned, 'section' => $this->detail($section->fresh())],
+            ['assigned' => $assigned, 'section' => $this->detail($request, $section->fresh())],
             $assigned === 1 ? '1 product assigned to the section.' : "{$assigned} products assigned to the section.",
         );
     }
 
-    public function unassignProducts(Request $request, Warehouse $warehouse, Section $section): JsonResponse
+    public function unassignProducts(SectionProductIdsRequest $request, Warehouse $warehouse, Section $section): JsonResponse
     {
         $this->authorizeSection($request, $warehouse, $section);
 
-        $data = $request->validate([
-            'product_ids' => ['required', 'array', 'min:1'],
-            'product_ids.*' => ['integer'],
-        ]);
+        $ids = array_map('intval', $request->validated()['product_ids']);
 
-        $products = $section->products()
-            ->whereIn('id', array_map('intval', $data['product_ids']))
-            ->get();
-
-        // Only the section link is cleared — the products stay in the
-        // warehouse (and in any stock location they already hold).
-        $removed = DB::transaction(function () use ($products) {
-            foreach ($products as $product) {
-                $product->update(['section_id' => null]);
-            }
-
-            return $products->count();
-        });
-
-        ActivityLogger::log(
-            'business_unassign_section_products',
-            'Business removed '.$removed.' product(s) from section: '.$section->name,
-            ['user_id' => $this->user($request)->id, 'section_id' => $section->id],
-            $this->user($request)->id,
-        );
+        $removed = $this->service->unassignProducts($this->user($request), $section, $ids);
 
         return $this->ok(
-            ['removed' => $removed, 'section' => $this->detail($section->fresh())],
+            ['removed' => $removed, 'section' => $this->detail($request, $section->fresh())],
             $removed === 1 ? '1 product removed from the section.' : "{$removed} products removed from the section.",
         );
     }
 
     /**
+     * The section detail payload — repository loads, resource shape.
+     *
      * @return array<string, mixed>
      */
-    private function validated(Request $request): array
+    private function detail(Request $request, Section $section): array
     {
-        return $request->validate([
-            'name' => ['required', 'string', 'max:255'],
-            'description' => ['nullable', 'string', 'max:500'],
-            'is_active' => ['nullable', 'boolean'],
-        ]);
-    }
-
-    /**
-     * Sections of a warehouse that have not been soft-deleted. Every read of
-     * the section collection goes through here.
-     */
-    private function sectionQuery(Warehouse $warehouse)
-    {
-        return Section::query()
-            ->where('warehouse_id', $warehouse->id)
-            ->notDeleted();
-    }
-
-    /**
-     * Products that can be filed into a section of this warehouse: those the
-     * warehouse already holds, plus warehouse-less rows reachable through the
-     * caller's stores (the product form lets those inherit a warehouse from
-     * the section they are given).
-     */
-    private function assignableQuery(Request $request, Warehouse $warehouse)
-    {
-        $user = $this->user($request);
-        $storeIds = $user->accessibleStores()
-            ->where('status', '!=', Store::STATUS_DELETED)
-            ->pluck('id');
-
-        return Product::query()
-            ->where('business_id', $user->business_id)
-            ->where(fn ($q) => $q->where('warehouse_id', $warehouse->id)
-                ->orWhere(fn ($inner) => $inner->whereNull('warehouse_id')->whereIn('store_id', $storeIds)));
-    }
-
-    /**
-     * A product already held in another warehouse cannot be re-pointed by
-     * filing it into a section here — the model's section hook would rewrite
-     * its warehouse and orphan its stock locations.
-     */
-    private function assignmentError(Request $request, Product $product, Warehouse $warehouse): ?string
-    {
-        $user = $this->user($request);
-
-        if ($product->warehouse_id && (int) $product->warehouse_id !== (int) $warehouse->id) {
-            return $product->name.' is held in another warehouse — move its stock before filing it into this section.';
-        }
-
-        if ($product->store_id) {
-            return $user->accessibleStores()->whereKey($product->store_id)->exists()
-                ? null
-                : $product->name.' is not available to you.';
-        }
-
-        // Store-less rows are reachable when they already sit in this
-        // warehouse, or when the caller is not restricted staff (mirrors the
-        // product form's rule for detached rows).
-        if ($product->warehouse_id || ! $user->isRestrictedStaff()) {
-            return null;
-        }
-
-        return $product->name.' is not available to you.';
+        return (new SectionDetailResource($this->repository->loadForDetail($section)))->resolve($request);
     }
 
     private function authorizeWarehouse(Request $request, Warehouse $warehouse): void
     {
-        if (! $this->accessibleWarehouseIdExists($request, (int) $warehouse->id)) {
+        if (! $this->repository->userCanAccessWarehouse($this->user($request), (int) $warehouse->id)) {
             abort(403, 'You do not have access to this warehouse.');
         }
     }
@@ -444,161 +262,18 @@ class SectionController extends ApiController
     /**
      * Guards the nested pair: the section must belong to the business and to
      * the warehouse named in the URL (legacy never checked the latter), and
-     * must not be soft-deleted.
+     * must not be soft-deleted. The business leg is the shape TenantGuard
+     * already encodes; the refusal order (warehouse 403, business 403, pair
+     * 404) is unchanged.
      */
     private function authorizeSection(Request $request, Warehouse $warehouse, Section $section): void
     {
         $this->authorizeWarehouse($request, $warehouse);
 
-        if ((int) $section->business_id !== (int) $this->user($request)->business_id) {
-            abort(403, 'You do not have access to this section.');
-        }
+        app(TenantGuard::class)->authorizeBusiness($section, $this->user($request), 'You do not have access to this section.');
 
         if ((int) $section->warehouse_id !== (int) $warehouse->id || $section->status === SectionStatus::DELETED) {
             abort(404, 'Section not found in this warehouse.');
         }
-    }
-
-    private function accessibleWarehouseIdExists(Request $request, int $warehouseId): bool
-    {
-        return $this->user($request)
-            ->accessibleWarehouses()
-            ->where('warehouses.status', '!=', Warehouse::STATUS_DELETED)
-            ->whereKey($warehouseId)
-            ->exists();
-    }
-
-    /**
-     * @return Collection<int, int>
-     */
-    private function accessibleWarehouseIds(Request $request)
-    {
-        return $this->user($request)
-            ->accessibleWarehouses()
-            ->where('warehouses.status', '!=', Warehouse::STATUS_DELETED)
-            ->pluck('warehouses.id');
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function summary(Section $section): array
-    {
-        return [
-            'id' => $section->id,
-            'section_code' => $section->section_code,
-            'name' => $section->name,
-            'description' => $section->description,
-            'status' => $section->status->value,
-            'products_count' => (int) ($section->products_count ?? 0),
-            'active_products_count' => (int) ($section->active_products_count ?? 0),
-            'created_at' => $section->created_at?->toISOString(),
-        ];
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function detail(Section $section): array
-    {
-        $section->loadMissing('warehouse');
-        $section->loadCount(['products', 'products as active_products_count' => fn ($q) => $q->where('status', 'active')]);
-
-        return [
-            ...$this->summary($section),
-            'warehouse' => $section->warehouse ? $this->warehouseSummary($section->warehouse) : null,
-            'updated_at' => $section->updated_at?->toISOString(),
-        ];
-    }
-
-    /**
-     * The five legacy metric cards. Money on the products table is the legacy
-     * decimal-naira `amount` column, so the sum is parsed as a string into
-     * integer kobo — no float arithmetic on money.
-     *
-     * @return array<string, mixed>
-     */
-    private function stats(Section $section): array
-    {
-        $valueKobo = $this->nairaToKobo($section->products()->sum('amount'));
-
-        return [
-            'products_count' => $section->products()->count(),
-            'active_products_count' => $section->products()->where('status', 'active')->count(),
-            'stock_count' => (int) $section->products()->sum('quantity'),
-            'stock_value_kobo' => $valueKobo,
-            'stock_value' => $this->koboToNaira($valueKobo),
-            'out_of_stock_count' => $section->products()->where('quantity', '<=', 0)->count(),
-        ];
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function productRow(Product $product, bool $withSection = false): array
-    {
-        $row = [
-            'id' => $product->id,
-            'product_code' => $product->product_code,
-            'name' => $product->name,
-            'amount_kobo' => $this->nairaToKobo($product->amount),
-            'quantity' => (int) $product->quantity,
-            'stock_quantity' => $product->stock_quantity !== null ? (int) $product->stock_quantity : null,
-            'stock_percentage' => $product->stockPercentage(),
-            'status' => $product->status,
-            'is_digital' => (bool) $product->is_digital,
-            'warehouse_id' => $product->warehouse_id,
-            'store_name' => $product->store?->name,
-            'image_url' => $product->primaryImage()?->path ? asset('storage/'.$product->primaryImage()->path) : null,
-        ];
-
-        if ($withSection) {
-            $row['section_id'] = $product->section_id;
-            $row['section_name'] = $product->section?->name;
-        }
-
-        return $row;
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function warehouseSummary(Warehouse $warehouse): array
-    {
-        return [
-            'id' => $warehouse->id,
-            'warehouse_code' => $warehouse->warehouse_code,
-            'name' => $warehouse->name,
-            'status' => $warehouse->status->value,
-            'city' => $warehouse->city,
-            'state' => $warehouse->state,
-        ];
-    }
-
-    /**
-     * "1234.56" → 123456 kobo without touching floats. Products' `amount`
-     * column is decimal(12,2) naira; values are non-negative.
-     */
-    private function nairaToKobo(mixed $value): int
-    {
-        $value = trim((string) ($value ?? ''));
-
-        if ($value === '') {
-            return 0;
-        }
-
-        $negative = str_starts_with($value, '-');
-        $value = ltrim($value, '+-');
-
-        [$whole, $fraction] = array_pad(explode('.', $value, 2), 2, '');
-
-        $kobo = ((int) $whole) * 100 + (int) str_pad(substr($fraction, 0, 2), 2, '0');
-
-        return $negative ? -$kobo : $kobo;
-    }
-
-    private function koboToNaira(int $kobo): string
-    {
-        return sprintf('%s%d.%02d', $kobo < 0 ? '-' : '', intdiv(abs($kobo), 100), abs($kobo) % 100);
     }
 }

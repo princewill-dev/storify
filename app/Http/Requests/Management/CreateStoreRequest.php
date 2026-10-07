@@ -4,6 +4,7 @@ namespace App\Http\Requests\Management;
 
 use App\Rules\ReservedStoreSlug;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class CreateStoreRequest extends FormRequest
 {
@@ -16,7 +17,15 @@ class CreateStoreRequest extends FormRequest
     {
         return [
             'name' => ['required', 'string', 'max:255'],
-            'slug' => ['nullable', 'string', 'max:255', new ReservedStoreSlug],
+            // The unique rule moved out of the controller body: the slug is
+            // the live URL, so a taken one must fail validation (422,
+            // slug-keyed) rather than surfacing the unique index as a 500.
+            // Running in the FormRequest, it now precedes the controller's
+            // verified-owner 403 — the known, accepted consequence of the
+            // extraction across this codebase: a caller who is both
+            // unverified and malformed answers 422. A valid payload from an
+            // unverified caller still answers 403, so nothing is escalated.
+            'slug' => ['nullable', 'string', 'max:255', new ReservedStoreSlug, Rule::unique('stores', 'slug')],
             'description' => ['nullable', 'string'],
             'support_email' => ['nullable', 'email', 'max:255', 'unique:stores,support_email'],
             'support_phone' => ['nullable', 'string', 'max:50', 'unique:stores,support_phone'],

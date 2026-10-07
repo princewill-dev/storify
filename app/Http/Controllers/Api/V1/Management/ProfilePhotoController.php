@@ -4,7 +4,8 @@ namespace App\Http\Controllers\Api\V1\Management;
 
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Http\Controllers\Api\V1\Management\Concerns\ResolvesManagementContext;
-use App\Models\User;
+use App\Http\Requests\Management\StoreProfilePhotoRequest;
+use App\Http\Resources\Management\ProfilePhotoResource;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -39,15 +40,11 @@ class ProfilePhotoController extends ApiController
     {
         $user = $this->user($request);
 
-        return $this->ok($this->payload($user));
+        return $this->ok((new ProfilePhotoResource($user))->resolve($request));
     }
 
-    public function store(Request $request): JsonResponse
+    public function store(StoreProfilePhotoRequest $request): JsonResponse
     {
-        $request->validate([
-            'photo' => ['required', 'image', 'mimes:jpeg,png,jpg,webp', 'max:2048'],
-        ]);
-
         $user = $this->user($request);
         $previous = $user->photo_path;
 
@@ -65,7 +62,7 @@ class ProfilePhotoController extends ApiController
             'replaced' => $previous !== null,
         ]);
 
-        return $this->ok($this->payload($user->fresh()), 'Profile photo updated.');
+        return $this->ok((new ProfilePhotoResource($user->fresh()))->resolve($request), 'Profile photo updated.');
     }
 
     public function destroy(Request $request): JsonResponse
@@ -82,19 +79,6 @@ class ProfilePhotoController extends ApiController
             ]);
         }
 
-        return $this->ok($this->payload($user->fresh()), 'Profile photo removed.');
-    }
-
-    /**
-     * @return array{photo_url: string, has_photo: bool}
-     */
-    private function payload(User $user): array
-    {
-        return [
-            // Falls back to the Gravatar-style placeholder when no upload
-            // exists, matching `$user->photoUrl()` in the legacy header.
-            'photo_url' => $user->photoUrl(),
-            'has_photo' => (bool) $user->photo_path,
-        ];
+        return $this->ok((new ProfilePhotoResource($user->fresh()))->resolve($request), 'Profile photo removed.');
     }
 }

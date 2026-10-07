@@ -5,8 +5,7 @@ use App\Models\Otp;
 use App\Models\RefreshToken;
 use App\Models\User;
 use Illuminate\Support\Facades\Hash;
-
-use function Pest\Laravel\postJson;
+use Laravel\Sanctum\PersonalAccessToken;
 
 function apiOtp(string $email, string $type): string
 {
@@ -210,7 +209,7 @@ test('logout revokes the access token', function () {
     $this->postJson('/api/v1/management/auth/logout', ['refresh_token' => $refresh], bearer($token))
         ->assertOk();
 
-    expect(\Laravel\Sanctum\PersonalAccessToken::find($tokenId))->toBeNull();
+    expect(PersonalAccessToken::find($tokenId))->toBeNull();
 
     app('auth')->forgetGuards();
 

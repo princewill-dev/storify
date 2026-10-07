@@ -3,6 +3,7 @@
 namespace App\Services\Accounting;
 
 use App\Models\Product;
+use App\Models\StockLocation;
 
 class InventoryCostingService
 {
@@ -42,7 +43,7 @@ class InventoryCostingService
             return;
         }
 
-        $onHandBefore = (int) \App\Models\StockLocation::query()
+        $onHandBefore = (int) StockLocation::query()
             ->where('product_id', $product->id)
             ->sum('quantity');
 

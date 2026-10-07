@@ -2,17 +2,18 @@
 
 namespace App\Http\Controllers\Api\V1\Admin;
 
-use App\Data\Nigeria;
 use App\Http\Controllers\Api\V1\Admin\Concerns\EnsuresPlatformAdmin;
 use App\Http\Controllers\Api\V1\ApiController;
-use App\Models\DeliveryAddress;
+use App\Http\Requests\Admin\DeliveryRouteRequest;
+use App\Http\Requests\Admin\ListDeliveryRoutesRequest;
+use App\Http\Resources\Admin\DeliveryRouteLookupsResource;
+use App\Http\Resources\Admin\DeliveryRouteResource;
 use App\Models\DeliveryRoute;
-use App\Models\Order;
-use App\Models\OrderDelivery;
+use App\Repositories\Admin\DeliveryRouteRepository;
+use App\Support\Money\Naira;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Validation\Rule;
 
 /**
  * WS-17 — platform-wide delivery routes (checkout configuration).
@@ -44,75 +45,43 @@ use Illuminate\Validation\Rule;
  *    the legacy order-index sort injection).
  *
  * Money stays integer kobo end to end — the NGN the admin types is parsed to
- * kobo without float arithmetic and `fee` (kobo) is what checkout consumes.
+ * kobo and `fee` (kobo) is what checkout consumes. The parse rides
+ * `Naira::koboFromDecimalOrFloat()`: its exact-decimal branch covers
+ * everything `decimal:0,2` admits and its float fallback matches the old
+ * inline float normalisation, whereas `koboFromStrict()` would zero
+ * trailing-point forms like `12.`/`.5` that this validator accepts. `fee_ngn`
+ * renders through `Naira::decimalFromKobo()`.
+ *
+ * The controller keeps the HTTP shape only — status codes, message strings,
+ * the envelope and pagination meta. Validation lives in the Admin FormRequests
+ * (`ListDeliveryRoutesRequest` for the list filters, `DeliveryRouteRequest`
+ * for the shared create/edit payload), the list with its unfiltered summary
+ * and the delete-usage counts in `DeliveryRouteRepository`, and response
+ * shaping in `DeliveryRouteResource` / `DeliveryRouteLookupsResource`. The
+ * platform-admin guard and the platform-scope 404 deliberately stay here so
+ * their order is unchanged. The writes are single-table persists audited with
+ * a log line, so no service layer is introduced.
  */
 class DeliveryRouteController extends ApiController
 {
     use EnsuresPlatformAdmin;
 
-    /**
-     * Columns the index accepts as a sort target. Anything else is rejected
-     * by the validator instead of being handed to `orderBy`.
-     *
-     * @var array<int, string>
-     */
-    private const SORTABLE = ['country', 'state', 'area', 'fee', 'delivery_days', 'active', 'created_at', 'updated_at'];
+    public function __construct(
+        private readonly DeliveryRouteRepository $routes,
+    ) {}
 
-    public function index(Request $request): JsonResponse
+    public function index(ListDeliveryRoutesRequest $request): JsonResponse
     {
         $this->authorizePlatformAdmin();
 
-        $filters = $request->validate([
-            'q' => ['nullable', 'string', 'max:100'],
-            'status' => ['nullable', Rule::in(['active', 'inactive'])],
-            'sort' => ['nullable', Rule::in(self::SORTABLE)],
-            'direction' => ['nullable', Rule::in(['asc', 'desc'])],
-            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
-        ]);
-
-        // Admin-managed routes are the platform-wide defaults; store-scoped
-        // rows are deliberately invisible here.
-        $base = DeliveryRoute::query()->whereNull('store_id');
-
-        $query = (clone $base)
-            ->when($filters['q'] ?? null, function ($query, $term) {
-                $query->where(function ($query) use ($term) {
-                    $query->where('country', 'like', "%{$term}%")
-                        ->orWhere('state', 'like', "%{$term}%")
-                        ->orWhere('area', 'like', "%{$term}%");
-                });
-            })
-            ->when($filters['status'] ?? null, fn ($query, $status) => $query->where('active', $status === 'active'));
-
-        // Legacy order was country → state → area; a chosen sort column leads
-        // and the legacy reading order breaks ties.
-        $sort = $filters['sort'] ?? null;
-
-        if ($sort === null) {
-            $query->orderBy('country')->orderBy('state')->orderBy('area');
-        } else {
-            $query->orderBy($sort, $filters['direction'] ?? 'asc');
-
-            foreach (['country', 'state', 'area'] as $tieBreak) {
-                if ($tieBreak !== $sort) {
-                    $query->orderBy($tieBreak);
-                }
-            }
-        }
-
-        $routes = $query->orderBy('id')->paginate($filters['per_page'] ?? 20)->withQueryString();
+        $routes = $this->routes->paginateForAdmin($request->validated());
 
         return $this->ok(
             [
                 'routes' => $routes->getCollection()->map(fn (DeliveryRoute $route) => $this->payload($route))->all(),
                 // Unfiltered totals so the screen's status pills stay stable
                 // while a search narrows the table.
-                'summary' => [
-                    'total' => (clone $base)->count(),
-                    'active' => (clone $base)->where('active', true)->count(),
-                    'inactive' => (clone $base)->where('active', false)->count(),
-                    'states' => (clone $base)->distinct()->count('state'),
-                ],
+                'summary' => $this->routes->summary(),
             ],
             null,
             200,
@@ -129,25 +98,23 @@ class DeliveryRouteController extends ApiController
     {
         $this->authorizePlatformAdmin();
 
-        return $this->ok([
-            'countries' => ['Nigeria'],
-            'states' => array_values(Nigeria::states()),
-            'areas_by_state' => $this->areasByState(),
-        ]);
+        return $this->ok((new DeliveryRouteLookupsResource)->resolve());
     }
 
-    public function store(Request $request): JsonResponse
+    public function store(DeliveryRouteRequest $request): JsonResponse
     {
         $this->authorizePlatformAdmin();
 
-        $data = $this->validated($request);
+        $data = $request->validated();
 
         $route = DeliveryRoute::create([
             'store_id' => null,
             'country' => $data['country'],
             'state' => $data['state'],
             'area' => $data['area'],
-            'fee' => $this->toKobo($data['fee']),
+            // NGN as typed → integer kobo; the class note records the
+            // contract choice.
+            'fee' => Naira::koboFromDecimalOrFloat($data['fee']),
             'delivery_days' => $data['delivery_days'],
             'active' => $data['active'] ?? true,
         ]);
@@ -160,18 +127,18 @@ class DeliveryRouteController extends ApiController
         return $this->ok(['route' => $this->payload($route)], 'Delivery route created.', 201);
     }
 
-    public function update(Request $request, DeliveryRoute $deliveryRoute): JsonResponse
+    public function update(DeliveryRouteRequest $request, DeliveryRoute $deliveryRoute): JsonResponse
     {
         $this->authorizePlatformAdmin();
         $this->guardPlatformRoute($deliveryRoute);
 
-        $data = $this->validated($request);
+        $data = $request->validated();
 
         $deliveryRoute->update([
             'country' => $data['country'],
             'state' => $data['state'],
             'area' => $data['area'],
-            'fee' => $this->toKobo($data['fee']),
+            'fee' => Naira::koboFromDecimalOrFloat($data['fee']),
             'delivery_days' => $data['delivery_days'],
             'active' => $data['active'] ?? $deliveryRoute->active,
         ]);
@@ -223,24 +190,6 @@ class DeliveryRouteController extends ApiController
     }
 
     /**
-     * @return array<string, mixed>
-     */
-    private function validated(Request $request): array
-    {
-        return $request->validate([
-            'country' => ['required', 'string', 'max:100'],
-            'state' => ['required', 'string', 'max:100'],
-            'area' => ['required', 'string', 'max:150'],
-            // NGN as typed on the form (up to 2 decimal places); converted to
-            // integer kobo on write. Legacy accepted whole naira only, which
-            // is what truncated kobo remainders on edit.
-            'fee' => ['required', 'numeric', 'decimal:0,2', 'min:0', 'max:100000000'],
-            'delivery_days' => ['required', 'integer', 'min:1', 'max:60'],
-            'active' => ['sometimes', 'boolean'],
-        ]);
-    }
-
-    /**
      * Only platform-wide rows are addressable; a store-scoped id hidden in a
      * request resolves as not found rather than being editable from here.
      */
@@ -255,15 +204,19 @@ class DeliveryRouteController extends ApiController
      */
     private function usageSummary(DeliveryRoute $route): ?string
     {
-        $counts = [
-            'order' => Order::withTrashed()->where('delivery_route_id', $route->id)->count(),
-            'delivery record' => OrderDelivery::where('delivery_route_id', $route->id)->count(),
-            'saved address' => DeliveryAddress::where('delivery_route_id', $route->id)->count(),
+        $counts = $this->routes->usageCounts($route);
+
+        $labels = [
+            'orders' => 'order',
+            'delivery_records' => 'delivery record',
+            'saved_addresses' => 'saved address',
         ];
 
         $parts = [];
 
-        foreach ($counts as $label => $count) {
+        foreach ($labels as $key => $label) {
+            $count = $counts[$key];
+
             if ($count > 0) {
                 $parts[] = $count.' '.$label.($count === 1 ? '' : 's');
             }
@@ -273,80 +226,13 @@ class DeliveryRouteController extends ApiController
     }
 
     /**
-     * Parse submitted NGN into integer kobo. The value is normalised to a
-     * 2dp string and split on the decimal point, so no float arithmetic ever
-     * touches the stored amount (1234.57 → 123457, not 123400).
-     */
-    private function toKobo(int|float|string $ngn): int
-    {
-        $normalised = number_format((float) $ngn, 2, '.', '');
-        [$units, $kobo] = explode('.', $normalised);
-
-        return ((int) $units) * 100 + (int) $kobo;
-    }
-
-    /**
-     * Exact NGN string for the edit form — integer arithmetic only, so a fee
-     * of 123457 kobo renders as "1234.57" rather than being truncated.
-     */
-    private function toNgn(int $kobo): string
-    {
-        $sign = $kobo < 0 ? '-' : '';
-        $kobo = abs($kobo);
-
-        return $sign.intdiv($kobo, 100).'.'.str_pad((string) ($kobo % 100), 2, '0', STR_PAD_LEFT);
-    }
-
-    /**
-     * @return array<string, array<int, string>>
-     */
-    private function areasByState(): array
-    {
-        $areas = [];
-
-        foreach (array_values(Nigeria::states()) as $state) {
-            $cities = Nigeria::citiesByState($state);
-
-            if ($cities === []) {
-                // citiesByState keys the FCT with an en dash while states()
-                // spells it with an em dash — try the alternate spelling.
-                // One-way only: a two-entry str_replace swaps em→en and then
-                // en→em over its own output, returning the input unchanged
-                // and losing the FCT suggestions entirely.
-                $alternate = str_contains($state, '—')
-                    ? str_replace('—', '–', $state)
-                    : str_replace('–', '—', $state);
-
-                $cities = Nigeria::citiesByState($alternate);
-            }
-
-            if ($cities !== []) {
-                $areas[$state] = array_values($cities);
-            }
-        }
-
-        return $areas;
-    }
-
-    /**
+     * The row shape, kept as a thin seam so the response sites read as they
+     * did before the extraction; the fields live in DeliveryRouteResource.
+     *
      * @return array<string, mixed>
      */
     private function payload(DeliveryRoute $route): array
     {
-        return [
-            'id' => $route->id,
-            'store_id' => $route->store_id,
-            'country' => $route->country,
-            'state' => $route->state,
-            'area' => $route->area,
-            // kobo — the exact contract checkout consumes.
-            'fee' => (int) $route->fee,
-            // the same amount as NGN, safe to pre-fill a form with.
-            'fee_ngn' => $this->toNgn((int) $route->fee),
-            'delivery_days' => (int) $route->delivery_days,
-            'active' => (bool) $route->active,
-            'created_at' => $route->created_at?->toISOString(),
-            'updated_at' => $route->updated_at?->toISOString(),
-        ];
+        return DeliveryRouteResource::make($route)->resolve();
     }
 }

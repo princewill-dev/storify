@@ -4,37 +4,55 @@ namespace App\Http\Controllers\Api\V1\Management;
 
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Http\Controllers\Api\V1\Management\Concerns\ResolvesManagementContext;
-use App\Mail\StaffInvitationMail;
+use App\Http\Requests\Management\StoreStaffRequest;
+use App\Http\Requests\Management\UpdateStaffRequest;
+use App\Http\Resources\Management\StaffResource;
 use App\Models\User;
+use App\Repositories\Management\StaffRepository;
+use App\Services\Management\StaffService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Mail;
-use Illuminate\Support\Str;
-use Illuminate\Validation\Rule;
 
+/**
+ * The management staff record.
+ *
+ * The directory query lives in StaffRepository, the invite/edit workflows
+ * (role assignment, assignment syncs, invitation mail) in StaffService, the
+ * payload in StaffResource and the request rules in the two FormRequests
+ * beside it. This class keeps the HTTP contract: status codes, message
+ * strings, the envelope, the pagination meta and which endpoint renders the
+ * detailed payload.
+ *
+ * The WS-20 parity module re-registers these same URIs against
+ * StaffParityController (last registration wins), so this thin baseline is
+ * unreachable over HTTP today; it is kept — and kept behaviour-identical — as
+ * the original contract beside it.
+ *
+ * authorizeStaff() answers 404, not 403, for a foreign or non-staff row
+ * (anti-id-probing), so it stays a private controller check rather than a
+ * TenantGuard business shape, and it must not move into middleware or a
+ * FormRequest.
+ */
 class StaffController extends ApiController
 {
     use ResolvesManagementContext;
 
+    public function __construct(
+        private readonly StaffRepository $repository,
+        private readonly StaffService $service,
+    ) {}
+
     public function index(Request $request): JsonResponse
     {
-        $staff = User::query()
-            ->where('business_id', $this->user($request)->business_id)
-            ->where('role', 'staff')
-            ->when($request->filled('status'), fn ($q) => $q->where('status', $request->string('status')))
-            ->when($request->filled('q'), function ($q) use ($request) {
-                $term = '%'.$request->string('q').'%';
-                $q->where(fn ($inner) => $inner->where('name', 'like', $term)
-                    ->orWhere('email', 'like', $term)
-                    ->orWhere('phone', 'like', $term));
-            })
-            ->with(['roles', 'assignedStores:id,name'])
-            ->latest()
-            ->paginate((int) $request->integer('per_page', 20));
+        $staff = $this->repository->paginateForBusiness(
+            $this->user($request),
+            $request->filled('status') ? (string) $request->string('status') : null,
+            $request->filled('q') ? (string) $request->string('q') : null,
+            (int) $request->integer('per_page', 20),
+        );
 
         return $this->ok(
-            $staff->getCollection()->map(fn (User $user) => $this->payload($user))->values()->all(),
+            StaffResource::collection($staff->getCollection())->resolve($request),
             null,
             200,
             $this->paginationMeta($staff)
@@ -47,99 +65,34 @@ class StaffController extends ApiController
 
         $staff->load(['roles', 'assignedStores:id,name', 'assignedWarehouses:id,name']);
 
-        return $this->ok(['staff' => $this->payload($staff, detailed: true)]);
+        return $this->ok(['staff' => (new StaffResource($staff))->detailed()->resolve($request)]);
     }
 
-    public function store(Request $request): JsonResponse
+    public function store(StoreStaffRequest $request): JsonResponse
     {
-        $data = $request->validate([
-            'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'email', 'max:255', 'unique:users,email', 'unique:customers,email'],
-            'phone' => ['nullable', 'string', 'max:20'],
-            'photo' => ['nullable', 'image', 'mimes:jpeg,png,jpg,webp', 'max:2048'],
-            'role' => ['required', 'string'],
-            'pin' => ['nullable', 'string', 'size:6', 'regex:/^[0-9]+$/'],
-            'store_ids' => ['nullable', 'array'],
-            'store_ids.*' => ['integer'],
-            'warehouse_ids' => ['nullable', 'array'],
-            'warehouse_ids.*' => ['integer'],
-        ]);
+        $staff = $this->service->invite($this->user($request), $request->validated(), $request->file('photo'));
 
-        $data['photo_path'] = $request->hasFile('photo')
-            ? $request->file('photo')->store('photos', 'public')
-            : null;
-
-        $staff = User::create([
-            'name' => $data['name'],
-            'email' => $data['email'],
-            'phone' => $data['phone'] ?? null,
-            'role' => 'staff',
-            'business_id' => $this->user($request)->business_id,
-            'invitation_token' => Str::random(64),
-            'invited_at' => now(),
-            'status' => 'invited',
-            'is_verified' => true,
-            'email_verified_at' => now(),
-            'pos_pin' => $data['pin'] ?? null,
-            'photo_path' => $data['photo_path'] ?? null,
-            'password' => bcrypt(Str::random(32)),
-        ]);
-
-        setPermissionsTeamId($staff->business_id);
-        $staff->assignRole($data['role']);
-
-        $allowedStoreIds = $this->accessibleStoreIds($request);
-
-        if (! empty($data['store_ids'])) {
-            $staff->assignedStores()->sync(collect($data['store_ids'])->intersect($allowedStoreIds)->all());
-        }
-
-        if (! empty($data['warehouse_ids'])) {
-            $warehouseIds = $this->user($request)->accessibleWarehouseIds();
-            $staff->assignedWarehouses()->sync(collect($data['warehouse_ids'])->intersect($warehouseIds)->all());
-        }
-
-        try {
-            Mail::to($staff->email)->queue(new StaffInvitationMail($staff));
-        } catch (\Throwable $e) {
-            Log::error('api.staff.invite_mail_failed', ['user_id' => $staff->id, 'error' => $e->getMessage()]);
-        }
-
-        return $this->ok(['staff' => $this->payload($staff->fresh(), detailed: true)], 'Staff invited.', 201);
+        return $this->ok(
+            ['staff' => (new StaffResource($staff->fresh()))->detailed()->resolve($request)],
+            'Staff invited.',
+            201
+        );
     }
 
-    public function update(Request $request, User $staff): JsonResponse
+    public function update(UpdateStaffRequest $request, User $staff): JsonResponse
     {
         $this->authorizeStaff($request, $staff);
 
-        $data = $request->validate([
-            'name' => ['sometimes', 'string', 'max:255'],
-            'phone' => ['nullable', 'string', 'max:20'],
-            'status' => ['sometimes', Rule::in(['active', 'suspended', 'invited'])],
-            'pin' => ['nullable', 'string', 'size:6', 'regex:/^[0-9]+$/'],
-            'store_ids' => ['nullable', 'array'],
-            'store_ids.*' => ['integer'],
-            'warehouse_ids' => ['nullable', 'array'],
-            'warehouse_ids.*' => ['integer'],
-        ]);
+        $this->service->update(
+            $this->user($request),
+            $staff,
+            $request->validated(),
+            $request->filled('pin') ? $request->validated('pin') : null,
+            $request->has('store_ids') ? (array) $request->input('store_ids') : null,
+            $request->has('warehouse_ids') ? (array) $request->input('warehouse_ids') : null,
+        );
 
-        $staff->update(collect($data)->only(['name', 'phone', 'status'])->all());
-
-        if ($request->filled('pin')) {
-            $staff->update(['pos_pin' => $data['pin']]);
-        }
-
-        if ($request->has('store_ids')) {
-            $allowedStoreIds = $this->accessibleStoreIds($request);
-            $staff->assignedStores()->sync(collect((array) $request->input('store_ids'))->intersect($allowedStoreIds)->all());
-        }
-
-        if ($request->has('warehouse_ids')) {
-            $warehouseIds = $this->user($request)->accessibleWarehouseIds();
-            $staff->assignedWarehouses()->sync(collect((array) $request->input('warehouse_ids'))->intersect($warehouseIds)->all());
-        }
-
-        return $this->ok(['staff' => $this->payload($staff->fresh(), detailed: true)], 'Staff updated.');
+        return $this->ok(['staff' => (new StaffResource($staff->fresh()))->detailed()->resolve($request)], 'Staff updated.');
     }
 
     public function suspend(Request $request, User $staff): JsonResponse
@@ -148,7 +101,7 @@ class StaffController extends ApiController
 
         $staff->update(['status' => 'suspended']);
 
-        return $this->ok(['staff' => $this->payload($staff->fresh())], 'Staff suspended.');
+        return $this->ok(['staff' => (new StaffResource($staff->fresh()))->resolve($request)], 'Staff suspended.');
     }
 
     public function activate(Request $request, User $staff): JsonResponse
@@ -157,7 +110,7 @@ class StaffController extends ApiController
 
         $staff->update(['status' => 'active']);
 
-        return $this->ok(['staff' => $this->payload($staff->fresh())], 'Staff activated.');
+        return $this->ok(['staff' => (new StaffResource($staff->fresh()))->resolve($request)], 'Staff activated.');
     }
 
     public function destroy(Request $request, User $staff): JsonResponse
@@ -170,34 +123,8 @@ class StaffController extends ApiController
     }
 
     /**
-     * @return array<string, mixed>
+     * A foreign or non-staff row must look absent: 404, not 403.
      */
-    private function payload(User $user, bool $detailed = false): array
-    {
-        setPermissionsTeamId($user->business_id);
-
-        $data = [
-            'id' => $user->id,
-            'account_code' => $user->account_code,
-            'name' => $user->name,
-            'email' => $user->email,
-            'phone' => $user->phone,
-            'status' => $user->status,
-            'photo_url' => $user->photo_path ? asset('storage/'.$user->photo_path) : null,
-            'roles' => $user->getRoleNames()->values()->all(),
-            'last_login_at' => $user->last_login_at?->toISOString(),
-            'invited_at' => $user->invited_at?->toISOString(),
-        ];
-
-        if ($detailed) {
-            $data['stores'] = $user->assignedStores->map(fn ($store) => ['id' => $store->id, 'name' => $store->name])->values()->all();
-            $data['warehouses'] = $user->assignedWarehouses->map(fn ($warehouse) => ['id' => $warehouse->id, 'name' => $warehouse->name])->values()->all();
-            $data['permissions'] = $user->getPermissionNames()->values()->all();
-        }
-
-        return $data;
-    }
-
     private function authorizeStaff(Request $request, User $staff): void
     {
         if ($staff->role !== 'staff' || (int) $staff->business_id !== (int) $this->user($request)->business_id) {

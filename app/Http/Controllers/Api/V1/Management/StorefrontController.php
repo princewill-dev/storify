@@ -4,69 +4,59 @@ namespace App\Http\Controllers\Api\V1\Management;
 
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Http\Controllers\Api\V1\Management\Concerns\ResolvesManagementContext;
-use App\Models\DeliveryRoute;
+use App\Http\Requests\Management\StorefrontEnableRequest;
+use App\Http\Requests\Management\StorefrontIndexRequest;
+use App\Http\Requests\Management\StoreSlugCheckRequest;
+use App\Http\Resources\Management\StorefrontResource;
 use App\Models\Store;
-use App\Rules\ReservedStoreSlug;
+use App\Repositories\Management\StorefrontRepository;
+use App\Services\Management\StorefrontService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
-use Illuminate\Validation\Rule;
 
+/**
+ * WS-05 — storefront enablement.
+ *
+ * Layering: this class keeps the HTTP shape — status codes, message strings,
+ * the envelope, the pagination meta and the 403/404 store guards, whose order
+ * is asserted. The overview filters, the slug check and the enable payloads
+ * validate in StorefrontIndexRequest / StoreSlugCheckRequest /
+ * StorefrontEnableRequest, the scoped store reads, the nation-wide route
+ * lookups and the slug walk live in
+ * App\Repositories\Management\StorefrontRepository, the enable write and its
+ * transaction in App\Services\Management\StorefrontService, and the store row
+ * shape in Management\StorefrontResource.
+ *
+ * The detail screen's `loadCount()` and per-store delivery-route count stay in
+ * this body: each is a single Eloquent call with a single call site, so a
+ * repository wrapper would be indirection without benefit.
+ */
 class StorefrontController extends ApiController
 {
     use ResolvesManagementContext;
 
-    /** The single delivery route the storefront checkout charges. */
-    private const NATIONWIDE_STATE = 'All States';
+    public function __construct(
+        private readonly StorefrontRepository $stores,
+        private readonly StorefrontService $storefront,
+    ) {}
 
-    private const NATIONWIDE_COUNTRY = 'Nigeria';
-
-    private const NATIONWIDE_DEFAULT_DAYS = 3;
-
-    public function index(Request $request): JsonResponse
+    public function index(StorefrontIndexRequest $request): JsonResponse
     {
-        $filters = $request->validate([
-            'q' => ['nullable', 'string', 'max:100'],
-            'storefront' => ['nullable', Rule::in(['live', 'offline'])],
-            'status' => ['nullable', Rule::in([
-                Store::STATUS_PENDING,
-                Store::STATUS_ACTIVE,
-                Store::STATUS_SUSPENDED,
-            ])],
-            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
-        ]);
+        $filters = $request->validated();
+        $user = $this->user($request);
 
-        // Each call builds a fresh relation — cloning the user's relation
-        // would share one underlying query builder across the four counts.
-        $scoped = fn () => $this->user($request)->accessibleStores()
-            ->where('status', '!=', Store::STATUS_DELETED);
+        $stats = $this->stores->stats($user);
 
-        $stats = [
-            'total' => $scoped()->count(),
-            'live' => $scoped()->where('has_website', true)->count(),
-            'offline' => $scoped()->where('has_website', false)->count(),
-        ];
+        $stores = $this->stores->paginateForUser($user, $filters);
 
-        $stores = $scoped()
-            ->when($filters['q'] ?? null, fn ($q, $term) => $q->where(fn ($inner) => $inner
-                ->where('name', 'like', "%{$term}%")
-                ->orWhere('slug', 'like', "%{$term}%")
-                ->orWhere('store_id', 'like', "%{$term}%")))
-            ->when($filters['storefront'] ?? null, fn ($q, $state) => $q->where('has_website', $state === 'live'))
-            ->when($filters['status'] ?? null, fn ($q, $status) => $q->where('status', $status))
-            ->orderBy('name')
-            ->paginate($filters['per_page'] ?? 20)
-            ->withQueryString();
-
-        $nationwide = $this->nationwideRoutesByStore($stores->getCollection()->pluck('id'));
+        $nationwide = $this->stores->nationwideRoutesByStore($stores->getCollection()->pluck('id'));
 
         return $this->ok(
             [
                 'stores' => $stores->getCollection()
-                    ->map(fn (Store $store) => $this->payload($store, $nationwide->get($store->id)))
+                    ->map(fn (Store $store) => (new StorefrontResource($store, $nationwide->get($store->id)))->resolve($request))
                     ->values()
                     ->all(),
                 'stats' => $stats,
@@ -84,7 +74,7 @@ class StorefrontController extends ApiController
         $store->loadCount(['products', 'orders']);
 
         $payload = [
-            ...$this->payload($store, $this->nationwideRoute($store)),
+            ...(new StorefrontResource($store, $this->stores->nationwideRoute($store)))->resolve($request),
             'products_count' => (int) ($store->products_count ?? 0),
             'orders_count' => (int) ($store->orders_count ?? 0),
             'delivery_routes_count' => (int) $store->deliveryRoutes()->count(),
@@ -101,13 +91,9 @@ class StorefrontController extends ApiController
      * legacy only checked collisions, so "admin" read "available" and then
      * failed validation on submit.
      */
-    public function checkSlug(Request $request): JsonResponse
+    public function checkSlug(StoreSlugCheckRequest $request): JsonResponse
     {
-        $data = $request->validate([
-            'name' => ['nullable', 'required_without:slug', 'string', 'max:255'],
-            'slug' => ['nullable', 'required_without:name', 'string', 'max:255'],
-            'ignore_store' => ['nullable', 'string', 'max:64'],
-        ]);
+        $data = $request->validated();
 
         $input = trim((string) ($data['slug'] ?? ''));
 
@@ -126,27 +112,20 @@ class StorefrontController extends ApiController
         if (! empty($data['ignore_store'])) {
             // The enable modal re-checks the store's own name; without this the
             // store's current slug looks like a collision with itself.
-            $ignoreId = $this->user($request)->accessibleStores()
-                ->where('store_id', $data['ignore_store'])
-                ->value('id');
+            $ignoreId = $this->stores->accessibleStoreIdByPublicId($this->user($request), $data['ignore_store']);
         }
 
-        $slug = $base;
-        $counter = 1;
-
-        while ($this->slugTaken($slug, $ignoreId)) {
-            $slug = $base.'-'.$counter++;
-        }
+        $slug = $this->stores->availableSlug($base, $ignoreId);
 
         return $this->ok([
             'available' => $slug === $base,
             'slug' => $slug,
-            'url' => $this->storefrontUrl($slug),
+            'url' => StorefrontResource::urlFor($slug),
             'original' => $base,
         ]);
     }
 
-    public function enableWebsite(Request $request, Store $store): JsonResponse
+    public function enableWebsite(StorefrontEnableRequest $request, Store $store): JsonResponse
     {
         return $this->enable($request, $store);
     }
@@ -157,12 +136,12 @@ class StorefrontController extends ApiController
      * than cloned, because no per-store theme exists in the schema or in any
      * storefront renderer. An inbound `template` is ignored, not rejected.
      */
-    public function store(Request $request, Store $store): JsonResponse
+    public function store(StorefrontEnableRequest $request, Store $store): JsonResponse
     {
         return $this->enable($request, $store);
     }
 
-    private function enable(Request $request, Store $store): JsonResponse
+    private function enable(StorefrontEnableRequest $request, Store $store): JsonResponse
     {
         $this->authorizeStorefront($request, $store);
 
@@ -176,17 +155,7 @@ class StorefrontController extends ApiController
             return $this->error($message, 422, ['store' => [$message]]);
         }
 
-        $data = $this->validated($request, $store);
-
-        DB::transaction(function () use ($store, $data) {
-            $store->update([
-                'name' => $data['store_name'],
-                'slug' => $data['slug'],
-                'has_website' => true,
-            ]);
-
-            $this->syncNationwideDelivery($store, $data);
-        });
+        $this->storefront->enable($store, $request->validated());
 
         Log::info('api.management.storefront_enabled', [
             'user_id' => $this->user($request)->id,
@@ -194,106 +163,9 @@ class StorefrontController extends ApiController
         ]);
 
         return $this->ok(
-            ['store' => $this->payload($store->fresh(), $this->nationwideRoute($store))],
-            'Storefront enabled at '.$this->storefrontUrl($store->slug).'.',
+            ['store' => (new StorefrontResource($store->fresh(), $this->stores->nationwideRoute($store)))->resolve($request)],
+            'Storefront enabled at '.StorefrontResource::urlFor($store->slug).'.',
         );
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function validated(Request $request, Store $store): array
-    {
-        // Slugs arrive pre-checked from the availability endpoint, but a hand
-        // typed "My Shop" must normalise here too — and the unique rule has to
-        // see the value that will actually be written.
-        $request->merge([
-            'slug' => Str::slug($request->filled('slug')
-                ? $request->string('slug')->toString()
-                : $request->string('store_name')->toString()),
-        ]);
-
-        return $request->validate([
-            'store_name' => ['required', 'string', 'max:255'],
-            'slug' => [
-                'required',
-                'string',
-                'max:255',
-                new ReservedStoreSlug,
-                Rule::unique('stores', 'slug')->ignore($store->getKey()),
-            ],
-            'is_nationwide' => ['nullable', 'boolean'],
-            'nationwide_fee' => ['nullable', 'numeric', 'min:0', 'max:1000000'],
-            'nationwide_days' => ['nullable', 'integer', 'min:1', 'max:90'],
-        ]);
-    }
-
-    /**
-     * Upserts the "All States" route the storefront checkout charges.
-     *
-     * @param  array<string, mixed>  $data
-     */
-    private function syncNationwideDelivery(Store $store, array $data): void
-    {
-        if (! ($data['is_nationwide'] ?? false)) {
-            return;
-        }
-
-        $route = $store->deliveryRoutes()->updateOrCreate(
-            ['state' => self::NATIONWIDE_STATE, 'country' => self::NATIONWIDE_COUNTRY],
-            [
-                // Legacy wrote area = null into a NOT NULL column, which fails
-                // under MySQL strict mode; '' is the honest value for a route
-                // that covers every state.
-                'area' => '',
-                'fee' => (int) round((float) ($data['nationwide_fee'] ?? 0) * 100),
-                'delivery_days' => (int) ($data['nationwide_days'] ?? self::NATIONWIDE_DEFAULT_DAYS),
-                'active' => true,
-            ],
-        );
-
-        // business_id is not fillable on DeliveryRoute, so legacy's
-        // updateOrCreate silently dropped it and left the row unscoped.
-        $route->business_id = $store->business_id;
-        $route->save();
-    }
-
-    private function slugTaken(string $slug, ?int $ignoreId): bool
-    {
-        if (in_array($slug, config('storefront.reserved_subdomains', []), true)) {
-            return true;
-        }
-
-        return Store::query()
-            ->where('slug', $slug)
-            ->when($ignoreId, fn ($q) => $q->whereKeyNot($ignoreId))
-            ->exists();
-    }
-
-    /**
-     * @param  Collection<int, int>  $storeIds
-     * @return Collection<int, DeliveryRoute>
-     */
-    private function nationwideRoutesByStore(Collection $storeIds): Collection
-    {
-        if ($storeIds->isEmpty()) {
-            return collect();
-        }
-
-        return DeliveryRoute::query()
-            ->whereIn('store_id', $storeIds)
-            ->where('state', self::NATIONWIDE_STATE)
-            ->where('country', self::NATIONWIDE_COUNTRY)
-            ->get()
-            ->keyBy('store_id');
-    }
-
-    private function nationwideRoute(Store $store): ?DeliveryRoute
-    {
-        return $store->deliveryRoutes()
-            ->where('state', self::NATIONWIDE_STATE)
-            ->where('country', self::NATIONWIDE_COUNTRY)
-            ->first();
     }
 
     private function authorizeStorefront(Request $request, Store $store): void
@@ -305,45 +177,5 @@ class StorefrontController extends ApiController
         if ($store->status === Store::STATUS_DELETED) {
             abort(404, 'This store no longer exists.');
         }
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function payload(Store $store, ?DeliveryRoute $nationwide = null): array
-    {
-        return [
-            'id' => $store->id,
-            'store_id' => $store->store_id,
-            'name' => $store->name,
-            'slug' => $store->slug,
-            'status' => $store->status,
-            'store_type' => $store->store_type,
-            'has_website' => (bool) $store->has_website,
-            'storefront_url' => $store->has_website && $store->slug ? $this->storefrontUrl($store->slug) : null,
-            'logo_url' => $store->logoUrl(),
-            'description' => $store->description,
-            'nationwide_delivery' => $nationwide === null ? null : [
-                'id' => $nationwide->id,
-                'state' => $nationwide->state,
-                'country' => $nationwide->country,
-                'fee' => (int) $nationwide->fee,
-                'delivery_days' => (int) $nationwide->delivery_days,
-                'active' => (bool) $nationwide->active,
-            ],
-        ];
-    }
-
-    private function storefrontUrl(string $slug): string
-    {
-        // Same rule the legacy links used: local dev serves storefronts from
-        // the root domain, everything else from {slug}.{main_domain}.
-        if (app()->environment('local')) {
-            return url($slug);
-        }
-
-        $domain = config('app.main_domain', parse_url((string) config('app.url'), PHP_URL_HOST));
-
-        return 'https://'.$slug.'.'.$domain;
     }
 }

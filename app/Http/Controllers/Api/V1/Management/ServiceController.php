@@ -4,18 +4,21 @@ namespace App\Http\Controllers\Api\V1\Management;
 
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Http\Controllers\Api\V1\Management\Concerns\ResolvesManagementContext;
+use App\Http\Requests\Management\Service\ServiceIndexRequest;
+use App\Http\Requests\Management\Service\StoreServiceRequest;
+use App\Http\Requests\Management\Service\UpdateServiceRequest;
+use App\Http\Resources\Management\Service\ServiceDetailResource;
+use App\Http\Resources\Management\Service\ServiceResource;
+use App\Http\Resources\Management\Service\StoreOptionResource;
 use App\Models\ActivityLog;
-use App\Models\Currency;
 use App\Models\Service;
-use App\Models\ServiceImage;
 use App\Models\Store;
+use App\Repositories\Management\Service\ServiceRepository;
+use App\Services\Access\TenantGuard;
+use App\Services\Management\Service\ServiceCatalogueService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
-use Illuminate\Validation\Rule;
 
 /**
  * WS-30 — Services catalogue.
@@ -24,6 +27,16 @@ use Illuminate\Validation\Rule;
  * (`Api\V1\Storefront\CatalogController@services`) while the business had no
  * way to create or edit one. This is that missing management half: CRUD over
  * the legacy `services` table, scoped to the caller's accessible stores.
+ *
+ * Layering: the HTTP shape (status codes, message strings, the envelope,
+ * pagination meta) and the post-commit audit calls stay here; the payload
+ * rules live in the Management\Service FormRequests, the list query in
+ * App\Repositories\Management\Service\ServiceRepository, the write workflows
+ * and their transaction boundaries in
+ * App\Services\Management\Service\ServiceCatalogueService, and the response
+ * shapes in App\Http\Resources\Management\Service\ (ServiceResource list rows,
+ * ServiceDetailResource for a single service, StoreOptionResource for the
+ * store filter).
  *
  * Deliberate departures from the legacy `Management\ServiceController`:
  * - routes bind by `service_code` (legacy parity — the model already declares
@@ -36,46 +49,42 @@ use Illuminate\Validation\Rule;
  * - `amount` is the legacy decimal-naira column (like products), so it is
  *   returned as-is and the SPA formats it from the currency relation rather
  *   than the hardcoded ₦ the legacy views printed.
+ *
+ * Provenance kept with the code it explains:
+ * - the create/update store check stays a 422 "Invalid store selection." — a
+ *   foreign or deleted store id must not read as "exists but forbidden"
+ *   (deliberate anti-id-probing), so it lives in the controller body and the
+ *   FormRequests keep `store_id` a plain integer rule;
+ * - the service guard stays in the controller body so its 403 keeps its place
+ *   in the refusal order (route-binding 404 first), rather than moving into
+ *   FormRequest::authorize();
+ * - the FormRequest extraction moves validation ahead of the controller body,
+ *   so a caller who is both unauthorised and malformed now answers 422 where
+ *   it answered 403 — the known, accepted consequence of the extraction
+ *   across this codebase. A valid payload from an unauthorised caller still
+ *   gets 403, so nothing is escalated, and this is deliberately not worked
+ *   around.
  */
 class ServiceController extends ApiController
 {
     use ResolvesManagementContext;
 
-    public function index(Request $request): JsonResponse
-    {
-        $filters = $request->validate([
-            'q' => ['nullable', 'string', 'max:100'],
-            'status' => ['nullable', Rule::in(['active', 'inactive'])],
-            'store_id' => ['nullable', 'integer'],
-            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
-        ]);
+    public function __construct(
+        private readonly ServiceRepository $repository,
+        private readonly ServiceCatalogueService $catalogue,
+    ) {}
 
-        $services = Service::query()
-            ->whereIn('store_id', $this->accessibleStoreIds($request))
-            ->with(['store', 'images', 'currency'])
-            ->when($filters['store_id'] ?? null, fn ($query, $storeId) => $query->where('store_id', (int) $storeId))
-            ->when($filters['status'] ?? null, fn ($query, $status) => $query->where('status', $status))
-            ->when($filters['q'] ?? null, function ($query, $term) {
-                $term = trim((string) $term);
-                $query->where(fn ($inner) => $inner
-                    ->where('name', 'like', "%{$term}%")
-                    ->orWhere('service_code', 'like', "%{$term}%"));
-            })
-            ->latest()
-            ->paginate($filters['per_page'] ?? 20)
-            ->withQueryString();
+    public function index(ServiceIndexRequest $request): JsonResponse
+    {
+        $services = $this->repository->paginateForStores($this->accessibleStoreIds($request), $request->validated());
 
         return $this->ok(
             [
-                'services' => $services->getCollection()->map(fn (Service $service) => $this->summary($service))->values()->all(),
+                'services' => ServiceResource::collection($services->getCollection())->resolve(),
                 // Legacy's "no stores" banner never rendered because its branch
                 // 500'd; the SPA uses this list for both the store filter and
                 // the create-a-store empty state.
-                'stores' => $this->accessibleStores($request)->map(fn (Store $store) => [
-                    'id' => $store->id,
-                    'store_id' => $store->store_id,
-                    'name' => $store->name,
-                ])->values()->all(),
+                'stores' => StoreOptionResource::collection($this->accessibleStores($request))->resolve(),
             ],
             null,
             200,
@@ -83,46 +92,17 @@ class ServiceController extends ApiController
         );
     }
 
-    public function store(Request $request): JsonResponse
+    public function store(StoreServiceRequest $request): JsonResponse
     {
         $user = $this->user($request);
+        $data = $request->validated();
 
-        $data = $request->validate([
-            'store_id' => ['required', 'integer'],
-            'name' => ['required', 'string', 'max:255'],
-            'description' => ['nullable', 'string', 'max:5000'],
-            'amount' => ['required', 'numeric', 'min:0'],
-            'currency_id' => ['nullable', 'integer', 'exists:currencies,id'],
-            'images' => ['nullable', 'array'],
-            'images.*' => ['image', 'mimes:jpeg,jpg,png,gif,webp', 'max:2048'],
-            'primary_image_index' => ['nullable', 'integer', 'min:0'],
-        ]);
-
+        // 422 by design, not 403 — see the class docblock.
         if (! $this->accessibleStoreIds($request)->contains((int) $data['store_id'])) {
             return $this->error('Invalid store selection.', 422);
         }
 
-        $service = DB::transaction(function () use ($request, $user, $data) {
-            $service = Service::create([
-                'store_id' => $data['store_id'],
-                'name' => $data['name'],
-                'description' => $data['description'] ?? null,
-                'amount' => $data['amount'],
-                'currency_id' => $data['currency_id'] ?? Currency::where('is_default', true)->value('id'),
-                // Legacy forced every new service live; hiding it is an edit.
-                'status' => 'active',
-            ]);
-
-            // `business_id` was added by the multi-tenant migration after the
-            // shared Service model's $fillable was written, so it cannot ride
-            // in the create() array without editing a file this workstream
-            // does not own.
-            $service->forceFill(['business_id' => $user->business_id])->save();
-
-            $this->storeImages($service, $request->file('images'), $data['primary_image_index'] ?? null);
-
-            return $service;
-        });
+        $service = $this->catalogue->create($request, $user, $data);
 
         $this->logActivity($request, 'service_created', 'Service created', $service);
 
@@ -136,28 +116,13 @@ class ServiceController extends ApiController
         return $this->ok(['service' => $this->detail($service)]);
     }
 
-    public function update(Request $request, Service $service): JsonResponse
+    public function update(UpdateServiceRequest $request, Service $service): JsonResponse
     {
         $this->authorizeService($request, $service);
 
-        $data = $request->validate([
-            'store_id' => ['required', 'integer'],
-            'name' => ['required', 'string', 'max:255'],
-            'description' => ['nullable', 'string', 'max:5000'],
-            'amount' => ['required', 'numeric', 'min:0'],
-            'currency_id' => ['nullable', 'integer', 'exists:currencies,id'],
-            // Legacy persisted any store id and any status string here; both
-            // are validated now rather than cloned (verify pass corrections
-            // #5/#6).
-            'status' => ['required', Rule::in(['active', 'inactive'])],
-            'images' => ['nullable', 'array'],
-            'images.*' => ['image', 'mimes:jpeg,jpg,png,gif,webp', 'max:2048'],
-            'primary_image_id' => ['nullable', 'integer'],
-            'primary_image_index' => ['nullable', 'integer', 'min:0'],
-            'delete_image_ids' => ['nullable', 'array'],
-            'delete_image_ids.*' => ['integer'],
-        ]);
+        $data = $request->validated();
 
+        // 422 by design, not 403 — see the class docblock.
         if (! $this->accessibleStoreIds($request)->contains((int) $data['store_id'])) {
             return $this->error('Invalid store selection.', 422);
         }
@@ -171,38 +136,7 @@ class ServiceController extends ApiController
             return $this->error('The selected primary image does not belong to this service.', 422);
         }
 
-        DB::transaction(function () use ($request, $service, $data, $primaryId) {
-            $service->update([
-                'store_id' => $data['store_id'],
-                'name' => $data['name'],
-                'description' => $data['description'] ?? null,
-                'amount' => $data['amount'],
-                'currency_id' => $data['currency_id'] ?? null,
-                'status' => $data['status'],
-            ]);
-
-            foreach ($service->images()->whereIn('id', $data['delete_image_ids'] ?? [])->get() as $image) {
-                $this->deleteImageFile($image);
-                $image->delete();
-            }
-
-            // Null index: existing images already elected a primary, so plain
-            // uploads never steal the flag; the caller can still nominate one
-            // of the new uploads (or an existing image via primary_image_id).
-            $this->storeImages($service, $request->file('images'), $data['primary_image_index'] ?? null);
-
-            if ($primaryId !== null) {
-                $service->images()->update(['is_primary' => false]);
-                $service->images()->whereKey($primaryId)->update(['is_primary' => true]);
-            }
-
-            // Deleting the primary (or saving an image-less service) must not
-            // leave the gallery without a cover — the list thumbnail and the
-            // storefront both read primaryImage().
-            if (! $service->images()->where('is_primary', true)->exists()) {
-                $service->images()->orderBy('position')->first()?->update(['is_primary' => true]);
-            }
-        });
+        $this->catalogue->update($request, $service, $data);
 
         $this->logActivity($request, 'service_updated', 'Service updated', $service);
 
@@ -213,13 +147,7 @@ class ServiceController extends ApiController
     {
         $this->authorizeService($request, $service);
 
-        $images = $service->images()->get();
-
-        DB::transaction(fn () => $service->delete());
-
-        foreach ($images as $image) {
-            $this->deleteImageFile($image);
-        }
+        $this->catalogue->delete($service);
 
         // Legacy removed services without a trace; the audit trail now records
         // the deletion too (catalog-org feature 16).
@@ -232,6 +160,10 @@ class ServiceController extends ApiController
      * Stores the caller may put a service in: accessible and not soft-deleted,
      * mirroring the legacy `status != deleted` filter (and the WS-06 fix that
      * stopped deleted records leaking back into lists).
+     *
+     * Deliberately shadows ResolvesManagementContext::accessibleStoreIds(),
+     * whose plain User::accessibleStoreIds() includes deleted stores: both the
+     * list scope and the per-service 403 below depend on the exclusion.
      *
      * @return Collection<int, int>
      */
@@ -257,80 +189,35 @@ class ServiceController extends ApiController
 
     private function authorizeService(Request $request, Service $service): void
     {
-        $user = $this->user($request);
-
         // Rows written before the multi-tenant migration carry a null
         // business_id; the store check below is the decisive scope for both
         // cases.
-        if ($service->business_id !== null && (int) $service->business_id !== (int) $user->business_id) {
-            abort(403, 'You do not have access to this service.');
-        }
+        app(TenantGuard::class)->authorizeNullableBusiness(
+            $service,
+            $this->user($request),
+            'You do not have access to this service.',
+        );
 
+        // The store half stays inline rather than using
+        // TenantGuard::authorizeStoreId(): that checks the relation without
+        // the deleted-store exclusion, which is load-bearing here (a service
+        // in a deleted store is not reachable).
         if (! $this->accessibleStoreIds($request)->contains((int) $service->store_id)) {
             abort(403, 'You do not have access to this service.');
         }
     }
 
     /**
-     * Appends uploads to the gallery and elects a cover.
+     * The single-service payload adapter: the eager loads the old private
+     * `detail()` shaper applied, then the resource that now carries the shape.
      *
-     * The legacy create form never sent a primary flag — the first image won
-     * only because (int) null === 0 happened to match its array index. The
-     * caller can name an index explicitly here; when it does not, the first
-     * upload still becomes the cover if the gallery has none, which preserves
-     * the legacy behaviour without the accidental comparison.
-     *
-     * @param  array<int, UploadedFile>|null  $files
+     * @return array<string, mixed>
      */
-    private function storeImages(Service $service, ?array $files, ?int $primaryIndex): void
+    private function detail(Service $service): array
     {
-        if (empty($files)) {
-            return;
-        }
+        $service->loadMissing(['store', 'images', 'currency']);
 
-        $position = $service->images()->exists()
-            ? ((int) $service->images()->max('position')) + 1
-            : 0;
-
-        $created = [];
-
-        foreach (array_values($files) as $index => $file) {
-            $created[$index] = ServiceImage::create([
-                'service_id' => $service->id,
-                'path' => $file->store('services/images', 'public'),
-                'is_primary' => false,
-                'position' => $position++,
-            ]);
-        }
-
-        // The index names an upload, not a gallery slot — existing images must
-        // not shift it.
-        $elected = $primaryIndex !== null ? ($created[$primaryIndex] ?? null) : null;
-
-        if ($elected) {
-            $service->images()->update(['is_primary' => false]);
-            $elected->update(['is_primary' => true]);
-
-            return;
-        }
-
-        if (! $service->images()->where('is_primary', true)->exists()) {
-            $service->images()->orderBy('position')->first()?->update(['is_primary' => true]);
-        }
-    }
-
-    private function deleteImageFile(ServiceImage $image): void
-    {
-        if (! $image->path) {
-            return;
-        }
-
-        try {
-            Storage::disk('public')->delete($image->path);
-        } catch (\Throwable $e) {
-            // A missing file must not block removing the row — legacy
-            // swallowed the same failure.
-        }
+        return ServiceDetailResource::make($service)->resolve();
     }
 
     private function logActivity(Request $request, string $action, string $description, Service $service): void
@@ -351,54 +238,5 @@ class ServiceController extends ApiController
             'ip_address' => $request->ip(),
             'user_agent' => (string) $request->userAgent(),
         ]);
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function summary(Service $service): array
-    {
-        $primary = $service->primaryImage();
-
-        return [
-            'id' => $service->id,
-            'service_code' => $service->service_code,
-            'name' => $service->name,
-            'slug' => $service->slug,
-            'description' => $service->description,
-            'amount' => (float) $service->amount,
-            'status' => $service->status,
-            'currency' => $service->currency ? [
-                'id' => $service->currency->id,
-                'code' => $service->currency->code,
-                'symbol' => $service->currency->symbol,
-            ] : null,
-            'store' => $service->store ? [
-                'id' => $service->store->id,
-                'store_id' => $service->store->store_id,
-                'name' => $service->store->name,
-            ] : null,
-            'primary_image' => $primary?->path ? asset('storage/'.$primary->path) : null,
-            'images_count' => $service->images->count(),
-            'created_at' => $service->created_at?->toISOString(),
-        ];
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function detail(Service $service): array
-    {
-        $service->loadMissing(['store', 'images', 'currency']);
-
-        return [
-            ...$this->summary($service),
-            'images' => $service->images->map(fn (ServiceImage $image) => [
-                'id' => $image->id,
-                'url' => asset('storage/'.$image->path),
-                'is_primary' => (bool) $image->is_primary,
-                'position' => (int) $image->position,
-            ])->values()->all(),
-        ];
     }
 }

@@ -4,12 +4,19 @@ namespace App\Http\Controllers\Api\V1\Management;
 
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Http\Controllers\Api\V1\Management\Concerns\ResolvesManagementContext;
+use App\Http\Requests\Management\PaymentSettings\AssignStoreBankRequest;
+use App\Http\Resources\Management\PaymentSettings\StoreBankAssignmentResource;
+use App\Http\Resources\Management\PaymentSettings\StoreGatewayResource;
+use App\Http\Resources\Management\PaymentSettings\StoreSummaryResource;
 use App\Models\PaymentMethod;
 use App\Models\Store;
 use App\Models\StoreBank;
+use App\Repositories\Management\PaymentSettingsRepository;
+use App\Repositories\Management\StorePaymentMethodRepository;
+use App\Services\Access\TenantGuard;
+use App\Services\Management\StorePaymentMethodService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -21,36 +28,50 @@ use Illuminate\Support\Facades\Log;
  * specific account, not just the abstract bank_transfer method. Every lookup
  * is scoped to the store's business — the legacy store-bank routes only
  * checked the store, never the bank's owner.
+ *
+ * Layering: the store guard is TenantGuard; the payload's query building is in
+ * PaymentSettingsRepository (shared with the payment-settings screens) plus
+ * StorePaymentMethodRepository for the tenancy-scoped bank read that is
+ * store-side only; the assignment workflows and their transaction boundaries
+ * are in StorePaymentMethodService; the row shapes are the PaymentSettings
+ * resources. This controller keeps the HTTP contract — status codes, the
+ * 404/403 refusals, the log line and the message strings.
  */
 class StorePaymentMethodController extends ApiController
 {
     use ResolvesManagementContext;
 
+    private const ACCESS_DENIED = 'You do not have access to this store.';
+
+    private const BANK_NOT_FOUND = 'Bank account not found.';
+
+    public function __construct(
+        private readonly PaymentSettingsRepository $repository,
+        private readonly StorePaymentMethodRepository $storeMethods,
+        private readonly StorePaymentMethodService $service,
+        private readonly TenantGuard $tenantGuard,
+    ) {}
+
     public function show(Request $request, Store $store): JsonResponse
     {
-        $this->authorizeStore($request, $store);
+        $this->tenantGuard->authorizeStore($this->user($request), $store, self::ACCESS_DENIED);
 
         return $this->ok($this->payload($store));
     }
 
-    public function assignBank(Request $request, Store $store): JsonResponse
+    public function assignBank(AssignStoreBankRequest $request, Store $store): JsonResponse
     {
-        $this->authorizeStore($request, $store);
+        $this->tenantGuard->authorizeStore($this->user($request), $store, self::ACCESS_DENIED);
 
-        $data = $request->validate([
-            'store_bank_id' => ['required', 'integer'],
-        ]);
+        $data = $request->validated();
 
-        $bank = StoreBank::where('business_id', $store->business_id)->find($data['store_bank_id']);
+        $bank = $this->storeMethods->findBankForBusiness((int) $store->business_id, (int) $data['store_bank_id']);
 
         if (! $bank) {
-            abort(404, 'Bank account not found.');
+            abort(404, self::BANK_NOT_FOUND);
         }
 
-        DB::transaction(function () use ($store, $bank) {
-            $store->assignedBanks()->syncWithoutDetaching([$bank->id => ['is_active' => true]]);
-            $this->attachBankTransferMethod($store);
-        });
+        $this->service->assignBank($store, $bank);
 
         Log::info('payment-settings.bank_assigned_to_store', [
             'user_id' => $this->user($request)->id,
@@ -63,28 +84,13 @@ class StorePaymentMethodController extends ApiController
 
     public function removeBank(Request $request, Store $store, StoreBank $bank): JsonResponse
     {
-        $this->authorizeStore($request, $store);
+        $this->tenantGuard->authorizeStore($this->user($request), $store, self::ACCESS_DENIED);
 
         if ((int) $bank->business_id !== (int) $store->business_id) {
-            abort(404, 'Bank account not found.');
+            abort(404, self::BANK_NOT_FOUND);
         }
 
-        DB::transaction(function () use ($store, $bank) {
-            $store->assignedBanks()->detach($bank->id);
-
-            // bank_transfer stays available only while the store accepts at
-            // least one account.
-            if ($store->assignedBanks()->count() === 0) {
-                $method = PaymentMethod::where('code', 'bank_transfer')->first();
-
-                if ($method) {
-                    DB::table('store_payment_method')
-                        ->where('store_id', $store->id)
-                        ->where('payment_method_id', $method->id)
-                        ->delete();
-                }
-            }
-        });
+        $this->service->removeBank($store, $bank);
 
         return $this->ok([], $bank->bank_name.' removed from this store.');
     }
@@ -100,62 +106,28 @@ class StorePaymentMethodController extends ApiController
     {
         $businessId = (int) $store->business_id;
 
+        // load, not loadMissing: the payload has always refreshed both
+        // relations rather than trusting whatever a caller loaded earlier.
         $store->load(['assignedBanks', 'paymentMethods']);
 
         $assignedMethodIds = $store->paymentMethods
             ->filter(fn (PaymentMethod $method) => (bool) $method->pivot->is_active)
             ->pluck('id');
 
-        $gateways = DB::table('business_payment_method')
-            ->join('payment_methods', 'payment_methods.id', '=', 'business_payment_method.payment_method_id')
-            ->where('business_payment_method.business_id', $businessId)
-            ->where('payment_methods.type', 'gateway')
-            ->select(
-                'business_payment_method.id',
-                'business_payment_method.payment_method_id',
-                'business_payment_method.is_active',
-                'business_payment_method.config',
-                'payment_methods.name',
-                'payment_methods.code',
-            )
-            ->orderBy('payment_methods.name')
-            ->get();
-
-        $businessBanks = StoreBank::where('business_id', $businessId)
-            ->orderByDesc('is_primary')
-            ->orderBy('bank_name')
-            ->get();
+        $gateways = $this->repository->businessGateways($businessId);
+        $businessBanks = $this->repository->businessBanks($businessId);
 
         $assignedBankIds = $store->assignedBanks->pluck('id');
 
-        $gatewayPayload = fn ($row) => [
-            'id' => (int) $row->id,
-            'code' => $row->code,
-            'name' => $row->name,
-            'is_active' => (bool) $row->is_active,
-            'public_key_masked' => $this->maskKey(json_decode($row->config ?: '{}', true)['public_key'] ?? null),
-            'assigned' => $assignedMethodIds->contains((int) $row->payment_method_id),
-        ];
+        $gatewayPayload = fn ($row) => (new StoreGatewayResource(
+            $row,
+            $assignedMethodIds->contains((int) $row->payment_method_id),
+        ))->resolve();
 
-        $bankPayload = fn (StoreBank $bank) => [
-            'id' => $bank->id,
-            'bank_name' => $bank->bank_name,
-            'account_name' => $bank->account_name,
-            'masked_account_number' => $bank->masked_account_number,
-            'is_primary' => (bool) $bank->is_primary,
-            'is_verified' => (bool) $bank->is_verified,
-        ];
-
-        $status = $store->status;
+        $bankPayload = fn (StoreBank $bank) => (new StoreBankAssignmentResource($bank))->resolve();
 
         return [
-            'store' => [
-                'id' => $store->id,
-                'store_id' => $store->store_id,
-                'name' => $store->name,
-                'status' => $status instanceof \BackedEnum ? $status->value : $status,
-                'payment_mode' => $store->payment_mode,
-            ],
+            'store' => (new StoreSummaryResource($store))->resolve(),
             'assigned_gateways' => $gateways
                 ->filter(fn ($row) => $assignedMethodIds->contains((int) $row->payment_method_id))
                 ->map($gatewayPayload)->values()->all(),
@@ -169,52 +141,8 @@ class StorePaymentMethodController extends ApiController
                 ->reject(fn (StoreBank $bank) => $assignedBankIds->contains($bank->id))
                 ->map($bankPayload)->values()->all(),
             'bank_transfer_assigned' => $assignedMethodIds->contains(
-                (int) (PaymentMethod::where('code', 'bank_transfer')->value('id') ?? 0),
+                (int) ($this->repository->findPaymentMethodByCode('bank_transfer')?->id ?? 0),
             ),
         ];
-    }
-
-    private function attachBankTransferMethod(Store $store): void
-    {
-        $method = PaymentMethod::where('code', 'bank_transfer')->first();
-
-        if (! $method) {
-            return;
-        }
-
-        $exists = DB::table('store_payment_method')
-            ->where('store_id', $store->id)
-            ->where('payment_method_id', $method->id)
-            ->exists();
-
-        if ($exists) {
-            DB::table('store_payment_method')
-                ->where('store_id', $store->id)
-                ->where('payment_method_id', $method->id)
-                ->update(['is_active' => true, 'updated_at' => now()]);
-
-            return;
-        }
-
-        DB::table('store_payment_method')->insert([
-            'store_id' => $store->id,
-            'payment_method_id' => $method->id,
-            'is_active' => true,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
-    }
-
-    private function maskKey(?string $key): ?string
-    {
-        if (! $key) {
-            return null;
-        }
-
-        if (strlen($key) <= 10) {
-            return substr($key, 0, 3).'****';
-        }
-
-        return substr($key, 0, 7).'****'.substr($key, -4);
     }
 }

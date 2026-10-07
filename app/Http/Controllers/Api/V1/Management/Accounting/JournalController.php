@@ -4,16 +4,17 @@ namespace App\Http\Controllers\Api\V1\Management\Accounting;
 
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Http\Controllers\Api\V1\Management\Concerns\ResolvesManagementContext;
+use App\Http\Requests\Management\Accounting\IndexJournalEntryRequest;
+use App\Http\Requests\Management\Accounting\StoreJournalEntryRequest;
+use App\Http\Resources\Management\Accounting\JournalEntryDetailResource;
+use App\Http\Resources\Management\Accounting\JournalEntrySummaryResource;
 use App\Models\JournalEntry;
-use App\Models\JournalLine;
-use App\Models\LedgerAccount;
-use App\Services\Accounting\LedgerPostingService;
-use App\Services\Accounting\LedgerSetupService;
+use App\Repositories\Management\Accounting\JournalRepository;
+use App\Services\Access\TenantGuard;
+use App\Services\Accounting\JournalService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -30,70 +31,35 @@ use Illuminate\Validation\ValidationException;
  * Verify fix carried through: reversal is a two-part transition. It posts the
  * contra entry **and** voids the original, so reports that aggregate posted
  * entries never count a reversal twice.
+ *
+ * Layering: HTTP shape (statuses, messages, envelope, pagination meta) stays
+ * here; field validation lives in App\Http\Requests\Management\Accounting,
+ * queries/eager loads/aggregates in App\Repositories\Management\Accounting\
+ * JournalRepository, the draft/post/reverse/delete workflows in
+ * App\Services\Accounting\JournalService, and the payloads in
+ * App\Http\Resources\Management\Accounting.
  */
 class JournalController extends ApiController
 {
     use ResolvesManagementContext;
 
-    public function __construct(
-        private readonly LedgerPostingService $posting,
-        private readonly LedgerSetupService $setup,
-    ) {}
-
-    public function index(Request $request): JsonResponse
+    public function index(IndexJournalEntryRequest $request, JournalRepository $repository): JsonResponse
     {
         $businessId = $this->user($request)->business_id;
 
-        $filters = $request->validate([
-            'q' => ['nullable', 'string', 'max:100'],
-            'status' => ['nullable', Rule::in([
-                JournalEntry::STATUS_DRAFT,
-                JournalEntry::STATUS_POSTED,
-                JournalEntry::STATUS_VOID,
-            ])],
-            'from' => ['nullable', 'date'],
-            'to' => ['nullable', 'date'],
-            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
-        ]);
+        $filters = $request->validated();
 
-        $base = JournalEntry::query()
-            ->where('business_id', $businessId)
-            ->when($filters['status'] ?? null, fn ($q, $status) => $q->where('status', $status))
-            ->when($filters['from'] ?? null, fn ($q, $from) => $q->whereDate('entry_date', '>=', $from))
-            ->when($filters['to'] ?? null, fn ($q, $to) => $q->whereDate('entry_date', '<=', $to))
-            // Legacy only searched entry_number; reference and memo were in
-            // the placeholder but not in the query.
-            ->when($filters['q'] ?? null, function ($q, $term) {
-                $like = '%'.$term.'%';
-
-                $q->where(fn ($inner) => $inner
-                    ->where('entry_number', 'like', $like)
-                    ->orWhere('reference', 'like', $like)
-                    ->orWhere('memo', 'like', $like));
-            });
-
-        $entries = (clone $base)
-            ->withCount('lines')
-            ->withSum('lines as total_debits', 'debit_kobo')
-            ->withSum('lines as total_credits', 'credit_kobo')
-            ->orderByDesc('entry_date')
-            ->orderByDesc('id')
-            ->paginate($filters['per_page'] ?? 20)
-            ->withQueryString();
+        $entries = $repository->paginateForBusiness($businessId, $filters);
 
         // Filtered debit/credit totals across every matching entry, not just
         // the page the table happens to show.
-        $totals = JournalLine::query()
-            ->join('journal_entries', 'journal_entries.id', '=', 'journal_lines.journal_entry_id')
-            ->whereIn('journal_entries.id', (clone $base)->select('id'))
-            ->selectRaw('COALESCE(SUM(journal_lines.debit_kobo), 0) as debits, COALESCE(SUM(journal_lines.credit_kobo), 0) as credits')
-            ->first();
+        $totals = $repository->filteredTotals($businessId, $filters);
 
         return $this->ok(
             // `data` stays the flat row array the shared endpoint returned so
             // any existing consumer keeps working; the filtered totals ride in
             // `meta` beside the pagination keys.
-            $entries->getCollection()->map(fn (JournalEntry $entry) => $this->summary($entry))->all(),
+            JournalEntrySummaryResource::collection($entries->getCollection())->resolve(),
             null,
             200,
             $this->paginationMeta($entries) + [
@@ -105,56 +71,25 @@ class JournalController extends ApiController
         );
     }
 
-    public function show(Request $request, JournalEntry $entry): JsonResponse
+    public function show(Request $request, JournalEntry $entry, JournalRepository $repository): JsonResponse
     {
         $this->authorizeEntry($request, $entry);
 
-        return $this->ok(['entry' => $this->detail($entry)]);
+        return $this->ok(['entry' => $this->detail($entry, $repository)]);
     }
 
-    public function store(Request $request): JsonResponse
+    public function store(StoreJournalEntryRequest $request, JournalService $service, JournalRepository $repository): JsonResponse
     {
         $user = $this->user($request);
         $businessId = $user->business_id;
 
-        $validated = $request->validate([
-            'entry_date' => ['required', 'date'],
-            'memo' => ['nullable', 'string', 'max:1000'],
-            'reference' => ['nullable', 'string', 'max:100'],
-            'save_as_draft' => ['nullable', 'boolean'],
-            'lines' => ['required', 'array', 'min:1'],
-            'lines.*.ledger_account_id' => ['required', 'integer'],
-            'lines.*.debit_kobo' => ['nullable', 'integer', 'min:0'],
-            'lines.*.credit_kobo' => ['nullable', 'integer', 'min:0'],
-            'lines.*.description' => ['nullable', 'string', 'max:255'],
-        ]);
-
-        $lines = $this->normalisedLines($validated['lines'], $businessId);
+        $validated = $request->validated();
+        $lines = $service->normaliseLines($validated['lines'], $businessId);
 
         if ($request->boolean('save_as_draft')) {
-            $entry = DB::transaction(function () use ($businessId, $validated, $lines) {
-                $entry = JournalEntry::create([
-                    'business_id' => $businessId,
-                    'entry_date' => $validated['entry_date'],
-                    'memo' => $validated['memo'] ?? null,
-                    'reference' => $validated['reference'] ?? null,
-                    'status' => JournalEntry::STATUS_DRAFT,
-                ]);
+            $entry = $service->saveDraft($businessId, $validated, $lines);
 
-                foreach ($lines as $line) {
-                    $entry->lines()->create([
-                        'ledger_account_id' => $line['account_id'],
-                        'description' => $line['description'],
-                        'debit_kobo' => $line['debit'],
-                        'credit_kobo' => $line['credit'],
-                        'currency' => 'NGN',
-                    ]);
-                }
-
-                return $entry;
-            });
-
-            return $this->ok(['entry' => $this->detail($entry)], 'Draft saved. Post it when ready.', 201);
+            return $this->ok(['entry' => $this->detail($entry, $repository)], 'Draft saved. Post it when ready.', 201);
         }
 
         if (count($lines) < 2) {
@@ -173,12 +108,7 @@ class JournalController extends ApiController
         }
 
         try {
-            $entry = $this->posting->post($businessId, $lines, [
-                'memo' => $validated['memo'] ?? null,
-                'reference' => $validated['reference'] ?? null,
-                'user_id' => $user->id,
-                'date' => $validated['entry_date'],
-            ]);
+            $entry = $service->post($businessId, $validated, $lines, $user->id);
         } catch (\Throwable $e) {
             return $this->error($e->getMessage());
         }
@@ -193,10 +123,10 @@ class JournalController extends ApiController
             'total_debits' => $debits,
         ]);
 
-        return $this->ok(['entry' => $this->detail($entry)], 'Journal entry posted.', 201);
+        return $this->ok(['entry' => $this->detail($entry, $repository)], 'Journal entry posted.', 201);
     }
 
-    public function postDraft(Request $request, JournalEntry $entry): JsonResponse
+    public function postDraft(Request $request, JournalEntry $entry, JournalService $service, JournalRepository $repository): JsonResponse
     {
         $this->authorizeEntry($request, $entry);
 
@@ -217,22 +147,15 @@ class JournalController extends ApiController
         }
 
         try {
-            $period = $this->setup->resolveOpenPeriod($entry->business_id, $entry->entry_date->toDateString());
+            $entry = $service->postDraft($entry, $this->user($request)->id);
         } catch (\Throwable $e) {
             return $this->error($e->getMessage());
         }
 
-        $entry->update([
-            'status' => JournalEntry::STATUS_POSTED,
-            'fiscal_period_id' => $period->id,
-            'posted_at' => now(),
-            'posted_by' => $this->user($request)->id,
-        ]);
-
-        return $this->ok(['entry' => $this->detail($entry->fresh())], 'Entry posted.');
+        return $this->ok(['entry' => $this->detail($entry->fresh(), $repository)], 'Entry posted.');
     }
 
-    public function destroy(Request $request, JournalEntry $entry): JsonResponse
+    public function destroy(Request $request, JournalEntry $entry, JournalService $service): JsonResponse
     {
         $this->authorizeEntry($request, $entry);
 
@@ -240,15 +163,12 @@ class JournalController extends ApiController
             return $this->error('Only draft entries can be deleted. Use reversal for posted entries.');
         }
 
-        DB::transaction(function () use ($entry) {
-            $entry->lines()->delete();
-            $entry->delete();
-        });
+        $service->deleteDraft($entry);
 
         return $this->ok([], 'Draft deleted.');
     }
 
-    public function reverse(Request $request, JournalEntry $entry): JsonResponse
+    public function reverse(Request $request, JournalEntry $entry, JournalService $service, JournalRepository $repository): JsonResponse
     {
         $this->authorizeEntry($request, $entry);
 
@@ -257,7 +177,7 @@ class JournalController extends ApiController
         }
 
         try {
-            $reversal = $this->posting->reverseEntry($entry, 'Reversal of '.$entry->entry_number, $this->user($request)->id);
+            $reversal = $service->reverse($entry, $this->user($request)->id);
         } catch (\Throwable $e) {
             return $this->error($e->getMessage());
         }
@@ -267,140 +187,26 @@ class JournalController extends ApiController
         }
 
         return $this->ok([
-            'entry' => $this->detail($reversal->fresh()),
-            'reversed' => $this->detail($entry->fresh()),
+            'entry' => $this->detail($reversal->fresh(), $repository),
+            'reversed' => $this->detail($entry->fresh(), $repository),
         ], 'Reversing entry posted.', 201);
     }
 
     /**
-     * Drop blank rows, refuse debit-and-credit lines and unknown accounts.
+     * Load and shape the detail payload. The reversed-by entry comes from the
+     * repository; the resource only renders what it is given.
      *
-     * @param  array<int, array<string, mixed>>  $rawLines
-     * @return array<int, array{account_id: int, debit: int, credit: int, description: ?string}>
+     * @return array<string, mixed>
      */
-    private function normalisedLines(array $rawLines, int $businessId): array
+    private function detail(JournalEntry $entry, JournalRepository $repository): array
     {
-        $lines = [];
+        $repository->loadForDetail($entry);
 
-        foreach ($rawLines as $index => $line) {
-            $debit = (int) ($line['debit_kobo'] ?? 0);
-            $credit = (int) ($line['credit_kobo'] ?? 0);
-
-            if ($debit <= 0 && $credit <= 0) {
-                continue;
-            }
-
-            if ($debit > 0 && $credit > 0) {
-                throw ValidationException::withMessages([
-                    "lines.{$index}.credit_kobo" => 'A journal line cannot have both a debit and a credit.',
-                ]);
-            }
-
-            $lines[] = [
-                'account_id' => (int) $line['ledger_account_id'],
-                'debit' => $debit,
-                'credit' => $credit,
-                'description' => $line['description'] ?? null,
-            ];
-        }
-
-        if (empty($lines)) {
-            throw ValidationException::withMessages([
-                'lines' => 'Add at least one line with an amount.',
-            ]);
-        }
-
-        $referenced = array_unique(array_column($lines, 'account_id'));
-
-        $owned = LedgerAccount::query()
-            ->where('business_id', $businessId)
-            ->whereIn('id', $referenced)
-            ->pluck('id')
-            ->map(fn ($id) => (int) $id)
-            ->all();
-
-        if (array_diff($referenced, $owned)) {
-            throw ValidationException::withMessages([
-                'lines' => 'One or more accounts are invalid.',
-            ]);
-        }
-
-        return $lines;
+        return (new JournalEntryDetailResource($entry, $repository->reversedBy($entry)))->resolve();
     }
 
     private function authorizeEntry(Request $request, JournalEntry $entry): void
     {
-        if ((int) $entry->business_id !== (int) $this->user($request)->business_id) {
-            abort(403, 'You do not have access to this journal entry.');
-        }
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function summary(JournalEntry $entry): array
-    {
-        return [
-            'id' => $entry->id,
-            'entry_number' => $entry->entry_number,
-            'entry_date' => $entry->entry_date?->toDateString(),
-            'memo' => $entry->memo,
-            'reference' => $entry->reference,
-            'status' => $entry->status,
-            'lines_count' => (int) $entry->lines_count,
-            'total_debits' => (int) ($entry->total_debits ?? 0),
-            'total_credits' => (int) ($entry->total_credits ?? 0),
-        ];
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function detail(JournalEntry $entry): array
-    {
-        $entry->loadMissing(['lines.account', 'fiscalPeriod', 'postedBy', 'reversalOf']);
-
-        // The forward link legacy never had: a void original points at the
-        // entry that reversed it so the detail screen can explain the void.
-        $reversedBy = JournalEntry::query()
-            ->where('reversal_of_id', $entry->id)
-            ->orderBy('id')
-            ->first();
-
-        $debits = (int) $entry->lines->sum('debit_kobo');
-        $credits = (int) $entry->lines->sum('credit_kobo');
-
-        return [
-            'id' => $entry->id,
-            'entry_number' => $entry->entry_number,
-            'entry_date' => $entry->entry_date?->toDateString(),
-            'memo' => $entry->memo,
-            'reference' => $entry->reference,
-            'status' => $entry->status,
-            'fiscal_period' => $entry->fiscalPeriod?->name,
-            'posted_by' => $entry->postedBy?->name,
-            'posted_at' => $entry->posted_at?->toISOString(),
-            'voided_at' => $entry->voided_at?->toISOString(),
-            'reversal_of' => $entry->reversalOf ? [
-                'id' => $entry->reversalOf->id,
-                'entry_number' => $entry->reversalOf->entry_number,
-            ] : null,
-            'reversed_by' => $reversedBy ? [
-                'id' => $reversedBy->id,
-                'entry_number' => $reversedBy->entry_number,
-            ] : null,
-            'total_debits' => $debits,
-            'total_credits' => $credits,
-            'is_balanced' => $debits === $credits,
-            'lines' => $entry->lines->map(fn (JournalLine $line) => [
-                'id' => $line->id,
-                'ledger_account_id' => $line->ledger_account_id,
-                'account' => $line->account?->name,
-                'account_code' => $line->account?->code,
-                'description' => $line->description,
-                'debit' => (int) $line->debit_kobo,
-                'credit' => (int) $line->credit_kobo,
-            ])->values()->all(),
-        ];
+        app(TenantGuard::class)->authorizeBusiness($entry, $this->user($request), 'You do not have access to this journal entry.');
     }
 }

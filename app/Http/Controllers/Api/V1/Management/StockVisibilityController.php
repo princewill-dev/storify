@@ -4,19 +4,25 @@ namespace App\Http\Controllers\Api\V1\Management;
 
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Http\Controllers\Api\V1\Management\Concerns\ResolvesManagementContext;
+use App\Http\Requests\Management\StockVisibility\BulkUpdateMinLevelsRequest;
+use App\Http\Requests\Management\StockVisibility\StockLevelsRequest;
+use App\Http\Requests\Management\StockVisibility\StockLowStockRequest;
+use App\Http\Requests\Management\StockVisibility\StockSummaryRequest;
+use App\Http\Requests\Management\StockVisibility\UpdateMinLevelRequest;
+use App\Http\Resources\Management\StockVisibility\LowStockIndexResource;
+use App\Http\Resources\Management\StockVisibility\StockLevelsResource;
 use App\Models\Product;
 use App\Models\StockLocation;
 use App\Models\Store;
-use App\Models\User;
 use App\Models\Warehouse;
+use App\Repositories\Management\StockVisibilityRepository;
+use App\Services\Access\TenantGuard;
+use App\Services\Management\StockMinLevelService;
 use App\Services\StockVisibilityService;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Validation\Rule;
 
 /**
  * WS-29 — stock visibility and the low-stock model.
@@ -31,24 +37,42 @@ use Illuminate\Validation\Rule;
  * The row shapes come from {@see StockVisibilityService} so the dashboard
  * summary, the low-stock drill-down and the per-location editor cannot
  * disagree with each other.
+ *
+ * Layering: the HTTP shape (status codes, message strings, the envelope, the
+ * pagination meta), the access guards and the post-write audit logs stay here;
+ * the filter rules live in App\Http\Requests\Management\StockVisibility, the
+ * query building in App\Repositories\Management\StockVisibilityRepository
+ * (which composes on the shared low/out SQL rather than re-deriving it), the
+ * two min-level write workflows — with their transaction boundaries and row
+ * locks — in App\Services\Management\StockMinLevelService, and the list
+ * payloads in App\Http\Resources\Management\StockVisibility. The single-row
+ * wrappers (`summary`, `stock_level`, the bulk result) stay in the body: the
+ * values are already shaped by the domain service, so a resource would be a
+ * pass-through with nothing to shape.
+ *
+ * Known consequence of the FormRequest extraction (repo-wide, deliberately not
+ * worked around): a request that is both malformed and unauthorised now
+ * answers 422 where the body guarded first and answered 403. A VALID payload
+ * from an unauthorised caller still gets the 403, and route-binding 404 still
+ * precedes both, so no privilege is escalated.
  */
 class StockVisibilityController extends ApiController
 {
     use ResolvesManagementContext;
 
-    public function __construct(private readonly StockVisibilityService $stock) {}
+    public function __construct(
+        private readonly StockVisibilityService $stock,
+        private readonly StockVisibilityRepository $locations,
+        private readonly StockMinLevelService $minLevels,
+    ) {}
 
     /**
      * The inventory block the business dashboard renders (audit §3.1): value,
      * units, warehouse/store breakdown, low-stock list and transfer counts.
      */
-    public function summary(Request $request): JsonResponse
+    public function summary(StockSummaryRequest $request): JsonResponse
     {
-        $filters = $request->validate([
-            'store_id' => ['nullable', 'string', 'max:64'],
-            'warehouse_id' => ['nullable', 'string', 'max:64'],
-            'product_limit' => ['nullable', 'integer', 'min:1', 'max:20'],
-        ]);
+        $filters = $request->validated();
 
         $store = $this->optionalStore($request, $filters['store_id'] ?? null);
         $warehouse = $this->optionalWarehouse($request, $filters['warehouse_id'] ?? null);
@@ -69,20 +93,11 @@ class StockVisibilityController extends ApiController
      * for products with no stock-location row in scope (legacy tracked stock
      * straight on the product — WS-15's create grid falls back the same way).
      */
-    public function lowStock(Request $request): JsonResponse
+    public function lowStock(StockLowStockRequest $request): JsonResponse
     {
         $user = $this->user($request);
 
-        $filters = $request->validate([
-            'store_id' => ['nullable', 'string', 'max:64'],
-            'warehouse_id' => ['nullable', 'string', 'max:64'],
-            'product_id' => ['nullable', 'integer'],
-            'state' => ['nullable', Rule::in([StockVisibilityService::STATE_LOW, StockVisibilityService::STATE_OUT, 'attention'])],
-            'q' => ['nullable', 'string', 'max:100'],
-            'include_product_fallback' => ['nullable', 'boolean'],
-            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
-            'page' => ['nullable', 'integer', 'min:1'],
-        ]);
+        $filters = $request->validated();
 
         $store = $this->optionalStore($request, $filters['store_id'] ?? null);
         $warehouse = $this->optionalWarehouse($request, $filters['warehouse_id'] ?? null);
@@ -93,36 +108,29 @@ class StockVisibilityController extends ApiController
 
         // The scope query, without the state filter: the tab counts are read
         // off it so selecting "out of stock" does not blank the low tab.
-        $base = $this->stock->accessibleLocationQuery($user, $store?->id, $warehouse?->id)
-            ->whereHas('product', fn (Builder $query) => $query
-                ->where('is_digital', false)
-                ->when($product, fn (Builder $inner) => $inner->whereKey($product->id))
-                ->when($term, fn (Builder $inner, $search) => $inner->where(fn (Builder $name) => $name
-                    ->where('name', 'like', "%{$search}%")
-                    ->orWhere('product_code', 'like', "%{$search}%"))));
+        $base = $this->locations->locationQuery($user, $store?->id, $warehouse?->id, $product, $term);
 
-        $lowLocations = $this->countLocations($base, StockVisibilityService::STATE_LOW);
-        $outLocations = $this->countLocations($base, StockVisibilityService::STATE_OUT);
+        $lowLocations = $this->locations->countLocations($base, StockVisibilityService::STATE_LOW);
+        $outLocations = $this->locations->countLocations($base, StockVisibilityService::STATE_OUT);
 
         // Display rows for the selected tab.
-        $locations = (clone $base)->with(['product.images', 'productVariant:id,variant_code', 'locationable']);
-        $this->applyAttentionFilter($locations, $state);
-
-        $locationRows = $locations->get()->map(fn (StockLocation $row) => $this->stock->locationRow($row));
+        $locationRows = $this->locations->displayLocations($base, $state)
+            ->map(fn (StockLocation $row) => $this->stock->locationRow($row));
 
         $productRows = collect();
         $lowFallback = 0;
         $outFallback = 0;
 
         if ($includeFallback) {
-            $lowFallback = $this->fallbackProductQuery($user, $store?->id, $warehouse?->id, StockVisibilityService::STATE_LOW, $product, $term)->count();
-            $outFallback = $this->fallbackProductQuery($user, $store?->id, $warehouse?->id, StockVisibilityService::STATE_OUT, $product, $term)->count();
+            $lowFallback = $this->locations->countFallbackProducts($user, $store?->id, $warehouse?->id, $product, $term, StockVisibilityService::STATE_LOW);
+            $outFallback = $this->locations->countFallbackProducts($user, $store?->id, $warehouse?->id, $product, $term, StockVisibilityService::STATE_OUT);
 
-            $productRows = $this->fallbackProductQuery($user, $store?->id, $warehouse?->id, $state, $product, $term)
-                ->get()
+            $productRows = $this->locations->fallbackProducts($user, $store?->id, $warehouse?->id, $product, $term, $state)
                 ->map(fn (Product $row) => $this->stock->productFallbackRow($row));
         }
 
+        // Out rows first, then the lowest quantity, then by name — the
+        // pre-refactor ordering, applied before the page is sliced.
         $rows = $locationRows
             ->concat($productRows)
             ->sortBy(fn (array $row) => [$row['out'] ? 0 : 1, (int) $row['quantity'], (string) ($row['product']['name'] ?? '')])
@@ -138,24 +146,20 @@ class StockVisibilityController extends ApiController
             ['path' => $request->url(), 'query' => $request->query()],
         );
 
-        $counts = [
-            'low_stock' => $lowLocations + $lowFallback,
-            'out_of_stock' => $outLocations + $outFallback,
-        ];
+        $options = $this->locations->filterLocations($user);
 
         return $this->ok(
-            [
-                'definition' => $this->stock->definition(),
-                'counts' => [
-                    'attention' => $counts['low_stock'] + $counts['out_of_stock'],
-                    'low_stock' => $counts['low_stock'],
-                    'out_of_stock' => $counts['out_of_stock'],
-                    'location_rows' => $lowLocations + $outLocations,
-                    'product_rows' => $lowFallback + $outFallback,
-                ],
-                'low_stock' => $paginator->items(),
-                'filters' => $this->filterOptions($request),
-            ],
+            (new LowStockIndexResource(
+                rows: $paginator->items(),
+                lowLocationCount: $lowLocations,
+                outLocationCount: $outLocations,
+                lowProductCount: $lowFallback,
+                outProductCount: $outFallback,
+                definition: $this->stock->definition(),
+                warehouses: $options['warehouses'],
+                stores: $options['stores'],
+                states: $this->stock->states(),
+            ))->resolve($request),
             null,
             200,
             $this->paginationMeta($paginator),
@@ -168,70 +172,39 @@ class StockVisibilityController extends ApiController
      * location and feeds the transfer grid; this one is cross-location and
      * filterable by state, which is what the editor and the badges need.
      */
-    public function levels(Request $request): JsonResponse
+    public function levels(StockLevelsRequest $request): JsonResponse
     {
         $user = $this->user($request);
 
-        $filters = $request->validate([
-            'store_id' => ['nullable', 'string', 'max:64'],
-            'warehouse_id' => ['nullable', 'string', 'max:64'],
-            'product_id' => ['nullable', 'integer'],
-            'state' => ['nullable', Rule::in([StockVisibilityService::STATE_LOW, StockVisibilityService::STATE_OUT, StockVisibilityService::STATE_OK, 'all'])],
-            'q' => ['nullable', 'string', 'max:100'],
-            'sort' => ['nullable', Rule::in(['attention', 'quantity_asc', 'quantity_desc', 'newest'])],
-            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
-            'page' => ['nullable', 'integer', 'min:1'],
-        ]);
+        $filters = $request->validated();
 
         $store = $this->optionalStore($request, $filters['store_id'] ?? null);
         $warehouse = $this->optionalWarehouse($request, $filters['warehouse_id'] ?? null);
         $product = isset($filters['product_id']) ? $this->resolveProduct($request, (int) $filters['product_id']) : null;
         $state = $filters['state'] ?? 'all';
 
-        $base = $this->stock->accessibleLocationQuery($user, $store?->id, $warehouse?->id)
-            ->whereHas('product', fn (Builder $query) => $query
-                ->where('is_digital', false)
-                ->when($product, fn (Builder $inner) => $inner->whereKey($product->id))
-                ->when($filters['q'] ?? null, fn (Builder $inner, $term) => $inner->where(fn (Builder $name) => $name
-                    ->where('name', 'like', "%{$term}%")
-                    ->orWhere('product_code', 'like', "%{$term}%"))));
+        $base = $this->locations->locationQuery($user, $store?->id, $warehouse?->id, $product, $filters['q'] ?? null);
 
-        $counts = [
-            'total' => (clone $base)->count(),
-            'low_stock' => $this->countLocations($base, StockVisibilityService::STATE_LOW),
-            'out_of_stock' => $this->countLocations($base, StockVisibilityService::STATE_OUT),
-        ];
+        $counts = $this->locations->locationCounts($base);
 
-        $query = clone $base;
+        $levels = $this->locations->paginateLevels(
+            $base,
+            $state,
+            $filters['sort'] ?? null,
+            (int) ($filters['per_page'] ?? 25),
+        );
 
-        if ($state !== 'all') {
-            $this->stock->applyLocationState($query, $state);
-        }
-
-        $query->with(['product.images', 'productVariant:id,variant_code', 'locationable']);
-
-        match ($filters['sort'] ?? 'attention') {
-            'quantity_asc' => $query->orderBy('quantity')->orderBy('id'),
-            'quantity_desc' => $query->orderByDesc('quantity')->orderBy('id'),
-            'newest' => $query->orderByDesc('updated_at')->orderByDesc('id'),
-            default => $query
-                ->orderByRaw(
-                    'case when quantity <= 0 then 0 when (min_quantity > 0 and quantity <= min_quantity) or (min_quantity <= 0 and quantity <= ?) then 1 else 2 end',
-                    [StockVisibilityService::DEFAULT_LOW_STOCK_THRESHOLD],
-                )
-                ->orderBy('quantity')
-                ->orderBy('id'),
-        };
-
-        $levels = $query->paginate((int) ($filters['per_page'] ?? 25))->withQueryString();
+        $options = $this->locations->filterLocations($user);
 
         return $this->ok(
-            [
-                'definition' => $this->stock->definition(),
-                'counts' => $counts,
-                'stock_levels' => $levels->getCollection()->map(fn (StockLocation $row) => $this->stock->locationRow($row))->all(),
-                'filters' => $this->filterOptions($request),
-            ],
+            (new StockLevelsResource(
+                rows: $levels->getCollection()->map(fn (StockLocation $row) => $this->stock->locationRow($row))->all(),
+                counts: $counts,
+                definition: $this->stock->definition(),
+                warehouses: $options['warehouses'],
+                stores: $options['stores'],
+                states: $this->stock->states(),
+            ))->resolve($request),
             null,
             200,
             $this->paginationMeta($levels),
@@ -247,19 +220,13 @@ class StockVisibilityController extends ApiController
      * parameter, or implicit model binding is skipped and the container hands
      * in an empty model.
      */
-    public function updateMinLevel(Request $request, StockLocation $stockLocation): JsonResponse
+    public function updateMinLevel(UpdateMinLevelRequest $request, StockLocation $stockLocation): JsonResponse
     {
         $this->authorizeLocation($request, $stockLocation);
 
-        $data = $request->validate([
-            'min_quantity' => ['required', 'integer', 'min:0', 'max:1000000'],
-        ]);
+        $data = $request->validated();
 
-        DB::transaction(function () use ($stockLocation, $data) {
-            $locked = StockLocation::query()->lockForUpdate()->findOrFail($stockLocation->id);
-            $locked->min_quantity = (int) $data['min_quantity'];
-            $locked->save();
-        });
+        $this->minLevels->updateMinLevel($stockLocation, (int) $data['min_quantity']);
 
         Log::info('api.management.stock_min_level_updated', [
             'user_id' => $this->user($request)->id,
@@ -276,15 +243,11 @@ class StockVisibilityController extends ApiController
      * Bulk counterpart for the editor's grid — all-or-nothing, so a save can
      * never half-apply a restock plan.
      */
-    public function bulkUpdateMinLevels(Request $request): JsonResponse
+    public function bulkUpdateMinLevels(BulkUpdateMinLevelsRequest $request): JsonResponse
     {
         $user = $this->user($request);
 
-        $data = $request->validate([
-            'items' => ['required', 'array', 'min:1', 'max:200'],
-            'items.*.id' => ['required', 'integer', 'distinct'],
-            'items.*.min_quantity' => ['required', 'integer', 'min:0', 'max:1000000'],
-        ]);
+        $data = $request->validated();
 
         $levels = collect($data['items'])->keyBy('id');
         $ids = $levels->keys()->all();
@@ -292,32 +255,20 @@ class StockVisibilityController extends ApiController
         // Check every id before writing a single row: tenant and location
         // access are both re-derived from the authenticated user, never from
         // the request payload.
-        $allowed = $this->stock->accessibleLocationQuery($user)
-            ->whereIn('stock_locations.id', $ids)
-            ->pluck('stock_locations.id');
+        $allowed = $this->locations->accessibleLocationIds($user, $ids);
 
         if ($allowed->count() !== count($ids)) {
             abort(403, 'One or more stock locations are not available to you.');
         }
 
-        DB::transaction(function () use ($ids, $levels) {
-            $locations = StockLocation::query()->whereIn('id', $ids)->lockForUpdate()->get();
-
-            foreach ($locations as $location) {
-                $location->min_quantity = (int) $levels[$location->id]['min_quantity'];
-                $location->save();
-            }
-        });
+        $this->minLevels->updateMinLevels($levels);
 
         Log::info('api.management.stock_min_levels_updated', [
             'user_id' => $user->id,
             'stock_location_ids' => $ids,
         ]);
 
-        $rows = StockLocation::query()
-            ->whereIn('id', $ids)
-            ->with(['product.images', 'productVariant:id,variant_code', 'locationable'])
-            ->get()
+        $rows = $this->locations->loadByIdsForDisplay($ids)
             ->map(fn (StockLocation $location) => $this->stock->locationRow($location))
             ->all();
 
@@ -328,139 +279,20 @@ class StockVisibilityController extends ApiController
     }
 
     /**
-     * "attention" is the union the badges and the dashboard card show: low or
-     * out, never both lists drifting apart.
+     * The per-location access guard, unchanged in effect: the row must belong
+     * to the caller's business AND sit inside the locations they can reach.
+     * The business half goes through the shared TenantGuard; the morphed
+     * store/warehouse half is a shape TenantGuard does not express, so it
+     * stays a repository predicate. Both refusals keep the pre-refactor 403
+     * and message.
      */
-    private function applyAttentionFilter(Builder $query, string $state): void
-    {
-        if ($state === 'attention') {
-            $query->where(function (Builder $group) {
-                $group->where(function (Builder $low) {
-                    $this->stock->applyLocationState($low, StockVisibilityService::STATE_LOW);
-                })->orWhere(function (Builder $out) {
-                    $this->stock->applyLocationState($out, StockVisibilityService::STATE_OUT);
-                });
-            });
-
-            return;
-        }
-
-        $this->stock->applyLocationState($query, $state);
-    }
-
-    private function countLocations(Builder $base, string $state): int
-    {
-        $query = clone $base;
-        $this->stock->applyLocationState($query, $state);
-
-        return $query->count();
-    }
-
-    /**
-     * Products without a stock-location row at the locations in scope, in one
-     * of the requested states. Bounded by the state filter, so a business with
-     * a ledger does not get its whole catalogue back.
-     */
-    private function fallbackProductQuery(
-        User $user,
-        ?int $storeId,
-        ?int $warehouseId,
-        string $state,
-        ?Product $product,
-        ?string $term,
-    ): Builder {
-        $covered = $this->stock->accessibleLocationQuery($user, $storeId, $warehouseId)
-            ->select('stock_locations.product_id');
-
-        $query = Product::query()
-            ->where('business_id', $user->business_id)
-            ->whereNotIn('products.id', $covered)
-            ->with(['store:id,name,store_id', 'warehouse:id,warehouse_code,name', 'variants:id,product_id,quantity', 'images'])
-            ->when($storeId !== null, fn (Builder $inner) => $inner->where('store_id', $storeId))
-            ->when($warehouseId !== null, fn (Builder $inner) => $inner->where('warehouse_id', $warehouseId))
-            ->when($storeId === null && $warehouseId === null, fn (Builder $inner) => $inner
-                ->whereIn('store_id', $this->stock->accessibleStoreIds($user)))
-            ->when($product, fn (Builder $inner) => $inner->whereKey($product->id))
-            ->when($term, fn (Builder $inner, $search) => $inner->where(fn (Builder $name) => $name
-                ->where('name', 'like', "%{$search}%")
-                ->orWhere('product_code', 'like', "%{$search}%")));
-
-        if ($state === 'attention') {
-            $query->where(function (Builder $group) {
-                $group->where(function (Builder $low) {
-                    $this->stock->applyProductState($low, StockVisibilityService::STATE_LOW);
-                })->orWhere(function (Builder $out) {
-                    $this->stock->applyProductState($out, StockVisibilityService::STATE_OUT);
-                });
-            });
-        } else {
-            $this->stock->applyProductState($query, $state);
-        }
-
-        return $query;
-    }
-
-    /**
-     * Filter-picker data for the SPA, scoped to the same access set as the
-     * rows themselves. Restricted staff only see their assigned locations.
-     *
-     * @return array<string, mixed>
-     */
-    private function filterOptions(Request $request): array
-    {
-        $user = $this->user($request);
-
-        $warehouses = $user->accessibleWarehouses()
-            ->where('status', '!=', Warehouse::STATUS_DELETED)
-            // Qualified: restricted staff resolve through a morphedByMany whose
-            // pivot also has an `id`, so a bare column list is ambiguous.
-            ->orderBy('name')
-            ->get(['warehouses.id', 'warehouse_code', 'name'])
-            ->map(fn (Warehouse $warehouse) => [
-                'id' => $warehouse->id,
-                'code' => $warehouse->warehouse_code,
-                'name' => $warehouse->name,
-            ]);
-
-        $stores = $user->accessibleStores()
-            ->where('status', '!=', Store::STATUS_DELETED)
-            ->orderBy('name')
-            ->get(['stores.id', 'store_id', 'name'])
-            ->map(fn (Store $store) => [
-                'id' => $store->id,
-                'code' => $store->store_id,
-                'name' => $store->name,
-            ]);
-
-        return [
-            'states' => $this->stock->states(),
-            'warehouses' => $warehouses->all(),
-            'stores' => $stores->all(),
-            'locations' => [
-                ...$warehouses->map(fn (array $warehouse) => [
-                    'type' => 'warehouse',
-                    'id' => $warehouse['id'],
-                    'code' => $warehouse['code'],
-                    'name' => $warehouse['name'],
-                ])->all(),
-                ...$stores->map(fn (array $store) => [
-                    'type' => 'store',
-                    'id' => $store['id'],
-                    'code' => $store['code'],
-                    'name' => $store['name'],
-                ])->all(),
-            ],
-        ];
-    }
-
     private function authorizeLocation(Request $request, StockLocation $location): void
     {
         $user = $this->user($request);
 
-        $allowed = (int) $location->business_id === (int) $user->business_id
-            && $this->stock->accessibleLocationQuery($user)->whereKey($location->getKey())->exists();
+        app(TenantGuard::class)->authorizeBusiness($location, $user, 'You do not have access to this stock location.');
 
-        if (! $allowed) {
+        if (! $this->locations->isAccessibleTo($user, $location)) {
             abort(403, 'You do not have access to this stock location.');
         }
     }
@@ -475,12 +307,7 @@ class StockVisibilityController extends ApiController
             return null;
         }
 
-        $query = $this->user($request)->accessibleWarehouses()
-            ->where('status', '!=', Warehouse::STATUS_DELETED);
-
-        $warehouse = is_numeric($value)
-            ? (clone $query)->whereKey((int) $value)->first()
-            : (clone $query)->where('warehouse_code', $value)->first();
+        $warehouse = $this->locations->findAccessibleWarehouse($this->user($request), $value);
 
         if (! $warehouse) {
             abort(403, 'You do not have access to this warehouse.');
@@ -495,12 +322,7 @@ class StockVisibilityController extends ApiController
             return null;
         }
 
-        $query = $this->user($request)->accessibleStores()
-            ->where('status', '!=', Store::STATUS_DELETED);
-
-        $store = is_numeric($value)
-            ? (clone $query)->whereKey((int) $value)->first()
-            : (clone $query)->where('store_id', $value)->first();
+        $store = $this->locations->findAccessibleStore($this->user($request), $value);
 
         if (! $store) {
             abort(403, 'You do not have access to this store.');
@@ -511,10 +333,7 @@ class StockVisibilityController extends ApiController
 
     private function resolveProduct(Request $request, int $id): Product
     {
-        $product = Product::query()
-            ->where('business_id', $this->user($request)->business_id)
-            ->whereKey($id)
-            ->first();
+        $product = $this->locations->findBusinessProduct($this->user($request), $id);
 
         if (! $product) {
             abort(403, 'You do not have access to this product.');

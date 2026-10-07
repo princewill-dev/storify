@@ -2,20 +2,23 @@
 
 namespace App\Http\Controllers\Api\V1\Management\Pos;
 
-use App\Enums\TransactionStatus;
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Http\Controllers\Api\V1\Management\Concerns\ResolvesManagementContext;
-use App\Models\Order;
+use App\Http\Requests\Management\Pos\ClosePosSessionRequest;
+use App\Http\Requests\Management\Pos\OpenPosSessionRequest;
+use App\Http\Requests\Management\Pos\PosSessionIndexRequest;
+use App\Http\Requests\Management\Pos\StorePosSessionIndexRequest;
+use App\Http\Resources\Management\Pos\PosSessionDetailResource;
+use App\Http\Resources\Management\Pos\PosSessionSummaryResource;
+use App\Http\Resources\Management\Pos\PosStoreResource;
+use App\Http\Resources\Management\Pos\PosStoreRowResource;
 use App\Models\PosSession;
 use App\Models\Store;
-use App\Models\Transaction;
-use Illuminate\Database\Eloquent\Builder;
+use App\Repositories\Management\Pos\PosSessionRepository;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Validation\Rule;
 
 /**
  * WS-17 — owner-facing POS oversight.
@@ -27,11 +30,22 @@ use Illuminate\Validation\Rule;
  * delegates reconciliation to PosSession::close()/calculateCashSalesTotal()
  * rather than recomputing the cash-leg math a second time.
  *
+ * Layering: the HTTP shape (status codes, message strings, the envelope,
+ * pagination meta) and the access guards stay here; the list filters live in
+ * the Management\Pos FormRequests, the tenant scoping, drawer lookups and KPI
+ * aggregates in App\Repositories\Management\Pos\PosSessionRepository, and the
+ * row/detail shapes in App\Http\Resources\Management\Pos. No service: every
+ * write is a single-row create/update inside its own transaction with an
+ * audit log line — no multi-table workflow, ledger or notification — so one
+ * would be indirection without benefit.
+ *
  * Every money figure returned here is an integer in kobo.
  */
 class SessionController extends ApiController
 {
     use ResolvesManagementContext;
+
+    public function __construct(private readonly PosSessionRepository $repository) {}
 
     /**
      * Sidebar/dashboard summary: KPI counts plus one row per accessible store
@@ -45,30 +59,18 @@ class SessionController extends ApiController
         ]);
     }
 
-    public function index(Request $request): JsonResponse
+    public function index(PosSessionIndexRequest $request): JsonResponse
     {
-        $filters = $request->validate([
-            'store_id' => ['nullable', 'integer'],
-            'status' => ['nullable', Rule::in([PosSession::STATUS_OPEN, PosSession::STATUS_CLOSED])],
-            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
-        ]);
+        $filters = $request->validated();
 
         if (isset($filters['store_id'])) {
             $this->authorizeStoreId($request, (int) $filters['store_id']);
         }
 
-        $sessions = $this->sessionQuery($request)
-            ->with(['store:id,store_id,name,pos_enabled', 'staff:id,name'])
-            ->withCount('orders')
-            ->withSum('orders as sales_total_amount', 'total')
-            ->when($filters['store_id'] ?? null, fn ($q, $storeId) => $q->where('store_id', $storeId))
-            ->when($filters['status'] ?? null, fn ($q, $status) => $q->where('status', $status))
-            ->latest('opened_at')
-            ->paginate($filters['per_page'] ?? 20)
-            ->withQueryString();
+        $sessions = $this->repository->paginateForUser($this->user($request), $filters);
 
         return $this->ok([
-            'sessions' => $sessions->getCollection()->map(fn (PosSession $session) => $this->summary($session))->all(),
+            'sessions' => PosSessionSummaryResource::collection($sessions->getCollection())->resolve($request),
             'stats' => $this->stats($request),
             'stores' => $this->storeRows($request),
         ], null, 200, $this->paginationMeta($sessions));
@@ -88,41 +90,22 @@ class SessionController extends ApiController
     /**
      * Per-store cash-register log with expected/actual/difference columns.
      */
-    public function storeIndex(Request $request, Store $store): JsonResponse
+    public function storeIndex(StorePosSessionIndexRequest $request, Store $store): JsonResponse
     {
         $this->authorizePosStore($request, $store);
 
-        $filters = $request->validate([
-            'status' => ['nullable', Rule::in([PosSession::STATUS_OPEN, PosSession::STATUS_CLOSED])],
-            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
-        ]);
+        $filters = $request->validated();
 
-        $sessions = PosSession::where('store_id', $store->id)
-            ->with(['store:id,store_id,name,pos_enabled', 'staff:id,name'])
-            ->withCount('orders')
-            ->withSum('orders as sales_total_amount', 'total')
-            ->when($filters['status'] ?? null, fn ($q, $status) => $q->where('status', $status))
-            // The legacy screen paginated 20/page but rendered no pager, so
-            // only the first 20 sessions per store were ever reachable. The
-            // meta block keeps the full log reachable here.
-            ->latest('opened_at')
-            ->paginate($filters['per_page'] ?? 20)
-            ->withQueryString();
-
-        $todaySales = (int) round((float) Order::query()
-            ->where('store_id', $store->id)
-            ->whereNotNull('pos_session_id')
-            ->whereDate('created_at', today())
-            ->sum('total') * 100);
+        $sessions = $this->repository->paginateForStore($store->id, $filters);
 
         return $this->ok([
-            'store' => $this->storePayload($store),
-            'sessions' => $sessions->getCollection()->map(fn (PosSession $session) => $this->summary($session))->all(),
+            'store' => (new PosStoreResource($store))->resolve($request),
+            'sessions' => PosSessionSummaryResource::collection($sessions->getCollection())->resolve($request),
             'stats' => [
                 'open_sessions' => PosSession::where('store_id', $store->id)
                     ->where('status', PosSession::STATUS_OPEN)->count(),
                 'total_sessions' => PosSession::where('store_id', $store->id)->count(),
-                'today_pos_sales' => $todaySales,
+                'today_pos_sales' => $this->repository->todaySalesForStore($store->id),
             ],
         ], null, 200, $this->paginationMeta($sessions));
     }
@@ -143,7 +126,7 @@ class SessionController extends ApiController
         $this->authorizeSession($request, $session);
 
         return $this->ok([
-            'store' => $this->storePayload($store),
+            'store' => (new PosStoreResource($store))->resolve($request),
             'session' => $this->detail($request, $session),
         ]);
     }
@@ -151,7 +134,7 @@ class SessionController extends ApiController
     /**
      * Open a cash-register session with an opening float (kobo).
      */
-    public function open(Request $request, Store $store): JsonResponse
+    public function open(OpenPosSessionRequest $request, Store $store): JsonResponse
     {
         $this->authorizePosStore($request, $store);
 
@@ -161,9 +144,7 @@ class SessionController extends ApiController
             return $this->error('POS is not enabled for this store.', 422);
         }
 
-        $data = $request->validate([
-            'opening_balance' => ['required', 'integer', 'min:0'],
-        ]);
+        $data = $request->validated();
 
         // The legacy guard (and the Electron POS API) is per cashier, not per
         // store, so two cashiers can legitimately hold sessions on one shop
@@ -196,10 +177,10 @@ class SessionController extends ApiController
             'session_code' => $session->session_code,
         ]);
 
-        $session->load(['store:id,store_id,name,pos_enabled', 'staff:id,name']);
+        $this->repository->loadSummary($session);
 
         return $this->ok([
-            'session' => $this->summary($session),
+            'session' => (new PosSessionSummaryResource($session))->resolve($request),
             'open_sessions_count' => $this->openCountForStore($store),
         ], 'POS session opened.', 201);
     }
@@ -207,29 +188,13 @@ class SessionController extends ApiController
     /**
      * Close a cash-register session and reconcile the drawer.
      */
-    public function close(Request $request, Store $store): JsonResponse
+    public function close(ClosePosSessionRequest $request, Store $store): JsonResponse
     {
         $this->authorizePosStore($request, $store);
 
-        $data = $request->validate([
-            'closing_balance_actual' => ['required', 'integer', 'min:0'],
-            'notes' => ['nullable', 'string', 'max:500'],
-            'session_code' => ['nullable', 'string', 'max:64'],
-        ]);
+        $data = $request->validated();
 
-        $query = PosSession::where('store_id', $store->id)
-            ->where('status', PosSession::STATUS_OPEN);
-
-        if (! empty($data['session_code'])) {
-            // When several cashiers hold sessions the caller can name the one
-            // being counted; the UI passes this as soon as it is ambiguous.
-            $session = (clone $query)->where('session_code', $data['session_code'])->first();
-        } else {
-            // Deliberately the store's latest open session, not the caller's
-            // own — legacy let an owner close a drawer a cashier walked away
-            // from, and that is the daily-use path.
-            $session = $query->latest('opened_at')->first();
-        }
+        $session = $this->repository->findOpenSession($store->id, $data['session_code'] ?? null);
 
         if (! $session) {
             return $this->error('No open session found for this store.', 422);
@@ -252,10 +217,10 @@ class SessionController extends ApiController
             'difference' => $session->difference,
         ]);
 
-        $session->load(['store:id,store_id,name,pos_enabled', 'staff:id,name']);
+        $this->repository->loadSummary($session);
 
         return $this->ok([
-            'session' => $this->summary($session),
+            'session' => (new PosSessionSummaryResource($session))->resolve($request),
             // The verify pass flagged that closing "the latest open session"
             // leaves an owner unable to tell which drawer was counted; say so.
             'other_open_sessions' => $otherOpenSessions,
@@ -280,7 +245,7 @@ class SessionController extends ApiController
         }
 
         return $this->ok(
-            ['store' => $this->storePayload($store->fresh())],
+            ['store' => (new PosStoreResource($store->fresh()))->resolve($request)],
             'POS terminal enabled for this store.',
         );
     }
@@ -290,19 +255,12 @@ class SessionController extends ApiController
      */
     private function stats(Request $request): array
     {
+        $user = $this->user($request);
+
         return [
-            'open_sessions' => $this->sessionQuery($request)
-                ->where('status', PosSession::STATUS_OPEN)
-                ->count(),
-            // Legacy "Today's POS Sales" summed orders that belong to a POS
-            // session, POS orders only — not every source=pos row ever made.
-            'today_pos_sales' => (int) round((float) Order::query()
-                ->where('business_id', $this->user($request)->business_id)
-                ->whereIn('store_id', $this->accessibleStoreIds($request))
-                ->whereNotNull('pos_session_id')
-                ->whereDate('created_at', today())
-                ->sum('total') * 100),
-            'pos_stores' => $this->posStores($request)->where('pos_enabled', true)->count(),
+            'open_sessions' => $this->repository->openCountForUser($user),
+            'today_pos_sales' => $this->repository->todaySalesForUser($user),
+            'pos_stores' => $this->repository->posStores($user)->where('pos_enabled', true)->count(),
         ];
     }
 
@@ -311,59 +269,14 @@ class SessionController extends ApiController
      */
     private function storeRows(Request $request): array
     {
-        $stores = $this->posStores($request);
+        $stores = $this->repository->posStores($this->user($request));
 
-        $openCounts = PosSession::query()
-            ->whereIn('store_id', $stores->pluck('id'))
-            ->where('status', PosSession::STATUS_OPEN)
-            ->selectRaw('store_id, COUNT(*) as aggregate')
-            ->groupBy('store_id')
-            ->pluck('aggregate', 'store_id');
+        $openCounts = $this->repository->openCountsForStores($stores->pluck('id'));
 
-        return $stores->map(fn (Store $store) => [
-            ...$this->storePayload($store),
-            'open_sessions_count' => (int) ($openCounts[$store->id] ?? 0),
-        ])->values()->all();
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function summary(PosSession $session): array
-    {
-        // withSum() pre-computes the sales column on list queries; the model
-        // method is the fallback for single rows (open/close responses).
-        $salesTotal = $session->sales_total_amount !== null
-            ? (int) round((float) $session->sales_total_amount * 100)
-            : $session->calculateSalesTotal();
-
-        $cashSalesTotal = $session->calculateCashSalesTotal();
-
-        return [
-            'id' => $session->id,
-            'session_code' => $session->session_code,
-            'status' => $session->status,
-            'is_open' => $session->isOpen(),
-            'store' => $session->store ? $this->storePayload($session->store) : null,
-            'staff' => $session->staff ? [
-                'id' => $session->staff->id,
-                'name' => $session->staff->name,
-            ] : null,
-            'opened_at' => $session->opened_at?->toISOString(),
-            'closed_at' => $session->closed_at?->toISOString(),
-            'opening_balance' => (int) $session->opening_balance,
-            // Open sessions show the drawer as it stands now (float + confirmed
-            // cash legs); closed sessions show the frozen reconciliation.
-            'expected_close' => $session->isOpen()
-                ? (int) $session->opening_balance + $cashSalesTotal
-                : (int) $session->closing_balance_expected,
-            'actual_close' => $session->closing_balance_actual !== null ? (int) $session->closing_balance_actual : null,
-            'difference' => $session->difference !== null ? (int) $session->difference : null,
-            'sales_total' => $salesTotal,
-            'cash_sales_total' => $cashSalesTotal,
-            'orders_count' => (int) ($session->orders_count ?? $session->orders()->count()),
-            'notes' => $session->notes,
-        ];
+        return $stores->map(fn (Store $store) => (new PosStoreRowResource(
+            $store,
+            (int) ($openCounts[$store->id] ?? 0),
+        ))->resolve($request))->values()->all();
     }
 
     /**
@@ -371,96 +284,12 @@ class SessionController extends ApiController
      */
     private function detail(Request $request, PosSession $session): array
     {
-        $session->load([
-            'store:id,store_id,name,pos_enabled',
-            'staff:id,name,account_code',
-            'orders' => fn ($query) => $query
-                ->withCount('items')
-                ->with(['transactions.paymentMethod:id,name'])
-                ->latest('created_at'),
-        ]);
+        $this->repository->loadDetail($session);
 
-        $orders = $session->orders;
-
-        $transactions = $orders
-            ->flatMap(fn (Order $order) => $order->transactions->map(fn (Transaction $transaction) => [
-                'id' => $transaction->id,
-                'reference' => $transaction->reference,
-                'order_number' => $order->order_number,
-                'amount' => (int) round((float) $transaction->amount * 100),
-                'status' => $transaction->status instanceof TransactionStatus
-                    ? $transaction->status->value
-                    : $transaction->status,
-                'payment_method' => $transaction->paymentMethod?->name,
-                'paid_at' => $transaction->paid_at?->toISOString(),
-                'created_at' => $transaction->created_at?->toISOString(),
-            ]))
-            ->values()
-            ->all();
-
-        return [
-            ...$this->summary($session),
-            'duration_seconds' => $session->closed_at && $session->opened_at
-                ? (int) $session->opened_at->diffInSeconds($session->closed_at)
-                : null,
-            'orders' => $orders->map(fn (Order $order) => [
-                'id' => $order->id,
-                'order_number' => $order->order_number,
-                'items_count' => (int) ($order->items_count ?? $order->items->count()),
-                'total' => (int) round((float) $order->total * 100),
-                'payment_status' => $order->transactions->first()?->status instanceof TransactionStatus
-                    ? $order->transactions->first()->status->value
-                    : $order->transactions->first()?->status,
-                'payment_method' => data_get($order->meta, 'payment_method')
-                    ?? $order->transactions->first()?->paymentMethod?->name,
-                'reference' => $order->transactions->first()?->reference,
-                'created_at' => $order->created_at?->toISOString(),
-            ])->values()->all(),
-            'transactions' => $transactions,
-            'staff_recent_sessions' => PosSession::query()
-                ->where('staff_id', $session->staff_id)
-                ->whereIn('store_id', $this->accessibleStoreIds($request))
-                ->whereHas('store', fn ($q) => $q->where('status', '!=', Store::STATUS_DELETED))
-                ->with('store:id,store_id,name')
-                ->latest('opened_at')
-                ->limit(20)
-                ->get()
-                ->map(fn (PosSession $recent) => [
-                    'id' => $recent->id,
-                    'session_code' => $recent->session_code,
-                    'store' => $recent->store ? [
-                        'id' => $recent->store->id,
-                        'store_id' => $recent->store->store_id,
-                        'name' => $recent->store->name,
-                    ] : null,
-                    'status' => $recent->status,
-                    'is_open' => $recent->isOpen(),
-                    'opened_at' => $recent->opened_at?->toISOString(),
-                    'closed_at' => $recent->closed_at?->toISOString(),
-                ])->values()->all(),
-        ];
-    }
-
-    private function sessionQuery(Request $request): Builder
-    {
-        return PosSession::query()
-            ->where('business_id', $this->user($request)->business_id)
-            ->whereIn('store_id', $this->accessibleStoreIds($request))
-            // Deleted stores must not leak back into oversight screens.
-            ->whereHas('store', fn ($q) => $q->where('status', '!=', Store::STATUS_DELETED));
-    }
-
-    /**
-     * Accessible, non-deleted stores, for the filter dropdown and nav rows.
-     *
-     * @return Collection<int, Store>
-     */
-    private function posStores(Request $request)
-    {
-        return $this->user($request)->accessibleStores()
-            ->where('stores.status', '!=', Store::STATUS_DELETED)
-            ->orderBy('name')
-            ->get();
+        return (new PosSessionDetailResource(
+            $session,
+            $this->repository->staffRecentSessions($this->user($request), (int) $session->staff_id),
+        ))->resolve($request);
     }
 
     private function authorizeStoreId(Request $request, int $storeId): void
@@ -503,18 +332,5 @@ class SessionController extends ApiController
         return PosSession::where('store_id', $store->id)
             ->where('status', PosSession::STATUS_OPEN)
             ->count();
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function storePayload(Store $store): array
-    {
-        return [
-            'id' => $store->id,
-            'store_id' => $store->store_id,
-            'name' => $store->name,
-            'pos_enabled' => (bool) $store->pos_enabled,
-        ];
     }
 }

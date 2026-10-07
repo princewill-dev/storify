@@ -4,13 +4,17 @@ namespace App\Http\Controllers\Api\V1\Admin;
 
 use App\Http\Controllers\Api\V1\Admin\Concerns\EnsuresPlatformAdmin;
 use App\Http\Controllers\Api\V1\ApiController;
+use App\Http\Requests\Admin\ListOwnershipTypesRequest;
+use App\Http\Requests\Admin\StoreOwnershipTypeRequest;
+use App\Http\Requests\Admin\UpdateOwnershipTypeRequest;
+use App\Http\Resources\Admin\OwnershipTypeResource;
 use App\Models\Business;
 use App\Models\OwnershipType;
 use App\Models\Store;
+use App\Repositories\Admin\OwnershipTypeRepository;
 use App\Services\ActivityRecorder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Validation\Rule;
 
 /**
  * WS-4 (admin console) — curated ownership-type list.
@@ -19,29 +23,32 @@ use Illuminate\Validation\Rule;
  * CRUDs, both behind `permission:admin.content`): alphabetical list, unique
  * name ≤255, `q` filter, and a refusal to delete a type that businesses or
  * stores still reference instead of orphaning them the way legacy did.
+ *
+ * The controller keeps the HTTP shape only — status codes, message strings,
+ * the envelope and pagination meta. The list and reference-count queries live
+ * in `OwnershipTypeRepository` (the OwnershipType model carries no relations,
+ * so counts come from the referencing tables), the validation in the Admin
+ * FormRequest classes and the row shaping in `OwnershipTypeResource`. The
+ * writes are single-table persists audited through the existing
+ * `ActivityRecorder` service, so no new service layer is introduced.
  */
 class OwnershipTypeController extends ApiController
 {
     use EnsuresPlatformAdmin;
 
-    public function index(Request $request): JsonResponse
+    public function __construct(
+        private readonly OwnershipTypeRepository $ownershipTypes,
+    ) {}
+
+    public function index(ListOwnershipTypesRequest $request): JsonResponse
     {
         $this->authorizePlatformAdmin();
 
-        $filters = $request->validate([
-            'q' => ['nullable', 'string', 'max:100'],
-            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
-        ]);
-
-        $types = OwnershipType::query()
-            ->when(($filters['q'] ?? null) !== null && $filters['q'] !== '', fn ($query) => $query->where('name', 'like', '%'.trim($filters['q']).'%'))
-            ->orderBy('name')
-            ->paginate($filters['per_page'] ?? 20)
-            ->withQueryString();
+        $types = $this->ownershipTypes->paginateList($request->validated());
 
         $ids = $types->getCollection()->pluck('id')->all();
-        $businessCounts = $this->referenceCounts(Business::class, $ids);
-        $storeCounts = $this->referenceCounts(Store::class, $ids);
+        $businessCounts = $this->ownershipTypes->referenceCounts(Business::class, $ids);
+        $storeCounts = $this->ownershipTypes->referenceCounts(Store::class, $ids);
 
         return $this->ok(
             $types->getCollection()->map(fn (OwnershipType $type) => $this->payload(
@@ -55,15 +62,11 @@ class OwnershipTypeController extends ApiController
         );
     }
 
-    public function store(Request $request): JsonResponse
+    public function store(StoreOwnershipTypeRequest $request): JsonResponse
     {
         $this->authorizePlatformAdmin();
 
-        $data = $request->validate([
-            'name' => ['required', 'string', 'max:255', Rule::unique('ownership_types', 'name')],
-        ]);
-
-        $type = OwnershipType::create(['name' => $data['name']]);
+        $type = OwnershipType::create(['name' => $request->validated()['name']]);
 
         ActivityRecorder::record(
             action: 'ownership_type_created',
@@ -76,16 +79,12 @@ class OwnershipTypeController extends ApiController
         return $this->ok(['ownership_type' => $this->payload($type, 0, 0)], 'Ownership type created.', 201);
     }
 
-    public function update(Request $request, OwnershipType $ownershipType): JsonResponse
+    public function update(UpdateOwnershipTypeRequest $request, OwnershipType $ownershipType): JsonResponse
     {
         $this->authorizePlatformAdmin();
 
-        $data = $request->validate([
-            'name' => ['required', 'string', 'max:255', Rule::unique('ownership_types', 'name')->ignore($ownershipType->id)],
-        ]);
-
         $previous = $ownershipType->name;
-        $ownershipType->update(['name' => $data['name']]);
+        $ownershipType->update(['name' => $request->validated()['name']]);
 
         ActivityRecorder::record(
             action: 'ownership_type_updated',
@@ -97,7 +96,7 @@ class OwnershipTypeController extends ApiController
         );
 
         $type = $ownershipType->fresh();
-        $counts = $this->countsFor($type->id);
+        $counts = $this->ownershipTypes->countsFor($type->id);
 
         return $this->ok(['ownership_type' => $this->payload($type, $counts['businesses'], $counts['stores'])], 'Ownership type updated.');
     }
@@ -106,7 +105,7 @@ class OwnershipTypeController extends ApiController
     {
         $this->authorizePlatformAdmin();
 
-        if ($this->inUse($ownershipType->id)) {
+        if ($this->ownershipTypes->isInUse($ownershipType->id)) {
             return $this->error('This ownership type is in use by a business or store and cannot be deleted.', 422);
         }
 
@@ -123,54 +122,14 @@ class OwnershipTypeController extends ApiController
         return $this->ok([], 'Ownership type deleted.');
     }
 
-    private function inUse(int $typeId): bool
-    {
-        $counts = $this->countsFor($typeId);
-
-        return $counts['businesses'] > 0 || $counts['stores'] > 0;
-    }
-
     /**
-     * @return array{businesses: int, stores: int}
-     */
-    private function countsFor(int $typeId): array
-    {
-        return [
-            'businesses' => Business::query()->where('ownership_type_id', $typeId)->count(),
-            'stores' => Store::query()->where('ownership_type_id', $typeId)->count(),
-        ];
-    }
-
-    /**
-     * @param  class-string  $model
-     * @param  array<int, int>  $ids
-     * @return array<int, int>
-     */
-    private function referenceCounts(string $model, array $ids): array
-    {
-        if ($ids === []) {
-            return [];
-        }
-
-        return $model::query()
-            ->whereIn('ownership_type_id', $ids)
-            ->selectRaw('ownership_type_id, COUNT(*) as aggregate')
-            ->groupBy('ownership_type_id')
-            ->pluck('aggregate', 'ownership_type_id')
-            ->map(fn ($count) => (int) $count)
-            ->all();
-    }
-
-    /**
+     * The row shape, kept as a thin seam the index/create/rename responses
+     * share; the fields live in OwnershipTypeResource.
+     *
      * @return array<string, mixed>
      */
     private function payload(OwnershipType $type, int $businessesCount, int $storesCount): array
     {
-        return [
-            'id' => $type->id,
-            'name' => $type->name,
-            'businesses_count' => $businessesCount,
-            'stores_count' => $storesCount,
-        ];
+        return OwnershipTypeResource::make($type, $businessesCount, $storesCount)->resolve();
     }
 }

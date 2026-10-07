@@ -4,44 +4,78 @@ namespace App\Http\Controllers\Api\V1\Management;
 
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Http\Controllers\Api\V1\Management\Concerns\ResolvesManagementContext;
+use App\Http\Requests\Management\Product\StoreProductRequest;
+use App\Http\Requests\Management\Product\UpdateProductRequest;
+use App\Http\Requests\Management\Product\UpdateProductStatusRequest;
+use App\Http\Resources\Management\Product\ProductDetailResource;
+use App\Http\Resources\Management\Product\ProductResource;
 use App\Models\Product;
-use App\Models\ProductImage;
-use App\Models\ProductVariant;
-use App\Services\ProductFileService;
+use App\Repositories\Management\Product\ProductRepository;
+use App\Services\Access\TenantGuard;
+use App\Services\Management\Product\ProductService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
-use Illuminate\Validation\Rule;
 
+/**
+ * The base management products API — list, show, create, update, status and
+ * delete.
+ *
+ * Layering: the HTTP shape (status codes, message strings, the envelope,
+ * pagination meta) stays here; the create/update/status payload rules live in
+ * the Management\Product FormRequests, the list query in
+ * App\Repositories\Management\Product\ProductRepository, the write workflows
+ * and their transaction boundaries in App\Services\Management\Product\ProductService,
+ * and the two row shapes in App\Http\Resources\Management\Product\ProductResource
+ * / ProductDetailResource.
+ *
+ * Every URI this controller declares is re-registered later by the WS-14 and
+ * WS-25 modules (ProductFormController / ProductListController), which load
+ * after this group's own routes, so at runtime those richer handlers serve the
+ * requests; this slice's methods remain the in-repo fallback (see
+ * routes/api/v1/management/ws14-product-form.php) and keep their own contract —
+ * the layer docblocks spell out where the two disagree — rather than being
+ * converged into that work.
+ *
+ * Provenance kept with the code it explains:
+ *  - the create store check stays a 422 "Invalid store selection." — a foreign
+ *    or deleted store id must not read as "exists but forbidden" (deliberate
+ *    anti-id-probing), so it lives in the controller body and not in the
+ *    FormRequest's rules;
+ *  - the product guard stays in the controller body so its 403 keeps its place
+ *    in the refusal order (route-binding 404 first), rather than moving into
+ *    FormRequest::authorize();
+ *  - the index deliberately has no FormRequest: this slice never validated its
+ *    list filters, and rules would turn inputs it used to answer (per_page=500
+ *    reaching the paginator) into 422s.
+ */
 class ProductController extends ApiController
 {
     use ResolvesManagementContext;
 
+    public function __construct(
+        private readonly ProductRepository $repository,
+        private readonly ProductService $service,
+    ) {}
+
     public function index(Request $request): JsonResponse
     {
-        $storeIds = $this->accessibleStoreIds($request);
+        // The same filled()/integer()/string()/boolean() reading the inline
+        // query used, so a non-numeric store_id or a blank q keeps the meaning
+        // it had before the query moved to the repository.
+        $filters = [
+            'store_id' => $request->filled('store_id') ? $request->integer('store_id') : null,
+            'warehouse_id' => $request->filled('warehouse_id') ? $request->integer('warehouse_id') : null,
+            'status' => $request->filled('status') ? (string) $request->string('status') : null,
+            'category_id' => $request->filled('category_id') ? $request->integer('category_id') : null,
+            'digital_only' => $request->boolean('digital_only'),
+            'q' => $request->filled('q') ? (string) $request->string('q') : null,
+            'per_page' => $request->integer('per_page', 20),
+        ];
 
-        $products = Product::query()
-            ->where('business_id', $this->user($request)->business_id)
-            ->whereIn('store_id', $storeIds)
-            ->when($request->filled('store_id'), fn ($q) => $q->where('store_id', $request->integer('store_id')))
-            ->when($request->filled('warehouse_id'), fn ($q) => $q->where('warehouse_id', $request->integer('warehouse_id')))
-            ->when($request->filled('status'), fn ($q) => $q->where('status', $request->string('status')))
-            ->when($request->filled('category_id'), fn ($q) => $q->where('category_id', $request->integer('category_id')))
-            ->when($request->boolean('digital_only'), fn ($q) => $q->where('is_digital', true))
-            ->when($request->filled('q'), function ($q) use ($request) {
-                $term = '%'.$request->string('q').'%';
-                $q->where(fn ($inner) => $inner->where('name', 'like', $term)
-                    ->orWhere('product_code', 'like', $term)
-                    ->orWhere('brand', 'like', $term));
-            })
-            ->with(['images' => fn ($q) => $q->orderBy('position')])
-            ->latest()
-            ->paginate((int) $request->integer('per_page', 20));
+        $products = $this->repository->paginateForUser($this->user($request), $filters);
 
         return $this->ok(
-            $products->getCollection()->map(fn (Product $product) => $this->payload($product))->values()->all(),
+            ProductResource::collection($products->getCollection())->resolve(),
             null,
             200,
             $this->paginationMeta($products)
@@ -54,56 +88,37 @@ class ProductController extends ApiController
 
         $product->load(['images' => fn ($q) => $q->orderBy('position'), 'files', 'variants', 'category', 'store']);
 
-        return $this->ok(['product' => $this->payload($product, detailed: true)]);
+        return $this->ok(['product' => ProductDetailResource::make($product)->resolve()]);
     }
 
-    public function store(Request $request): JsonResponse
+    public function store(StoreProductRequest $request): JsonResponse
     {
         $user = $this->user($request);
-        $data = $request->validate($this->rules());
+        $data = $request->validated();
 
         $storeIds = $this->accessibleStoreIds($request);
 
+        // 422 by design, not 403 — see the class docblock.
         if (! in_array((int) $data['store_id'], $storeIds->all(), true)) {
             return $this->error('Invalid store selection.', 422);
         }
 
-        $isDigital = $request->boolean('is_digital');
-
-        if ($message = $this->warehouseAssignmentError($request, $data['warehouse_id'] ?? null, $isDigital)) {
+        if ($message = $this->service->warehouseAssignmentError($user, $data['warehouse_id'] ?? null, $request->boolean('is_digital'))) {
             return $this->error($message, 422, ['warehouse_id' => [$message]]);
         }
 
-        $data['business_id'] = $user->business_id;
-        $data['is_digital'] = $request->boolean('is_digital');
-        $data['featured'] = $request->boolean('featured');
-        $data['is_taxable'] = $request->boolean('is_taxable', true);
-        $data['cod_available'] = $data['is_digital'] ? false : $request->boolean('cod_available', true);
-        $data['has_variants'] = $request->boolean('has_variants');
-
-        $product = DB::transaction(function () use ($request, $data) {
-            $product = Product::create($data);
-
-            $this->syncImages($request, $product);
-            $this->syncVariants($request, $product);
-
-            if ($request->hasFile('digital_files')) {
-                app(ProductFileService::class)->storeFiles($product, $request->file('digital_files'));
-            }
-
-            return $product;
-        });
+        $product = $this->service->create($request, $user, $data);
 
         $product->load(['images', 'files', 'variants']);
 
-        return $this->ok(['product' => $this->payload($product, detailed: true)], 'Product created.', 201);
+        return $this->ok(['product' => ProductDetailResource::make($product)->resolve()], 'Product created.', 201);
     }
 
-    public function update(Request $request, Product $product): JsonResponse
+    public function update(UpdateProductRequest $request, Product $product): JsonResponse
     {
         $this->authorizeProduct($request, $product);
 
-        $data = $request->validate($this->rules(forUpdate: true));
+        $data = $request->validated();
 
         if ($request->has('is_digital')) {
             $data['is_digital'] = $request->boolean('is_digital');
@@ -122,266 +137,49 @@ class ProductController extends ApiController
         $isDigital = $data['is_digital'] ?? (bool) $product->is_digital;
         $warehouseId = array_key_exists('warehouse_id', $data) ? $data['warehouse_id'] : $product->warehouse_id;
 
-        if ($message = $this->warehouseAssignmentError($request, $warehouseId, $isDigital)) {
+        if ($message = $this->service->warehouseAssignmentError($this->user($request), $warehouseId, $isDigital)) {
             return $this->error($message, 422, ['warehouse_id' => [$message]]);
         }
 
-        DB::transaction(function () use ($request, $product, $data) {
-            $product->update($data);
-
-            if ($request->filled('delete_image_ids')) {
-                foreach ($product->images()->whereIn('id', (array) $request->input('delete_image_ids'))->get() as $image) {
-                    try {
-                        Storage::disk('public')->delete($image->path);
-                    } catch (\Throwable $e) {
-                    }
-                    $image->delete();
-                }
-            }
-
-            if ($request->filled('delete_file_ids')) {
-                app(ProductFileService::class)->deleteFiles($product, (array) $request->input('delete_file_ids'));
-            }
-
-            $this->syncImages($request, $product);
-            $this->syncVariants($request, $product, replace: $request->filled('variants'));
-
-            if ($request->hasFile('digital_files')) {
-                app(ProductFileService::class)->storeFiles($product, $request->file('digital_files'));
-            }
-        });
+        $this->service->update($request, $product, $data);
 
         $product->load(['images', 'files', 'variants']);
 
-        return $this->ok(['product' => $this->payload($product->fresh(), detailed: true)], 'Product updated.');
+        return $this->ok(['product' => ProductDetailResource::make($product->fresh())->resolve()], 'Product updated.');
     }
 
-    public function updateStatus(Request $request, Product $product): JsonResponse
+    public function updateStatus(UpdateProductStatusRequest $request, Product $product): JsonResponse
     {
         $this->authorizeProduct($request, $product);
 
-        $data = $request->validate(['status' => ['required', Rule::in(['active', 'inactive'])]]);
+        $data = $request->validated();
 
         $product->update(['status' => $data['status']]);
 
-        return $this->ok(['product' => $this->payload($product->fresh())], 'Product status updated.');
+        return $this->ok(['product' => ProductResource::make($product->fresh())->resolve()], 'Product status updated.');
     }
 
     public function destroy(Request $request, Product $product): JsonResponse
     {
         $this->authorizeProduct($request, $product);
 
-        DB::transaction(function () use ($product) {
-            foreach ($product->images as $image) {
-                try {
-                    Storage::disk('public')->delete($image->path);
-                } catch (\Throwable $e) {
-                }
-                $image->delete();
-            }
-
-            app(ProductFileService::class)->deleteAllFiles($product);
-            $product->delete();
-        });
+        $this->service->delete($product);
 
         return $this->ok([], 'Product deleted.');
     }
 
     /**
-     * A physical product must belong to a warehouse the business can reach.
-     *
-     * The legacy form refused to save one without a warehouse ("Please assign
-     * the product to a warehouse"), and the new API accepted it silently —
-     * leaving products that receiving, transfers and stock counts could not
-     * touch. Digital products are exempt: they hold no stock.
+     * The business + reachable-store shape TenantGuard already encodes, with
+     * the same check order and the same 403 message the private method it
+     * replaces carried.
      */
-    private function warehouseAssignmentError(Request $request, ?int $warehouseId, bool $isDigital): ?string
-    {
-        if ($isDigital) {
-            return null;
-        }
-
-        if (! $warehouseId) {
-            return 'Assign the product to a warehouse.';
-        }
-
-        $allowed = $this->user($request)
-            ->accessibleWarehouses()
-            ->whereKey($warehouseId)
-            ->exists();
-
-        return $allowed ? null : 'Invalid warehouse selection.';
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function rules(bool $forUpdate = false): array
-    {
-        $digitalMimes = implode(',', config('digital.allowed_mimes', ['pdf', 'zip']));
-        $digitalMaxKb = (int) config('digital.max_upload_kb', 102400);
-        $presence = $forUpdate ? 'sometimes' : 'required';
-
-        return [
-            'name' => [$presence, 'string', 'max:255'],
-            'store_id' => [$presence, 'integer'],
-            'warehouse_id' => ['nullable', 'integer'],
-            'section_id' => ['nullable', 'integer'],
-            'category_id' => ['nullable', 'integer'],
-            'brand' => ['nullable', 'string', 'max:255'],
-            'description' => ['nullable', 'string'],
-            'tags' => ['nullable', 'string', 'max:1000'],
-            'status' => ['nullable', Rule::in(['active', 'inactive'])],
-            'amount' => [$presence, 'numeric', 'gt:0'],
-            'quantity' => ['nullable', 'integer', 'min:0'],
-            'stock_quantity' => ['nullable', 'integer', 'min:0'],
-            'cost_price' => ['nullable', 'numeric', 'min:0'],
-            'discount_percentage' => ['nullable', 'numeric', 'min:0', 'max:100'],
-            'bulk_quantity' => ['nullable', 'integer', 'min:1'],
-            'bulk_price' => ['nullable', 'numeric', 'min:0'],
-            'is_digital' => ['sometimes', 'boolean'],
-            'is_taxable' => ['sometimes', 'boolean'],
-            'featured' => ['sometimes', 'boolean'],
-            'has_variants' => ['sometimes', 'boolean'],
-            'cod_available' => ['sometimes', 'boolean'],
-            'download_limit' => ['nullable', 'integer', 'min:1', 'max:1000'],
-            'download_expiry_days' => ['nullable', 'integer', 'min:1', 'max:3650'],
-            'images.*' => ['nullable', 'mimes:jpeg,jpg,png,gif,webp', 'max:20480'],
-            'digital_files.*' => ['nullable', 'file', "mimes:{$digitalMimes}", "max:{$digitalMaxKb}"],
-            'delete_image_ids' => ['sometimes', 'array'],
-            'delete_image_ids.*' => ['integer'],
-            'delete_file_ids' => ['sometimes', 'array'],
-            'delete_file_ids.*' => ['integer'],
-            'primary_image_id' => ['nullable', 'integer'],
-            'variants' => ['sometimes', 'array'],
-            'variants.*.id' => ['sometimes', 'integer'],
-            'variants.*.sku' => ['nullable', 'string', 'max:100'],
-            'variants.*.color' => ['nullable', 'string', 'max:100'],
-            'variants.*.size' => ['nullable', 'numeric', 'min:0'],
-            'variants.*.quantity' => ['required_with:variants', 'integer', 'min:0'],
-            'variants.*.amount' => ['required_with:variants', 'numeric', 'gt:0'],
-            'variants.*.status' => ['nullable', Rule::in(['active', 'inactive'])],
-        ];
-    }
-
-    private function syncImages(Request $request, Product $product): void
-    {
-        if (! $request->hasFile('images')) {
-            return;
-        }
-
-        $position = (int) $product->images()->max('position');
-        $position = $position < 0 ? 0 : $position + 1;
-        $hasPrimary = $product->images()->exists();
-
-        foreach ($request->file('images') as $file) {
-            $path = $file->store('products/images', 'public');
-
-            ProductImage::create([
-                'product_id' => $product->id,
-                'path' => $path,
-                'is_primary' => ! $hasPrimary && $position === 0,
-                'position' => $position++,
-            ]);
-
-            $hasPrimary = true;
-        }
-
-        if ($request->filled('primary_image_id')) {
-            $product->images()->update(['is_primary' => false]);
-            $product->images()->where('id', $request->integer('primary_image_id'))->update(['is_primary' => true]);
-        }
-    }
-
-    private function syncVariants(Request $request, Product $product, bool $replace = false): void
-    {
-        if (! $request->filled('variants')) {
-            return;
-        }
-
-        if ($replace) {
-            $product->variants()->delete();
-        }
-
-        foreach ((array) $request->input('variants', []) as $variant) {
-            ProductVariant::create([
-                'product_id' => $product->id,
-                'sku' => $variant['sku'] ?? null,
-                'color' => $variant['color'] ?? null,
-                'size' => $variant['size'] ?? null,
-                'quantity' => (int) ($variant['quantity'] ?? 0),
-                'amount' => (float) ($variant['amount'] ?? 0),
-                'status' => $variant['status'] ?? 'active',
-                'featured' => false,
-            ]);
-        }
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function payload(Product $product, bool $detailed = false): array
-    {
-        $data = [
-            'id' => $product->id,
-            'product_code' => $product->product_code,
-            'name' => $product->name,
-            'slug' => $product->slug,
-            'brand' => $product->brand,
-            'amount' => (float) $product->amount,
-            'quantity' => (int) $product->quantity,
-            'is_digital' => (bool) $product->is_digital,
-            'is_taxable' => (bool) $product->is_taxable,
-            'status' => $product->status,
-            'featured' => (bool) $product->featured,
-            'store_id' => $product->store_id,
-            'warehouse_id' => $product->warehouse_id,
-            'warehouse' => $product->warehouse?->name,
-            'category_id' => $product->category_id,
-            'image_url' => $product->primaryImage()?->path
-                ? asset('storage/'.$product->primaryImage()->path)
-                : null,
-            'created_at' => $product->created_at?->toISOString(),
-        ];
-
-        if ($detailed) {
-            $data['description'] = $product->description;
-            $data['cost_price'] = $product->cost_price !== null ? (float) $product->cost_price : null;
-            $data['bulk_quantity'] = $product->bulk_quantity;
-            $data['bulk_price'] = $product->bulk_price !== null ? (float) $product->bulk_price : null;
-            $data['discount_percentage'] = $product->discount_percentage !== null ? (float) $product->discount_percentage : null;
-            $data['download_limit'] = $product->download_limit;
-            $data['download_expiry_days'] = $product->download_expiry_days;
-            $data['variants'] = $product->variants->map(fn ($variant) => [
-                'id' => $variant->id,
-                'sku' => $variant->sku,
-                'amount' => (float) $variant->amount,
-                'quantity' => (int) $variant->quantity,
-                'status' => $variant->status,
-            ])->values()->all();
-            $data['files'] = $product->files->map(fn ($file) => [
-                'id' => $file->id,
-                'original_name' => $file->original_name,
-                'size' => (int) $file->size,
-                'formatted_size' => $file->formatted_size,
-            ])->values()->all();
-            $data['images'] = $product->images->map(fn ($image) => [
-                'id' => $image->id,
-                'url' => asset('storage/'.$image->path),
-                'is_primary' => (bool) $image->is_primary,
-            ])->values()->all();
-        }
-
-        return $data;
-    }
-
     private function authorizeProduct(Request $request, Product $product): void
     {
-        $user = $this->user($request);
-
-        if ((int) $product->business_id !== (int) $user->business_id
-            || ! $user->accessibleStores()->whereKey($product->store_id)->exists()) {
-            abort(403, 'You do not have access to this product.');
-        }
+        app(TenantGuard::class)->authorizeBusinessAndStore(
+            $product,
+            $this->user($request),
+            (int) $product->store_id,
+            'You do not have access to this product.',
+        );
     }
 }

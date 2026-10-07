@@ -4,6 +4,14 @@ namespace App\Http\Controllers\Api\V1\Auth;
 
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Http\Controllers\Api\V1\Auth\Concerns\BuildsAuthResponses;
+use App\Http\Requests\Auth\CustomerForgotPasswordRequest;
+use App\Http\Requests\Auth\CustomerLoginRequest;
+use App\Http\Requests\Auth\CustomerLogoutRequest;
+use App\Http\Requests\Auth\CustomerRegisterRequest;
+use App\Http\Requests\Auth\CustomerResendOtpRequest;
+use App\Http\Requests\Auth\CustomerResetPasswordRequest;
+use App\Http\Requests\Auth\CustomerVerifyOtpRequest;
+use App\Http\Resources\Auth\CustomerResource;
 use App\Models\Customer;
 use App\Services\Auth\ApiTokenService;
 use App\Services\Auth\RefreshTokenService;
@@ -14,6 +22,19 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 
+/**
+ * Storefront (customer) app authentication.
+ *
+ * Layering: the HTTP shape (statuses, messages, envelope) and the workflow
+ * sequence stay here; field validation lives in App\Http\Requests\Auth and
+ * the customer payload in App\Http\Resources\Auth\CustomerResource.
+ *
+ * No repository or service is warranted: every row read is a single-row
+ * lookup by unique email with no composition or tenancy scope, and the
+ * multi-step workflows already delegate to OtpService, ApiTokenService and
+ * RefreshTokenService — the OTP mail itself lives in the shared
+ * BuildsAuthResponses concern.
+ */
 class CustomerAuthController extends ApiController
 {
     use BuildsAuthResponses;
@@ -23,15 +44,9 @@ class CustomerAuthController extends ApiController
         private readonly RefreshTokenService $refreshTokens,
     ) {}
 
-    public function register(Request $request): JsonResponse
+    public function register(CustomerRegisterRequest $request): JsonResponse
     {
-        $data = $request->validate([
-            'first_name' => ['required', 'string', 'max:190'],
-            'last_name' => ['nullable', 'string', 'max:190'],
-            'email' => ['required', 'email', 'max:190', 'unique:users,email', 'unique:customers,email'],
-            'phone' => ['required', 'string', 'max:50'],
-            'password' => ['required', 'string', 'min:8', 'confirmed'],
-        ]);
+        $data = $request->validated();
 
         try {
             $customer = Customer::create([
@@ -44,6 +59,8 @@ class CustomerAuthController extends ApiController
                 'ip_address' => $request->ip(),
             ]);
         } catch (QueryException $e) {
+            // The unique rules can lose a race with a concurrent signup; the
+            // insert's duplicate-key error is the same user-facing 422.
             if ($e->getCode() === '23000' || str_contains($e->getMessage(), 'Duplicate entry')) {
                 return $this->error('This email already has an account. Please sign in or reset your password.', 422);
             }
@@ -62,12 +79,9 @@ class CustomerAuthController extends ApiController
         ], 'We sent a verification code to your email.', 201);
     }
 
-    public function login(Request $request): JsonResponse
+    public function login(CustomerLoginRequest $request): JsonResponse
     {
-        $data = $request->validate([
-            'email' => ['required', 'email'],
-            'password' => ['required', 'string'],
-        ]);
+        $data = $request->validated();
 
         $customer = Customer::where('email', $data['email'])->first();
 
@@ -87,16 +101,13 @@ class CustomerAuthController extends ApiController
 
         return $this->ok([
             ...$pair,
-            'user' => $this->customerPayload($customer),
+            'user' => (new CustomerResource($customer))->resolve(),
         ], 'Signed in successfully.');
     }
 
-    public function verifyOtp(Request $request): JsonResponse
+    public function verifyOtp(CustomerVerifyOtpRequest $request): JsonResponse
     {
-        $data = $request->validate([
-            'email' => ['required', 'email'],
-            'otp' => ['required', 'digits:6'],
-        ]);
+        $data = $request->validated();
 
         $customer = Customer::where('email', $data['email'])->first();
 
@@ -116,13 +127,13 @@ class CustomerAuthController extends ApiController
 
         return $this->ok([
             ...$pair,
-            'user' => $this->customerPayload($customer),
+            'user' => (new CustomerResource($customer))->resolve(),
         ], 'Account verified. Welcome!');
     }
 
-    public function resendOtp(Request $request): JsonResponse
+    public function resendOtp(CustomerResendOtpRequest $request): JsonResponse
     {
-        $data = $request->validate(['email' => ['required', 'email']]);
+        $data = $request->validated();
 
         $customer = Customer::where('email', $data['email'])->first();
 
@@ -133,9 +144,9 @@ class CustomerAuthController extends ApiController
         return $this->ok([], 'If the account exists, a new verification code has been sent.');
     }
 
-    public function forgotPassword(Request $request): JsonResponse
+    public function forgotPassword(CustomerForgotPasswordRequest $request): JsonResponse
     {
-        $data = $request->validate(['email' => ['required', 'email']]);
+        $data = $request->validated();
 
         $customer = Customer::where('email', $data['email'])->first();
 
@@ -146,13 +157,9 @@ class CustomerAuthController extends ApiController
         return $this->ok([], 'If that email is registered, we will send a verification code.');
     }
 
-    public function resetPassword(Request $request): JsonResponse
+    public function resetPassword(CustomerResetPasswordRequest $request): JsonResponse
     {
-        $data = $request->validate([
-            'email' => ['required', 'email'],
-            'otp' => ['required', 'digits:6'],
-            'password' => ['required', 'string', 'min:8', 'confirmed'],
-        ]);
+        $data = $request->validated();
 
         $customer = Customer::where('email', $data['email'])->first();
 
@@ -175,12 +182,12 @@ class CustomerAuthController extends ApiController
         /** @var Customer $customer */
         $customer = $request->user();
 
-        return $this->ok(['user' => $this->customerPayload($customer)]);
+        return $this->ok(['user' => (new CustomerResource($customer))->resolve()]);
     }
 
-    public function logout(Request $request): JsonResponse
+    public function logout(CustomerLogoutRequest $request): JsonResponse
     {
-        $data = $request->validate(['refresh_token' => ['nullable', 'string']]);
+        $data = $request->validated();
 
         $this->tokens->revokeCurrentAccessToken($request);
 

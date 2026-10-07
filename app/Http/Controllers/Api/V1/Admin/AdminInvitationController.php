@@ -4,13 +4,12 @@ namespace App\Http\Controllers\Api\V1\Admin;
 
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Http\Controllers\Api\V1\Auth\Concerns\BuildsAuthResponses;
+use App\Http\Requests\Admin\AcceptAdminInvitationRequest;
+use App\Http\Resources\Admin\AdminInvitationResource;
 use App\Models\User;
-use App\Services\ActivityRecorder;
-use App\Services\Auth\ApiTokenService;
+use App\Repositories\Admin\AdminInvitationRepository;
+use App\Services\Admin\AdminInvitationService;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 
 /**
  * WS-10 (admin console) — the public half of the admin invitation flow.
@@ -37,17 +36,28 @@ use Illuminate\Support\Facades\Log;
  *
  * Decision on the token lifetime (deliberate, flagged for the orchestrator):
  * legacy nulled `invitation_token` on acceptance, which is precisely why an
- * accepted link became indistinguishable from a forged one. This controller
- * retains the token — inert the moment `status` leaves `invited` — so a second
- * click can be told apart from a bad link. It is rotated by resend and dies
- * with the account on removal. If retention is ever considered a leak, the
- * only safe alternative is a separate accepted-token record, not a null.
+ * accepted link became indistinguishable from a forged one. This flow retains
+ * the token — inert the moment `status` leaves `invited` — so a second click
+ * can be told apart from a bad link. It is rotated by resend and dies with the
+ * account on removal. If retention is ever considered a leak, the only safe
+ * alternative is a separate accepted-token record, not a null.
+ *
+ * Layering: the controller keeps only the HTTP shape — status codes, message
+ * strings and the envelope. Token resolution (with the platform-role scope
+ * that makes a staff token 404) lives in `AdminInvitationRepository`, the
+ * accept workflow and its transaction in `AdminInvitationService`, validation
+ * in `AcceptAdminInvitationRequest`, and the preview's two shapes in
+ * `AdminInvitationResource`. `isPending()` stays here: it is the branch that
+ * picks 200-vs-409, and models are outside this workstream's ownership.
  */
 class AdminInvitationController extends ApiController
 {
     use BuildsAuthResponses;
 
-    public function __construct(private readonly ApiTokenService $tokens) {}
+    public function __construct(
+        private readonly AdminInvitationRepository $invitations,
+        private readonly AdminInvitationService $adminInvitations,
+    ) {}
 
     /**
      * Preview an invitation. Unlike the collapsed 404 the SPA previously had
@@ -56,26 +66,20 @@ class AdminInvitationController extends ApiController
      */
     public function show(string $token): JsonResponse
     {
-        $admin = $this->findByToken($token);
+        $admin = $this->invitations->findByToken($token);
 
         if (! $admin) {
             return $this->error('This invitation link is invalid or has expired.', 404);
         }
 
         if (! $this->isPending($admin)) {
-            return $this->ok([
-                'already_accepted' => true,
-                'email' => $admin->email,
-                'accepted_at' => $admin->accepted_at?->toISOString(),
-            ], 'This invitation has already been accepted. Please log in.');
+            return $this->ok(
+                AdminInvitationResource::make($admin)->alreadyAccepted()->resolve(),
+                'This invitation has already been accepted. Please log in.',
+            );
         }
 
-        return $this->ok([
-            'already_accepted' => false,
-            'email' => $admin->email,
-            'name' => $admin->name,
-            'invited_at' => $admin->invited_at?->toISOString(),
-        ]);
+        return $this->ok(AdminInvitationResource::make($admin)->resolve());
     }
 
     /**
@@ -84,9 +88,9 @@ class AdminInvitationController extends ApiController
      * here the same token pair the login flow issues comes back, so the SPA
      * lands them on the dashboard without a second sign-in.
      */
-    public function accept(Request $request, string $token): JsonResponse
+    public function accept(AcceptAdminInvitationRequest $request, string $token): JsonResponse
     {
-        $admin = $this->findByToken($token);
+        $admin = $this->invitations->findByToken($token);
 
         if (! $admin) {
             return $this->error('This invitation link is invalid or has expired.', 404);
@@ -95,7 +99,8 @@ class AdminInvitationController extends ApiController
         if (! $this->isPending($admin)) {
             // 409: the link is real, the state is not. Body carries the same
             // `already_accepted` flag the GET uses so API clients share one
-            // branch, and the message matches the legacy warning.
+            // branch, and the message matches the legacy warning. Raw
+            // response on purpose — `error()` would drop the two data keys.
             return response()->json([
                 'message' => 'This invitation has already been accepted. Please log in.',
                 'already_accepted' => true,
@@ -103,65 +108,12 @@ class AdminInvitationController extends ApiController
             ], 409);
         }
 
-        $data = $request->validate([
-            'name' => ['required', 'string', 'max:255'],
-            'password' => ['required', 'string', 'min:8', 'confirmed'],
-        ]);
-
-        DB::transaction(function () use ($admin, $data) {
-            // `forceFill` on purpose: `email_verified_at` is not in the
-            // model's fillable list, so an `update([...])` would silently drop
-            // it (the previous accept endpoint did exactly that).
-            $admin->forceFill([
-                'name' => $data['name'],
-                'password' => $data['password'],
-                'status' => 'active',
-                'is_verified' => true,
-                'email_verified_at' => now(),
-                'accepted_at' => now(),
-                'force_password_change' => false,
-            ])->save();
-
-            ActivityRecorder::record(
-                action: 'admin.invitation_accepted',
-                description: "{$admin->email} accepted the platform admin invitation",
-                subject: $admin,
-                old: ['status' => 'invited'],
-                new: ['status' => 'active'],
-                actor: $admin,
-            );
-        });
-
-        setPermissionsTeamId(null);
-
-        $admin = $admin->fresh();
-        $pair = $this->tokens->issuePair($admin, 'admin', $request);
-
-        Log::info('api.admin.invitation.accepted', [
-            'user_id' => $admin->id,
-            'email' => $admin->email,
-        ]);
+        ['user' => $admin, 'pair' => $pair] = $this->adminInvitations->accept($admin, $request->validated(), $request);
 
         return $this->ok([
             ...$pair,
             'user' => $this->userPayload($admin),
         ], 'Welcome to the admin team!');
-    }
-
-    /**
-     * Resolve an invitation token to a platform account, any status — the
-     * caller decides whether "already accepted" or "invalid" applies.
-     */
-    private function findByToken(string $token): ?User
-    {
-        if (trim($token) === '') {
-            return null;
-        }
-
-        return User::query()
-            ->where('invitation_token', $token)
-            ->whereIn('role', AdminController::PLATFORM_ROLES)
-            ->first();
     }
 
     /**

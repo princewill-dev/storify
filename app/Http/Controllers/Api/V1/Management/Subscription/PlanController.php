@@ -4,22 +4,27 @@ namespace App\Http\Controllers\Api\V1\Management\Subscription;
 
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Http\Controllers\Api\V1\Management\Concerns\ResolvesManagementContext;
-use App\Models\Payment;
-use App\Models\Subscription;
-use App\Models\SubscriptionPlan;
-use App\Models\User;
+use App\Http\Requests\Management\Subscription\PlanSelectionRequest;
+use App\Http\Resources\Subscription\ActiveSubscriptionResource;
+use App\Http\Resources\Subscription\BillingHistoryPaymentResource;
+use App\Http\Resources\Subscription\SubscriptionPlanResource;
+use App\Repositories\Subscription\SubscriptionPlanRepository;
+use App\Services\Subscription\PlanSelectionService;
 use App\Services\SubscriptionTrialSettings;
+use App\Support\Money\Naira;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 
 class PlanController extends ApiController
 {
     use ResolvesManagementContext;
 
-    public function __construct(private readonly SubscriptionTrialSettings $trialSettings) {}
+    public function __construct(
+        private readonly SubscriptionPlanRepository $plans,
+        private readonly PlanSelectionService $planSelection,
+        private readonly SubscriptionTrialSettings $trialSettings,
+    ) {}
 
     /**
      * The onboarding "Choose your plan" grid and the in-dashboard plan grid.
@@ -27,7 +32,7 @@ class PlanController extends ApiController
     public function plans(Request $request): JsonResponse
     {
         $user = $this->user($request);
-        $plans = $this->activePlans();
+        $plans = $this->plans->activeCatalogue();
 
         $monthly = $plans->where('interval', 'monthly')->values();
         $yearly = $plans->where('interval', 'yearly')->values();
@@ -35,10 +40,10 @@ class PlanController extends ApiController
         $trial = $this->trialSettings->get();
 
         return $this->ok([
-            'plans' => $plans->map(fn (SubscriptionPlan $plan) => $this->planPayload($plan))->all(),
-            'monthly' => $monthly->map(fn (SubscriptionPlan $plan) => $this->planPayload($plan))->all(),
-            'yearly' => $yearly->map(fn (SubscriptionPlan $plan) => $this->planPayload($plan))->all(),
-            'other' => $other->map(fn (SubscriptionPlan $plan) => $this->planPayload($plan))->all(),
+            'plans' => SubscriptionPlanResource::rows($plans),
+            'monthly' => SubscriptionPlanResource::rows($monthly),
+            'yearly' => SubscriptionPlanResource::rows($yearly),
+            'other' => SubscriptionPlanResource::rows($other),
             'yearly_savings_percent' => $this->yearlySavingsPercent($monthly, $yearly),
             'trial_enabled' => $trial['enabled'],
             'trial_days' => $trial['days'],
@@ -59,7 +64,7 @@ class PlanController extends ApiController
         $trial = $this->trialSettings->get();
 
         return $this->ok([
-            'subscription' => $subscription ? $this->subscriptionPayload($subscription) : null,
+            'subscription' => $subscription ? ActiveSubscriptionResource::make($subscription)->resolve() : null,
             'trial' => [
                 'enabled' => $trial['enabled'],
                 'days' => $trial['days'],
@@ -68,8 +73,10 @@ class PlanController extends ApiController
                 'ends_at' => $user->trial_ends_at?->toISOString(),
                 'days_left' => $user->daysLeftOnTrial(),
             ],
-            'selected_plan' => $user->selectedPlan ? $this->planPayload($user->selectedPlan) : null,
-            'billing_history' => $this->billingHistory($user),
+            'selected_plan' => $user->selectedPlan ? SubscriptionPlanResource::make($user->selectedPlan)->resolve() : null,
+            'billing_history' => BillingHistoryPaymentResource::rows(
+                $this->plans->recentBillingHistory($user->business_id),
+            ),
         ]);
     }
 
@@ -77,7 +84,7 @@ class PlanController extends ApiController
      * Choose a plan while unsubscribed: start the platform trial if enabled,
      * otherwise send the user on to payment.
      */
-    public function select(Request $request): JsonResponse
+    public function select(PlanSelectionRequest $request): JsonResponse
     {
         $user = $this->user($request);
 
@@ -92,48 +99,25 @@ class PlanController extends ApiController
             return $this->error('Please verify your email address before choosing a plan.', 403);
         }
 
-        $data = $request->validate([
-            'plan_id' => ['required', 'integer', 'exists:subscription_plans,id'],
-        ]);
+        $data = $request->validated();
 
-        $plan = SubscriptionPlan::query()
-            ->active()
-            ->where('is_trial', false)
-            ->find($data['plan_id']);
+        $plan = $this->plans->findSelectable((int) $data['plan_id']);
 
         if (! $plan) {
             return $this->error('Invalid plan selection.', 422);
         }
 
-        $trial = $this->trialSettings->get();
+        $selection = $this->planSelection->select($user, $plan);
 
-        // A trial starts once. Legacy re-ran `now()->addDays()` on every
-        // selection, so a trialing user could extend the trial indefinitely
-        // by picking a different plan.
-        $startTrial = $trial['enabled'] && $user->trial_ends_at === null;
-        $trialEndsAt = $startTrial ? now()->addDays($trial['days']) : $user->trial_ends_at;
-        $onTrial = $trialEndsAt !== null && $trialEndsAt->isFuture();
-
-        DB::transaction(function () use ($user, $plan, $trialEndsAt) {
-            $user->update([
-                'selected_plan_id' => $plan->id,
-                'trial_ends_at' => $trialEndsAt,
-            ]);
-        });
-
-        Log::info('subscription.plan_selected', [
-            'user_id' => $user->id,
-            'plan_id' => $plan->id,
-            'trial_started' => $startTrial,
-        ]);
+        $onTrial = $selection->trialEndsAt !== null && $selection->trialEndsAt->isFuture();
 
         return $this->ok([
-            'selected_plan' => $this->planPayload($plan),
-            'trial_started' => $startTrial,
-            'trial_ends_at' => $trialEndsAt?->toISOString(),
+            'selected_plan' => SubscriptionPlanResource::make($plan)->resolve(),
+            'trial_started' => $selection->trialStarted,
+            'trial_ends_at' => $selection->trialEndsAt?->toISOString(),
             'next' => $onTrial ? 'dashboard' : 'payment',
         ], $onTrial
-            ? "Your {$trial['days']}-day free trial has started!"
+            ? "Your {$selection->trialDays}-day free trial has started!"
             : 'Please complete payment to activate your subscription.');
     }
 
@@ -141,154 +125,46 @@ class PlanController extends ApiController
      * Swap the plan on an active subscription. No proration, no charge today —
      * the new amount applies from the next renewal.
      */
-    public function change(Request $request): JsonResponse
+    public function change(PlanSelectionRequest $request): JsonResponse
     {
         $user = $this->user($request);
+
+        // The subscription is resolved from the caller's own business, never
+        // from an id in the request — another business's subscription is
+        // unreachable.
         $subscription = $user->business?->activeSubscription()->first();
 
         if (! $subscription) {
             return $this->error('No active subscription found.', 422);
         }
 
-        $data = $request->validate([
-            'plan_id' => ['required', 'integer', 'exists:subscription_plans,id'],
-        ]);
+        $data = $request->validated();
 
-        $plan = SubscriptionPlan::query()
-            ->active()
-            ->where('is_trial', false)
-            ->find($data['plan_id']);
+        $plan = $this->plans->findSelectable((int) $data['plan_id']);
 
         if (! $plan || (int) $plan->id === (int) $subscription->subscription_plan_id) {
             return $this->error('Invalid plan selection.', 422);
         }
 
-        $oldPlanId = $subscription->subscription_plan_id;
-
-        DB::transaction(function () use ($subscription, $plan) {
-            $subscription->update(['subscription_plan_id' => $plan->id]);
-        });
-
-        Log::info('subscription.plan_changed', [
-            'user_id' => $user->id,
-            'old_plan_id' => $oldPlanId,
-            'new_plan_id' => $plan->id,
-        ]);
+        $subscription = $this->planSelection->change($user, $subscription, $plan);
 
         return $this->ok([
-            'subscription' => $this->subscriptionPayload($subscription->fresh('subscriptionPlan')),
+            'subscription' => ActiveSubscriptionResource::make($subscription)->resolve(),
         ], "Your plan has been changed to {$plan->name}. The new billing amount will apply on your next renewal.");
-    }
-
-    /**
-     * @return Collection<int, SubscriptionPlan>
-     */
-    private function activePlans()
-    {
-        return SubscriptionPlan::query()
-            ->active()
-            ->where('is_trial', false)
-            ->orderBy('sort_order')
-            ->orderBy('amount')
-            ->get();
-    }
-
-    /**
-     * @return array<int, array<string, mixed>>
-     */
-    private function billingHistory(User $user): array
-    {
-        if (! $user->business_id) {
-            return [];
-        }
-
-        // Legacy scoped this to the *active* subscription, so a business's
-        // payment history vanished the moment its subscription expired. Read
-        // every subscription payment for the business instead.
-        return Payment::query()
-            ->forBusiness($user->business_id)
-            ->whereNotNull('subscription_id')
-            ->latest()
-            ->take(20)
-            ->get()
-            ->map(fn (Payment $payment) => [
-                'id' => $payment->id,
-                'reference' => $payment->reference,
-                'amount' => (float) $payment->amount,
-                'amount_kobo' => $this->toKobo($payment->amount),
-                'currency' => $payment->currency,
-                'status' => $payment->status,
-                'payment_type' => $payment->payment_type,
-                'plan_name' => $payment->metadata['plan_name'] ?? null,
-                'paid_at' => $payment->paid_at?->toISOString(),
-                'created_at' => $payment->created_at?->toISOString(),
-            ])
-            ->all();
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function subscriptionPayload(Subscription $subscription): array
-    {
-        $plan = $subscription->subscriptionPlan;
-
-        return [
-            'id' => $subscription->id,
-            'subscription_code' => $subscription->subscription_code,
-            'status' => $subscription->status,
-            'is_active' => $subscription->isActive(),
-            'starts_at' => $subscription->starts_at?->toISOString(),
-            'expires_at' => $subscription->expires_at?->toISOString(),
-            'plan' => $plan ? $this->planPayload($plan) : null,
-            'next_amount' => $plan ? (float) $plan->amount : null,
-            'next_amount_kobo' => $plan ? $this->toKobo($plan->amount) : null,
-            'billing_cycle' => $plan ? $this->intervalLabel($plan) : null,
-        ];
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function planPayload(SubscriptionPlan $plan): array
-    {
-        return [
-            'id' => $plan->id,
-            'plan_code' => $plan->plan_code,
-            'name' => $plan->name,
-            'description' => $plan->description,
-            'amount' => (float) $plan->amount,
-            'amount_kobo' => $this->toKobo($plan->amount),
-            'currency' => $plan->currency,
-            'interval' => $plan->interval,
-            'interval_count' => (int) $plan->interval_count,
-            'interval_label' => $this->intervalLabel($plan),
-            'features' => $plan->features ?? [],
-            'is_default' => (bool) $plan->is_default,
-            'trial_days' => $plan->trial_days !== null ? (int) $plan->trial_days : null,
-            'sort_order' => (int) $plan->sort_order,
-        ];
-    }
-
-    private function intervalLabel(SubscriptionPlan $plan): string
-    {
-        $count = (int) $plan->interval_count;
-
-        return '/'.$plan->interval.($count > 1 ? 's' : '');
     }
 
     /**
      * Cheapest monthly (×12) vs cheapest yearly, as an integer percentage.
      * Computed in kobo so no float arithmetic touches money.
      */
-    private function yearlySavingsPercent($monthlyPlans, $yearlyPlans): ?int
+    private function yearlySavingsPercent(Collection $monthlyPlans, Collection $yearlyPlans): ?int
     {
         if ($monthlyPlans->isEmpty() || $yearlyPlans->isEmpty()) {
             return null;
         }
 
-        $annualMonthlyCost = $this->toKobo($monthlyPlans->min('amount')) * 12;
-        $cheapestYearly = $this->toKobo($yearlyPlans->min('amount'));
+        $annualMonthlyCost = Naira::koboFromLenient($monthlyPlans->min('amount')) * 12;
+        $cheapestYearly = Naira::koboFromLenient($yearlyPlans->min('amount'));
 
         if ($annualMonthlyCost <= 0) {
             return null;
@@ -298,23 +174,5 @@ class PlanController extends ApiController
 
         // Integer-only rounding: (saving * 100) / annual, rounded to nearest.
         return intdiv($saving * 100 + intdiv($annualMonthlyCost, 2), $annualMonthlyCost);
-    }
-
-    /**
-     * The plan/payment tables hold decimal naira; the API also speaks kobo so
-     * callers never do float arithmetic on money. String parsing keeps it exact.
-     */
-    private function toKobo(mixed $amount): int
-    {
-        $value = (string) ($amount ?? '0');
-        $negative = str_starts_with($value, '-');
-        $value = ltrim($value, '-');
-
-        [$whole, $fraction] = array_pad(explode('.', $value, 2), 2, '0');
-        $fraction = str_pad(substr($fraction, 0, 2), 2, '0');
-
-        $kobo = ((int) $whole) * 100 + (int) $fraction;
-
-        return $negative ? -$kobo : $kobo;
     }
 }

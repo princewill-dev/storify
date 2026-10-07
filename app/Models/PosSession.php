@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\PosSessionStatus;
+use App\Enums\TransactionStatus;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -106,8 +107,8 @@ class PosSession extends Model
         return (int) round((float) Transaction::query()
             ->whereHas('order', fn ($q) => $q->where('pos_session_id', $this->id))
             ->whereIn('status', [
-                \App\Enums\TransactionStatus::CONFIRMED,
-                \App\Enums\TransactionStatus::PAID,
+                TransactionStatus::CONFIRMED,
+                TransactionStatus::PAID,
             ])
             ->where(function ($q) {
                 $q->where('metadata->leg_method', 'cash')
