@@ -24,6 +24,7 @@ use App\Repositories\Management\PaymentSettingsRepository;
 use App\Services\Access\TenantGuard;
 use App\Services\Management\PaymentSettingsService;
 use App\Services\PaystackService;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -96,16 +97,25 @@ class PaymentSettingsController extends ApiController
         $data = $request->validated();
 
         if ($this->repository->bankAccountExists($businessId, $data['account_number'], $data['bank_code'])) {
-            return $this->error('This bank account already exists.', 422, [
-                'account_number' => ['This bank account already exists.'],
-            ]);
+            return $this->duplicateBankAccount();
         }
 
         $store = ! empty($data['store_id'])
             ? $this->repository->accessibleStores($user)->whereKey($data['store_id'])->firstOrFail()
             : null;
 
-        $bank = $this->service->addBankAccount($businessId, $data, $store);
+        try {
+            $bank = $this->service->addBankAccount($businessId, $data, $store);
+        } catch (UniqueConstraintViolationException) {
+            // The check above and the insert are two statements, so two
+            // submissions of the same account can both clear the check — a
+            // double-tapped button is enough. The database is what actually
+            // decides, and it has to give the same answer the check would
+            // have. The only unique key reachable from here is this table's:
+            // the store pivots are attached with syncWithoutDetaching() and an
+            // existence check rather than a blind insert.
+            return $this->duplicateBankAccount();
+        }
 
         Log::info('payment-settings.bank_added', [
             'user_id' => $user->id,
@@ -374,6 +384,17 @@ class PaymentSettingsController extends ApiController
             ['store' => (new StoreSummaryResource($store->fresh()))->resolve($request)],
             $store->name.' payment mode set to '.($mode === 'auto' ? 'Auto (Card)' : 'Manual (Transfer)').'.',
         );
+    }
+
+    /**
+     * The single answer for a bank account the business already holds, whether
+     * it was caught by the pre-check or by the unique index.
+     */
+    private function duplicateBankAccount(): JsonResponse
+    {
+        return $this->error('This bank account already exists.', 422, [
+            'account_number' => ['This bank account already exists.'],
+        ]);
     }
 
     /**

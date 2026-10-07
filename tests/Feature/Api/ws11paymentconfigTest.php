@@ -6,6 +6,7 @@ use App\Models\StoreBank;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Schema;
 
 /*
 | WS-11 — Payment configuration (banks, Paystack, store assignment).
@@ -147,6 +148,55 @@ test('a duplicate bank account is refused within the business', function () {
         ->assertOk()
         ->assertJsonCount(1, 'data.banks')
         ->assertJsonPath('data.banks.0.account_name', 'OTHER LTD');
+});
+
+/*
+| The duplicate rule is per business, not platform-wide.
+|
+| MySQL keeps an index when a column is dropped out of it, so dropping store_id
+| from store_banks left the unique key covering (account_number, bank_code) —
+| under a name that still said store_id. A bank account therefore became unique
+| across the whole platform, and the second business to register one got a 500
+| on a key the application had already cleared for itself.
+|
+| The test above hands the second business a *different* account number, which
+| is exactly why it never caught this: it asserted the right rule while
+| sidestepping the path that broke it.
+*/
+test('two businesses can hold the same account number at the same bank', function () {
+    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    [$otherOwner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+
+    $payload = [
+        'bank_code' => '999992',
+        'bank_name' => 'OPay Digital Services Limited (OPay)',
+        'account_number' => '2233445566',
+        'account_name' => 'SHARED ACCOUNT LTD',
+    ];
+
+    $this->withToken(ws11Token($owner))
+        ->postJson('/api/v1/management/payment-settings/bank-accounts', $payload)
+        ->assertCreated();
+
+    app('auth')->forgetGuards();
+
+    $this->withToken(ws11Token($otherOwner))
+        ->postJson('/api/v1/management/payment-settings/bank-accounts', $payload)
+        ->assertCreated();
+
+    expect(StoreBank::where('account_number', '2233445566')->count())->toBe(2);
+});
+
+test('the bank account unique key is scoped to the business', function () {
+    // Asserted against the schema, not just the endpoint, because this failure
+    // mode is silent: an index left behind by a dropped column covers less than
+    // its name claims, and nothing raises until two tenants collide.
+    $index = collect(Schema::getIndexes('store_banks'))
+        ->firstWhere('name', 'store_banks_business_account_unique');
+
+    expect($index)->not->toBeNull()
+        ->and($index['columns'])->toBe(['business_id', 'account_number', 'bank_code'])
+        ->and($index['unique'])->toBeTrue();
 });
 
 test('a bank account requires a 10-digit account number and a resolved name', function () {
