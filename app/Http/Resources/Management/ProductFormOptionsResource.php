@@ -67,6 +67,9 @@ final class ProductFormOptionsResource extends JsonResource
                 'name' => $warehouse->name,
                 'city' => $warehouse->city,
                 'state' => $warehouse->state,
+                // The business's fallback warehouse, so the picker can label
+                // it rather than presenting it as one of the user's own.
+                'is_default' => (bool) $warehouse->is_default,
                 'sections' => $warehouse->sections->map(fn (Section $section) => [
                     'id' => $section->id,
                     'section_code' => $section->section_code,

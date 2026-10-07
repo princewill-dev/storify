@@ -172,7 +172,7 @@ test('the first uploaded image becomes the primary one', function () {
 });
 
 test('a product needs a store the caller can reach and a warehouse for physical stock', function () {
-    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
     [$otherOwner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
     $store = ws14Store($owner);
     $theirs = ws14Store($otherOwner);
@@ -190,10 +190,28 @@ test('a product needs a store the caller can reach and a warehouse for physical 
         'name' => 'Stolen', 'store_id' => $theirs->id, 'amount' => 1000, 'quantity' => 1, 'warehouse_id' => $warehouse->id,
     ])->assertStatus(422)->assertJsonValidationErrors('store_id');
 
-    // Physical product without a warehouse.
-    $this->withToken($token)->postJson('/api/v1/management/products', [
+    // Physical product without a warehouse: not an error any more. The
+    // business gets a fallback warehouse, with a section, and the product is
+    // filed into both.
+    $filed = $this->withToken($token)->postJson('/api/v1/management/products', [
         'name' => 'Homeless', 'store_id' => $store->id, 'amount' => 1000, 'quantity' => 1,
-    ])->assertStatus(422)->assertJsonValidationErrors('warehouse_id');
+    ])->assertCreated();
+
+    $fallback = Warehouse::where('business_id', $business->id)->where('is_default', true)->sole();
+    $section = $fallback->sections()->sole();
+
+    expect($fallback->name)->toBe($business->name.' warehouse')
+        ->and($fallback->user_id)->toBe($owner->id)
+        ->and($fallback->isActive())->toBeTrue()
+        ->and($section->name)->toBe('General')
+        ->and($section->isActive())->toBeTrue();
+
+    $filed->assertJsonPath('data.product.warehouse_id', $fallback->id)
+        ->assertJsonPath('data.product.section_id', $section->id);
+
+    // The explicitly-named warehouse from earlier in this test is untouched —
+    // the fallback is a distinct row, not a reuse of whatever came first.
+    expect($warehouse->fresh()->is_default)->toBeNull();
 
     // Another business's warehouse.
     $theirWarehouse = ws14Warehouse($otherOwner);
@@ -270,7 +288,7 @@ test('variants round-trip every legacy field', function () {
 });
 
 test('a digital product needs no warehouse and cannot offer cash on delivery', function () {
-    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
     $store = ws14Store($owner);
 
     $response = $this->withToken(ws14Token($owner))->postJson('/api/v1/management/products', [
@@ -288,6 +306,9 @@ test('a digital product needs no warehouse and cannot offer cash on delivery', f
         ->assertJsonPath('data.product.cod_available', false)
         ->assertJsonPath('data.product.warehouse_id', null)
         ->assertJsonPath('data.product.download_limit', 3);
+
+    // Digital stock lives nowhere, so nothing is created for it either.
+    expect(Warehouse::where('business_id', $business->id)->count())->toBe(0);
 });
 
 test('updating variants keeps existing ids, adds new rows and removes the missing ones', function () {

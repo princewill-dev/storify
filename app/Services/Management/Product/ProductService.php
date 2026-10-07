@@ -116,6 +116,13 @@ final class ProductService
      * the product to a warehouse"), and the new API accepted it silently —
      * leaving products that receiving, transfers and stock counts could not
      * touch. Digital products are exempt: they hold no stock.
+     *
+     * This registration is shadowed by ProductFormController (modules load
+     * last, and Laravel keys identical method+URI pairs by that key), so the
+     * live contract is ProductFormService::assignmentError(). Both agree that
+     * an unassigned product is refused; the live one no longer usually gets
+     * the chance, because ProductFormService::withDefaultWarehouse() fills the
+     * fallback in first.
      */
     public function warehouseAssignmentError(User $user, ?int $warehouseId, bool $isDigital): ?string
     {

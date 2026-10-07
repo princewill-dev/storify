@@ -83,7 +83,16 @@ final class WarehouseService
      */
     public function delete(User $user, Warehouse $warehouse): void
     {
-        $warehouse->update(['status' => Warehouse::STATUS_DELETED]);
+        // is_default is cleared along with the status, and it has to be.
+        // The unique index is on (business_id, is_default), so a retired row
+        // left holding `1` would go on blocking a replacement fallback for the
+        // business forever. Clearing it is also the right behaviour: deleting
+        // the fallback retires it, and the next product saved without a
+        // warehouse quietly creates a fresh one.
+        $warehouse->update([
+            'status' => Warehouse::STATUS_DELETED,
+            'is_default' => null,
+        ]);
 
         Log::info('api.management.warehouse_deleted', [
             'user_id' => $user->id,

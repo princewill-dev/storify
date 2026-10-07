@@ -108,6 +108,12 @@ class ProductFormController extends ApiController
 
         $data = $request->validated();
 
+        // A physical product saved without a warehouse is not an error any
+        // more — the service resolves the business's fallback one and files
+        // the product there. Resolved before validation so assignmentError()
+        // still rejects genuinely unusable selections.
+        $data = $this->service->withDefaultWarehouse($user, $data, null, $isDigital);
+
         if ($error = $this->service->assignmentError($user, $data, null, $isDigital)) {
             return $this->error($this->firstError($error), 422, $error);
         }
@@ -130,6 +136,12 @@ class ProductFormController extends ApiController
         $isDigital = $request->has('is_digital') ? $request->boolean('is_digital') : (bool) $product->is_digital;
 
         $data = $this->validatedInput(UpdateProductRequest::class);
+
+        // Same resolution as store(). Clearing the warehouse on an existing
+        // physical product therefore re-files it into the fallback rather
+        // than 422-ing, which keeps "every physical product has a reachable
+        // warehouse" true no matter which way the form is submitted.
+        $data = $this->service->withDefaultWarehouse($user, $data, $product, $isDigital);
 
         if ($error = $this->service->assignmentError($user, $data, $product, $isDigital)) {
             return $this->error($this->firstError($error), 422, $error);

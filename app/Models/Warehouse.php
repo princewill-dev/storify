@@ -33,10 +33,16 @@ class Warehouse extends Model
         'contact_phone',
         'description',
         'status',
+
+        // NULL for an ordinary warehouse, true for the business's fallback.
+        // The column and the unique index that enforces "one per business"
+        // are explained in the migration that adds it; never write `false`.
+        'is_default',
     ];
 
     protected $casts = [
         'status' => WarehouseStatus::class,
+        'is_default' => 'boolean',
     ];
 
     protected static function boot()

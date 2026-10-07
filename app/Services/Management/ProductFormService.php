@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Repositories\Management\ProductRepository;
 use App\Services\Accounting\InventoryCostingService;
 use App\Services\ActivityLogger;
+use App\Services\Management\Warehouse\DefaultWarehouseResolver;
 use App\Services\ProductFileService;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
@@ -47,7 +48,63 @@ use Illuminate\Support\Facades\Storage;
  */
 final class ProductFormService
 {
-    public function __construct(private readonly ProductRepository $repository) {}
+    public function __construct(
+        private readonly ProductRepository $repository,
+        private readonly DefaultWarehouseResolver $defaultWarehouses,
+    ) {}
+
+    /**
+     * Fill in the warehouse (and its section) when the caller chose neither,
+     * so assignmentError() has something concrete to check.
+     *
+     * Kept separate from assignmentError() because that method is a validator
+     * and callers reasonably expect it not to write. Resolving first also
+     * means the rejection itself is untouched: when the resolver declines —
+     * a platform admin with no business, restricted staff — the payload is
+     * returned unchanged and assignmentError() produces the same 422 it always
+     * did.
+     *
+     * array_key_exists, not ??, matches assignmentError(): the SPA posts
+     * warehouse_id as '', which ConvertEmptyStringsToNull turns into an
+     * explicit null key.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    public function withDefaultWarehouse(User $user, array $data, ?Product $product, bool $isDigital): array
+    {
+        if ($isDigital) {
+            return $data;
+        }
+
+        $warehouseId = array_key_exists('warehouse_id', $data) ? $data['warehouse_id'] : $product?->warehouse_id;
+        $sectionId = array_key_exists('section_id', $data) ? $data['section_id'] : $product?->section_id;
+
+        // Something was chosen — by this request or on the product already.
+        // Never override a real choice.
+        if ($warehouseId || $sectionId) {
+            return $data;
+        }
+
+        $warehouse = $this->defaultWarehouses->resolve($user);
+
+        if (! $warehouse) {
+            return $data;
+        }
+
+        $data['warehouse_id'] = $warehouse->id;
+
+        // Only on this path. Setting section_id when the caller picked a
+        // warehouse of their own would trip Product::saving's "warehouse_id
+        // follows section_id" sync and overwrite their choice with the
+        // section's warehouse.
+        $data['section_id'] = $warehouse->sections()
+            ->where('status', '!=', Section::STATUS_DELETED)
+            ->orderBy('id')
+            ->value('id');
+
+        return $data;
+    }
 
     /**
      * @param  array<string, mixed>  $data  the validated create payload

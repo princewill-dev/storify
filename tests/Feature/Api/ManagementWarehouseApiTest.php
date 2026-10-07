@@ -179,7 +179,7 @@ test('a warehouse holding stock cannot be deleted', function () {
     expect($warehouse->fresh()->status)->toBe(WarehouseStatus::ACTIVE);
 });
 
-test('a physical product must be assigned to a warehouse', function () {
+test('a physical product with no warehouse is filed into the business fallback', function () {
     [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
     $warehouse = makeWarehouse($owner);
 
@@ -193,15 +193,27 @@ test('a physical product must be assigned to a warehouse', function () {
 
     $payload = ['name' => 'Widget', 'store_id' => $store->id, 'amount' => 1000, 'quantity' => 5];
 
-    $this->withToken(warehouseToken($owner))
+    // Nothing chosen: the business gets a fallback warehouse rather than a
+    // 422, and the product goes there — not into the warehouse the owner
+    // already had, which they did not pick.
+    $filedInto = $this->withToken(warehouseToken($owner))
         ->postJson('/api/v1/management/products', $payload)
-        ->assertStatus(422)
-        ->assertJsonValidationErrors('warehouse_id');
+        ->assertCreated()
+        ->json('data.product.warehouse_id');
 
+    $fallback = Warehouse::where('business_id', $business->id)->where('is_default', true)->sole();
+
+    expect($filedInto)->toBe($fallback->id)
+        ->and($fallback->id)->not->toBe($warehouse->id)
+        ->and($fallback->name)->toBe($business->name.' warehouse');
+
+    // An explicit choice is still honoured, and does not disturb the fallback.
     $this->withToken(warehouseToken($owner))
         ->postJson('/api/v1/management/products', [...$payload, 'warehouse_id' => $warehouse->id])
         ->assertCreated()
         ->assertJsonPath('data.product.warehouse_id', $warehouse->id);
+
+    expect(Warehouse::where('business_id', $business->id)->count())->toBe(2);
 });
 
 test('a digital product needs no warehouse', function () {
