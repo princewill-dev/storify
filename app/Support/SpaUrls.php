@@ -43,7 +43,7 @@ final class SpaUrls
             return rtrim($configured, '/').self::path($path);
         }
 
-        if (app()->environment('local')) {
+        if (self::isLocalDevelopment()) {
             $port = (int) config('frontend.local_ports.storefront', 5174);
 
             return "http://{$storeSlug}.localhost:{$port}".self::path($path);
@@ -70,7 +70,7 @@ final class SpaUrls
             return rtrim($configured, '/');
         }
 
-        if (app()->environment('local')) {
+        if (self::isLocalDevelopment()) {
             $port = (int) config("frontend.local_ports.{$app}", 5173);
 
             return "http://localhost:{$port}";
@@ -79,6 +79,29 @@ final class SpaUrls
         $domain = (string) config('frontend.main_domain', 'storify.ng');
 
         return $subdomain ? "https://{$subdomain}.{$domain}" : "https://{$domain}";
+    }
+
+    /**
+     * Local development is APP_ENV=local AND a development main domain.
+     *
+     * Both are required deliberately. A server left with APP_ENV=local on a
+     * real domain is a common deployment mistake, and branching on the
+     * environment alone published links pointing at localhost — unreachable for
+     * everyone. Requiring a dev-looking domain means such a server still
+     * produces the correct public URL.
+     */
+    private static function isLocalDevelopment(): bool
+    {
+        if (! app()->environment('local')) {
+            return false;
+        }
+
+        $domain = strtolower((string) config('frontend.main_domain', ''));
+
+        return $domain === ''
+            || str_ends_with($domain, '.test')
+            || str_ends_with($domain, '.local')
+            || str_contains($domain, 'localhost');
     }
 
     private static function path(string $path): string

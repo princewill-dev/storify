@@ -4,6 +4,7 @@ namespace App\Http\Resources\Management\StoreWebMetrics;
 
 use App\Models\Currency;
 use App\Models\Store;
+use App\Support\SpaUrls;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -50,6 +51,6 @@ final class StoreResource extends JsonResource
             return null;
         }
 
-        return 'https://'.$store->slug.'.'.config('app.main_domain', 'storify.ng');
+        return SpaUrls::storefront($store->slug);
     }
 }

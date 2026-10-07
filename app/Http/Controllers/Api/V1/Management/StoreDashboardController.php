@@ -12,6 +12,7 @@ use App\Models\PosSession;
 use App\Models\Product;
 use App\Models\Store;
 use App\Models\Transaction;
+use App\Support\SpaUrls;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -300,6 +301,6 @@ class StoreDashboardController extends ApiController
             return null;
         }
 
-        return 'https://'.$store->slug.'.'.config('app.main_domain', 'storify.ng');
+        return SpaUrls::storefront($store->slug);
     }
 }

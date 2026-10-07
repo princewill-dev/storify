@@ -3,6 +3,7 @@
 namespace App\Http\Resources\Management;
 
 use App\Models\Store;
+use App\Support\SpaUrls;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -78,12 +79,6 @@ final class StoreOnboardingResource extends JsonResource
             return null;
         }
 
-        if (app()->environment('local')) {
-            return url($store->slug);
-        }
-
-        $domain = config('app.main_domain', parse_url((string) config('app.url'), PHP_URL_HOST));
-
-        return 'https://'.$store->slug.'.'.$domain;
+        return SpaUrls::storefront($store->slug);
     }
 }

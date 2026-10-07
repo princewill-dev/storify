@@ -4,6 +4,7 @@ namespace App\Http\Resources\Management;
 
 use App\Models\DeliveryRoute;
 use App\Models\Store;
+use App\Support\SpaUrls;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -61,12 +62,6 @@ final class StorefrontResource extends JsonResource
      */
     public static function urlFor(string $slug): string
     {
-        if (app()->environment('local')) {
-            return url($slug);
-        }
-
-        $domain = config('app.main_domain', parse_url((string) config('app.url'), PHP_URL_HOST));
-
-        return 'https://'.$slug.'.'.$domain;
+        return SpaUrls::storefront($slug);
     }
 }
