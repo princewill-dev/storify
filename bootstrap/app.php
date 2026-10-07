@@ -32,8 +32,14 @@ return Application::configure(basePath: dirname(__DIR__))
 
         // This app is API-only: an unauthenticated request gets a JSON 401 from
         // the auth middleware rather than a redirect to an HTML login page.
-        // The previous closure resolved legacy Blade login route names, which
-        // no longer exist.
+        // The exception is /logs, whose session guard genuinely needs the login
+        // route named `login` — see routes/web.php. Guests are still not
+        // redirected here; the auth middleware's own redirect handles them.
+        //
+        // Signed-in visitors to /login go to the log viewer rather than to
+        // whatever defaultRedirectUri() happens to find first (it looks for
+        // `dashboard`, then `home`, then '/', none of which mean anything here).
+        $middleware->redirectUsersTo(fn () => route('log-viewer.index'));
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //

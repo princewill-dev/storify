@@ -58,12 +58,17 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute(10)->by($request->ip().'|'.(string) $request->input('email'));
         });
 
-        // Configure Log Viewer access - only allow superadmins (if package is installed)
+        // Log Viewer access. The roles come from config so this gate and the
+        // session login that feeds it cannot drift apart — a discrepancy here
+        // would let someone sign in and then be shown nothing, or worse, the
+        // reverse.
         if (class_exists(LogViewer::class)) {
             LogViewer::auth(function ($request) {
                 $user = $request->user('web');
 
-                return $user !== null && ($user->role ?? null) === 'superadmin';
+                return $user !== null
+                    && $user->status === 'active'
+                    && in_array($user->role, config('log-viewer.allowed_roles', ['superadmin']), true);
             });
         }
 

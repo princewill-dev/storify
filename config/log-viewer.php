@@ -41,7 +41,22 @@ return [
     |
     */
 
-    'route_path' => 'log-viewer',
+    'route_path' => 'logs',
+
+    /*
+    |--------------------------------------------------------------------------
+    | Log Viewer Access
+    |--------------------------------------------------------------------------
+    | The roles allowed through the session login at /login, and the only ones
+    | the LogViewer::auth() gate in AppServiceProvider lets in. Both read this
+    | key, so widening access is a one-line change here rather than an edit in
+    | two places that can drift apart.
+    |
+    | Not a package setting — the log viewer has no role concept of its own.
+    |
+    */
+
+    'allowed_roles' => ['superadmin'],
 
     /*
     |--------------------------------------------------------------------------
