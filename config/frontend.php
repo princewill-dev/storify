@@ -26,10 +26,13 @@ return [
     'pos_url' => env('POS_SPA_URL'),
 
     // Used only when the corresponding *_URL above is not set.
+    // One dev server serves both the marketing site and every store, so
+    // 'storefront' and 'home' are deliberately the same port. They were 5174
+    // and 5175 when those were two separate applications.
     'local_ports' => [
         'management' => (int) env('MANAGEMENT_SPA_PORT', 5173),
         'admin' => (int) env('ADMIN_SPA_PORT', 5176),
-        'storefront' => (int) env('STOREFRONT_SPA_PORT', 5174),
+        'storefront' => (int) env('STOREFRONT_SPA_PORT', 5175),
         'home' => (int) env('HOME_SPA_PORT', 5175),
     ],
 
