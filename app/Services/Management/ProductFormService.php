@@ -347,6 +347,9 @@ final class ProductFormService
      */
     private function syncImages(Request $request, Product $product): void
     {
+        /** @var array<int, ProductImage> $created Keyed by position in images[]. */
+        $created = [];
+
         if ($request->hasFile('images')) {
             $hasPrimary = $product->images()->exists();
             $position = ((int) $product->images()->max('position')) + 1;
@@ -355,10 +358,10 @@ final class ProductFormService
             $files = $request->file('images');
             $files = is_array($files) ? $files : [$files];
 
-            foreach ($files as $file) {
+            foreach (array_values($files) as $index => $file) {
                 $path = $file->store('products/images', 'public');
 
-                ProductImage::create([
+                $created[$index] = ProductImage::create([
                     'product_id' => $product->id,
                     'business_id' => $product->business_id,
                     'path' => $path,
@@ -376,6 +379,24 @@ final class ProductFormService
             if ($product->images()->whereKey($primaryId)->exists()) {
                 $product->images()->update(['is_primary' => false]);
                 $product->images()->whereKey($primaryId)->update(['is_primary' => true]);
+            }
+        }
+
+        // Applied after primary_image_id so that, if a client ever sends both,
+        // the newer upload is the one that wins.
+        //
+        // A position rather than an id, because the browser cannot know the id
+        // of an image it is uploading in this very request. Without this, a
+        // better photo added to an existing product could not become the
+        // thumbnail until the user saved, reopened the form, and promoted the
+        // now-saved image — promoting the first upload instead, since the loop
+        // above already gave it the flag.
+        if ($request->filled('primary_new_image_index')) {
+            $target = $created[$request->integer('primary_new_image_index')] ?? null;
+
+            if ($target) {
+                $product->images()->update(['is_primary' => false]);
+                $target->update(['is_primary' => true]);
             }
         }
     }

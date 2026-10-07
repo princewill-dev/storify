@@ -171,6 +171,85 @@ test('the first uploaded image becomes the primary one', function () {
     Storage::disk('public')->assertExists($product->images()->first()->path);
 });
 
+test('a chosen upload becomes the primary image, not the first one in the payload', function () {
+    Storage::fake('public');
+
+    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    $store = ws14Store($owner);
+    $warehouse = ws14Warehouse($owner);
+
+    $response = $this->withToken(ws14Token($owner))->post('/api/v1/management/products', [
+        'name' => 'Chosen Thumbnail',
+        'store_id' => (string) $store->id,
+        'warehouse_id' => (string) $warehouse->id,
+        'amount' => '1000',
+        'quantity' => '4',
+        'primary_new_image_index' => '1',
+        'images' => [
+            UploadedFile::fake()->image('front.jpg'),
+            UploadedFile::fake()->image('back.jpg'),
+        ],
+    ]);
+
+    $response->assertCreated();
+
+    // The loop elects the first upload as primary before the explicit choice is
+    // applied; the explicit choice has to win.
+    expect($response->json('data.product.images.0.is_primary'))->toBeFalse();
+    expect($response->json('data.product.images.1.is_primary'))->toBeTrue();
+
+    $product = Product::where('name', 'Chosen Thumbnail')->firstOrFail();
+
+    expect($product->images()->where('is_primary', true)->count())->toBe(1)
+        ->and($product->images()->orderBy('position')->first()->is_primary)->toBeFalse();
+});
+
+test('a new upload can take the thumbnail from an image the product already had', function () {
+    Storage::fake('public');
+
+    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    $store = ws14Store($owner);
+    $warehouse = ws14Warehouse($owner);
+
+    $this->withToken(ws14Token($owner))->post('/api/v1/management/products', [
+        'name' => 'Replaced Thumbnail',
+        'store_id' => (string) $store->id,
+        'warehouse_id' => (string) $warehouse->id,
+        'amount' => '1000',
+        'quantity' => '4',
+        'images' => [UploadedFile::fake()->image('old.jpg')],
+    ])->assertCreated();
+
+    $product = Product::where('name', 'Replaced Thumbnail')->firstOrFail();
+    $original = $product->images()->where('is_primary', true)->sole();
+
+    // Multipart update: PHP does not populate $_FILES on a real PUT, so the
+    // SPA posts with _method=PUT and so does this.
+    $response = $this->withToken(ws14Token($owner))->post('/api/v1/management/products/'.$product->product_code, [
+        '_method' => 'PUT',
+        'primary_new_image_index' => '1',
+        'images' => [
+            UploadedFile::fake()->image('better-a.jpg'),
+            UploadedFile::fake()->image('better-b.jpg'),
+        ],
+    ]);
+
+    $response->assertOk();
+
+    $product->refresh();
+
+    $ordered = $product->images()->orderBy('position')->orderBy('id')->get();
+
+    expect($ordered)->toHaveCount(3)
+        // The original, and the first of the two new uploads, are both out.
+        ->and($ordered->first()->is_primary)->toBeFalse()
+        ->and($ordered->get(1)->is_primary)->toBeFalse()
+        // The chosen one is the second upload in the payload, which is written
+        // last and so holds the highest position.
+        ->and($ordered->last()->is_primary)->toBeTrue()
+        ->and($original->fresh()->is_primary)->toBeFalse();
+});
+
 test('a product needs a store the caller can reach and a warehouse for physical stock', function () {
     [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
     [$otherOwner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);

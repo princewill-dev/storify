@@ -68,6 +68,12 @@ trait ProductRules
             'delete_file_ids' => ['sometimes', 'array'],
             'delete_file_ids.*' => ['integer'],
             'primary_image_id' => ['nullable', 'integer'],
+
+            // The position, within this request's images[] payload, of a new
+            // upload to make the thumbnail. An index rather than an id because
+            // the browser cannot know the id of a file it has just queued for
+            // upload — see ProductFormService::syncImages().
+            'primary_new_image_index' => ['nullable', 'integer', 'min:0'],
         ];
 
         if ($hasVariants) {
