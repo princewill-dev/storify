@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\V1\Storefront\CatalogController;
 use App\Http\Controllers\Api\V1\Storefront\CheckoutController;
 use App\Http\Controllers\Api\V1\Storefront\DownloadController;
 use App\Http\Controllers\Api\V1\Storefront\SupportController;
+use App\Http\Controllers\Api\V1\Storefront\TrackingController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -30,6 +31,12 @@ Route::middleware(['auth:sanctum_customer', 'token.audience:customer'])
 // Public storefront
 Route::prefix('storefront/{store}')->name('api.storefront.')->group(function () {
     Route::get('home', [CatalogController::class, 'home'])->name('home');
+
+    // Plugin tags this storefront should run. Public because its two callers
+    // have no session: the storefront SPA, and the Cloudflare Worker that
+    // rewrites the raw HTML head so verification meta tags are visible to
+    // crawlers that do not run JavaScript. Cached at the edge per store.
+    Route::get('tracking', [TrackingController::class, 'show'])->name('tracking');
     Route::get('products', [CatalogController::class, 'products'])->name('products.index');
     Route::get('products/{slugOrCode}', [CatalogController::class, 'show'])->name('products.show');
     Route::get('services', [CatalogController::class, 'services'])->name('services.index');

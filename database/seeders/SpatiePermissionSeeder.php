@@ -23,7 +23,12 @@ class SpatiePermissionSeeder extends Seeder
         'transactions' => ['view', 'confirm', 'reject', 'refund', 'export'],
         'invoices' => ['view', 'create', 'edit', 'delete', 'send'],
         'reports' => ['view_sales', 'view_inventory', 'view_staff', 'view_finance', 'export'],
-        'settings' => ['view', 'edit', 'payment', 'subscription'],
+        // `plugins` covers the third-party marketing/analytics integrations
+        // (WS-38). Business owners hold Super Admin, which syncs every
+        // permission, so they get it without a role-map change; no limited role
+        // is granted it by default, because pasting a tracking ID into a live
+        // storefront is an owner-level decision.
+        'settings' => ['view', 'edit', 'payment', 'subscription', 'plugins'],
         'deliveries' => ['view', 'update_status', 'manage_routes'],
         'support' => ['view_tickets', 'reply', 'close'],
         'coupons' => ['view', 'create', 'edit', 'delete'],
