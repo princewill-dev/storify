@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Pos;
 
 use App\Models\Store;
+use App\Services\Payments\PaymentGatewayResolver;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -18,6 +19,17 @@ final class PosCheckoutRequest extends FormRequest
         /** @var Store $store */
         $store = $this->route('store');
 
+        // Whatever this store actually accepts, plus cash, rather than a fixed
+        // list. The old `['cash','paystack','transfer']` rejected every provider
+        // a business connected beyond the one built in — and `transfer` is not
+        // even a catalogue code, it is the POS's older name for `bank_transfer`.
+        $allowedMethods = array_values(array_unique(array_merge(
+            ['cash'],
+            array_keys(app(PaymentGatewayResolver::class)->forStore($store)),
+            // Tills in the field still send this; they do not all update at once.
+            ['transfer'],
+        )));
+
         return [
             'idempotency_key' => ['nullable', 'string', 'max:100'],
             'items' => ['required', 'array', 'min:1'],
@@ -28,7 +40,7 @@ final class PosCheckoutRequest extends FormRequest
                     ->where('business_id', $store->business_id)),
             ],
             'items.*.quantity' => ['required', 'integer', 'min:1'],
-            'payment_method' => ['required_without:payments', 'nullable', Rule::in(['cash', 'paystack', 'transfer'])],
+            'payment_method' => ['required_without:payments', 'nullable', Rule::in($allowedMethods)],
             'amount_tendered' => ['nullable', 'integer', 'min:0'],
             'paystack_reference' => ['nullable', 'string'],
             'bank_account_id' => [
@@ -36,7 +48,7 @@ final class PosCheckoutRequest extends FormRequest
                 Rule::exists('store_banks', 'id')->where('business_id', $store->business_id),
             ],
             'payments' => ['required_without:payment_method', 'nullable', 'array', 'min:1'],
-            'payments.*.method' => ['required', Rule::in(['cash', 'paystack', 'transfer'])],
+            'payments.*.method' => ['required', Rule::in($allowedMethods)],
             'payments.*.amount' => ['required', 'numeric', 'min:0.01'],
             'payments.*.amount_tendered' => ['nullable', 'integer', 'min:0'],
             'payments.*.paystack_reference' => ['nullable', 'string'],

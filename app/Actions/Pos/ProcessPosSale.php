@@ -229,25 +229,48 @@ final class ProcessPosSale
         return $customer;
     }
 
+    /**
+     * `transfer` is the POS client's older name for what the catalogue calls
+     * `bank_transfer`. Kept as an alias because tills in the field still send
+     * it, and they are not all updated at once.
+     */
+    private function normalizeMethod(string $method): string
+    {
+        return $method === 'transfer' ? 'bank_transfer' : $method;
+    }
+
     private function recordPayments(Order $order, Store $store, array $payments): void
     {
+        // Look up whatever the till sent rather than a fixed pair, so a provider
+        // a business connects actually records against its own method. The
+        // hard-coded `['paystack', 'bank_transfer']` meant a new gateway's sales
+        // were written with a null payment_method_id — recorded, but
+        // unattributable.
+        $codes = collect($payments)
+            ->map(fn (array $payment): string => $this->normalizeMethod((string) $payment['method']))
+            ->push('bank_transfer')
+            ->unique()
+            ->values()
+            ->all();
+
         $paymentMethods = PaymentMethod::query()
-            ->whereIn('code', ['paystack', 'bank_transfer'])
+            ->whereIn('code', $codes)
             ->get()
             ->keyBy('code');
 
         foreach ($payments as $payment) {
-            $method = $payment['method'];
+            $method = (string) $payment['method'];
+            $code = $this->normalizeMethod($method);
             $reference = 'TXN-POS-'.Str::upper(Str::random(10));
-            $paymentMethodId = null;
+            $paymentMethodId = $paymentMethods->get($code)?->id;
             $storeBankId = null;
 
-            if ($method === 'paystack') {
-                $paymentMethodId = $paymentMethods->get('paystack')?->id;
-                $reference = $payment['paystack_reference'] ?? $reference;
-            } elseif ($method === 'transfer') {
-                $paymentMethodId = $paymentMethods->get('bank_transfer')?->id;
+            if ($code === 'bank_transfer') {
                 $storeBankId = $payment['bank_account_id'];
+            }
+
+            if (! empty($payment['paystack_reference'])) {
+                $reference = $payment['paystack_reference'];
             }
 
             $transaction = Transaction::create([

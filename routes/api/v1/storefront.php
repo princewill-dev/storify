@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\V1\Storefront\CheckoutController;
 use App\Http\Controllers\Api\V1\Storefront\DownloadController;
 use App\Http\Controllers\Api\V1\Storefront\SupportController;
 use App\Http\Controllers\Api\V1\Storefront\TrackingController;
+use App\Support\Payments\PaymentGatewayRegistry;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -53,6 +54,24 @@ Route::prefix('storefront/{store}')->name('api.storefront.')->group(function () 
     Route::delete('cart', [CartController::class, 'clear'])->name('cart.clear');
 
     Route::post('checkout', [CheckoutController::class, 'place'])->name('checkout.place');
+    // Generic provider endpoints. The provider is a path segment rather than
+    // one route per gateway, so adding a provider is a driver and a registry
+    // entry and nothing here.
+    //
+    // {provider} is constrained to known registry keys at the route, so an
+    // unknown one 404s before reaching a controller rather than being passed
+    // into a lookup.
+    Route::post('payments/{provider}/initialize', [CheckoutController::class, 'initializePayment'])
+        ->whereIn('provider', PaymentGatewayRegistry::keys())
+        ->middleware('throttle:20,1')
+        ->name('payments.initialize');
+
+    Route::post('payments/{provider}/verify', [CheckoutController::class, 'verifyPayment'])
+        ->whereIn('provider', PaymentGatewayRegistry::keys())
+        ->name('payments.verify');
+
+    // Kept so the already-deployed storefront keeps working through the
+    // rollout — the same handlers with the provider fixed.
     Route::post('payments/paystack/initialize', [CheckoutController::class, 'paystackInitialize'])->name('payments.paystack.initialize');
     Route::post('payments/paystack/verify', [CheckoutController::class, 'paystackVerify'])->name('payments.paystack.verify');
     Route::post('payments/bank-transfer', [CheckoutController::class, 'bankTransfer'])->name('payments.bank-transfer');

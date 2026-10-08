@@ -353,6 +353,19 @@ class PaymentSettingsController extends ApiController
      * dead UI; the guardrails are still worth keeping — they are what stops a
      * store offering a method it cannot actually take.
      */
+    /**
+     * @deprecated Descriptive only. `payment_mode` labels a store as card-first
+     *             or transfer-first, but it has never decided what the
+     *             storefront offers — that has always come from the store's
+     *             assigned methods, and now comes from PaymentGatewayResolver.
+     *
+     *             Left in place, writing and reading, so the store screens that
+     *             display it keep working. Deliberately NOT reimplemented as a
+     *             shim that flips the store's provider rows: switching a store
+     *             to "manual" would then silently disable a Paystack assignment
+     *             the business made on purpose. Scheduled for removal once
+     *             nothing reads it.
+     */
     public function togglePaymentMode(TogglePaymentModeRequest $request, Store $store): JsonResponse
     {
         $user = $this->user($request);

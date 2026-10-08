@@ -110,7 +110,14 @@ class CheckoutController extends ApiController
         ], 'Order placed. Proceed to payment.', 201);
     }
 
-    public function paystackInitialize(InitializePaymentRequest $request, string $store): JsonResponse
+    /**
+     * Start a payment through whichever provider the store offers.
+     *
+     * `paystackInitialize` is kept as an alias below so the already-deployed
+     * storefront keeps working while the new path rolls out; the provider is
+     * "paystack" for that route by definition.
+     */
+    public function initializePayment(InitializePaymentRequest $request, string $store, string $provider): JsonResponse
     {
         $store = $this->resolveStore($store);
 
@@ -130,7 +137,7 @@ class CheckoutController extends ApiController
             return $this->error('Invalid payment amount.', 422);
         }
 
-        $outcome = $this->payments->initialize($store, $order, $amount, $data);
+        $outcome = $this->payments->initialize($store, $order, $amount, $data, $provider);
 
         if ($outcome->unexpectedFailure) {
             return $this->error('Unable to initialize payment.', 500);
@@ -141,13 +148,23 @@ class CheckoutController extends ApiController
         }
 
         return $this->ok([
+            // The client branches on this rather than recognising provider
+            // names: `redirect` means send the customer to the URL, `offline`
+            // means render the instructions below.
+            'mode' => $outcome->mode,
             'authorization_url' => $outcome->authorizationUrl,
+            'instructions' => $outcome->instructions,
             'reference' => $outcome->reference,
             'amount' => $outcome->amount,
-        ], 'Payment initialized.');
+        ], $outcome->mode === 'offline' ? 'Follow the instructions to pay.' : 'Payment initialized.');
     }
 
-    public function paystackVerify(VerifyPaymentRequest $request, string $store): JsonResponse
+    public function paystackInitialize(InitializePaymentRequest $request, string $store): JsonResponse
+    {
+        return $this->initializePayment($request, $store, 'paystack');
+    }
+
+    public function verifyPayment(VerifyPaymentRequest $request, string $store, string $provider): JsonResponse
     {
         $store = $this->resolveStore($store);
 
@@ -155,7 +172,7 @@ class CheckoutController extends ApiController
 
         $transaction = $this->repository->findTransactionByReference($store, $data['reference']);
 
-        $outcome = $this->payments->verify($store, $transaction, $data['reference']);
+        $outcome = $this->payments->verify($store, $transaction, $data['reference'], $provider);
 
         if (! $outcome->verified) {
             return $this->error($outcome->message ?? 'Payment could not be verified.', 402);
@@ -168,6 +185,11 @@ class CheckoutController extends ApiController
             'fully_paid' => $order->isFullyPaid(),
             'downloads' => $this->downloadsPayload($request, $order),
         ], $order->isFullyPaid() ? 'Payment successful.' : 'Partial payment received.');
+    }
+
+    public function paystackVerify(VerifyPaymentRequest $request, string $store): JsonResponse
+    {
+        return $this->verifyPayment($request, $store, 'paystack');
     }
 
     public function bankTransfer(BankTransferRequest $request, string $store): JsonResponse

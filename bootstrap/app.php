@@ -18,7 +18,11 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware) {
         $middleware->validateCsrfTokens(except: [
-            'webhooks/paystack',
+            // Provider webhooks: they carry a signed body, not a session, so a
+            // CSRF token is both impossible and meaningless. The wildcard
+            // covers every provider's generic endpoint — without it each new
+            // gateway would 419 until someone remembered to add its path.
+            'webhooks/*',
             'payment/paystack/webhook',
         ]);
 

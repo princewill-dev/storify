@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\V1\Pos\CheckoutController;
 use App\Http\Controllers\Api\V1\Pos\CustomerController;
 use App\Http\Controllers\Api\V1\Pos\InvoiceController as PosInvoiceController;
 use App\Http\Controllers\Api\V1\Pos\OrderController;
+use App\Http\Controllers\Api\V1\Pos\PaymentMethodController;
 use App\Http\Controllers\Api\V1\Pos\ProductController;
 use App\Http\Controllers\Api\V1\Pos\ServiceChargeController;
 use App\Http\Controllers\Api\V1\Pos\SessionController;
@@ -34,6 +35,10 @@ Route::prefix('pos')->group(function () {
             Route::get('/products', [ProductController::class, 'search']);
 
             Route::get('/banks', [BankController::class, 'index']);
+
+            // The options this till may take. Resolved from the store's own
+            // configuration so the POS and the storefront cannot disagree.
+            Route::get('/payment-methods', [PaymentMethodController::class, 'index']);
 
             Route::get('/service-charges', [ServiceChargeController::class, 'index']);
 

@@ -10,6 +10,7 @@ use App\Models\Invoice;
 use App\Models\PaymentMethod;
 use App\Models\Transaction;
 use App\Services\Accounting\LedgerPostingService;
+use App\Services\Payments\PaymentGatewayResolver;
 use App\Services\PaystackService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -24,8 +25,10 @@ class InvoicePaymentController extends Controller
 {
     protected PaystackService $paystack;
 
-    public function __construct(PaystackService $paystackService)
-    {
+    public function __construct(
+        PaystackService $paystackService,
+        protected readonly PaymentGatewayResolver $gateways,
+    ) {
         $this->paystack = $paystackService;
     }
 
@@ -68,12 +71,20 @@ class InvoicePaymentController extends Controller
             $email = config('mail.from.address', 'no-reply@storify.test');
         }
 
+        // Same defect the storefront checkout had: `$gateway->pivot->api_keys`
+        // is a column that has never existed, so this branch always ran false
+        // and the invoice was charged through the platform's Paystack account.
         $store = $invoice->store;
-        if ($store && $store->paymentMethods()->where('code', 'paystack')->wherePivot('is_active', true)->exists()) {
-            $gateway = $store->paymentMethods()->where('code', 'paystack')->first();
-            $keys = $gateway?->pivot?->api_keys ?? [];
-            if (! empty($keys['secret_key'])) {
-                $this->paystack->usingGateway((object) ['secret_key' => $keys['secret_key'], 'public_key' => $keys['public_key'] ?? '']);
+
+        if ($store) {
+            $connection = $this->gateways->connection((int) $store->business_id, 'paystack', (int) $store->id);
+            $secret = $connection?->isEnabled ? $connection->credentials->get('secret_key') : null;
+
+            if ($secret !== null && $secret !== '') {
+                $this->paystack->usingGateway((object) [
+                    'secret_key' => $secret,
+                    'public_key' => $connection->credentials->get('public_key', '') ?? '',
+                ]);
             }
         }
 

@@ -3,6 +3,7 @@
 namespace App\Http\Resources\Storefront;
 
 use App\Models\PaymentMethod;
+use App\Support\Payments\PaymentGatewayRegistry;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -30,6 +31,12 @@ final class CheckoutPaymentMethodResource extends JsonResource
             'code' => $method->code,
             'type' => $method->type,
             'description' => $method->description,
+            // How the customer finishes paying: `redirect` to a hosted
+            // checkout, or `offline` for instructions. The storefront branches
+            // on this instead of recognising provider names — it previously
+            // treated any gateway as Paystack and sent everything else to the
+            // bank-transfer page, which is why a second gateway could not work.
+            'mode' => PaymentGatewayRegistry::checkoutModeFor((string) $method->code),
         ];
     }
 }

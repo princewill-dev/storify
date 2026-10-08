@@ -118,6 +118,18 @@ class Store extends Model
         return $this->belongsTo(BusinessType::class);
     }
 
+    /**
+     * The currency this store prices in.
+     *
+     * Resolved as a relation because payment-gateway availability depends on
+     * it: a provider that settles in USD cannot serve a store charging NGN, and
+     * the resolver filters on this rather than special-casing any provider.
+     */
+    public function currency(): BelongsTo
+    {
+        return $this->belongsTo(Currency::class);
+    }
+
     public function banks(): HasMany
     {
         return $this->hasMany(StoreBank::class, 'business_id', 'business_id');

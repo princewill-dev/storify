@@ -8,6 +8,7 @@ use App\Models\PaymentMethod;
 use App\Models\Store;
 use App\Models\StoreBank;
 use App\Models\Transaction;
+use App\Services\Payments\PaymentGatewayResolver;
 use Illuminate\Database\Eloquent\Collection;
 
 /**
@@ -29,19 +30,38 @@ use Illuminate\Database\Eloquent\Collection;
  */
 final class CheckoutRepository
 {
+    public function __construct(
+        private readonly PaymentGatewayResolver $gateways,
+    ) {}
+
     /**
-     * The storefront's payment options: the store's own active methods, or —
-     * when it has none — the platform-wide active set. The fallback is the
-     * legacy display rule: an unconfigured store still shows every method the
-     * platform accepts.
+     * The payment options this storefront offers.
+     *
+     * This used to fall back to **every platform-active method** when a store
+     * had no assignment of its own. That was dangerous, not merely untidy: an
+     * unconfigured store would be shown a gateway its business had never
+     * connected, and because the key lookup was independently broken, the
+     * customer's money went through the *platform's* account. An unconfigured
+     * store must offer nothing, never someone else's gateway.
+     *
+     * The resolver answers the question properly — the store's own override,
+     * else its business's default, else nothing — and also enforces the
+     * currency match and credential completeness that the old query ignored.
      *
      * @return Collection<int, PaymentMethod>
      */
     public function paymentMethodsFor(Store $store): Collection
     {
-        $methods = $store->paymentMethods()->wherePivot('is_active', true)->get();
+        $usable = $this->gateways->forStore($store);
 
-        return $methods->isEmpty() ? PaymentMethod::active()->get() : $methods;
+        if ($usable === []) {
+            return new Collection;
+        }
+
+        return PaymentMethod::query()
+            ->whereIn('code', array_keys($usable))
+            ->orderBy('id')
+            ->get();
     }
 
     /**
@@ -83,16 +103,6 @@ final class CheckoutRepository
             ->where('reference', $reference)
             ->whereHas('order', fn ($q) => $q->where('store_id', $store->id))
             ->firstOrFail();
-    }
-
-    /**
-     * The gateway row the store's Paystack credentials live on. The pivot
-     * carries the per-store key pair when the schema has the column; callers
-     * fall back to the platform keys when it does not.
-     */
-    public function paystackGatewayFor(Store $store): ?PaymentMethod
-    {
-        return $store->paymentMethods()->where('code', 'paystack')->first();
     }
 
     /**
