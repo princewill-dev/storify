@@ -51,6 +51,10 @@ final class PosCheckoutRequest extends FormRequest
             'payments.*.method' => ['required', Rule::in($allowedMethods)],
             'payments.*.amount' => ['required', 'numeric', 'min:0.01'],
             'payments.*.amount_tendered' => ['nullable', 'integer', 'min:0'],
+            // The reference a hosted checkout issued for this leg, checked
+            // against the provider before the sale is written. `paystack_reference`
+            // is the older, provider-specific name and still accepted.
+            'payments.*.reference' => ['nullable', 'string', 'max:255'],
             'payments.*.paystack_reference' => ['nullable', 'string'],
             'payments.*.bank_account_id' => [
                 'nullable',

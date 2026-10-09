@@ -9,16 +9,15 @@ use App\Models\OrderItem;
 use App\Models\PaymentMethod;
 use App\Models\PosSession;
 use App\Models\Product;
-use App\Models\ServiceCharge;
 use App\Models\StockLocation;
 use App\Models\Store;
 use App\Models\StoreBank;
 use App\Models\Transaction;
 use App\Models\User;
-use App\Models\Vat;
 use App\Services\Accounting\InventoryCostingService;
 use App\Services\Accounting\LedgerPostingService;
 use App\Services\StockLedgerService;
+use App\Support\Payments\PaymentGatewayRegistry;
 use DomainException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -28,6 +27,7 @@ final class ProcessPosSale
     public function __construct(
         private readonly StockLedgerService $stockLedger,
         private readonly InventoryCostingService $costing,
+        private readonly PricePosSale $pricer,
     ) {}
 
     public function execute(Store $store, User $staff, PosSession $session, array $data): PosSaleResult
@@ -48,66 +48,50 @@ final class ProcessPosSale
                 }
             }
 
-            $items = collect($data['items'])
-                ->groupBy('product_id')
-                ->map(fn ($lines, $productId) => [
-                    'product_id' => (int) $productId,
-                    'quantity' => (int) $lines->sum('quantity'),
-                ])
-                ->values();
+            // Pricing lives in PricePosSale: the till's payment-initialize
+            // endpoint quotes the same basket through the same arithmetic, so
+            // the figure charged to a card and the figure the order is written
+            // for cannot disagree. `lock: true` because this call is about to
+            // de-stock the very rows it prices.
+            $quote = $this->pricer->execute(
+                $lockedStore,
+                $data['items'],
+                $data['service_charge_id'] ?? null,
+                lock: true,
+            );
 
-            $products = Product::query()
-                ->where('store_id', $lockedStore->id)
-                ->where('business_id', $lockedStore->business_id)
-                ->whereIn('id', $items->pluck('product_id'))
-                ->lockForUpdate()
-                ->get()
-                ->keyBy('id');
+            $subtotal = $quote->subtotal;
+            $tax = $quote->tax;
+            $serviceCharge = $quote->serviceCharge;
+            $serviceChargeAmount = $quote->serviceChargeAmount;
+            $total = $quote->total;
 
-            if ($products->count() !== $items->count()) {
-                throw new DomainException('One or more products are unavailable in this store.');
-            }
-
-            $subtotal = 0.0;
-            $tax = 0.0;
             $orderItems = [];
+            $items = collect();
+            $products = collect();
 
-            $vatPercentage = (float) (Vat::active()->orderByDesc('effective_at')->orderByDesc('id')->first()?->percentage ?? 0);
-
-            foreach ($items as $item) {
-                $product = $products->get($item['product_id']);
-                $price = (float) $product->amount;
-                $itemTotal = $price * $item['quantity'];
-                $subtotal += $itemTotal;
-
-                $lineTax = 0.0;
-                if ($vatPercentage > 0 && $product->is_taxable) {
-                    $lineTax = round($itemTotal * $vatPercentage / 100, 2);
-                    $tax += $lineTax;
-                }
-
-                $costKobo = $this->costing->costForSale($product, $item['quantity']);
+            foreach ($quote->lines as $line) {
+                $product = $line['product'];
+                $costKobo = $this->costing->costForSale($product, $line['quantity']);
 
                 $orderItems[] = new OrderItem([
                     'product_id' => $product->id,
                     'product_name' => $product->name,
-                    'unit_price' => $price,
-                    'quantity' => $item['quantity'],
-                    'subtotal' => $itemTotal,
-                    'tax_rate' => $product->is_taxable ? $vatPercentage : 0,
-                    'tax_amount' => $lineTax,
+                    'unit_price' => $line['unit_price'],
+                    'quantity' => $line['quantity'],
+                    'subtotal' => $line['subtotal'],
+                    'tax_rate' => $line['tax_rate'],
+                    'tax_amount' => $line['tax_amount'],
                     'cost_kobo' => $costKobo > 0 ? $costKobo : null,
                 ]);
+
+                // removeStock() works off these two, and both must be the rows
+                // the pricer already locked — re-querying would take a second,
+                // unlocked read of stock it is about to decrement.
+                $items->push(['product_id' => $product->id, 'quantity' => $line['quantity']]);
+                $products->put($product->id, $product);
             }
 
-            $serviceCharge = ! empty($data['service_charge_id'])
-                ? ServiceCharge::query()
-                    ->where('store_id', $lockedStore->id)
-                    ->where('is_active', true)
-                    ->find($data['service_charge_id'])
-                : null;
-            $serviceChargeAmount = (float) ($serviceCharge?->amount ?? 0);
-            $total = round($subtotal + $serviceChargeAmount + $tax, 2);
             $payments = $this->normalizePayments($data, $total);
 
             $paymentsSum = collect($payments)->sum(fn (array $payment) => (float) $payment['amount']);
@@ -239,6 +223,22 @@ final class ProcessPosSale
         return $method === 'transfer' ? 'bank_transfer' : $method;
     }
 
+    /**
+     * Whether this method is settled by a provider's hosted checkout, and so
+     * owes the till a reference proving the money moved.
+     *
+     * Asked of the catalogue rather than matched against a list of names: this
+     * is the same `checkoutModeFor` rule the till uses to decide whether to
+     * open a provider at all, and the same one `PaymentMethodController` puts
+     * on the wire, so the three cannot drift. `bank_transfer` is `offline` — a
+     * person confirms it — and cash is not a provider at all.
+     */
+    private function isGatewayMethod(string $code): bool
+    {
+        return PaymentGatewayRegistry::has($code)
+            && PaymentGatewayRegistry::checkoutModeFor($code) === 'redirect';
+    }
+
     private function recordPayments(Order $order, Store $store, array $payments): void
     {
         // Look up whatever the till sent rather than a fixed pair, so a provider
@@ -269,8 +269,30 @@ final class ProcessPosSale
                 $storeBankId = $payment['bank_account_id'];
             }
 
-            if (! empty($payment['paystack_reference'])) {
-                $reference = $payment['paystack_reference'];
+            $providedReference = $payment['reference'] ?? $payment['paystack_reference'] ?? null;
+
+            // A gateway leg is only ever settled by money the provider actually
+            // collected. Before this guard a `paystack` leg was written exactly
+            // like cash — a confirmed transaction and a credited balance for a
+            // charge that was never made, so the till printed a receipt for
+            // money it had not taken. `PosPaymentService` verifies the reference
+            // with the provider before this action is reached; this is the
+            // backstop that makes an unverified one impossible to write, not
+            // merely unlikely.
+            if ($this->isGatewayMethod($code)) {
+                if (empty($providedReference)) {
+                    throw new DomainException(
+                        ($paymentMethods->get($code)?->name ?? ucfirst($code)).' payment has not been completed.'
+                    );
+                }
+
+                if (Transaction::query()->where('reference', $providedReference)->exists()) {
+                    throw new DomainException('That payment reference has already been recorded.');
+                }
+            }
+
+            if (! empty($providedReference)) {
+                $reference = $providedReference;
             }
 
             $transaction = Transaction::create([

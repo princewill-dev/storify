@@ -33,5 +33,17 @@ Route::post('/logout', [SuperadminSessionController::class, 'destroy'])
     ->middleware('auth')
     ->name('logout');
 
+/*
+| Where a provider sends the browser back after the customer pays at a till.
+|
+| The POS app cannot be the landing page: it is a hash-routed single-page app on
+| another host, so loading it here would boot a second till inside the payment
+| window and have it try to sign in. This is a page that says the payment went
+| through and closes itself. The till does not depend on it — it asks the
+| provider directly — so nothing breaks if a customer lingers on it or blocks
+| the popup entirely.
+*/
+Route::view('/pos/payment-callback', 'pos.payment-callback');
+
 require __DIR__.'/v1/home.php';
 require __DIR__.'/v1/storefront.php';

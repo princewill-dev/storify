@@ -55,7 +55,7 @@ final class PaymentGatewayRegistry
     {
         return [
             'bank_transfer' => [
-                'name' => 'Manual bank transfer',
+                'name' => 'Bank transfer',
                 'description' => 'Customers transfer to your bank account and upload proof. You confirm each payment yourself.',
                 'icon' => 'fi fi-rr-bank',
                 'docs_url' => '',

@@ -12,6 +12,7 @@ use App\Models\JournalLine;
 use App\Models\Order;
 use App\Models\Payment;
 use App\Models\Transaction;
+use App\Support\Payments\PaymentGatewayRegistry;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -674,18 +675,43 @@ class LedgerPostingService
         ];
     }
 
+    /**
+     * Which asset account a payment leg debited.
+     *
+     * Asked of the catalogue rather than matched against names. Paystack used
+     * to be named literally here, so a Flutterwave, Korapay, Squad, Monnify or
+     * Bitfra sale fell through to `cash` — a gateway's takings booked into the
+     * drawer account, which is both wrong and invisible, since the drawer then
+     * appears to hold money the till never had.
+     *
+     * Every provider with a hosted checkout clears through the one gateway
+     * account; manual bank transfer settles into a bank; anything else is cash.
+     * Removing a provider from the catalogue, or adding one, now needs no
+     * change here.
+     */
     private function paymentAssetKey(Transaction $transaction): string
     {
-        $legMethod = $transaction->metadata['leg_method'] ?? null;
+        $legMethod = (string) ($transaction->metadata['leg_method'] ?? '');
         $code = $transaction->paymentMethod?->code;
 
-        return match (true) {
-            in_array($legMethod, ['transfer', 'bank_transfer'], true),
-            $code === 'bank_transfer' => 'bank',
-            in_array($legMethod, ['paystack', 'card', 'gateway'], true),
-            $code === 'paystack' => 'gateway_clearing',
-            default => 'cash',
-        };
+        foreach (array_filter([$legMethod, $code]) as $method) {
+            if ($method === 'transfer' || $method === 'bank_transfer') {
+                return 'bank';
+            }
+
+            if (PaymentGatewayRegistry::has($method)
+                && PaymentGatewayRegistry::checkoutModeFor($method) === 'redirect') {
+                return 'gateway_clearing';
+            }
+        }
+
+        // `card` and `gateway` are the POS client's older, provider-less names
+        // for the same thing; tills in the field still send them.
+        if (in_array($legMethod, ['card', 'gateway'], true) || in_array($code, ['card', 'gateway'], true)) {
+            return 'gateway_clearing';
+        }
+
+        return 'cash';
     }
 
     /**

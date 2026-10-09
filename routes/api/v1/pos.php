@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\V1\Pos\CheckoutController;
 use App\Http\Controllers\Api\V1\Pos\CustomerController;
 use App\Http\Controllers\Api\V1\Pos\InvoiceController as PosInvoiceController;
 use App\Http\Controllers\Api\V1\Pos\OrderController;
+use App\Http\Controllers\Api\V1\Pos\PaymentController;
 use App\Http\Controllers\Api\V1\Pos\PaymentMethodController;
 use App\Http\Controllers\Api\V1\Pos\ProductController;
 use App\Http\Controllers\Api\V1\Pos\ServiceChargeController;
@@ -41,6 +42,12 @@ Route::prefix('pos')->group(function () {
             Route::get('/payment-methods', [PaymentMethodController::class, 'index']);
 
             Route::get('/service-charges', [ServiceChargeController::class, 'index']);
+
+            // Opening a provider's checkout, and asking it whether the customer
+            // has paid yet. Neither writes anything — the sale is only written
+            // once `/checkout` has re-asked the provider itself.
+            Route::post('/payments/initialize', [PaymentController::class, 'initialize']);
+            Route::post('/payments/status', [PaymentController::class, 'status']);
 
             Route::post('/checkout', CheckoutController::class);
             Route::get('/orders', [OrderController::class, 'history']);
