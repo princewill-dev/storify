@@ -319,6 +319,94 @@ test('a webhook posted to a store URL settles that store order', function () {
         ->and((float) $order->fresh()->amount_paid)->toBe(2500.0);
 });
 
+test('a webhook reporting less than the recorded charge is refused', function () {
+    // Settlement compares nothing by default: it confirms on the provider's
+    // word and credits our own recorded amount. That is survivable while a
+    // provider is confined to stores that price in its currency, and it is not
+    // once a USD-quoted charge sits in front of a naira store. Where a charge
+    // was recorded, it is a floor.
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    wh39Connect($business, 'paystack', wh39Paystack());
+
+    $store = wh39Store($owner);
+    $order = wh39Order($store);
+    $transaction = wh39Transaction($order, 'paystack', [
+        'metadata' => ['pricing' => [
+            'store_amount_minor' => 250000,
+            'store_currency' => 'NGN',
+            'charge_amount_minor' => 250000,
+            'charge_currency' => 'USD',
+        ]],
+    ]);
+
+    wh39FakePaystack('success', 100000);
+
+    [$payload, $headers] = wh39ChargeSuccess($transaction->reference, 100000);
+
+    $this->postJson('/webhooks/payments/paystack/'.$store->store_id, $payload, $headers)
+        ->assertOk()
+        // Acknowledged rather than errored: a 500 would make the provider retry
+        // a webhook that is never going to become acceptable.
+        ->assertJsonPath('status', 'underpaid');
+
+    expect($transaction->fresh()->status)->toBe(TransactionStatus::PENDING)
+        ->and((float) $order->fresh()->amount_paid)->toBe(0.0)
+        ->and((int) $store->fresh()->balance)->toBe(0);
+});
+
+test('a webhook for at least the recorded charge settles, overpayment included', function () {
+    // The provider reporting *more* is a customer having overpaid as the rate
+    // moved between checkout and settlement. Refusing real money would be
+    // worse than the rounding it corrects.
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    wh39Connect($business, 'paystack', wh39Paystack());
+
+    $store = wh39Store($owner);
+    $order = wh39Order($store);
+    $transaction = wh39Transaction($order, 'paystack', [
+        'metadata' => ['pricing' => [
+            'store_amount_minor' => 250000,
+            'store_currency' => 'NGN',
+            'charge_amount_minor' => 250000,
+            'charge_currency' => 'USD',
+        ]],
+    ]);
+
+    wh39FakePaystack('success', 260000);
+
+    [$payload, $headers] = wh39ChargeSuccess($transaction->reference, 260000);
+
+    $this->postJson('/webhooks/payments/paystack/'.$store->store_id, $payload, $headers)
+        ->assertOk()
+        ->assertJsonPath('status', 'success');
+
+    // Credited the naira the order asked for, not the converted figure.
+    expect($transaction->fresh()->status)->toBe(TransactionStatus::CONFIRMED)
+        ->and((int) $store->fresh()->balance)->toBe(250000);
+});
+
+test('a transaction with no recorded charge settles exactly as before', function () {
+    // Every existing row, and every naira provider. The floor only applies
+    // where a conversion was recorded, so nothing about them changes.
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    wh39Connect($business, 'paystack', wh39Paystack());
+
+    $store = wh39Store($owner);
+    $order = wh39Order($store);
+    $transaction = wh39Transaction($order, 'paystack');
+
+    wh39FakePaystack('success', 250000);
+
+    [$payload, $headers] = wh39ChargeSuccess($transaction->reference, 250000);
+
+    $this->postJson('/webhooks/payments/paystack/'.$store->store_id, $payload, $headers)
+        ->assertOk()
+        ->assertJsonPath('status', 'success');
+
+    expect($transaction->fresh()->status)->toBe(TransactionStatus::CONFIRMED)
+        ->and((int) $store->fresh()->balance)->toBe(250000);
+});
+
 test('a business-wide URL settles an order belonging to any of its stores', function () {
     wh39FakePaystack();
 

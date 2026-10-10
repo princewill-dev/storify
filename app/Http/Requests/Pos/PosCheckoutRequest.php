@@ -58,6 +58,15 @@ final class PosCheckoutRequest extends FormRequest
             'payments.*.paystack_reference' => ['nullable', 'string'],
             // The provider's own id for the leg, when it did not take ours.
             'payments.*.provider_reference' => ['nullable', 'string', 'max:255'],
+            // The amount the provider was asked to charge for this leg, in its
+            // own minor units — echoed from `initialize`. Present only when the
+            // till knows it, and required for a leg whose provider charges in a
+            // different currency than the store, where nothing else can be
+            // compared against the provider's report.
+            'payments.*.charge_amount' => ['nullable', 'integer', 'min:0'],
+            // The currency that amount is in. Recorded with it so the figure is
+            // not a bare integer whose units have to be guessed at.
+            'payments.*.charge_currency' => ['nullable', 'string', 'size:3'],
             'payments.*.bank_account_id' => [
                 'nullable',
                 Rule::exists('store_banks', 'id')->where('business_id', $store->business_id),

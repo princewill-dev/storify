@@ -35,6 +35,15 @@ return [
         ],
     ],
 
+    /*
+     * Daily exchange rates, for pricing a naira store through a USD gateway.
+     * Keyless and public — the URL is configurable so it can be pointed
+     * elsewhere without a code change, not because it is a secret.
+     */
+    'exchange_rates' => [
+        'url' => env('EXCHANGE_RATES_URL', 'https://open.er-api.com/v6/latest/USD'),
+    ],
+
     'paystack' => [
         'secret_key' => env('PAYSTACK_SECRET_KEY'),
         'public_key' => env('PAYSTACK_PUBLIC_KEY'),

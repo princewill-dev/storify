@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\TransactionStatus;
+use App\Models\ExchangeRate;
 use App\Models\JournalEntry;
 use App\Models\LedgerAccount;
 use App\Models\Order;
@@ -12,6 +13,7 @@ use App\Models\Store;
 use App\Models\Transaction;
 use App\Models\User;
 use App\Services\Payments\PaymentGatewayResolver;
+use App\Support\Money\ExchangeRateService;
 use App\Support\Payments\CredentialCipher;
 use App\Support\Payments\PaymentGatewayRegistry;
 use Database\Seeders\PaymentMethodSeeder;
@@ -131,6 +133,52 @@ function pgAssign($business, Store $store, string $code): void
 function pgPaystackKeys(): array
 {
     return ['public_key' => 'pk_test_pg1234567890', 'secret_key' => 'sk_test_pg1234567890'];
+}
+
+/**
+ * Store a USD-based rate for the till to convert through.
+ *
+ * The service caches the table, so a test that seeds one would otherwise be
+ * answered from the previous test's copy.
+ */
+function pgSeedRate(string $quote, float $rate): void
+{
+    ExchangeRate::updateOrCreate(
+        ['base' => 'USD', 'quote' => $quote],
+        ['rate' => (string) $rate, 'fetched_at' => now()],
+    );
+
+    ExchangeRateService::forget();
+}
+
+/**
+ * Fake Bitfra's create-payment and single-payment reads.
+ *
+ * `$amountUsd` is what the provider reports was paid. It is a parameter rather
+ * than a constant because the interesting cases are the ones where it does not
+ * match the charge.
+ */
+function pgFakeBitfra(float $amountUsd = 1000.00): void
+{
+    Http::swap(new Factory);
+
+    Http::fake(function (Request $request) use ($amountUsd) {
+        if (str_contains($request->url(), '/payments/')) {
+            return Http::response([
+                'payment_id' => 'pay_pg_1',
+                'amount' => $amountUsd,
+                'amount_usd' => $amountUsd,
+                'status' => 'PAID',
+                'tx_id' => 'tx_pg_1',
+            ]);
+        }
+
+        return Http::response([
+            'payment_id' => 'pay_pg_1',
+            'payment_link' => 'https://checkout.bitfra.net/pg-1',
+            'status' => 'PENDING',
+        ]);
+    });
 }
 
 /**
@@ -613,31 +661,16 @@ test('a provider that names its own payments is asked about that name, not ours'
     // never be told the crypto arrived: the sale sits pending until the charge
     // times out. The id travels out with the charge and back with every
     // question, which is what this pins.
+    //
+    // Bitfra also prices in USD and this store charges naira, so the same test
+    // carries the conversion: ₦1,000 at ₦1,000 to the dollar is $1.00, and the
+    // till echoes the 100 cents it was told to expect rather than recomputing
+    // from a rate that may have moved since.
     [, $business, , $store, $product] = pgContext();
 
-    // Its prices are in dollars, and the resolver only offers it to a store
-    // that charges in them.
-    $business->update(['currency' => 'USD']);
+    pgSeedRate('NGN', 1000.0);
     pgConnect($business, 'bitfra', ['api_key' => 'test_sandbox_key', 'webhook_secret' => 'whsec_pg']);
-
-    Http::swap(new Factory);
-    Http::fake(function (Request $request) {
-        if (str_contains($request->url(), '/payments/')) {
-            return Http::response([
-                'payment_id' => 'pay_pg_1',
-                'amount' => 1000.00,
-                'amount_usd' => 1000.00,
-                'status' => 'PAID',
-                'tx_id' => 'tx_pg_1',
-            ]);
-        }
-
-        return Http::response([
-            'payment_id' => 'pay_pg_1',
-            'payment_link' => 'https://checkout.bitfra.net/pg-1',
-            'status' => 'PENDING',
-        ]);
-    });
+    pgFakeBitfra(1.00);
 
     $started = $this->postJson("/api/v1/pos/stores/{$store->store_id}/payments/initialize", [
         'items' => [['product_id' => $product->id, 'quantity' => 1]],
@@ -646,7 +679,12 @@ test('a provider that names its own payments is asked about that name, not ours'
     ])->assertCreated();
 
     expect($started->json('data.reference'))->toStartWith('POS_')
-        ->and($started->json('data.provider_reference'))->toBe('pay_pg_1');
+        ->and($started->json('data.provider_reference'))->toBe('pay_pg_1')
+        // The store's own amount stays naira — the till sums these against the
+        // sale total, so a dollar figure here would refuse every sale.
+        ->and((float) $started->json('data.amount'))->toBe(1000.0)
+        ->and($started->json('data.charge_amount'))->toBe(100)
+        ->and($started->json('data.charge_currency'))->toBe('USD');
 
     // Asked under Bitfra's name, and for the amount the card was to be charged.
     $this->postJson("/api/v1/pos/stores/{$store->store_id}/payments/status", [
@@ -654,6 +692,45 @@ test('a provider that names its own payments is asked about that name, not ours'
         'reference' => $started->json('data.reference'),
         'provider_reference' => $started->json('data.provider_reference'),
         'amount' => 1000,
+        'charge_amount' => 100,
+    ])->assertOk()->assertJsonPath('data.paid', true);
+
+    // Asking without the echoed charge cannot be answered: there is nothing to
+    // compare the provider's dollars against, so it is refused with a message
+    // that names the real problem instead of reporting a units mismatch.
+    $this->postJson("/api/v1/pos/stores/{$store->store_id}/payments/status", [
+        'method' => 'bitfra',
+        'reference' => $started->json('data.reference'),
+        'provider_reference' => $started->json('data.provider_reference'),
+        'amount' => 1000,
+    ])->assertOk()
+        ->assertJsonPath('data.paid', false)
+        ->assertJsonPath('data.message', 'Update the POS app to take this payment method — bitfra charges in USD.');
+
+    // A provider that reports the *store* amount in cents is reporting far more
+    // than was charged — the failure the echoed amount exists to catch.
+    Http::swap(new Factory);
+    pgFakeBitfra(1000.00);
+
+    $this->postJson("/api/v1/pos/stores/{$store->store_id}/payments/status", [
+        'method' => 'bitfra',
+        'reference' => $started->json('data.reference'),
+        'provider_reference' => $started->json('data.provider_reference'),
+        'amount' => 1000,
+        'charge_amount' => 100,
+    ])->assertOk()
+        ->assertJsonPath('data.paid', false)
+        ->assertJsonPath('data.message', 'The provider recorded a different amount for this payment.');
+
+    Http::swap(new Factory);
+    pgFakeBitfra(1.00);
+
+    $this->postJson("/api/v1/pos/stores/{$store->store_id}/payments/status", [
+        'method' => 'bitfra',
+        'reference' => $started->json('data.reference'),
+        'provider_reference' => $started->json('data.provider_reference'),
+        'amount' => 1000,
+        'charge_amount' => 100,
     ])->assertOk()->assertJsonPath('data.paid', true);
 
     Http::assertSent(fn (Request $request): bool => str_contains($request->url(), '/payments/pay_pg_1'));
@@ -671,4 +748,67 @@ test('a provider that names its own payments is asked about that name, not ours'
     ])->assertCreated();
 
     expect($paystackStart->json('data.provider_reference'))->toBeNull();
+});
+
+test('a bitfra leg on a naira store settles for the converted charge', function () {
+    // The whole path end to end: a naira sale charged in dollars, verified
+    // against the converted figure, and written down as the naira the store is
+    // owed rather than the dollars the customer sent.
+    [, $business, , $store, $product] = pgContext();
+    pgSeedRate('NGN', 1000.0);
+    pgConnect($business, 'bitfra', ['api_key' => 'test_sandbox_key', 'webhook_secret' => 'whsec_pg']);
+    pgFakeBitfra(1.00);
+
+    $started = $this->postJson("/api/v1/pos/stores/{$store->store_id}/payments/initialize", [
+        'items' => [['product_id' => $product->id, 'quantity' => 1]],
+        'method' => 'bitfra',
+        'amount' => 1000,
+    ])->assertCreated();
+
+    $reference = $started->json('data.reference');
+
+    $this->postJson("/api/v1/pos/stores/{$store->store_id}/checkout", [
+        'idempotency_key' => 'pg-btcf-leg',
+        'items' => [['product_id' => $product->id, 'quantity' => 1]],
+        'payments' => [[
+            'method' => 'bitfra',
+            'amount' => 1000,
+            'reference' => $reference,
+            'provider_reference' => $started->json('data.provider_reference'),
+            'charge_amount' => 100,
+            'charge_currency' => 'USD',
+        ]],
+    ])->assertCreated();
+
+    $transaction = Transaction::where('reference', $reference)->sole();
+
+    expect((float) $transaction->amount)->toBe(1000.0)
+        // The store's own currency, which is what `amount` has always been in.
+        ->and($transaction->currency)->toBe('NGN')
+        // What the provider actually saw, kept for the same reason the
+        // storefront keeps it: it is not recoverable afterwards.
+        ->and($transaction->metadata['charge']['amount_minor'])->toBe(100)
+        ->and($transaction->metadata['charge']['currency'])->toBe('USD')
+        ->and($store->fresh()->balance)->toBe(100000);
+});
+
+test('a charge that converts to nothing is refused before the provider is asked', function () {
+    // ₦1 is a tenth of a cent at ₦1,000 to the dollar. Rounding it up to the
+    // smallest unit would overcharge tenfold, and sending zero would charge
+    // nothing while crediting the store for the full sale.
+    [, $business, , $store, $product] = pgContext();
+    pgSeedRate('NGN', 1000.0);
+    pgConnect($business, 'bitfra', ['api_key' => 'test_sandbox_key', 'webhook_secret' => 'whsec_pg']);
+    pgFakeBitfra();
+
+    $response = $this->postJson("/api/v1/pos/stores/{$store->store_id}/payments/initialize", [
+        'items' => [['product_id' => $product->id, 'quantity' => 1]],
+        'method' => 'bitfra',
+        'amount' => 1,
+    ])->assertStatus(422);
+
+    expect(str_contains((string) $response->json('message'), 'too small'))->toBeTrue();
+
+    // Nothing reached Bitfra: the refusal happens before the driver is called.
+    Http::assertNothingSent();
 });

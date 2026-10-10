@@ -31,10 +31,18 @@ final readonly class PaymentInitializationOutcome
         public bool $unexpectedFailure,
         public string $mode = 'redirect',
         public array $instructions = [],
+        // What the provider was actually asked to charge, when that differs
+        // from `amount` — see the service's `pricingBlock()`. Empty for the six
+        // naira providers and for every offline method, since nothing converts
+        // for a bank slip. The storefront shows this so the customer agrees to
+        // the converted figure before paying, rather than discovering it on the
+        // provider's page.
+        public array $pricing = [],
     ) {}
 
     /**
      * @param  array<int, array<string, string>>  $instructions
+     * @param  array<string, mixed>  $pricing
      */
     public static function initialized(
         ?string $authorizationUrl,
@@ -42,8 +50,11 @@ final readonly class PaymentInitializationOutcome
         float $amount,
         string $mode = 'redirect',
         array $instructions = [],
+        array $pricing = [],
     ): self {
-        return new self(true, $authorizationUrl, $reference, $amount, null, false, $mode, $instructions);
+        return new self(
+            true, $authorizationUrl, $reference, $amount, null, false, $mode, $instructions, $pricing,
+        );
     }
 
     /**

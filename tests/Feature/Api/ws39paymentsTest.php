@@ -1,11 +1,13 @@
 <?php
 
 use App\Models\Business;
+use App\Models\ExchangeRate;
 use App\Models\PaymentMethod;
 use App\Models\Store;
 use App\Models\User;
 use App\Services\Payments\PaymentGatewayManager;
 use App\Services\Payments\PaymentGatewayResolver;
+use App\Support\Money\ExchangeRateService;
 use App\Support\Payments\CredentialCipher;
 use App\Support\Payments\PaymentGatewayRegistry;
 use Database\Seeders\PaymentMethodSeeder;
@@ -75,9 +77,53 @@ function ws39Assign(Business $business, Store $store, string $code, bool $active
     );
 }
 
+/**
+ * The id of the USD currency row, created if this suite has not seeded one.
+ *
+ * These tests build stores by hand and do not run the currency seeder, so the
+ * row is not guaranteed to be there.
+ */
+function ws39UsdCurrencyId(): int
+{
+    return (int) (DB::table('currencies')->where('code', 'USD')->value('id')
+        ?? DB::table('currencies')->insertGetId([
+            'name' => 'US Dollar',
+            'code' => 'USD',
+            'symbol' => '$',
+            'is_default' => false,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]));
+}
+
 function ws39Resolver(): PaymentGatewayResolver
 {
+    // The service caches the rate table for ten minutes, so a test that seeds a
+    // rate would otherwise be answered from the previous test's copy.
+    ExchangeRateService::forget();
+
     return app(PaymentGatewayResolver::class);
+}
+
+/**
+ * Store a USD-based rate, or clear the one for `$quote` when `$rate` is null.
+ *
+ * Null is a case worth testing rather than an absence: the fetch job having
+ * never run is exactly the state a fresh deployment is in, and it must hide the
+ * gateway rather than price it.
+ */
+function ws39Rate(string $quote, ?float $rate): void
+{
+    if ($rate === null) {
+        ExchangeRate::where('base', 'USD')->where('quote', $quote)->delete();
+
+        return;
+    }
+
+    ExchangeRate::updateOrCreate(
+        ['base' => 'USD', 'quote' => $quote],
+        ['rate' => (string) $rate, 'fetched_at' => now()],
+    );
 }
 
 function ws39Paystack(): array
@@ -165,26 +211,73 @@ test('a provider the platform has switched off is offered to nobody', function (
     expect(ws39Resolver()->forStore($store))->not->toHaveKey('paystack');
 });
 
-test('a provider charging in another currency is not offered', function () {
-    // Bitfra prices in USD, so it must never appear for an NGN store — this is
-    // the currency gate, not a special case for any one provider.
+test('a provider charging in another currency is offered to a store it can be priced for', function () {
+    // Bitfra prices in USD. A naira store may take it — the amount is converted
+    // at the daily rate — so the gate is now "can we price this", not "do the
+    // currencies match".
     [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
-
-    PaymentMethod::where('code', 'bitfra')->delete();
-    PaymentMethod::create(['code' => 'bitfra', 'name' => 'Bitfra', 'type' => 'gateway', 'is_active' => true]);
 
     ws39Connect($business, 'bitfra', ['api_key' => 'bix-'.str_repeat('a', 28).'-'.str_repeat('b', 28), 'webhook_secret' => 'whsec_abcdefgh']);
 
-    $ngnStore = ws39Store($owner);
-    expect(ws39Resolver()->forStore($ngnStore))->not->toHaveKey('bitfra');
-
-    $usd = DB::table('currencies')->where('code', 'USD')->first()
-        ?? DB::table('currencies')->insertGetId(['name' => 'US Dollar', 'code' => 'USD', 'symbol' => '$', 'created_at' => now(), 'updated_at' => now()]);
-
-    $usdStoreId = is_object($usd) ? $usd->id : $usd;
-    $usdStore = ws39Store($owner, ['currency_id' => $usdStoreId]);
+    // A dollar store needs no rate: its own currency is what Bitfra charges.
+    $usdStore = ws39Store($owner, ['currency_id' => ws39UsdCurrencyId()]);
 
     expect(ws39Resolver()->forStore($usdStore))->toHaveKey('bitfra');
+
+    // A naira store needs one, and has none yet.
+    ws39Rate('NGN', null);
+    $ngnStore = ws39Store($owner);
+
+    expect(ws39Resolver()->forStore($ngnStore))->not->toHaveKey('bitfra');
+
+    ws39Rate('NGN', 1331.267014);
+
+    expect(ws39Resolver()->forStore($ngnStore))->toHaveKey('bitfra');
+});
+
+test('a connected provider held back only for want of a rate says so', function () {
+    // This is the only remaining reason a *connected* provider is withheld, and
+    // it is not something the merchant can fix from the settings screen — the
+    // message has to say that, because a blank card is what made the original
+    // report take this long to diagnose.
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    $store = ws39Store($owner);
+    ws39Connect($business, 'bitfra', ['api_key' => 'bix-'.str_repeat('a', 28).'-'.str_repeat('b', 28), 'webhook_secret' => 'whsec_abcdefgh']);
+
+    // The currency check is per store, so the screen reaches it by passing the
+    // store in scope — which is what the management panel does.
+    $states = collect(ws39Resolver()->states((int) $business->id, $store))->keyBy('code');
+
+    $reason = (string) $states['bitfra']['unavailable_reason'];
+
+    expect(str_contains($reason, 'USD'))->toBeTrue()
+        ->and(str_contains($reason, 'rate'))->toBeTrue();
+});
+
+test('an offline provider is still confined to the store currency', function () {
+    // Nothing converts for a bank slip: there is no provider to hand a
+    // converted figure to, and the storefront path takes the amount off the
+    // uploaded slip in naira. Converting the check for redirect providers must
+    // not have loosened it for these.
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+
+    $usdStore = ws39Store($owner, ['currency_id' => ws39UsdCurrencyId()]);
+
+    ws39Assign($business, $usdStore, 'bank_transfer');
+
+    DB::table('store_banks')->insert([
+        'business_id' => $business->id,
+        'bank_name' => 'GTBank',
+        'bank_code' => '058',
+        'account_number' => '0123456789',
+        'account_name' => 'TEST LTD',
+        'is_primary' => true,
+        'is_verified' => true,
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+
+    expect(ws39Resolver()->forStore($usdStore))->not->toHaveKey('bank_transfer');
 });
 
 test('a connection with incomplete credentials is not offered', function () {
@@ -464,6 +557,33 @@ test('the storefront is told how each method is paid, not who the provider is', 
         ->and($methods['bank_transfer']['mode'])->toBe('offline');
 });
 
+test('the storefront is told each method\'s currency and how to display the converted figure', function () {
+    // The customer has to see the converted amount before paying, so the client
+    // needs two things it cannot derive: which currency each method charges in,
+    // and the single divisor that mirrors the server's arithmetic. A rates map
+    // is deliberately not sent — the client's sum has to match `convert()`.
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    $store = ws39Store($owner);
+
+    ws39Connect($business, 'paystack', ws39Paystack());
+    ws39Connect($business, 'bitfra', ['api_key' => 'bix-'.str_repeat('a', 28).'-'.str_repeat('b', 28), 'webhook_secret' => 'whsec_abcdefgh']);
+    ws39Rate('NGN', 1331.267014);
+
+    $payload = $this->getJson('/api/v1/storefront/'.$store->slug.'/payment-methods')->assertOk();
+
+    $methods = collect($payload->json('data.payment_methods'))->keyBy('code');
+
+    expect($payload->json('data.store_currency'))->toBe('NGN')
+        // A naira provider needs no conversion, so it carries none.
+        ->and($methods['paystack']['currency'])->toBe('NGN')
+        ->and($methods['paystack']['conversion'])->toBeNull()
+        ->and($methods['bitfra']['currency'])->toBe('USD')
+        ->and($methods['bitfra']['conversion']['currency'])->toBe('USD')
+        ->and($methods['bitfra']['conversion']['divisor'])->toEqualWithDelta(1331.267014, 0.0001)
+        // ₦23,000 in kobo divided by that divisor is what the customer is shown.
+        ->and((int) round(2300000 / $methods['bitfra']['conversion']['divisor']))->toBe(1728);
+});
+
 test('the pos is offered cash plus whatever the store actually accepts', function () {
     [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
     $store = ws39Store($owner);
@@ -486,6 +606,31 @@ test('the pos is offered cash plus whatever the store actually accepts', functio
         // and neither must one with no driver behind it.
         ->and($methods)->not->toHaveKey('bitfra')
         ->and($methods)->not->toHaveKey('bachs');
+});
+
+test('the till is told the same conversion the shopfront is', function () {
+    // The two surfaces read the same resolver and must show the same figure for
+    // the same payment. They previously kept separate lists that disagreed.
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    $store = ws39Store($owner);
+
+    ws39Connect($business, 'bitfra', ['api_key' => 'bix-'.str_repeat('a', 28).'-'.str_repeat('b', 28), 'webhook_secret' => 'whsec_abcdefgh']);
+    ws39Rate('NGN', 1331.267014);
+
+    $token = $owner->createToken('pos-access', ['pos'], now()->addHour())->plainTextToken;
+
+    $payload = $this->withToken($token)
+        ->getJson('/api/v1/pos/stores/'.$store->store_id.'/payment-methods')
+        ->assertOk();
+
+    $methods = collect($payload->json('data.payment_methods'))->keyBy('code');
+
+    expect($payload->json('data.store_currency'))->toBe('NGN')
+        // Cash is taken in the store's own currency and is never converted.
+        ->and($methods['cash']['currency'])->toBe('NGN')
+        ->and($methods['cash']['conversion'])->toBeNull()
+        ->and($methods['bitfra']['currency'])->toBe('USD')
+        ->and($methods['bitfra']['conversion']['divisor'])->toEqualWithDelta(1331.267014, 0.0001);
 });
 
 /* ------------------------------------------------------ the admin switch */

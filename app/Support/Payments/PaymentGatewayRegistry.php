@@ -285,7 +285,7 @@ final class PaymentGatewayRegistry
                 'docs_url' => 'https://bitfra.net/docs',
                 'currency' => 'USD',
                 'fee_label' => 'No platform fee',
-                'fee_note' => 'Bitfra takes no cut and never holds your funds. The customer still pays network fees, and prices are quoted in USD — so this only appears for stores charging in USD.',
+                'fee_note' => 'Bitfra takes no cut and never holds your funds. The customer still pays network fees. It prices in USD, so a store charging in another currency has the amount converted at the daily exchange rate — the customer sees both figures before they pay.',
                 'supports_refund' => false,
                 'supports_partial' => false,
                 'status' => self::STATUS_STABLE,

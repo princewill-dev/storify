@@ -80,6 +80,26 @@ class Transaction extends Model
         return 'reference';
     }
 
+    /**
+     * What the provider was actually asked to charge, in its own minor units.
+     *
+     * Null when no conversion was involved — which is every naira transaction,
+     * and every row written before conversion existed. The reader lives here
+     * rather than at the two settlement call sites because the metadata key is
+     * a contract between whoever writes it and whoever settles against it, and
+     * two copies of it would eventually disagree.
+     *
+     * `amount` stays the store's own amount. This does not.
+     */
+    public function chargeAmountMinor(): ?int
+    {
+        $pricing = $this->metadata['pricing'] ?? null;
+
+        return is_array($pricing) && isset($pricing['charge_amount_minor'])
+            ? (int) $pricing['charge_amount_minor']
+            : null;
+    }
+
     public function getStatusLabelAttribute(): string
     {
         return $this->status instanceof TransactionStatus ? $this->status->label() : ucfirst($this->status);

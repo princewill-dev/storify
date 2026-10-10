@@ -16,10 +16,12 @@ use App\Http\Resources\Storefront\CheckoutOrderDetailResource;
 use App\Http\Resources\Storefront\CheckoutOrderResource;
 use App\Http\Resources\Storefront\CheckoutPaymentMethodResource;
 use App\Models\Order;
+use App\Models\PaymentMethod;
 use App\Models\Store;
 use App\Models\Transaction;
 use App\Repositories\Storefront\CheckoutRepository;
 use App\Services\Storefront\CheckoutPaymentService;
+use App\Support\Money\StoreCurrency;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -77,10 +79,17 @@ class CheckoutController extends ApiController
     {
         $store = $this->resolveStore($store);
 
+        $currency = StoreCurrency::for($store);
+
         return $this->ok([
-            'payment_methods' => CheckoutPaymentMethodResource::collection(
-                $this->repository->paymentMethodsFor($store)
-            )->resolve($request),
+            'store_currency' => $currency,
+            'payment_methods' => $this->repository->paymentMethodsFor($store)
+                // Each entry is built with the store's currency, which is what
+                // tells it whether it has to show a converted figure.
+                ->map(fn (PaymentMethod $method): array => (new CheckoutPaymentMethodResource($method, $currency))
+                    ->resolve($request))
+                ->values()
+                ->all(),
             'bank_accounts' => CheckoutBankAccountResource::collection(
                 $this->repository->verifiedBankAccountsFor($store)
             )->resolve($request),
@@ -156,6 +165,9 @@ class CheckoutController extends ApiController
             'instructions' => $outcome->instructions,
             'reference' => $outcome->reference,
             'amount' => $outcome->amount,
+            // Empty unless the provider charges in another currency, and the
+            // converted figure the customer is agreeing to when it does.
+            'pricing' => $outcome->pricing,
         ], $outcome->mode === 'offline' ? 'Follow the instructions to pay.' : 'Payment initialized.');
     }
 

@@ -17,6 +17,7 @@ use App\Models\User;
 use App\Services\Accounting\InventoryCostingService;
 use App\Services\Accounting\LedgerPostingService;
 use App\Services\StockLedgerService;
+use App\Support\Money\StoreCurrency;
 use App\Support\Payments\PaymentGatewayRegistry;
 use DomainException;
 use Illuminate\Support\Facades\DB;
@@ -302,13 +303,17 @@ final class ProcessPosSale
                 'store_bank_id' => $storeBankId,
                 'payment_method_id' => $paymentMethodId,
                 'amount' => (float) $payment['amount'],
+                // The store's currency, because that is the currency `amount`
+                // is in. Previously omitted, so the column default ('NGN') was
+                // what a USD store got.
+                'currency' => StoreCurrency::for($store),
                 'status' => TransactionStatus::CONFIRMED,
                 'paid_at' => now(),
-                'metadata' => [
+                'metadata' => array_merge([
                     'leg_method' => $method,
                     'amount_tendered' => $payment['amount_tendered'] ?? null,
                     'is_split' => count($payments) > 1,
-                ],
+                ], $this->chargeRecord($payment)),
             ]);
 
             $amountInKobo = (int) round((float) $payment['amount'] * 100);
@@ -320,6 +325,33 @@ final class ProcessPosSale
                 'store_balance_after' => (int) $store->fresh()->balance,
             ]);
         }
+    }
+
+    /**
+     * What the provider was asked to charge for this leg, when it differs from
+     * what the store is owed.
+     *
+     * Empty when the till sent no `charge_amount` — cash, offline rails, the
+     * six naira providers, and any till older than this API. The storefront
+     * writes the equivalent under `metadata.pricing`; this is a separate key
+     * because nothing reads it back for comparison, and sharing the name would
+     * make it look like the settlement floor applies here when it does not.
+     *
+     * @param  array<string, mixed>  $payment
+     * @return array<string, array<string, mixed>>
+     */
+    private function chargeRecord(array $payment): array
+    {
+        if (! isset($payment['charge_amount'])) {
+            return [];
+        }
+
+        return [
+            'charge' => [
+                'amount_minor' => (int) $payment['charge_amount'],
+                'currency' => $payment['charge_currency'] ?? null,
+            ],
+        ];
     }
 
     private function removeStock(Order $order, Store $store, User $staff, $items, $products): void

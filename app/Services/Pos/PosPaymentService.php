@@ -10,7 +10,9 @@ use App\Models\User;
 use App\Services\Payments\Data\PaymentIntent;
 use App\Services\Payments\PaymentGatewayManager;
 use App\Services\Payments\PaymentGatewayResolver;
+use App\Support\Money\ExchangeRateService;
 use App\Support\Money\Naira;
+use App\Support\Money\StoreCurrency;
 use App\Support\Payments\PaymentGatewayRegistry;
 use DomainException;
 use Illuminate\Support\Str;
@@ -51,6 +53,7 @@ final class PosPaymentService
         private readonly PaymentGatewayResolver $gateways,
         private readonly PaymentGatewayManager $manager,
         private readonly PricePosSale $pricer,
+        private readonly ExchangeRateService $rates,
     ) {}
 
     /**
@@ -82,7 +85,7 @@ final class PosPaymentService
      * Start a charge for one leg.
      *
      * @param  array{method: string, amount: float|int|string, customer_email?: ?string, customer_name?: ?string}  $leg
-     * @return array{mode: string, authorization_url: string, reference: string, access_code: ?string, provider_reference: ?string, amount: float}
+     * @return array{mode: string, authorization_url: string, reference: string, access_code: ?string, provider_reference: ?string, amount: float, charge_amount: ?int, charge_currency: ?string, rate: ?float}
      *
      * @throws DomainException when the method is not one this store can charge
      */
@@ -101,6 +104,34 @@ final class PosPaymentService
             throw new DomainException('That payment method does not have a checkout to open.');
         }
 
+        // The till's amount is in the store's currency; the provider is charged
+        // in its own. `chargeMinor` is what the till echoes back on every later
+        // call, so every comparison uses the figure the customer was actually
+        // quoted rather than a rate re-derived while they were paying.
+        $storeCurrency = StoreCurrency::for($store);
+        $chargeMinor = $this->rates->convert(Naira::koboFromRounded($amount), $storeCurrency, $driver->currency());
+
+        if ($chargeMinor === null) {
+            throw new DomainException(
+                "This store charges in {$storeCurrency} and {$method} collects in {$driver->currency()}. "
+                ."No {$driver->currency()} exchange rate has been fetched yet, so this payment cannot be priced right now."
+            );
+        }
+
+        // A sub-cent charge is nothing to charge. Refused here rather than at
+        // the provider, which would take a zero payment and leave the till
+        // crediting the store for a sale that was never paid for.
+        if ($chargeMinor < 1) {
+            $smallest = $this->rates->smallestConvertibleMinor($storeCurrency, $driver->currency());
+            $minimum = $smallest === null ? null : number_format($smallest / 100, 2);
+
+            throw new DomainException(
+                $minimum === null
+                    ? "This amount is too small to charge in {$driver->currency()}."
+                    : "This amount is too small to charge in {$driver->currency()} — the minimum is {$minimum} {$storeCurrency}."
+            );
+        }
+
         // Not `TXN-` and not the storefront's `API_`: a reference we can place
         // at a glance when one turns up in a provider's dashboard.
         $reference = 'POS_'.time().'_'.Str::upper(Str::random(8));
@@ -116,8 +147,9 @@ final class PosPaymentService
         $result = $driver->initialize(
             new PaymentIntent(
                 reference: $reference,
-                // Never multiply inline: `Naira` owns the naira -> kobo contract.
-                amountMinor: Naira::koboFromRounded($amount),
+                // Never multiply inline: `Naira` owns the naira -> kobo
+                // contract, and it produced this before the conversion did.
+                amountMinor: $chargeMinor,
                 currency: $driver->currency(),
                 email: $email,
                 callbackUrl: url('/pos/payment-callback'),
@@ -149,7 +181,15 @@ final class PosPaymentService
             // name to ask under rather than guessing — passing a Bitfra id to
             // Paystack, or the reverse, is a lookup that can only miss.
             'provider_reference' => $result->ownReference($reference),
+            // The store's amount, unchanged and in the store's currency. The
+            // till sums these against the sale total, so this must never carry
+            // the converted figure.
             'amount' => $amount,
+            // What the provider was actually asked to charge, when that differs
+            // — the till echoes these back on `status` and on `/checkout`.
+            'charge_amount' => $chargeMinor,
+            'charge_currency' => $driver->currency(),
+            'rate' => $this->rates->divisorFor($storeCurrency, $driver->currency()),
         ];
     }
 
@@ -174,6 +214,7 @@ final class PosPaymentService
         string $reference,
         float $amount,
         ?string $providerReference = null,
+        ?int $chargeAmountMinor = null,
     ): array {
         $connection = $this->gateways->forStore($store)[$method] ?? null;
         $driver = $this->manager->driver($method);
@@ -192,12 +233,28 @@ final class PosPaymentService
             ];
         }
 
+        $expected = $this->expectedChargeMinor($store, $driver->currency(), $amount, $chargeAmountMinor);
+
+        if ($expected === null) {
+            // The store and the provider charge in different currencies and the
+            // till did not send a charge amount, so there is nothing to compare
+            // against. That is a till older than this API: it cannot state what
+            // the customer was charged in the provider's currency, so it cannot
+            // complete the sale either. Said plainly rather than reported as a
+            // units mismatch the cashier could never interpret.
+            return [
+                'paid' => false,
+                'pending' => false,
+                'message' => "Update the POS app to take this payment method — {$method} charges in {$driver->currency()}.",
+            ];
+        }
+
         // A provider saying "paid" is not the same as it having been paid the
         // amount asked for — underpayment is a real outcome, and a sale settled
         // on one is a loss, not a rounding detail. Every driver's PAID result
         // carries an amount; one that does not reads as 0 here and is refused,
         // which is the right way round for money we cannot account for.
-        if ((int) $verification->amountMinor !== Naira::koboFromRounded($amount)) {
+        if ((int) $verification->amountMinor !== $expected) {
             return [
                 'paid' => false,
                 'pending' => false,
@@ -206,6 +263,33 @@ final class PosPaymentService
         }
 
         return ['paid' => true, 'pending' => false, 'message' => null];
+    }
+
+    /**
+     * The minor-unit amount the provider should be reporting, or null when the
+     * till is too old to say.
+     *
+     * When the till echoed a charge amount, that is the figure — the same one
+     * `initialize()` handed it, never a rate re-derived mid-sale. When it did
+     * not, the store and the provider must charge in the same currency for the
+     * naira comparison below to mean anything; the six naira providers always
+     * are, so nothing about them changes.
+     */
+    private function expectedChargeMinor(
+        Store $store,
+        string $providerCurrency,
+        float $amount,
+        ?int $chargeAmountMinor,
+    ): ?int {
+        if ($chargeAmountMinor !== null) {
+            return $chargeAmountMinor;
+        }
+
+        if (strcasecmp(StoreCurrency::for($store), $providerCurrency) !== 0) {
+            return null;
+        }
+
+        return Naira::koboFromRounded($amount);
     }
 
     /**
@@ -242,6 +326,11 @@ final class PosPaymentService
                 // Round-tripped from initialize, so a provider that names its
                 // own payments is asked by its name and the rest are unchanged.
                 isset($payment['provider_reference']) ? (string) $payment['provider_reference'] : null,
+                // Also round-tripped from initialize: what the provider was
+                // asked to charge, in its own minor units. Absent for a till
+                // older than this API and for the naira providers, where the
+                // comparison above falls back to the store amount.
+                isset($payment['charge_amount']) ? (int) $payment['charge_amount'] : null,
             );
 
             if (! $status['paid']) {

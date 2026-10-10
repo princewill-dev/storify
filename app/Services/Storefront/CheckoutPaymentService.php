@@ -12,9 +12,12 @@ use App\Repositories\Storefront\CheckoutRepository;
 use App\Services\Accounting\LedgerPostingService;
 use App\Services\Digital\DigitalDeliveryService;
 use App\Services\Payments\Data\PaymentIntent;
+use App\Services\Payments\Data\VerificationResult;
 use App\Services\Payments\PaymentGatewayManager;
 use App\Services\Payments\PaymentGatewayResolver;
+use App\Support\Money\ExchangeRateService;
 use App\Support\Money\Naira;
+use App\Support\Money\StoreCurrency;
 use App\Support\Payments\PaymentWebhookUrl;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -41,6 +44,7 @@ final class CheckoutPaymentService
         private readonly DigitalDeliveryService $digital,
         private readonly PaymentGatewayResolver $gateways,
         private readonly PaymentGatewayManager $manager,
+        private readonly ExchangeRateService $rates,
     ) {}
 
     /**
@@ -67,6 +71,38 @@ final class CheckoutPaymentService
         $reference = $this->generateReference();
         $remaining = $order->remainingBalance();
 
+        // Resolve the charge before anything is written. The store's own amount
+        // never changes currency — only what the provider is asked for does.
+        $storeCurrency = StoreCurrency::for($store);
+        $storeAmountMinor = Naira::koboFromRounded($amount);
+        $chargeMinor = $this->rates->convert($storeAmountMinor, $storeCurrency, $driver->currency());
+
+        if ($chargeMinor === null) {
+            return PaymentInitializationOutcome::gatewayFailed(
+                "This store charges in {$storeCurrency} and {$provider} collects in {$driver->currency()}. "
+                ."No {$driver->currency()} exchange rate has been fetched yet, so this payment cannot be priced right now."
+            );
+        }
+
+        // Below one minor unit there is nothing to charge. Refused rather than
+        // rounded up to the smallest unit — rounding ₦1 up to $0.01 would
+        // overcharge about thirteenfold — and refused visibly, because the
+        // alternative is a zero charge that the store is then credited for.
+        if ($chargeMinor < 1) {
+            $smallest = $this->rates->smallestConvertibleMinor($storeCurrency, $driver->currency());
+            $minimum = $smallest === null ? null : number_format($smallest / 100, 2);
+
+            return PaymentInitializationOutcome::gatewayFailed(
+                $minimum === null
+                    ? "This payment is too small to charge in {$driver->currency()}."
+                    : "This payment is too small to charge in {$driver->currency()} — the minimum is {$minimum} {$storeCurrency}."
+            );
+        }
+
+        // Built once and used twice: written onto the transaction under
+        // `metadata.pricing`, and echoed to the customer as `data.pricing`.
+        $block = $this->pricingBlock($storeCurrency, $storeAmountMinor, $chargeMinor, $driver->currency());
+
         // Email is not a validated field on this endpoint, so this stays null
         // and the platform from-address is used — as before.
         $email = $order->customer?->email ?: $data['email'] ?? null;
@@ -83,23 +119,27 @@ final class CheckoutPaymentService
                 'order_id' => $order->id,
                 'business_id' => $order->business_id,
                 'amount' => $amount,
-                'currency' => $driver->currency(),
+                // The store's currency, because that is the currency `amount`
+                // is in. This previously held the driver's currency, which
+                // labelled a naira figure "USD" for Bitfra.
+                'currency' => $storeCurrency,
                 'status' => TransactionStatus::PENDING,
-                'metadata' => [
+                'metadata' => array_merge([
                     'order_number' => $order->order_number,
                     'is_partial' => $amount < $remaining,
                     'source' => 'storefront_api',
                     'provider' => $provider,
-                ],
+                ], $this->pricingMetadata($block)),
             ]);
 
             $result = $driver->initialize(
                 new PaymentIntent(
                     reference: $reference,
-                    // The gateway takes the currency's minor unit; the inline
-                    // expression was (int) round($amount * 100), which is
-                    // Naira::koboFromRounded's exact contract.
-                    amountMinor: Naira::koboFromRounded($amount),
+                    // The driver's contract is that this is in *its* currency,
+                    // so the store amount is converted first. When the two
+                    // currencies match — six providers of seven — this is the
+                    // unchanged (int) round($amount * 100).
+                    amountMinor: $chargeMinor,
                     currency: $driver->currency(),
                     email: (string) $email,
                     callbackUrl: (string) ($data['callback_url'] ?? url('/')),
@@ -159,6 +199,7 @@ final class CheckoutPaymentService
                 $result->redirectUrl,
                 $reference,
                 $amount,
+                pricing: $block,
             );
         } catch (\Throwable $e) {
             DB::rollBack();
@@ -203,10 +244,32 @@ final class CheckoutPaymentService
         // ever written down is this row.
         $providerReference = $transaction->metadata['provider_reference'] ?? null;
 
+        // Already settled. Crediting again would double the store's balance and
+        // the order's `amount_paid`, and this is reachable in the ordinary
+        // course of things: a webhook settles the payment and then the
+        // customer's browser lands on the verify callback, or they refresh the
+        // success page. `PaymentWebhookProcessor` has always guarded on the same
+        // status; this path did not.
+        if ($transaction->status === TransactionStatus::CONFIRMED) {
+            return PaymentVerificationOutcome::verified($transaction->order()->firstOrFail());
+        }
+
         $verification = $driver->verify($providerReference ?? $reference, $connection->credentials);
         $order = $transaction->order;
 
         if ($verification->isPaid()) {
+            // A provider that reports paid for less than it was asked to charge
+            // must not settle the order for the full store amount. This is the
+            // floor that converting a naira store into dollars makes reachable
+            // — while the currency gate confined Bitfra to USD stores it was
+            // unreachable for them, and every other provider settles in the
+            // store's own currency so the two figures coincide.
+            if ($this->isUnderpaid($transaction, $verification)) {
+                return PaymentVerificationOutcome::failed(
+                    'The amount received is less than the amount charged for this payment.'
+                );
+            }
+
             DB::transaction(function () use ($transaction, $order, $verification) {
                 $transaction->update([
                     'status' => TransactionStatus::CONFIRMED->value,
@@ -252,6 +315,82 @@ final class CheckoutPaymentService
         }
 
         return PaymentVerificationOutcome::failed($verification->message);
+    }
+
+    /**
+     * Whether the provider reports less than this payment was asked to charge.
+     *
+     * Only asks the question when a converted charge was recorded. A row with
+     * no `pricing` — every naira transaction, and every row predating
+     * conversion — answers "no" without a comparison, so its settlement is
+     * exactly what it was before.
+     *
+     * Deliberately `<` and not `!=`: a provider reporting *more* is a customer
+     * having overpaid through FX movement between checkout and settlement, and
+     * refusing that would reject real money.
+     */
+    private function isUnderpaid(Transaction $transaction, VerificationResult $verification): bool
+    {
+        $expected = $transaction->chargeAmountMinor();
+
+        if ($expected === null || $verification->amountMinor >= $expected) {
+            return false;
+        }
+
+        Log::warning('payments.settlement.underpaid', [
+            'reference' => $transaction->reference,
+            'expected_minor' => $expected,
+            'reported_minor' => $verification->amountMinor,
+            'charge_currency' => $transaction->metadata['pricing']['charge_currency'] ?? null,
+        ]);
+
+        return true;
+    }
+
+    /**
+     * The record of what the provider was asked to charge.
+     *
+     * **Empty when the two currencies match**, which is six providers out of
+     * seven. That is not an optimisation — it is what keeps a naira transaction
+     * byte-identical to the one this code wrote before conversion existed, so
+     * the settlement floor keyed on this block's presence cannot change the
+     * behaviour of any payment that does not involve a conversion.
+     *
+     * The block is returned *unwrapped*: `pricingMetadata()` puts it under the
+     * key the transaction's metadata wants, and the controller echoes it as
+     * `data.pricing` as it is. Wrapping it here would nest it twice on one of
+     * those two paths.
+     *
+     * @return array<string, mixed>
+     */
+    private function pricingBlock(string $storeCurrency, int $storeAmountMinor, int $chargeMinor, string $chargeCurrency): array
+    {
+        if ($storeCurrency === $chargeCurrency) {
+            return [];
+        }
+
+        return [
+            'store_amount_minor' => $storeAmountMinor,
+            'store_currency' => $storeCurrency,
+            'charge_amount_minor' => $chargeMinor,
+            'charge_currency' => $chargeCurrency,
+            // Store-minor units per charge-minor unit — for a naira store
+            // paying in USD, the familiar "₦1,331 to the dollar".
+            'rate' => $this->rates->divisorFor($storeCurrency, $chargeCurrency),
+            'rated_at' => $this->rates->ratedAt($storeCurrency, $chargeCurrency)?->toIso8601String(),
+        ];
+    }
+
+    /**
+     * The same block as it is stored: under `metadata.pricing`, or absent
+     * entirely when there was nothing to convert.
+     *
+     * @param  array<string, mixed>  $block
+     * @return array<string, array<string, mixed>>
+     */
+    private function pricingMetadata(array $block): array
+    {
+        return $block === [] ? [] : ['pricing' => $block];
     }
 
     /**

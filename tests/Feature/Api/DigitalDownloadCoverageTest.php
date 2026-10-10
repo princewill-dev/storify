@@ -2,18 +2,23 @@
 
 use App\Enums\TransactionStatus;
 use App\Mail\DigitalDownloadMail;
+use App\Models\Business;
 use App\Models\Customer;
 use App\Models\DigitalDownload;
 use App\Models\Order;
+use App\Models\PaymentMethod;
 use App\Models\Product;
 use App\Models\ProductFile;
 use App\Models\StockMovement;
 use App\Models\Store;
 use App\Models\Transaction;
 use App\Models\User;
+use App\Support\Payments\CredentialCipher;
+use App\Support\Payments\PaymentGatewayRegistry;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Http\Client\Request;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
@@ -36,6 +41,32 @@ use Illuminate\Support\Str;
 function ddcToken(User $user): string
 {
     return $user->createToken('management-access', ['management'], now()->addHour())->plainTextToken;
+}
+
+/**
+ * Connect Paystack for a business, the way the application stores credentials.
+ *
+ * The storefront offers a provider only when the business has connected it, so
+ * the payment test below needs this: without it `initialize` refuses with "not
+ * available for this store" and the test fails before it reaches what it is
+ * about.
+ */
+function ddcConnectPaystack(Business $business): void
+{
+    $method = PaymentMethod::where('code', 'paystack')->firstOrFail();
+
+    DB::table('business_payment_method')->updateOrInsert(
+        ['business_id' => $business->id, 'payment_method_id' => $method->id],
+        [
+            'is_active' => true,
+            'config' => json_encode(CredentialCipher::encrypt(
+                ['public_key' => 'pk_test_ddc1234567890', 'secret_key' => 'sk_test_ddc1234567890'],
+                PaymentGatewayRegistry::secretKeysFor('paystack'),
+            )),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ],
+    );
 }
 
 function ddcStore(User $owner, array $attributes = []): Store
@@ -212,7 +243,9 @@ test('a verified storefront payment issues download tokens and queues the buyer 
     Mail::fake();
     ddcFakePaystack();
 
-    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    ddcConnectPaystack($business);
+
     $store = ddcStore($owner);
     $product = ddcProduct($store);
 

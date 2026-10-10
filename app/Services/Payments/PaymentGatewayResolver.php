@@ -6,6 +6,8 @@ use App\Models\Store;
 use App\Services\Payments\Data\GatewayCredentials;
 use App\Services\Payments\Data\ResolvedGateway;
 use App\Services\Plugins\PluginResolver;
+use App\Support\Money\ExchangeRateService;
+use App\Support\Money\StoreCurrency;
 use App\Support\Payments\CredentialCipher;
 use App\Support\Payments\PaymentGatewayRegistry;
 use App\Support\Payments\PaymentWebhookUrl;
@@ -26,7 +28,7 @@ use Illuminate\Support\Facades\DB;
  *     usable by the store =
  *        payment_methods.is_active            (the platform offers it at all)
  *        AND an effective row exists AND effective.is_active
- *        AND the provider's currency matches the store's
+ *        AND the provider's currency can be priced for this store
  *        AND the credentials are complete
  *
  * Two things this fixes, both live defects:
@@ -44,6 +46,8 @@ use Illuminate\Support\Facades\DB;
 final class PaymentGatewayResolver
 {
     private const DEFAULT_CURRENCY = 'NGN';
+
+    public function __construct(private readonly ExchangeRateService $rates) {}
 
     /**
      * Every provider a store can actually take money with, keyed by code.
@@ -65,9 +69,18 @@ final class PaymentGatewayResolver
                 continue;
             }
 
-            // A provider settling in USD cannot serve a store charging NGN.
-            // Filtering here is why nothing anywhere needs `if ($code === 'bitfra')`.
-            if (! $this->currencyMatches($code, $currency)) {
+            // A provider in another currency is offered as long as we can price
+            // it — the store amount is converted into the provider's currency
+            // at the call site. This is still why nothing anywhere needs
+            // `if ($code === 'bitfra')`; it is now also why a missing rate hides
+            // a gateway rather than mispricing it.
+            //
+            // Offline rails are the exception and keep the exact match. There is
+            // no provider to hand a converted figure to: `bank_transfer` settles
+            // by a human reading a slip whose amount the payer typed, and its
+            // storefront path hard-codes naira. Conversion only means anything
+            // where something else charges the money.
+            if (! $this->canPrice($code, $currency)) {
                 continue;
             }
 
@@ -262,8 +275,18 @@ final class PaymentGatewayResolver
             return 'Connected, but some credentials are missing.';
         }
 
-        if ($currency !== null && ! $this->currencyMatches($code, $currency)) {
-            return "Charges in {$this->providerCurrency($code)}, so it cannot be used by a store priced in {$currency}.";
+        if ($currency !== null && ! $this->canPrice($code, $currency)) {
+            $provider = $this->providerCurrency($code);
+
+            // Offline rails genuinely cannot serve another currency; a redirect
+            // provider only cannot because no rate has been fetched. Saying
+            // which is which is the difference between "fix your settings" and
+            // "wait for the job", and this screen previously said neither.
+            if (PaymentGatewayRegistry::checkoutModeFor($code) === 'offline') {
+                return "Collects in {$provider}, so it cannot be used by a store priced in {$currency}.";
+            }
+
+            return "Charges in {$provider}. No {$provider} exchange rate has been fetched yet — the daily rate job has not run.";
         }
 
         return null;
@@ -296,9 +319,24 @@ final class PaymentGatewayResolver
         return $businessCode === null ? null : PaymentWebhookUrl::forBusiness($code, $businessCode);
     }
 
-    private function currencyMatches(string $code, string $currency): bool
+    /**
+     * Whether a store priced in `$currency` can be charged through `$code`.
+     *
+     * An offline rail must collect in the store's own currency — nothing
+     * converts for it. Everything else needs only a rate, which is the one
+     * thing that can be missing, and the reason this replaced a bare equality
+     * check.
+     */
+    private function canPrice(string $code, string $currency): bool
     {
-        return $this->providerCurrency($code) === $currency;
+        $provider = $this->providerCurrency($code);
+
+        if (PaymentGatewayRegistry::checkoutModeFor($code) === 'offline') {
+            return $provider === $currency;
+        }
+
+        return $provider === $currency
+            || $this->rates->convert(100, $currency, $provider) !== null;
     }
 
     private function providerCurrency(string $code): string
@@ -312,11 +350,7 @@ final class PaymentGatewayResolver
      */
     private function currencyFor(Store $store): string
     {
-        $store->loadMissing(['currency', 'business']);
-
-        return strtoupper(
-            (string) ($store->currency?->code ?? $store->business?->currency ?? self::DEFAULT_CURRENCY)
-        );
+        return StoreCurrency::for($store);
     }
 
     /**

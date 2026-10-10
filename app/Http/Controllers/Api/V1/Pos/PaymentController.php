@@ -93,6 +93,13 @@ final class PaymentController extends Controller
                 // checkout. Null unless the provider named this payment itself.
                 'provider_reference' => $payment['provider_reference'],
                 'amount' => $payment['amount'],
+                // What the provider was asked to charge, in its own minor
+                // units, alongside the currency and the rate that produced it.
+                // The till echoes `charge_amount` back on every status check
+                // and on the sale itself.
+                'charge_amount' => $payment['charge_amount'],
+                'charge_currency' => $payment['charge_currency'],
+                'rate' => $payment['rate'],
                 // What the sale actually comes to, so the till can show a
                 // running balance that matches the one the order will carry.
                 'total' => $quote->total,
@@ -117,6 +124,7 @@ final class PaymentController extends Controller
                 $data['reference'],
                 (float) $data['amount'],
                 $data['provider_reference'] ?? null,
+                isset($data['charge_amount']) ? (int) $data['charge_amount'] : null,
             );
         } catch (DomainException $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage()], 422);

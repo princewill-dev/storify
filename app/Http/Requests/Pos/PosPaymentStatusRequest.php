@@ -30,6 +30,13 @@ final class PosPaymentStatusRequest extends FormRequest
             // Absent for every provider but Bitfra.
             'provider_reference' => ['nullable', 'string', 'max:255'],
             'amount' => ['required', 'numeric', 'min:0.01'],
+            // What the provider was asked to charge, in its own minor units,
+            // echoed back from `initialize`. Sent whenever the till has one —
+            // for a provider charging in the store's own currency it equals the
+            // amount above, and for one charging in another it is the only
+            // figure that can be compared against what the provider reports.
+            'charge_amount' => ['nullable', 'integer', 'min:0'],
+            'charge_currency' => ['nullable', 'string', 'size:3'],
         ];
     }
 }

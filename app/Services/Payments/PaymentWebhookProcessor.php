@@ -9,6 +9,7 @@ use App\Services\Accounting\LedgerPostingService;
 use App\Services\Digital\DigitalDeliveryService;
 use App\Services\Payments\Contracts\PaymentGateway;
 use App\Services\Payments\Data\GatewayCredentials;
+use App\Services\Payments\Data\VerificationResult;
 use App\Services\Payments\Data\WebhookEvent;
 use App\Services\Payments\Data\WebhookScope;
 use App\Support\Money\Naira;
@@ -86,6 +87,16 @@ final class PaymentWebhookProcessor
                 return ['status' => 'verification failed', 'http' => Response::HTTP_OK];
             }
 
+            // Refuse a confirmation for less than this payment was asked to
+            // charge. Only reachable when a converted charge was recorded —
+            // `chargeAmountMinor()` is null for every naira transaction — but it
+            // is the safety net for a USD-quoted charge on an NGN store, where a
+            // provider reporting the store amount in cents would otherwise
+            // settle an order it was never paid for.
+            if ($this->isUnderpaid($transaction, $verification)) {
+                return ['status' => 'underpaid', 'http' => Response::HTTP_OK];
+            }
+
             $feesMinor = $verification->feesMinor ?? $event->feesMinor;
 
             DB::transaction(function () use ($transaction, $verification, $feesMinor) {
@@ -153,6 +164,30 @@ final class PaymentWebhookProcessor
             // 500 so the provider retries — this one genuinely failed.
             return ['status' => 'error', 'http' => Response::HTTP_INTERNAL_SERVER_ERROR];
         }
+    }
+
+    /**
+     * Whether the provider reports less than the recorded charge.
+     *
+     * `<` and not `!=`: overpayment through FX movement between checkout and
+     * settlement is legitimate and must still settle.
+     */
+    private function isUnderpaid(Transaction $transaction, VerificationResult $verification): bool
+    {
+        $expected = $transaction->chargeAmountMinor();
+
+        if ($expected === null || $verification->amountMinor >= $expected) {
+            return false;
+        }
+
+        Log::warning('payments.settlement.underpaid', [
+            'reference' => $transaction->reference,
+            'expected_minor' => $expected,
+            'reported_minor' => $verification->amountMinor,
+            'charge_currency' => $transaction->metadata['pricing']['charge_currency'] ?? null,
+        ]);
+
+        return true;
     }
 
     private function status(Transaction $transaction): string
