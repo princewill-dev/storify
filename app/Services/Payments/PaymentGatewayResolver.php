@@ -8,6 +8,7 @@ use App\Services\Payments\Data\ResolvedGateway;
 use App\Services\Plugins\PluginResolver;
 use App\Support\Payments\CredentialCipher;
 use App\Support\Payments\PaymentGatewayRegistry;
+use App\Support\Payments\PaymentWebhookUrl;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -107,6 +108,9 @@ final class PaymentGatewayResolver
         $business = $this->businessRows($businessId);
         $storeRows = $store ? $this->storeRows((int) $store->id) : collect();
         $currency = $store ? $this->currencyFor($store) : null;
+        // Resolved once rather than per provider — it cannot change inside the
+        // loop, and it is a query.
+        $businessCode = DB::table('businesses')->where('id', $businessId)->value('business_code');
 
         $states = [];
 
@@ -146,6 +150,13 @@ final class PaymentGatewayResolver
                 // Masked values only — the screen shows which key is stored,
                 // never the key. Secrets never leave the server in a response.
                 'masked' => $resolved->credentials->masked(),
+                // The URL this business pastes into the provider's dashboard.
+                //
+                // Present whether or not the provider is connected, because the
+                // order matters: some providers only issue the webhook secret
+                // *after* you have saved a URL with them, so the merchant has to
+                // be able to read this before they can fill in the form.
+                'webhook_url' => $this->webhookUrl($code, $method, $store, $businessCode),
                 'unavailable_reason' => $this->unavailableReason($code, $resolved, $currency, $businessId),
             ];
         }
@@ -256,6 +267,33 @@ final class PaymentGatewayResolver
         }
 
         return null;
+    }
+
+    /**
+     * The webhook URL to show for this provider at this scope, or null when the
+     * provider has no webhooks to receive.
+     *
+     * `bank_transfer` is settled by a human reading a bank slip, and a provider
+     * with no `payment_methods` row has no driver to parse a payload — neither
+     * has anything to paste anywhere.
+     *
+     * A store in scope gets that store's own URL, including when it charges
+     * through the business's account: the URL still resolves to the right keys,
+     * and providers that configure webhooks per store (Bitfra does) need one per
+     * store. A business-wide scope gets the business's URL, which is what a
+     * shared provider account has room for — one dashboard, one URL.
+     */
+    private function webhookUrl(string $code, ?object $method, ?Store $store, ?string $businessCode): ?string
+    {
+        if ($method === null || PaymentGatewayRegistry::checkoutModeFor($code) === 'offline') {
+            return null;
+        }
+
+        if ($store !== null) {
+            return PaymentWebhookUrl::forStore($code, $store);
+        }
+
+        return $businessCode === null ? null : PaymentWebhookUrl::forBusiness($code, $businessCode);
     }
 
     private function currencyMatches(string $code, string $currency): bool

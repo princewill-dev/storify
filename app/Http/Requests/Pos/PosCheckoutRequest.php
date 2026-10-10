@@ -56,6 +56,8 @@ final class PosCheckoutRequest extends FormRequest
             // is the older, provider-specific name and still accepted.
             'payments.*.reference' => ['nullable', 'string', 'max:255'],
             'payments.*.paystack_reference' => ['nullable', 'string'],
+            // The provider's own id for the leg, when it did not take ours.
+            'payments.*.provider_reference' => ['nullable', 'string', 'max:255'],
             'payments.*.bank_account_id' => [
                 'nullable',
                 Rule::exists('store_banks', 'id')->where('business_id', $store->business_id),

@@ -421,7 +421,12 @@ test('the management payload never carries a full secret', function () {
         ->assertOk();
 
     expect($response->getContent())->not->toContain('sk_live_test1234567890')
-        ->and($response->json('data.providers'))->toBeArray();
+        ->and($response->json('data.providers'))->toBeArray()
+        // The webhook URL travels in the same payload, so the same rule applies
+        // to it: it selects which stored secret a signature is tested against,
+        // and must never carry any part of one.
+        ->and(json_encode(collect($response->json('data.providers'))->pluck('webhook_url')->all()))
+        ->not->toContain('sk_live');
 });
 
 /* --------------------------------------- what the clients are actually given */

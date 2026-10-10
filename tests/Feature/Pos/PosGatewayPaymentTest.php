@@ -171,7 +171,11 @@ function pgFakePaystack(string $status = 'success', int $amountKobo = 100000): v
                 'data' => [
                     'authorization_url' => 'https://checkout.paystack.com/pg-test',
                     'access_code' => 'pg_access_code',
-                    'reference' => 'pg_provider_reference',
+                    // Echoed back, which is what Paystack actually does with the
+                    // reference we send it — and what makes this fake honest
+                    // about the case where a provider adopts our reference
+                    // rather than issuing one of its own.
+                    'reference' => $request['reference'],
                 ],
             ]);
         }
@@ -601,4 +605,70 @@ test('the payment-methods response tells the till how each method is paid', func
         ->and($methods['paystack']['mode'])->toBe('redirect');
 
     expect(app(PaymentGatewayResolver::class)->forStore($store))->toHaveKey('paystack');
+});
+
+test('a provider that names its own payments is asked about that name, not ours', function () {
+    // Bitfra generates a `payment_id` and has no lookup by the reference we
+    // supply, so a till that only ever quotes its own `POS_…` reference can
+    // never be told the crypto arrived: the sale sits pending until the charge
+    // times out. The id travels out with the charge and back with every
+    // question, which is what this pins.
+    [, $business, , $store, $product] = pgContext();
+
+    // Its prices are in dollars, and the resolver only offers it to a store
+    // that charges in them.
+    $business->update(['currency' => 'USD']);
+    pgConnect($business, 'bitfra', ['api_key' => 'test_sandbox_key', 'webhook_secret' => 'whsec_pg']);
+
+    Http::swap(new Factory);
+    Http::fake(function (Request $request) {
+        if (str_contains($request->url(), '/payments/')) {
+            return Http::response([
+                'payment_id' => 'pay_pg_1',
+                'amount' => 1000.00,
+                'amount_usd' => 1000.00,
+                'status' => 'PAID',
+                'tx_id' => 'tx_pg_1',
+            ]);
+        }
+
+        return Http::response([
+            'payment_id' => 'pay_pg_1',
+            'payment_link' => 'https://checkout.bitfra.net/pg-1',
+            'status' => 'PENDING',
+        ]);
+    });
+
+    $started = $this->postJson("/api/v1/pos/stores/{$store->store_id}/payments/initialize", [
+        'items' => [['product_id' => $product->id, 'quantity' => 1]],
+        'method' => 'bitfra',
+        'amount' => 1000,
+    ])->assertCreated();
+
+    expect($started->json('data.reference'))->toStartWith('POS_')
+        ->and($started->json('data.provider_reference'))->toBe('pay_pg_1');
+
+    // Asked under Bitfra's name, and for the amount the card was to be charged.
+    $this->postJson("/api/v1/pos/stores/{$store->store_id}/payments/status", [
+        'method' => 'bitfra',
+        'reference' => $started->json('data.reference'),
+        'provider_reference' => $started->json('data.provider_reference'),
+        'amount' => 1000,
+    ])->assertOk()->assertJsonPath('data.paid', true);
+
+    Http::assertSent(fn (Request $request): bool => str_contains($request->url(), '/payments/pay_pg_1'));
+
+    // Paystack keeps answering to our own reference: it adopts the one it is
+    // given, so nothing is round-tripped and no id is invented for it.
+    [, $paystackBusiness, , $paystackStore, $paystackProduct] = pgContext();
+    pgConnect($paystackBusiness, 'paystack', pgPaystackKeys());
+    pgFakePaystack();
+
+    $paystackStart = $this->postJson("/api/v1/pos/stores/{$paystackStore->store_id}/payments/initialize", [
+        'items' => [['product_id' => $paystackProduct->id, 'quantity' => 1]],
+        'method' => 'paystack',
+        'amount' => 1000,
+    ])->assertCreated();
+
+    expect($paystackStart->json('data.provider_reference'))->toBeNull();
 });

@@ -15,6 +15,7 @@ use App\Services\Payments\Data\PaymentIntent;
 use App\Services\Payments\PaymentGatewayManager;
 use App\Services\Payments\PaymentGatewayResolver;
 use App\Support\Money\Naira;
+use App\Support\Payments\PaymentWebhookUrl;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -111,6 +112,12 @@ final class CheckoutPaymentService
                         // intent and the driver formats them as instructions.
                         'bank_accounts' => $this->bankAccountsFor($store),
                     ],
+                    // Derived from the store, never from the request: the
+                    // client-supplied `callback_url` above is where the
+                    // customer's browser returns to, and letting it double as
+                    // the alert destination would hand a stranger control of
+                    // where payment notifications are posted.
+                    webhookUrl: PaymentWebhookUrl::forStore($provider, $store),
                 ),
                 $connection->credentials,
             );
@@ -128,6 +135,14 @@ final class CheckoutPaymentService
             $transaction->update([
                 'gateway_response' => $result->raw,
                 'gateway_reference' => $result->providerId ?? $result->providerReference,
+                'metadata' => array_merge($transaction->metadata ?? [], [
+                    // The name to ask the provider about this payment under, when
+                    // it did not adopt the reference we issued — null for most
+                    // providers, and Bitfra's own `payment_id` for that one. Kept
+                    // so the customer's return to `verify()` can address the
+                    // provider correctly instead of waiting on the webhook.
+                    'provider_reference' => $result->ownReference($reference),
+                ]),
             ]);
             DB::commit();
 
@@ -180,7 +195,15 @@ final class CheckoutPaymentService
             return PaymentVerificationOutcome::failed('That payment method is not available for this store.');
         }
 
-        $verification = $driver->verify($reference, $connection->credentials);
+        // Asked under whichever name the provider knows this payment by. For
+        // every provider but Bitfra that is the reference in the request; Bitfra
+        // issued its own id at initialize and has no lookup by ours, so the
+        // stored one is used instead. A provider that never accepted our
+        // reference cannot be verified with it, and the only place that id was
+        // ever written down is this row.
+        $providerReference = $transaction->metadata['provider_reference'] ?? null;
+
+        $verification = $driver->verify($providerReference ?? $reference, $connection->credentials);
         $order = $transaction->order;
 
         if ($verification->isPaid()) {

@@ -291,6 +291,7 @@ final class PaymentGatewayRegistry
                 'status' => self::STATUS_STABLE,
                 'credential_source' => 'keys',
                 'driver' => BitfraGateway::class,
+                'webhook_note' => 'Paste this into your store\'s webhook settings in Bitfra. It shows you a signing secret once, when you save the URL — copy that into the field below.',
                 'fields' => [
                     [
                         'key' => 'api_key',
@@ -303,9 +304,15 @@ final class PaymentGatewayRegistry
                     [
                         'key' => 'webhook_secret',
                         'label' => 'Webhook secret',
-                        'help' => 'Found with your API key on the Developers page.',
+                        'help' => 'Shown once by Bitfra when you save the webhook URL above. Leave blank to connect without webhooks — payments are still confirmed by asking Bitfra directly, they just take a moment longer to land.',
                         'placeholder' => 'your-webhook-secret',
                         'secret' => true,
+                        // Optional because the secret does not exist until the
+                        // merchant has saved our webhook URL at Bitfra and
+                        // copied back what Bitfra showed them. Requiring it up
+                        // front means the form cannot be completed in the order
+                        // the provider's own setup flow demands.
+                        'optional' => true,
                         'rules' => ['required', 'string', 'max:255', self::SAFE],
                     ],
                 ],
@@ -409,7 +416,26 @@ final class PaymentGatewayRegistry
 
         $rules = [];
         foreach ($plugin['fields'] as $field) {
-            $rules[$field['key']] = $field['rules'];
+            $fieldRules = $field['rules'];
+
+            // An optional field may be left blank, but its other rules still
+            // apply when something *is* entered — which is why the flag swaps
+            // `required` for `nullable` rather than dropping the field's rules.
+            //
+            // Deliberate for anything a provider only issues once you have
+            // given it a callback URL: demanding it up front makes the
+            // connection impossible to complete in the order the provider
+            // expects. Absent, webhooks simply never verify for that connection
+            // and payments are confirmed by re-querying the provider instead.
+            if (($field['optional'] ?? false) === true) {
+                $fieldRules = array_values(array_filter(
+                    $fieldRules,
+                    static fn (mixed $rule): bool => $rule !== 'required',
+                ));
+                $fieldRules[] = 'nullable';
+            }
+
+            $rules[$field['key']] = $fieldRules;
         }
 
         return $rules;
@@ -455,12 +481,18 @@ final class PaymentGatewayRegistry
                 'supports_partial' => $plugin['supports_partial'],
                 'status' => $plugin['status'],
                 'credential_source' => $plugin['credential_source'],
+                // Provider-specific wording for the webhook URL the screen
+                // shows. It belongs here rather than in the SPA because it is a
+                // fact about this provider's setup flow, and the screen should
+                // not grow a branch per provider.
+                'webhook_note' => $plugin['webhook_note'] ?? null,
                 'fields' => array_map(static fn (array $field): array => [
                     'key' => $field['key'],
                     'label' => $field['label'],
                     'help' => $field['help'] ?? null,
                     'placeholder' => $field['placeholder'] ?? null,
                     'secret' => (bool) ($field['secret'] ?? false),
+                    'optional' => ($field['optional'] ?? false) === true,
                 ], $plugin['fields']),
             ];
         }

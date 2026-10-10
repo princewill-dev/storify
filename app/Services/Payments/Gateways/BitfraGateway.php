@@ -31,14 +31,16 @@ use Illuminate\Support\Facades\Log;
  *    id and nothing of ours, and the settlement processor falls back to looking
  *    a transaction up by provider id when the reference does not match.
  *
- * `verify()` therefore reports PENDING rather than guessing: there is no
- * by-our-reference lookup in Bitfra's API, and a confirmation is something only
- * the webhook can deliver. Saying "pending" is the truthful answer; inventing a
- * lookup would be worse than admitting the gap.
+ * `verify()` is therefore addressed by Bitfra's id, not by ours — the string it
+ * is handed has to be the `payment_id`. Everything that calls it either has
+ * that id from the provider's own payload (a webhook quotes it) or is given it
+ * alongside our reference.
  *
  * Confirmation is a threshold, not a receipt: Bitfra reports `payment.paid`
  * when a transfer is seen and `payment.completed` once it has enough
- * confirmations. Only the latter settles here.
+ * confirmations. **Only `payment.completed` settles** — see `parseWebhook()`,
+ * which is where that distinction is enforced, and `verify()`, which does not
+ * try to re-derive it from the API's own status vocabulary.
  */
 final class BitfraGateway implements PaymentGateway
 {
@@ -48,6 +50,12 @@ final class BitfraGateway implements PaymentGateway
 
     /** Reject a webhook whose timestamp is older than this, to blunt replays. */
     private const SIGNATURE_TOLERANCE_SECONDS = 300;
+
+    /**
+     * The statuses `GET /payments/{payment_id}` can report for money that is
+     * really there. See `verify()` for why both count.
+     */
+    private const SETTLED_STATUSES = ['PAID', 'COMPLETED'];
 
     public function code(): string
     {
@@ -87,10 +95,85 @@ final class BitfraGateway implements PaymentGateway
         );
     }
 
+    /**
+     * `GET /payments/{payment_id}`.
+     *
+     * This returned PENDING unconditionally, which quietly made every Bitfra
+     * sale uncompletable: the settlement processor re-verifies with the
+     * provider before it will touch a transaction, so a signed
+     * `payment.completed` webhook was parsed correctly, matched to its
+     * transaction, and then thrown away as "verification failed". The storefront
+     * and the till ask the same question through the same method, so they were
+     * dead for this provider too.
+     *
+     * The API does not document the full set of statuses it can return, only
+     * `PENDING`, `PAID` and `CANCELLED`. `PAID` is what its own example shows
+     * for a payment that carries a `tx_id`, i.e. an on-chain transfer that has
+     * been seen. Both it and `COMPLETED` are therefore treated as settled here,
+     * and that is not a loosening of the confirmation threshold: the threshold
+     * is enforced upstream in `parseWebhook()`, which settles only on
+     * `payment.completed` and maps `payment.paid` to IGNORED. The webhook
+     * decides *when* a payment counts; this decides whether the money is really
+     * there and how much of it, which is the same division of labour the
+     * processor applies to every other provider.
+     */
     public function verify(string $reference, GatewayCredentials $credentials): VerificationResult
     {
-        return VerificationResult::pending(
-            'Crypto payments are confirmed on-chain. Bitfra notifies us when the transfer has enough confirmations.'
+        $response = $this->client($credentials)->get(
+            $this->baseUrl($credentials).'/payments/'.rawurlencode($reference)
+        );
+
+        $body = $response->json() ?? [];
+
+        if (! $response->successful()) {
+            // A 404 is the ordinary answer for an id Bitfra does not know. That
+            // happens when the caller only had our own reference — the id is the
+            // provider's, and there is no lookup by ours — and it is also what a
+            // payment created a moment ago can look like. Neither is a refusal,
+            // so it reads as pending rather than failed: a failed result is
+            // terminal at the till, and an id we cannot ask about yet must not
+            // abort a sale that is going to be paid.
+            if ($response->status() === 404) {
+                return VerificationResult::pending('Bitfra has not seen this payment yet.', $body);
+            }
+
+            return VerificationResult::failed($body['message'] ?? 'Bitfra could not verify this payment.', $body);
+        }
+
+        $status = strtoupper((string) ($body['status'] ?? ''));
+
+        if (! in_array($status, self::SETTLED_STATUSES, true)) {
+            return match ($status) {
+                'CANCELLED', 'EXPIRED', 'FAILED' => VerificationResult::failed(
+                    'This crypto payment is no longer open.',
+                    $body,
+                ),
+                default => VerificationResult::pending(
+                    'Crypto payments are confirmed on-chain. Bitfra has not reported the transfer yet.',
+                    $body,
+                ),
+            };
+        }
+
+        // USD, as a decimal number — the inverse of what `initialize()` sends,
+        // and deliberately not the naira helper, because the units are not
+        // naira.
+        $usd = $body['amount_usd'] ?? $body['amount'] ?? null;
+
+        if ($usd === null) {
+            // Paid but priceless: a confirmation for an unknown sum is not
+            // something to settle an order on. The till compares the amount it
+            // is given against the amount it asked for, and a missing one
+            // already reads as zero there — this just says so plainly instead.
+            return VerificationResult::pending('Bitfra confirmed this payment without reporting an amount.', $body);
+        }
+
+        return VerificationResult::paid(
+            amountMinor: (int) round(((float) $usd) * 100),
+            currency: 'USD',
+            providerId: isset($body['payment_id']) ? (string) $body['payment_id'] : $reference,
+            paidAt: isset($body['updated_at']) ? (string) $body['updated_at'] : null,
+            raw: $body,
         );
     }
 

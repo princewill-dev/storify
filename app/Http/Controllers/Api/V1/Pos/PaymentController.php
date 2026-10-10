@@ -89,6 +89,9 @@ final class PaymentController extends Controller
                 'authorization_url' => $payment['authorization_url'],
                 'reference' => $payment['reference'],
                 'access_code' => $payment['access_code'],
+                // Echoed back by the till on every later status check and on
+                // checkout. Null unless the provider named this payment itself.
+                'provider_reference' => $payment['provider_reference'],
                 'amount' => $payment['amount'],
                 // What the sale actually comes to, so the till can show a
                 // running balance that matches the one the order will carry.
@@ -113,6 +116,7 @@ final class PaymentController extends Controller
                 $data['method'],
                 $data['reference'],
                 (float) $data['amount'],
+                $data['provider_reference'] ?? null,
             );
         } catch (DomainException $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage()], 422);

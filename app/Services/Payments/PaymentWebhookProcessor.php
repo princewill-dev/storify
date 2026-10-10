@@ -10,7 +10,9 @@ use App\Services\Digital\DigitalDeliveryService;
 use App\Services\Payments\Contracts\PaymentGateway;
 use App\Services\Payments\Data\GatewayCredentials;
 use App\Services\Payments\Data\WebhookEvent;
+use App\Services\Payments\Data\WebhookScope;
 use App\Support\Money\Naira;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
@@ -38,39 +40,22 @@ final class PaymentWebhookProcessor
     ) {}
 
     /**
+     * @param  WebhookScope|null  $scope  the connection the URL named, when it named one
      * @return array{status: string, http: int}
      */
-    public function settle(WebhookEvent $event, PaymentGateway $driver, GatewayCredentials $credentials): array
-    {
+    public function settle(
+        WebhookEvent $event,
+        PaymentGateway $driver,
+        GatewayCredentials $credentials,
+        ?WebhookScope $scope = null,
+    ): array {
         $reference = $event->reference;
 
         if ($reference === null) {
             return ['status' => 'no reference', 'http' => Response::HTTP_OK];
         }
 
-        $transaction = Transaction::where('reference', $reference)->first();
-
-        if ($transaction === null) {
-            // Not every provider lets us supply a reference. Bitfra generates
-            // its own payment id and quotes that in the webhook, so fall back
-            // to the id we recorded at initialize.
-            //
-            // Scoped to this provider's method id on purpose: provider ids are
-            // small and local, and two gateways can easily both have a payment
-            // "12345678". Matching one provider's webhook onto another
-            // provider's transaction would settle the wrong order.
-            $methodId = $driver->code() === ''
-                ? null
-                : DB::table('payment_methods')
-                    ->where('code', $driver->code())
-                    ->value('id');
-
-            if ($methodId !== null) {
-                $transaction = Transaction::where('gateway_reference', $reference)
-                    ->where('payment_method_id', $methodId)
-                    ->first();
-            }
-        }
+        $transaction = $this->findTransaction($reference, $driver, $scope);
 
         if ($transaction === null) {
             // Answered 200 rather than 404 on purpose: the transaction may
@@ -175,5 +160,80 @@ final class PaymentWebhookProcessor
         return $transaction->status instanceof TransactionStatus
             ? $transaction->status->value
             : (string) $transaction->status;
+    }
+
+    /**
+     * The transaction this webhook is about, or null.
+     *
+     * Two lookups, in order: the reference we issued, then the provider's own id
+     * which we recorded at initialize. Not every provider lets us supply a
+     * reference — Bitfra generates its own payment id and quotes that — so the
+     * second lookup is what makes those providers settle at all.
+     */
+    private function findTransaction(string $reference, PaymentGateway $driver, ?WebhookScope $scope): ?Transaction
+    {
+        $transaction = $this->scopeQuery(Transaction::where('reference', $reference), $scope)->first();
+
+        if ($transaction !== null) {
+            return $transaction;
+        }
+
+        // Scoped to this provider's method id on purpose: provider ids are small
+        // and local, and two gateways can easily both have a payment "12345678".
+        // Matching one provider's webhook onto another provider's transaction
+        // would settle the wrong order.
+        $methodId = $driver->code() === ''
+            ? null
+            : DB::table('payment_methods')
+                ->where('code', $driver->code())
+                ->value('id');
+
+        if ($methodId === null) {
+            return null;
+        }
+
+        return $this->scopeQuery(
+            Transaction::where('gateway_reference', $reference)
+                ->where('payment_method_id', $methodId),
+            $scope,
+        )->first();
+    }
+
+    /**
+     * Confine the lookup to the tenant the webhook URL named.
+     *
+     * Without a scope this changes nothing — that is the provider-only URL, and
+     * it keeps the behaviour it has always had. With one, a signature that
+     * verified against this connection can no longer settle a transaction
+     * belonging to a different business. The narrower half of that is real
+     * today: the provider-id fallback above is scoped only to the method, and a
+     * small local id like "12345678" is exactly the sort of thing two businesses
+     * both have.
+     *
+     * ## Why the store is only applied when it owns its keys
+     *
+     * A store with its own provider account is notified about that store and
+     * nothing else, so a payment it reports cannot belong to a sibling store —
+     * and scoping to it is safe. A store charging through the business's shared
+     * account is not: the provider posts about every store through that one
+     * account, so a store-level filter would quietly drop most of the business's
+     * payments. There, the reach stays business-wide.
+     *
+     * @param  Builder<Transaction>  $query
+     * @return Builder<Transaction>
+     */
+    private function scopeQuery($query, ?WebhookScope $scope)
+    {
+        if ($scope === null) {
+            return $query;
+        }
+
+        $query->where('transactions.business_id', $scope->businessId);
+
+        if ($scope->storeId !== null && $scope->storeOwnsKeys) {
+            $query->whereHas('order', fn ($order) => $order->where('store_id', $scope->storeId));
+        }
+
+        return $query;
     }
 }

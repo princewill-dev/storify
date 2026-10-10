@@ -82,7 +82,7 @@ final class PosPaymentService
      * Start a charge for one leg.
      *
      * @param  array{method: string, amount: float|int|string, customer_email?: ?string, customer_name?: ?string}  $leg
-     * @return array{mode: string, authorization_url: string, reference: string, access_code: ?string, amount: float}
+     * @return array{mode: string, authorization_url: string, reference: string, access_code: ?string, provider_reference: ?string, amount: float}
      *
      * @throws DomainException when the method is not one this store can charge
      */
@@ -141,6 +141,14 @@ final class PosPaymentService
             'authorization_url' => $result->redirectUrl,
             'reference' => $reference,
             'access_code' => $result->providerId,
+            // The provider's own id for this payment, but only when it did not
+            // take ours. Most providers echo the reference we handed them and
+            // are asked about it by that name; Bitfra generates its own id and
+            // is asked about it by that instead. The till hands this straight
+            // back with the reference it is polling, so the server is told which
+            // name to ask under rather than guessing — passing a Bitfra id to
+            // Paystack, or the reverse, is a lookup that can only miss.
+            'provider_reference' => $result->ownReference($reference),
             'amount' => $amount,
         ];
     }
@@ -151,12 +159,22 @@ final class PosPaymentService
      * Read-only, and writes nothing, so the till can poll it while the customer
      * works through the provider's pages.
      *
+     * `$providerReference` is the id the provider knows this payment by, when
+     * that is not the reference we issued — see `initialize()`. Asking Bitfra
+     * about a `POS_…` reference is a request it cannot answer, so this is what
+     * makes a crypto sale completable at the till at all.
+     *
      * @return array{paid: bool, pending: bool, message: ?string}
      *
      * @throws DomainException when the method is not one this store can charge
      */
-    public function status(Store $store, string $method, string $reference, float $amount): array
-    {
+    public function status(
+        Store $store,
+        string $method,
+        string $reference,
+        float $amount,
+        ?string $providerReference = null,
+    ): array {
         $connection = $this->gateways->forStore($store)[$method] ?? null;
         $driver = $this->manager->driver($method);
 
@@ -164,7 +182,7 @@ final class PosPaymentService
             throw new DomainException('That payment method is not available for this store.');
         }
 
-        $verification = $driver->verify($reference, $connection->credentials);
+        $verification = $driver->verify($providerReference ?? $reference, $connection->credentials);
 
         if (! $verification->isPaid()) {
             return [
@@ -216,7 +234,15 @@ final class PosPaymentService
                 throw new DomainException('A card payment on this sale has not been completed.');
             }
 
-            $status = $this->status($store, $method, (string) $reference, (float) $payment['amount']);
+            $status = $this->status(
+                $store,
+                $method,
+                (string) $reference,
+                (float) $payment['amount'],
+                // Round-tripped from initialize, so a provider that names its
+                // own payments is asked by its name and the rest are unchanged.
+                isset($payment['provider_reference']) ? (string) $payment['provider_reference'] : null,
+            );
 
             if (! $status['paid']) {
                 throw new DomainException($status['message'] ?? 'A card payment on this sale has not been completed.');

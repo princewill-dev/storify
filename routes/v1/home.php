@@ -21,6 +21,19 @@ Route::post('/webhooks/payments/{provider}', [PaymentWebhookController::class, '
     ->whereIn('provider', PaymentGatewayRegistry::keys())
     ->name('webhooks.payments');
 
+// The URL a business is given to paste into its provider's dashboard, which is
+// the only one that names whose connection is being notified about. `{scope}` is
+// a store's `st_…` code or a business's `…_BIZ_…` code, resolved in the
+// controller rather than by route binding — see the controller for why.
+//
+// The provider-only route above stays exactly as it is and keeps working: it is
+// already registered in live provider dashboards, and a business that pasted it
+// must not be broken by this.
+Route::post('/webhooks/payments/{provider}/{scope}', [PaymentWebhookController::class, 'handle'])
+    ->whereIn('provider', PaymentGatewayRegistry::keys())
+    ->where('scope', '[A-Za-z0-9_]+')
+    ->name('webhooks.payments.scope');
+
 // Kept because this exact URL is registered in Paystack's dashboard; changing
 // it would silently stop settlement until someone updated it there.
 Route::post('/webhooks/paystack', [PaystackWebhookController::class, 'handle'])->name('webhooks.paystack');

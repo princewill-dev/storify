@@ -25,6 +25,10 @@ final class PosPaymentStatusRequest extends FormRequest
         return [
             'method' => ['required', 'string', 'max:64'],
             'reference' => ['required', 'string', 'max:255'],
+            // The id the provider issued for this payment, echoed back from
+            // `initialize` when it gave us one other than our own reference.
+            // Absent for every provider but Bitfra.
+            'provider_reference' => ['nullable', 'string', 'max:255'],
             'amount' => ['required', 'numeric', 'min:0.01'],
         ];
     }

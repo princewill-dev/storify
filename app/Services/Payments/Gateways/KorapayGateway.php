@@ -46,7 +46,13 @@ final class KorapayGateway implements PaymentGateway
             'amount' => Naira::floatFromKobo($intent->amountMinor),
             'currency' => $intent->currency,
             'redirect_url' => $intent->callbackUrl,
-            'notification_url' => $intent->callbackUrl,
+            // Korapay is the one provider here that takes the alert destination
+            // per payment rather than from its dashboard. This used to be the
+            // browser return URL, which meant Korapay posted payment alerts at a
+            // page that says "you can close this window" — every notification
+            // lost. The fallback keeps that mistake from becoming a crash for
+            // any caller that has no webhook URL to give.
+            'notification_url' => $intent->webhookUrl ?? $intent->callbackUrl,
             'narration' => $intent->description ?: 'Order payment',
             'customer' => array_filter([
                 'email' => $intent->email,

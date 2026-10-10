@@ -14,6 +14,13 @@ final class PaymentIntent
 {
     /**
      * @param  array<string, mixed>  $metadata
+     * @param  string|null  $webhookUrl  where the provider should send payment
+     *                                   alerts. Not the same thing as
+     *                                   `callbackUrl`, which is where the
+     *                                   customer's browser goes back to. Most
+     *                                   providers are configured with this in
+     *                                   their dashboard and have no use for it
+     *                                   here; Korapay takes it per payment.
      */
     public function __construct(
         public readonly string $reference,
@@ -24,5 +31,6 @@ final class PaymentIntent
         public readonly array $metadata = [],
         public readonly ?string $customerName = null,
         public readonly ?string $description = null,
+        public readonly ?string $webhookUrl = null,
     ) {}
 }

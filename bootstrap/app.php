@@ -23,7 +23,6 @@ return Application::configure(basePath: dirname(__DIR__))
             // covers every provider's generic endpoint — without it each new
             // gateway would 419 until someone remembered to add its path.
             'webhooks/*',
-            'payment/paystack/webhook',
         ]);
 
         $middleware->alias([

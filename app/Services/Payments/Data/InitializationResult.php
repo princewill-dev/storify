@@ -64,4 +64,24 @@ final class InitializationResult
     {
         return $this->success && $this->mode === InitializationMode::REDIRECT && $this->redirectUrl !== null;
     }
+
+    /**
+     * The provider's own name for this payment, or null when it adopted ours.
+     *
+     * `verify()` is addressed by whatever name the provider answers to. Paystack,
+     * Korapay, Monnify, Squad and Flutterwave all take the reference we hand them
+     * and quote it back, so there is nothing to carry around. Bitfra generates
+     * its own `payment_id` and has no lookup by ours at all, so a caller that
+     * later wants to ask about the payment has to keep this and ask under it.
+     *
+     * Callers round-trip this rather than the provider id: a provider id is
+     * frequently a *different* id again (Paystack's `access_code`), and asking a
+     * provider about one of those is a lookup that can only miss.
+     */
+    public function ownReference(string $issuedReference): ?string
+    {
+        return $this->providerReference !== null && $this->providerReference !== $issuedReference
+            ? $this->providerReference
+            : null;
+    }
 }
