@@ -20,6 +20,7 @@ use App\Services\Payments\PaymentGatewayResolver;
 use App\Support\Money\ExchangeRateService;
 use App\Support\Money\Naira;
 use App\Support\Money\StoreCurrency;
+use App\Support\Payments\CallbackUrl;
 use App\Support\Payments\PaymentWebhookUrl;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -177,7 +178,14 @@ final class CheckoutPaymentService
                     amountMinor: $chargeMinor,
                     currency: $driver->currency(),
                     email: (string) $email,
-                    callbackUrl: (string) ($data['callback_url'] ?? url('/')),
+                    // The return page is told which payment it is receiving,
+                    // because a provider that redirects to what it was handed —
+                    // Bachs does, Paystack does not — would otherwise send the
+                    // customer back to a page that cannot name the payment.
+                    callbackUrl: CallbackUrl::withReference(
+                        (string) ($data['callback_url'] ?? url('/')),
+                        $reference,
+                    ),
                     metadata: [
                         'order_id' => $order->id,
                         'order_number' => $order->order_number,

@@ -871,8 +871,30 @@ test('bachs can bill a platform subscription end to end', function () {
         ->and((string) Transaction::where('reference', $payment->reference)->value('payment_method_id'))
         ->toBe((string) PaymentMethod::where('code', 'bachs')->value('id'));
 
+    // What Bachs was told to return the customer to. Bachs redirects to
+    // `success_url` verbatim — it appends nothing — so without the reference on
+    // it the customer arrived at a page that could not name the payment, and a
+    // paid subscription sat on "No payment reference was supplied." Paystack
+    // hid the omission by appending a reference of its own.
+    $sent = Http::recorded(fn (Request $request): bool => str_contains($request->url(), 'checkout-sessions'));
+
+    expect($sent)->toHaveCount(1);
+
+    $returned = (string) $sent->first()[0]['success_url'];
+
+    expect($returned)->toContain('storify_ref='.$payment->reference);
+
+    // Then the round trip the browser makes: the callback page reads the
+    // reference out of that URL, and verifies it. Parsed rather than written
+    // out, so the test follows the URL this code produced instead of one it
+    // assumed.
+    parse_str((string) parse_url($returned, PHP_URL_QUERY), $query);
+
+    expect($query)->toHaveKey('storify_ref')
+        ->and($query['storify_ref'])->toBe($payment->reference);
+
     $this->withToken(ws08Token($owner))
-        ->getJson('/api/v1/management/subscription/callback?reference='.$payment->reference)
+        ->getJson('/api/v1/management/subscription/callback?reference='.urlencode($query['storify_ref']))
         ->assertOk()
         ->assertJsonPath('data.already_processed', false);
 

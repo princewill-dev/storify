@@ -16,6 +16,7 @@ use App\Services\Payments\Data\InitializationResult;
 use App\Services\Payments\Data\PaymentIntent;
 use App\Services\StoreActivationNotifier;
 use App\Support\Money\Naira;
+use App\Support\Payments\CallbackUrl;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
@@ -135,7 +136,16 @@ final class SubscriptionPaymentService
                 // that prices in another.
                 currency: $driver->currency(),
                 email: (string) $user->email,
-                callbackUrl: $callbackUrl ?? url('/subscription/callback'),
+                // The reference rides on the return URL, because the callback
+                // page has nothing else to name this payment by. Paystack
+                // appends one of its own; Bachs — and every other provider
+                // here — redirects to what it was given, verbatim, which is
+                // how a paid Bachs subscription ended on "No payment reference
+                // was supplied." See {@see CallbackUrl}.
+                callbackUrl: CallbackUrl::withReference(
+                    $callbackUrl ?? url('/subscription/callback'),
+                    $payment->reference,
+                ),
                 customerName: null,
                 metadata: [
                     'user_id' => $user->id,

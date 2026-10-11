@@ -317,6 +317,41 @@ test('a naira charge keeps its byte-identical shape, with no pricing block', fun
         ->and($transaction->currency)->toBe('NGN');
 });
 
+/* ------------------------------------------- the return leg names the payment */
+
+test('the return url the provider is given carries the reference the success page needs', function () {
+    // Only Paystack decorates the callback URL itself. Every other provider
+    // redirects to what it was handed, so without the reference on it the
+    // success page has nothing to verify against and — if the webhook has not
+    // landed yet — sends the customer back to pay for an order they already
+    // paid, which is the failure this pins shut.
+    sc39FakeBitfra();
+
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    sc39Connect($business, 'bitfra', sc39BitfraKeys());
+    sc39Rate('NGN', 1331.267014);
+
+    $store = sc39Store($owner);
+    $order = sc39Order($store, 23000);
+
+    $callback = 'https://sc39.storify.buzz/checkout/payment/'.$order->order_number.'/success';
+
+    $this->postJson('/api/v1/storefront/'.$store->slug.'/payments/bitfra/initialize', [
+        'order_number' => $order->order_number,
+        'amount' => 23000,
+        // Exactly as the storefront sends it: already carrying the provider,
+        // because a reference on its own does not say who issued it.
+        'callback_url' => $callback.'?provider=bitfra',
+    ])->assertOk();
+
+    $transaction = Transaction::where('order_id', $order->id)->sole();
+
+    // `&`, not a second `?`: a query string a provider was handed with two
+    // question marks puts the reference inside the value of `provider`.
+    Http::assertSent(fn (Request $request): bool => str_ends_with($request->url(), '/payments')
+        && $request['return_url'] === $callback.'?provider=bitfra&storify_ref='.$transaction->reference);
+});
+
 /* -------------------------------------------------------- idempotency */
 
 test('verifying the same storefront payment twice credits the store once', function () {
