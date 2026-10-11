@@ -259,6 +259,29 @@ final class PaymentGatewayRegistry
                 'supports_partial' => true,
                 'status' => self::STATUS_BETA,
                 'credential_source' => 'keys',
+                // The second way this gateway can be provisioned, and the
+                // platform's default one: instead of the business holding keys,
+                // Storify creates it a connected account and charges on its
+                // behalf, so the money is the business's from the moment it is
+                // taken. `credential_source` above still describes the *keys*
+                // path, which is unchanged — this is additive, not a
+                // replacement, and which of the two is in force depends on the
+                // connection, not on this entry. See PaymentGatewayResolver.
+                'managed' => [
+                    'label' => 'Processed by Storify',
+                    // Requested at account creation and immutable afterwards, so
+                    // the list is what the business can be paid through for good.
+                    'capabilities' => ['card_collection', 'ngn_card_collection', 'bank_transfer', 'mobile_money'],
+                    // Who absorbs Bachs' processing fee. `bachs` makes the
+                    // subaccount settle net of it — the business bears it, and
+                    // Storify pays nothing per sale. `platform` would bill the
+                    // fee to Storify's own balance instead.
+                    'fee_collector' => 'bachs',
+                    // A connected account cannot be paid out without a
+                    // destination, so registration is incomplete until one is
+                    // approved.
+                    'requires_payout_destination' => true,
+                ],
                 'driver' => BachsGateway::class,
                 'fields' => [
                     [
@@ -391,6 +414,57 @@ final class PaymentGatewayRegistry
     }
 
     /**
+     * This provider's platform-managed specification, or null when it has none.
+     *
+     * The spec is a fact about the provider — which capabilities a subaccount
+     * must be granted, who absorbs the processing fee — and belongs here rather
+     * than in the service that creates the account, so a second provider can run
+     * the same way without that service learning its name.
+     *
+     * @return array<string, mixed>|null
+     */
+    public static function managedSpecFor(string $key): ?array
+    {
+        $spec = self::get($key)['managed'] ?? null;
+
+        return is_array($spec) ? $spec : null;
+    }
+
+    /**
+     * Whether this provider can be provisioned for a business by the platform,
+     * rather than by the business connecting its own keys.
+     */
+    public static function supportsManaged(string $key): bool
+    {
+        return self::managedSpecFor($key) !== null;
+    }
+
+    /**
+     * Every provider a business may be onboarded to without credentials.
+     *
+     * @return array<int, string>
+     */
+    public static function managedCodes(): array
+    {
+        return array_values(array_filter(
+            self::keys(),
+            static fn (string $key): bool => self::supportsManaged($key),
+        ));
+    }
+
+    /**
+     * The capabilities a subaccount is asked for, in Bachs' own vocabulary.
+     *
+     * @return array<int, string>
+     */
+    public static function managedCapabilitiesFor(string $key): array
+    {
+        $requested = self::managedSpecFor($key)['capabilities'] ?? [];
+
+        return is_array($requested) ? array_values(array_map('strval', $requested)) : [];
+    }
+
+    /**
      * Every field the provider needs before it can take money.
      *
      * @return array<int, string>
@@ -487,6 +561,14 @@ final class PaymentGatewayRegistry
                 'supports_partial' => $plugin['supports_partial'],
                 'status' => $plugin['status'],
                 'credential_source' => $plugin['credential_source'],
+                // Null for a provider the platform cannot process on a
+                // business's behalf. The screen uses its presence to decide
+                // whether a payout-account form is on the table at all, and its
+                // label so the wording is the provider's, not the SPA's.
+                'managed' => ($managed = self::managedSpecFor($key)) === null ? null : [
+                    'label' => $managed['label'] ?? 'Processed by Storify',
+                    'requires_payout_destination' => (bool) ($managed['requires_payout_destination'] ?? false),
+                ],
                 // Provider-specific wording for the webhook URL the screen
                 // shows. It belongs here rather than in the SPA because it is a
                 // fact about this provider's setup flow, and the screen should

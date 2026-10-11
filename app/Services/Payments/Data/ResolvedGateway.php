@@ -31,10 +31,53 @@ final class ResolvedGateway
          * a business must not find a connection they made simply gone.
          */
         public readonly bool $hasActiveConnection = false,
+        /**
+         * The connected account's state, when this connection is one the
+         * platform processes rather than the business's own keys. Null for an
+         * own-key connection and for a provider with no connection.
+         */
+        public readonly ?ManagedAccount $managed = null,
+        /**
+         * Whether the business has deliberately switched this connection off.
+         *
+         * Read from the row that holds the account rather than from `isEnabled`,
+         * because `isEnabled` is false for several unrelated reasons — an admin
+         * disabled the provider, the credentials are incomplete — and only this
+         * one means *the owner did it*. The screen needs the difference: a
+         * payment option missing because its owner paused it should say so, and
+         * offer the switch back.
+         */
+        public readonly bool $paused = false,
     ) {}
 
     public function isUsable(): bool
     {
         return $this->isEnabled && ! $this->credentials->isEmpty();
+    }
+
+    /**
+     * Whether the platform charges on this business's behalf here.
+     *
+     * Read off the credentials rather than the account state, because the
+     * credentials are what a charge actually needs: an account id present and no
+     * usable keys is the definition of managed, and the two cannot disagree.
+     */
+    public function isManaged(): bool
+    {
+        return $this->credentials->isManaged();
+    }
+
+    /**
+     * Which of the two ways this provider is provisioned, for the screen that
+     * has to render the right panel: `platform_managed`, `own_keys`, or `none`
+     * when nothing is connected at all.
+     */
+    public function paymentMode(): string
+    {
+        if ($this->isManaged()) {
+            return 'platform_managed';
+        }
+
+        return $this->source === 'none' ? 'none' : 'own_keys';
     }
 }

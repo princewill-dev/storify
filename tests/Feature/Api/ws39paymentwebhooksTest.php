@@ -111,6 +111,18 @@ function wh39Token(User $user): string
 }
 
 /**
+ * Allow this business to keep gateway keys of its own.
+ *
+ * Connecting own keys is refused until an admin grants it — Storify processes a
+ * business's payments until then — so tests that connect have to grant first.
+ * Set on the row rather than through the admin endpoint, which has its own suite.
+ */
+function wh39GrantOwnGateway(Business $business): void
+{
+    $business->update(['can_connect_own_gateway' => true]);
+}
+
+/**
  * A pending order for one store, with nothing paid against it.
  */
 function wh39Order(Store $store, array $attributes = []): Order
@@ -337,7 +349,8 @@ test('a provider can be connected before it has issued the secret its webhook ne
     // first: the signing secret does not exist until a webhook URL has been
     // saved with Bitfra, and Bitfra shows it once. Demanding it at connect made
     // the connection impossible to complete in the order the provider requires.
-    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    wh39GrantOwnGateway($business);
 
     $this->withToken(wh39Token($owner))
         ->putJson('/api/v1/management/payment-gateways/bitfra', [

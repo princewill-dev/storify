@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Payment\ConnectWebhookController;
 use App\Http\Controllers\Payment\PaymentWebhookController;
 use App\Http\Controllers\Payment\PaystackWebhookController;
 use App\Http\Controllers\Payment\SubscriptionWebhookController;
@@ -49,6 +50,19 @@ Route::post('/webhooks/paystack', [PaystackWebhookController::class, 'handle'])-
 Route::post('/webhooks/subscription/{provider}', [SubscriptionWebhookController::class, 'handle'])
     ->whereIn('provider', PaymentGatewayRegistry::keys())
     ->name('webhooks.subscription');
+
+// Deliveries about a business's *connected account* — sales the platform
+// processed on its behalf, and the payouts that empty it.
+//
+// A path of its own, not a scope of `/webhooks/payments/…`, and that is forced
+// rather than chosen: `{scope}` on that route is a single `[A-Za-z0-9_]+`
+// segment, so `/webhooks/payments/bachs/connect` would resolve to
+// `provider=bachs, scope=connect` and be handled as somebody's store code.
+// Nothing here collides, and adding a second provider with an accounts API later
+// is one driver and one registry entry.
+Route::post('/webhooks/connect/{provider}', [ConnectWebhookController::class, 'handle'])
+    ->whereIn('provider', PaymentGatewayRegistry::keys())
+    ->name('webhooks.payments.connect');
 
 // Send www traffic to the apex so links and cookies share one origin.
 Route::domain('www.'.config('app.main_domain', parse_url(config('app.url'), PHP_URL_HOST)))->group(function () {

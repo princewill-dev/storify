@@ -267,6 +267,40 @@ final class PlatformBillingGateway
     }
 
     /**
+     * The credentials a *connected-account* delivery is verified with.
+     *
+     * A separate accessor because the signing secret is a different question
+     * from the API key: the account events are delivered to their own endpoint
+     * (`event_source: connect`), and Bachs does not document whether that
+     * endpoint is given its own secret. `services.bachs.connect_webhook_secret`
+     * is read first and falls back to the ordinary webhook secret, so the common
+     * case — one secret for both — works with nothing configured, and the
+     * variable is there the moment a sandbox says otherwise.
+     *
+     * The API key travels on these credentials too, because settlement
+     * re-verifies the payment through the provider's API; the id of the account
+     * being settled is added by the caller, which is the only place that knows
+     * which business the delivery is about.
+     */
+    public function connectWebhookCredentials(): GatewayCredentials
+    {
+        $connect = config('services.bachs.connect_webhook_secret');
+
+        return GatewayCredentials::make('bachs', [
+            'api_key' => config('services.bachs.api_key'),
+            'webhook_secret' => is_string($connect) && $connect !== ''
+                ? $connect
+                : config('services.bachs.webhook_secret'),
+        ], PaymentGatewayRegistry::secretKeysFor('bachs'));
+    }
+
+    /** Whether connected-account deliveries can be verified at all. */
+    public function connectWebhookConfigured(): bool
+    {
+        return $this->connectWebhookCredentials()->has('webhook_secret');
+    }
+
+    /**
      * Whether this provider is the one the platform bills through.
      *
      * The subscription webhook endpoint accepts no other: a delivery from a

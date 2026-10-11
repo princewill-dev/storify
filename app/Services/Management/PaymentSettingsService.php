@@ -7,6 +7,7 @@ use App\Models\Store;
 use App\Models\StoreBank;
 use App\Models\User;
 use App\Repositories\Management\PaymentSettingsRepository;
+use App\Support\Payments\GatewayGrant;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -141,6 +142,15 @@ final class PaymentSettingsService
      */
     public function connectGateway(int $businessId, PaymentMethod $method, array $config): void
     {
+        // The same refusal the WS-39 connect makes, and for the same reason: a
+        // business takes payments through Storify unless an admin has granted it
+        // otherwise. Leaving it to the newer surface would make the older one a
+        // way around the rule, and the rule is not about which screen was used.
+        //
+        // Only keyed providers are gated: bank transfer is the business's own
+        // bank accounts by definition.
+        GatewayGrant::assertMayConnectOwnKeys($businessId, (string) $method->code);
+
         DB::transaction(function () use ($businessId, $method, $config) {
             $this->repository->insertBusinessGateway($businessId, (int) $method->id, $config);
 

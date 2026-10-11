@@ -59,6 +59,8 @@ final class SettingsService
         'trial_enabled',
         'trial_days',
         'billing_gateway',
+        'platform_commission_percent',
+        'platform_commission_fixed_kobo',
         'og_title',
         'og_description',
         'og_image_path',
@@ -107,6 +109,17 @@ final class SettingsService
                 'billing_gateway' => $data['billing_gateway']
                     ?? $settings->billing_gateway
                     ?? PlatformBillingGateway::DEFAULT_CODE,
+                // Storify's cut of a sale it processed on a business's behalf.
+                // Absent means "leave it alone", for the same reason as the line
+                // above — and here it matters more, because a partial save that
+                // reset the commission to zero would quietly stop the platform
+                // earning on every managed sale from then on.
+                'platform_commission_percent' => $data['platform_commission_percent']
+                    ?? $settings->platform_commission_percent
+                    ?? 0,
+                'platform_commission_fixed_kobo' => $data['platform_commission_fixed_kobo']
+                    ?? $settings->platform_commission_fixed_kobo
+                    ?? 0,
                 'og_title' => $data['og_title'] ?? null,
                 'og_description' => $data['og_description'] ?? null,
                 'og_url' => $data['og_url'] ?? null,

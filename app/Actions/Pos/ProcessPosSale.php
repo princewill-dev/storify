@@ -16,6 +16,8 @@ use App\Models\Transaction;
 use App\Models\User;
 use App\Services\Accounting\InventoryCostingService;
 use App\Services\Accounting\LedgerPostingService;
+use App\Services\Payments\Connect\PlatformCommission;
+use App\Services\Payments\PaymentGatewayResolver;
 use App\Services\StockLedgerService;
 use App\Support\Money\StoreCurrency;
 use App\Support\Payments\PaymentGatewayRegistry;
@@ -29,6 +31,7 @@ final class ProcessPosSale
         private readonly StockLedgerService $stockLedger,
         private readonly InventoryCostingService $costing,
         private readonly PricePosSale $pricer,
+        private readonly PaymentGatewayResolver $gateways,
     ) {}
 
     public function execute(Store $store, User $staff, PosSession $session, array $data): PosSaleResult
@@ -154,11 +157,34 @@ final class ProcessPosSale
             ]);
 
             $order->items()->saveMany($orderItems);
-            $this->recordPayments($order, $lockedStore, $payments);
+            $managedLegs = $this->recordPayments($order, $lockedStore, $payments);
             $this->removeStock($order, $lockedStore, $staff, $items, $products);
 
             $ledger = app(LedgerPostingService::class);
             $ledger->safe(fn () => $ledger->postSale($order, $staff->id));
+
+            // A till sale posts its money straight to the provider clearing
+            // account, so a leg the platform processed on the business's behalf
+            // needs the two halves of the commission taken off it — the
+            // business's expense and, on the platform's own books, our income.
+            // A storefront sale gets both from `postManagedPaymentReceived()`,
+            // which this path must not use: there is no receivable here for it
+            // to credit, and crediting one would invent an asset that never
+            // existed. Bachs' own fee is neither posted nor knowable at this
+            // point — see `postManagedCommissionExpense()`.
+            foreach ($managedLegs as $leg) {
+                $ledger->safe(fn () => $ledger->postManagedCommissionExpense(
+                    $leg['transaction'],
+                    $leg['commission_kobo'],
+                    $staff->id,
+                ));
+
+                $ledger->safe(fn () => $ledger->postPlatformCommissionEarned(
+                    $leg['transaction'],
+                    $leg['commission_kobo'],
+                    $staff->id,
+                ));
+            }
 
             return new PosSaleResult($order->load(['items', 'transactions.paymentMethod']));
         });
@@ -240,8 +266,22 @@ final class ProcessPosSale
             && PaymentGatewayRegistry::checkoutModeFor($code) === 'redirect';
     }
 
-    private function recordPayments(Order $order, Store $store, array $payments): void
+    /**
+     * Write a transaction row per leg and settle each one's effect on the
+     * store.
+     *
+     * Returns the legs the platform processed on the business's behalf, so the
+     * caller can post their commission once the sale's own entry exists. A leg
+     * charged through the business's own keys — and cash, and a bank transfer —
+     * leaves nothing to return.
+     *
+     * @param  array<int, array<string, mixed>>  $payments
+     * @return array<int, array{transaction: Transaction, commission_kobo: int}>
+     */
+    private function recordPayments(Order $order, Store $store, array $payments): array
     {
+        $managedLegs = [];
+
         // Look up whatever the till sent rather than a fixed pair, so a provider
         // a business connects actually records against its own method. The
         // hard-coded `['paystack', 'bank_transfer']` meant a new gateway's sales
@@ -296,6 +336,26 @@ final class ProcessPosSale
                 $reference = $providedReference;
             }
 
+            // Whether the platform processed this leg on the business's behalf.
+            //
+            // Resolved here rather than recorded at initialize, because the till
+            // is a client and its word cannot decide where money goes: the
+            // gateway leg is only ever written for a payment the provider has
+            // already confirmed, so the arrangement is read from the server's own
+            // records at the moment the sale is written. The gap is the seconds
+            // between the customer tapping their card and the till finishing the
+            // sale, so unlike the storefront — where settlement can be days
+            // behind the charge — there is no meaningful window for it to have
+            // changed underneath us.
+            $managed = $code !== '' && $this->isGatewayMethod($code)
+                ? $this->gateways->connection((int) $store->business_id, $code, (int) $store->id)
+                : null;
+
+            $isManaged = (bool) ($managed?->isManaged());
+            $commissionKobo = $isManaged
+                ? PlatformCommission::fromSettings()->on((int) round((float) $payment['amount'] * 100))
+                : null;
+
             $transaction = Transaction::create([
                 'reference' => $reference,
                 'order_id' => $order->id,
@@ -309,22 +369,45 @@ final class ProcessPosSale
                 'currency' => StoreCurrency::for($store),
                 'status' => TransactionStatus::CONFIRMED,
                 'paid_at' => now(),
+                // The provider's own id for this leg, when the till echoed one
+                // back from initialize. `reference` above is what we issued;
+                // this is what the provider calls the charge, and it is the only
+                // name a refund or a late webhook can address it by.
+                'gateway_reference' => $payment['provider_reference'] ?? null,
                 'metadata' => array_merge([
                     'leg_method' => $method,
                     'amount_tendered' => $payment['amount_tendered'] ?? null,
                     'is_split' => count($payments) > 1,
+                    'payment_mode' => $isManaged ? 'platform_managed' : 'own_keys',
+                    // Written down for the same reason the storefront writes it:
+                    // a refund has to go back to the account the money came
+                    // from, and the connection may have changed by then.
+                    'gateway_account_id' => $managed?->credentials->accountId(),
+                    'platform_fee_kobo' => $commissionKobo,
                 ], $this->chargeRecord($payment)),
             ]);
 
-            $amountInKobo = (int) round((float) $payment['amount'] * 100);
-            $balanceBefore = (int) $store->balance;
-            $store->creditBalance($amountInKobo);
-            $transaction->update([
-                'balance_updated_at' => now(),
-                'store_balance_before' => $balanceBefore,
-                'store_balance_after' => (int) $store->fresh()->balance,
-            ]);
+            // Not for a managed leg: the money is in the business's own account
+            // at the provider, already net of its fees, and a balance we hold
+            // credited on top of it would be money that is not ours.
+            if (! $isManaged) {
+                $amountInKobo = (int) round((float) $payment['amount'] * 100);
+                $balanceBefore = (int) $store->balance;
+                $store->creditBalance($amountInKobo);
+                $transaction->update([
+                    'balance_updated_at' => now(),
+                    'store_balance_before' => $balanceBefore,
+                    'store_balance_after' => (int) $store->fresh()->balance,
+                ]);
+            } else {
+                $managedLegs[] = [
+                    'transaction' => $transaction,
+                    'commission_kobo' => (int) $commissionKobo,
+                ];
+            }
         }
+
+        return $managedLegs;
     }
 
     /**

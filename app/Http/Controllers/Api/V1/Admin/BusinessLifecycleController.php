@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1\Admin;
 
 use App\Http\Controllers\Api\V1\Admin\Concerns\EnsuresPlatformAdmin;
 use App\Http\Controllers\Api\V1\ApiController;
+use App\Http\Requests\Admin\BusinessGatewayAccessRequest;
 use App\Http\Requests\Admin\BusinessReasonRequest;
 use App\Http\Requests\Admin\ListBusinessesRequest;
 use App\Http\Requests\Admin\StoreBusinessRequest;
@@ -271,6 +272,38 @@ class BusinessLifecycleController extends ApiController
      *
      * @return array<string, mixed>
      */
+    /**
+     * Grant or revoke this business's ability to connect its own payment
+     * methods.
+     *
+     * Its own action rather than a branch of `update()`: the profile payload is
+     * asserted field by field and has nothing to say about payments, and this
+     * decision changes how the business charges from the moment it is made —
+     * see `BusinessLifecycleService::setGatewayAccess()`.
+     *
+     * No status guard, unlike suspend and activate. Whether a business is
+     * active, suspended or pending has no bearing on whether it may hold a
+     * gateway connection of its own, and refusing the grant on a suspended
+     * business would only mean the admin had to activate it first to prepare it
+     * for its return.
+     */
+    public function setGatewayAccess(BusinessGatewayAccessRequest $request, Business $business): JsonResponse
+    {
+        $this->authorizePlatformAdmin();
+
+        $data = $request->validated();
+        $allowed = (bool) $data['can_connect_own_gateway'];
+
+        $this->lifecycle->setGatewayAccess($business, $allowed, $data['reason'] ?? null, $request->user());
+
+        return $this->ok(
+            ['business' => $this->payload($business->fresh(), detailed: true)],
+            $allowed
+                ? 'This business may now connect its own payment methods.'
+                : 'This business\'s payments will be processed by Storify.',
+        );
+    }
+
     private function payload(Business $business, bool $detailed = false): array
     {
         return BusinessResource::make($business)->detailed($detailed)->resolve();

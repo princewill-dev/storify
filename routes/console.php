@@ -26,3 +26,38 @@ Schedule::command('ledger:reconcile')
 Schedule::command('rates:fetch')
     ->dailyAt('05:15')
     ->withoutOverlapping();
+
+// Withdraw settled money from businesses' connected provider accounts to their
+// banks. Hourly rather than daily because the provider settles on its own
+// schedule and this is what turns "sold" into "in their bank" — the promise the
+// managed model makes is that nobody has to click anything. A run with nothing
+// settled costs one balance read per account and moves no money; a payout
+// requested too early is simply refused. Deliberately *not* guarded by a
+// `when()`: the cheapest way to discover the sweep has stopped is a business
+// asking where its money is.
+Schedule::command('connect:payouts')
+    ->hourly()
+    // Ten minutes, not the scheduler's default of twenty-four hours: a run that
+    // hangs on a provider call must not block the next hour's, and the next run
+    // is what catches whatever is left.
+    ->withoutOverlapping(10);
+
+// Fill in whatever the provider is still asking connected accounts for — a
+// field it has just started requiring, a business that completed KYC after
+// registering, a submission that failed while the provider was unreachable.
+//
+// Scheduled rather than event-driven because the requirements move on the
+// provider's side: nothing of ours changes when Bachs decides it wants a
+// product description, so there is no event of ours to hook. Every pass reads
+// the account first and submits only what is currently outstanding, so a run
+// with nothing to do costs one read per account and writes nothing.
+//
+// After the payout sweep rather than before it, so that an account cleared by
+// this run is paid by the *next* sweep — a payout in the same minute as the
+// notification that says the money is movable is the case most likely to be
+// refused for being a moment too early.
+Schedule::command('connect:requirements')
+    ->hourlyAt(20)
+    // Shorter than the gap between runs, for the same reason the sweep's is:
+    // one account stuck on an unresponsive provider call must not skip the hour.
+    ->withoutOverlapping(10);

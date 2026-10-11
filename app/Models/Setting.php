@@ -26,6 +26,10 @@ class Setting extends Model
         'trial_days',
         // Which gateway the platform bills its own subscriptions through.
         'billing_gateway',
+        // Storify's commission on a sale it processed on a business's behalf:
+        // a percentage and a per-sale fixed amount, in kobo.
+        'platform_commission_percent',
+        'platform_commission_fixed_kobo',
         // SEO
         'og_title',
         'og_description',
@@ -44,5 +48,10 @@ class Setting extends Model
         'store_creation_limit' => 'integer',
         'trial_enabled' => 'boolean',
         'trial_days' => 'integer',
+        // Read as a float rather than a string: `PlatformCommission` does its
+        // arithmetic in integer basis points, and handing it a decimal string
+        // only to cast it there would put the same cast in two places.
+        'platform_commission_percent' => 'float',
+        'platform_commission_fixed_kobo' => 'integer',
     ];
 }

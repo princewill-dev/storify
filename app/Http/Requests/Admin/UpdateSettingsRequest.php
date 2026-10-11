@@ -97,6 +97,16 @@ class UpdateSettingsRequest extends FormRequest
             // *code*; whether its keys are present is a runtime state that this
             // column cannot express, and is reported by the screen instead.
             'billing_gateway' => ['nullable', Rule::in(PlatformBillingGateway::selectableCodes())],
+            // Storify's cut of a sale it processed on a business's behalf. The
+            // percentage is capped below 100 because a commission of the whole
+            // sale is not a smaller number that happens to be wrong — it is a
+            // total we could never take, and the provider refuses a fee that
+            // leaves the business nothing. The ceiling here is the crude half of
+            // that check; the real one is per sale, in
+            // `PlatformCommission::on()`, because a fixed fee can exceed a small
+            // gross at any percentage at all.
+            'platform_commission_percent' => ['nullable', 'numeric', 'min:0', 'lt:100'],
+            'platform_commission_fixed_kobo' => ['nullable', 'integer', 'min:0'],
             'og_description' => ['nullable', 'string', 'max:2000'],
             'og_url' => ['nullable', 'url', 'max:255'],
             'og_type' => ['nullable', Rule::in(self::OG_TYPES)],

@@ -10,6 +10,9 @@ use App\Models\Transaction;
 use App\Repositories\Management\TransactionRepository;
 use App\Services\Accounting\LedgerPostingService;
 use App\Services\Digital\DigitalDeliveryService;
+use App\Services\Payments\Data\RefundRequest;
+use App\Services\Payments\PaymentGatewayManager;
+use App\Services\Subscription\PlatformBillingGateway;
 use App\Support\Money\Naira;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -28,6 +31,8 @@ class TransactionWorkflowService
         private readonly PaymentMailDispatcher $mails,
         private readonly LedgerPostingService $ledger,
         private readonly DigitalDeliveryService $digital,
+        private readonly PaymentGatewayManager $manager,
+        private readonly PlatformBillingGateway $platform,
     ) {}
 
     /**
@@ -124,31 +129,65 @@ class TransactionWorkflowService
     }
 
     /**
-     * Debit the store under lock and unwind the order's amount paid, then run
+     * Return the money to the customer, unwind the order's amount paid, and run
      * the post-commit hooks. A shortfall is reported, not thrown, so the
      * controller can render the legacy friendly message.
+     *
+     * **A sale the platform processed on the business's behalf is refunded
+     * through the provider, not out of a store balance**, and the provider call
+     * happens *before* anything is written: the money has to actually go back to
+     * the customer's card, and a refund that flipped the row to refunded while
+     * the provider refused would say the customer had been repaid when they had
+     * not. It also means this method can be retried safely — a second attempt
+     * re-asks the provider, and Bachs mints its own refund reference each time
+     * (see `BachsGateway::refund()`), so a retry after a genuine failure is a new
+     * refund rather than a silent no-op.
+     *
+     * A sale charged through the business's own keys keeps exactly the behaviour
+     * it has always had: the store's wallet is debited, and no provider is
+     * called.
      */
     public function refund(Transaction $transaction, ?Order $order, Store $store, string $reason, int $actorId): RefundOutcome
     {
+        $managed = $transaction->isPlatformManaged();
+
+        if ($managed) {
+            $outcome = $this->refundAtProvider($transaction, $reason, $actorId);
+
+            if ($outcome !== null) {
+                return $outcome;
+            }
+        }
+
         try {
-            DB::transaction(function () use ($transaction, $order, $store, $reason, $actorId) {
+            DB::transaction(function () use ($transaction, $order, $store, $reason, $actorId, $managed) {
                 $amountInKobo = $this->amountInKobo($transaction);
 
-                $store->lockForUpdate();
-                $balanceBefore = (int) $store->balance;
-                $store->debitBalance($amountInKobo);
-
-                $transaction->update([
+                $updates = [
                     'status' => TransactionStatus::REFUNDED->value,
-                    'balance_updated_at' => now(),
                     'metadata' => array_merge($transaction->metadata ?? [], [
                         'refund_reason' => $reason,
                         'refunded_at' => now()->toDateTimeString(),
                         'refunded_by' => $actorId,
-                        'refund_balance_before' => $balanceBefore,
-                        'refund_balance_after' => (int) $store->fresh()->balance,
                     ]),
-                ]);
+                ];
+
+                // Only when a balance of ours moved. A managed sale's money sits
+                // in the business's own account at the provider, so there is
+                // nothing in `stores.balance` to take back — and writing the
+                // before/after pair for it would record a movement that never
+                // happened.
+                if (! $managed) {
+                    $store->lockForUpdate();
+                    $balanceBefore = (int) $store->balance;
+                    $store->debitBalance($amountInKobo);
+
+                    $updates['balance_updated_at'] = now();
+                    $updates['metadata']['refund_balance_before'] = $balanceBefore;
+                    $updates['metadata']['refund_balance_after'] = (int) $store->fresh()->balance;
+                }
+
+                $transaction->update($updates);
 
                 if ($order) {
                     $order->amount_paid = max(0, (float) $order->amount_paid - (float) $transaction->amount);
@@ -189,5 +228,72 @@ class TransactionWorkflowService
     private function amountInKobo(Transaction $transaction): int
     {
         return Naira::koboFromRounded($transaction->amount);
+    }
+
+    /**
+     * Ask Bachs to put a managed sale's money back on the customer's card.
+     *
+     * Returns null when the refund was accepted — or when there is nothing this
+     * method can usefully do — and a failed {@see RefundOutcome} when the
+     * provider refused, which the caller returns as-is without writing anything.
+     *
+     * The credentials are the **platform's** key carrying the **business's**
+     * connected account, and that second half is the whole point: without it the
+     * refund would be taken out of Storify's own balance, and Bachs does not
+     * reject a request whose account header is missing. The account id comes from
+     * the transaction rather than from the connection, because a business may
+     * have been granted its own keys — or had its subaccount switched off —
+     * between the charge and the refund, and the money has to go back the way it
+     * came.
+     */
+    private function refundAtProvider(Transaction $transaction, string $reason, int $actorId): ?RefundOutcome
+    {
+        $accountId = $transaction->gatewayAccountId();
+
+        if ($accountId === null) {
+            Log::error('api.management.payment_refund_no_account', [
+                'transaction_id' => $transaction->id,
+            ]);
+
+            return RefundOutcome::failed(
+                'This payment was processed by Storify but no payout account was recorded against it, '
+                .'so it cannot be refunded through the provider.'
+            );
+        }
+
+        $driver = $this->manager->driver('bachs');
+
+        if ($driver === null) {
+            return RefundOutcome::failed('The provider this payment was taken through is not available in this build.');
+        }
+
+        $result = $driver->refund(
+            new RefundRequest(
+                reference: (string) $transaction->reference,
+                amountMinor: $this->amountInKobo($transaction),
+                providerId: $transaction->providerChargeId(),
+                reason: $reason,
+            ),
+            $this->platform->credentialsFor('bachs')->withAccountId($accountId),
+        );
+
+        if (! $result->success) {
+            Log::error('api.management.payment_refund_refused', [
+                'transaction_id' => $transaction->id,
+                'account_id' => $accountId,
+                'message' => $result->message,
+            ]);
+
+            return RefundOutcome::failed($result->message ?? 'The provider refused this refund.');
+        }
+
+        Log::info('api.management.payment_refund_at_provider', [
+            'user_id' => $actorId,
+            'transaction_id' => $transaction->id,
+            'refund_id' => $result->refundId,
+            'status' => $result->status,
+        ]);
+
+        return null;
     }
 }

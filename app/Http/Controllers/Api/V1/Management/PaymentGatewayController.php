@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api\V1\Management;
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Http\Controllers\Api\V1\Management\Concerns\ResolvesManagementContext;
 use App\Http\Requests\Management\PaymentGateways\ConnectGatewayRequest;
+use App\Http\Requests\Management\PaymentGateways\RegisterPayoutAccountRequest;
+use App\Http\Requests\Management\PaymentGateways\SetGatewayActivationRequest;
 use App\Models\Store;
 use App\Models\User;
 use App\Services\Access\TenantGuard;
@@ -87,6 +89,86 @@ final class PaymentGatewayController extends ApiController
             'code' => $provider,
             'providers' => $this->resolver->states((int) $user->business_id, $store),
         ], $definition['name'].' disconnected.');
+    }
+
+    /**
+     * Register the bank this business is paid into.
+     *
+     * The form a business with no gateway of its own sees: no keys, no
+     * dashboard, just where the money should land. What comes back is the
+     * provider's own view of the account — active or still under review, which
+     * capabilities have been granted, what documents are still wanted, and the
+     * last four digits of the bank account — because "it worked" is not an
+     * answer a business owner can act on when their first sale is refused.
+     *
+     * `store_id` means this store is paid into its own account; absent, the
+     * business's. It is the same scope parameter as every other verb here, for
+     * the same reason: two stores in one business may genuinely bank separately.
+     */
+    public function registerPayoutAccount(RegisterPayoutAccountRequest $request, string $provider): JsonResponse
+    {
+        $user = $this->user($request);
+        $definition = $this->providerOrFail($provider);
+        $store = $this->resolveStore($request, $user);
+
+        $result = $this->service->registerPayoutAccount($provider, $request->validated(), $user, $store);
+
+        $payload = [
+            'code' => $provider,
+            'success' => $result->success,
+            'account_id' => $result->accountId,
+            'message' => $result->message,
+            'providers' => $this->resolver->states((int) $user->business_id, $store),
+        ];
+
+        if (! $result->success) {
+            // 422 and not 500: the provider refused something about *this*
+            // submission — a bank account that did not resolve, an entity type
+            // it will not accept — and retrying the identical request will
+            // refuse it identically.
+            //
+            // Deliberately the same envelope as a success rather than
+            // `ApiController::error()`, because this is a *partial* outcome: a
+            // half-finished registration still changes what the screen should
+            // render, and a shape the client already knows beats one it has to
+            // learn for the failure case.
+            return response()->json([
+                'data' => $payload,
+                'message' => $result->message ?? 'The payout account could not be registered.',
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+        }
+
+        return $this->ok($payload, $result->message ?? $definition['name'].' will pay this business directly.');
+    }
+
+    /**
+     * Stop taking payments through Storify, or start again.
+     *
+     * A connection with a real account behind it cannot be removed — the account
+     * holds the business's money and cannot be deleted at the provider — so
+     * without this a business had no way to stop, which is not a reasonable
+     * thing to tell someone about their own shop.
+     *
+     * Switching off stops new charges and nothing else. Payouts keep running,
+     * because the settlements already sitting in the account are still the
+     * business's money and stopping them would hold it hostage over a decision
+     * about new sales.
+     */
+    public function activation(SetGatewayActivationRequest $request, string $provider): JsonResponse
+    {
+        $user = $this->user($request);
+        $definition = $this->providerOrFail($provider);
+        $store = $this->resolveStore($request, $user);
+
+        $isActive = (bool) $request->validated('is_active');
+
+        $this->service->setManagedActive($provider, $isActive, $user, $store);
+
+        return $this->ok([
+            'code' => $provider,
+            'is_active' => $isActive,
+            'providers' => $this->resolver->states((int) $user->business_id, $store),
+        ], $definition['name'].($isActive ? ' is taking payments again.' : ' has stopped taking payments.'));
     }
 
     /**

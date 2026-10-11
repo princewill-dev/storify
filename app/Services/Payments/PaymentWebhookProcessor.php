@@ -99,7 +99,13 @@ final class PaymentWebhookProcessor
 
             $feesMinor = $verification->feesMinor ?? $event->feesMinor;
 
-            DB::transaction(function () use ($transaction, $verification, $feesMinor) {
+            // Read before the write below: whether this sale was the platform's
+            // is a property of how it was charged, and must not be re-derived
+            // from a connection that may have changed since.
+            $managed = $transaction->isPlatformManaged();
+            $commissionKobo = $transaction->platformFeeKobo();
+
+            DB::transaction(function () use ($transaction, $verification, $feesMinor, $managed) {
                 $amountMinor = Naira::koboFromRounded($transaction->amount);
 
                 $transaction->update([
@@ -127,7 +133,13 @@ final class PaymentWebhookProcessor
 
                     $store = $order->store;
 
-                    if ($store) {
+                    // The store's own wallet, for a sale charged through the
+                    // store's or business's own gateway. **Not** for a managed
+                    // sale: that money is in the business's own account at the
+                    // provider, already net of its fees, and crediting a balance
+                    // we hold on top of it would be holding money that is not
+                    // ours — the exact thing the managed model exists to avoid.
+                    if ($store && ! $managed) {
                         $balanceBefore = (int) $store->balance;
                         $store->creditBalance($amountMinor);
                         $transaction->update([
@@ -139,7 +151,20 @@ final class PaymentWebhookProcessor
                 }
             });
 
-            $this->ledger->safe(fn () => $this->ledger->postPaymentReceived($transaction));
+            if ($managed) {
+                // The business's side — net asset, both fees as expenses — and
+                // ours, the commission we were paid. Two entries, two sets of
+                // books, and neither touches a balance we hold.
+                $this->ledger->safe(fn () => $this->ledger->postManagedPaymentReceived(
+                    $transaction,
+                    (int) ($feesMinor ?? 0),
+                    $commissionKobo,
+                ));
+
+                $this->ledger->safe(fn () => $this->ledger->postPlatformCommissionEarned($transaction, $commissionKobo));
+            } else {
+                $this->ledger->safe(fn () => $this->ledger->postPaymentReceived($transaction));
+            }
 
             $order = $transaction->order;
 

@@ -68,6 +68,8 @@ final class SettingsResource extends JsonResource
             'trial_enabled' => (bool) ($settings?->trial_enabled ?? true),
             'trial_days' => (int) ($settings?->trial_days ?? 7),
             'billing_gateway' => $settings?->billing_gateway ?? PlatformBillingGateway::DEFAULT_CODE,
+            'platform_commission_percent' => (float) ($settings?->platform_commission_percent ?? 0),
+            'platform_commission_fixed_kobo' => (int) ($settings?->platform_commission_fixed_kobo ?? 0),
             'default_currency_id' => $this->defaultCurrencyId,
             'greeting_modal_enabled' => (bool) ($settings?->greeting_modal_enabled ?? false),
             'greeting_modal_frequency' => $settings?->greeting_modal_frequency ?? 'never',

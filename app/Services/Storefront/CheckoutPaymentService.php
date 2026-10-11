@@ -12,6 +12,7 @@ use App\Models\Transaction;
 use App\Repositories\Storefront\CheckoutRepository;
 use App\Services\Accounting\LedgerPostingService;
 use App\Services\Digital\DigitalDeliveryService;
+use App\Services\Payments\Connect\PlatformCommission;
 use App\Services\Payments\Data\PaymentIntent;
 use App\Services\Payments\Data\VerificationResult;
 use App\Services\Payments\PaymentGatewayManager;
@@ -125,6 +126,22 @@ final class CheckoutPaymentService
             $email = config('mail.from.address', 'no-reply@storify.test');
         }
 
+        // The platform's own arrangement, when it has one with this business.
+        //
+        // Both facts are recorded on the transaction, and both have to be: the
+        // charge is made on the business's connected account, so the sale must
+        // land in *their* provider balance rather than ours, and the commission
+        // is taken at the rate in force today rather than at whatever rate is
+        // configured when the payment settles days later.
+        //
+        // The account id is written down rather than looked up again at
+        // settlement because the connection can change in between — the business
+        // may be granted its own keys, or switch the subaccount off — and a
+        // refund has to go back to the account the money came from.
+        $managed = $connection->isManaged();
+        $accountId = $connection->credentials->accountId();
+        $commissionKobo = $managed ? PlatformCommission::fromSettings()->on($chargeMinor) : null;
+
         DB::beginTransaction();
 
         try {
@@ -144,6 +161,9 @@ final class CheckoutPaymentService
                     'is_partial' => $amount < $remaining,
                     'source' => 'storefront_api',
                     'provider' => $provider,
+                    'payment_mode' => $connection->paymentMode(),
+                    'gateway_account_id' => $accountId,
+                    'platform_fee_kobo' => $commissionKobo,
                 ], $this->pricingMetadata($block)),
             ]);
 
@@ -173,6 +193,14 @@ final class CheckoutPaymentService
                     // the alert destination would hand a stranger control of
                     // where payment notifications are posted.
                     webhookUrl: PaymentWebhookUrl::forStore($provider, $store),
+                    // Both are declared as well as carried on the credentials,
+                    // deliberately: a provider that takes a direct charge from a
+                    // header does not reject the header's absence, so the
+                    // driver must be able to tell "this was meant to charge the
+                    // business's account" from a request that quietly names
+                    // none — and refuse before posting rather than after.
+                    directChargeAccountId: $managed ? $accountId : null,
+                    platformFeeMinor: $commissionKobo,
                 ),
                 $connection->credentials,
             );
@@ -285,12 +313,20 @@ final class CheckoutPaymentService
                 );
             }
 
-            DB::transaction(function () use ($transaction, $order, $verification) {
+            // Whether this sale was the platform's is a property of how it was
+            // charged, read before anything is written. The connection can have
+            // been revoked or re-pointed since, and the money belongs to
+            // whichever arrangement was in force when the customer paid.
+            $managed = $transaction->isPlatformManaged();
+            $commissionKobo = $transaction->platformFeeKobo();
+
+            DB::transaction(function () use ($transaction, $order, $verification, $managed) {
                 $transaction->update([
                     'status' => TransactionStatus::CONFIRMED->value,
                     'gateway_reference' => $verification->providerId,
                     'gateway_response' => $verification->raw,
                     'paid_at' => now(),
+                    'fee_kobo' => $verification->feesMinor,
                 ]);
 
                 $order->amount_paid = (float) $order->amount_paid + (float) $transaction->amount;
@@ -303,7 +339,11 @@ final class CheckoutPaymentService
 
                 $storeModel = $order->store;
 
-                if ($storeModel) {
+                // Not for a managed sale: that money is in the business's own
+                // account at the provider, already net of its fees, and a
+                // balance of ours credited on top of it would be us holding
+                // money that is not ours to hold.
+                if ($storeModel && ! $managed) {
                     // The inline expression was
                     // (int) round((float) $transaction->amount * 100),
                     // Naira::koboFromRounded's exact contract.
@@ -318,7 +358,17 @@ final class CheckoutPaymentService
                 }
             });
 
-            $this->ledger->safe(fn () => $this->ledger->postPaymentReceived($transaction, null));
+            if ($managed) {
+                $this->ledger->safe(fn () => $this->ledger->postManagedPaymentReceived(
+                    $transaction,
+                    (int) ($verification->feesMinor ?? 0),
+                    $commissionKobo,
+                ));
+
+                $this->ledger->safe(fn () => $this->ledger->postPlatformCommissionEarned($transaction, $commissionKobo));
+            } else {
+                $this->ledger->safe(fn () => $this->ledger->postPaymentReceived($transaction, null));
+            }
 
             if ($order->isFullyPaid()) {
                 $this->digital->deliverSafely($order);

@@ -44,6 +44,25 @@ function ws39Store(User $owner, array $attributes = []): Store
  * Connect a provider for a business, storing credentials exactly as the
  * application does — through the cipher.
  */
+/**
+ * Allow this business to keep gateway keys of its own.
+ *
+ * The platform default is that Storify processes a business's payments through
+ * its connected provider account and pays the business out to its own bank, so
+ * connecting own keys is refused until an admin grants it — the one permission
+ * in this area that is the platform's to give, not the business's to take. These
+ * tests are about the connecting rather than about the permission, so they grant
+ * it up front the way the admin console does.
+ *
+ * Set directly on the row rather than through the admin endpoint: that endpoint
+ * has its own suite, and routing these tests through it would make every one of
+ * them fail for a reason that has nothing to do with what they assert.
+ */
+function ws39GrantOwnGateway(Business $business): void
+{
+    $business->update(['can_connect_own_gateway' => true]);
+}
+
 function ws39Connect(Business $business, string $code, array $config, bool $active = true): void
 {
     $method = PaymentMethod::where('code', $code)->firstOrFail();
@@ -420,6 +439,7 @@ test('the gateway catalogue lists each provider with its fee', function () {
 
 test('connecting a provider at business scope encrypts its secret', function () {
     [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    ws39GrantOwnGateway($business);
 
     $this->withToken(ws39Token($owner))
         ->putJson('/api/v1/management/payment-gateways/paystack', [
@@ -439,6 +459,7 @@ test('an edit that leaves the secret blank keeps the stored one', function () {
     // Treating that as "clear it" would break every live connection the first
     // time someone changed a public key.
     [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    ws39GrantOwnGateway($business);
     ws39Connect($business, 'paystack', ws39Paystack());
 
     $this->withToken(ws39Token($owner))
@@ -456,6 +477,7 @@ test('an edit that leaves the secret blank keeps the stored one', function () {
 
 test('a store override can be connected and disconnected through the API', function () {
     [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    ws39GrantOwnGateway($business);
     ws39Connect($business, 'paystack', ws39Paystack());
 
     $store = ws39Store($owner);

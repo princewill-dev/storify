@@ -15,7 +15,6 @@ use App\Services\Payments\Data\WebhookEvent;
 use App\Services\Payments\Data\WebhookRequest;
 use App\Support\Money\Naira;
 use Illuminate\Http\Client\PendingRequest;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -42,16 +41,29 @@ use Illuminate\Support\Facades\Log;
  *    the header carries one `v1=` per live secret — so every one of them is
  *    tested, not just the first.
  *
+ * 5. **A connected account is named by a header, and its absence is not an
+ *    error.** Sending `X-Account-Id: acct_…` alongside the platform's key makes
+ *    the request a *direct charge*: the connected account is the merchant of
+ *    record, the sale lands in its balance, the processing fee comes out of its
+ *    proceeds, and a refund debits it rather than us. `platform_fee` on the same
+ *    request is our cut, "taken from the account's proceeds".
+ *
+ *    Bachs does **not** reject a missing or misspelled `X-Account-Id` — the
+ *    request simply succeeds as the platform's own charge — so the header is
+ *    attached in one place, `client()`, for every call that has an account to
+ *    name, and `initialize()` refuses to post when the intent declares a direct
+ *    charge the credentials cannot honour. Destination charges are the
+ *    alternative (`transfer_data.destination`) and are not used: they land the
+ *    money in *our* balance, make us merchant of record, and leave us bearing
+ *    the whole refund. Bachs rejects the two together —
+ *    `400 CONTRADICTORY_CHARGE_TYPE`.
+ *
  * `success_url` must be publicly reachable: Bachs refuses localhost and private
  * addresses, in sandbox as well as production. A Bachs checkout cannot be created
  * from a development machine without a tunnel.
  */
 final class BachsGateway implements PaymentGateway
 {
-    private const LIVE_URL = 'https://api.bachs.io/v1';
-
-    private const SANDBOX_URL = 'https://sandbox-api.bachs.io/v1';
-
     /** Reject a webhook whose timestamp is older than this, to blunt replays. */
     private const SIGNATURE_TOLERANCE_SECONDS = 300;
 
@@ -90,6 +102,20 @@ final class BachsGateway implements PaymentGateway
 
     public function initialize(PaymentIntent $intent, GatewayCredentials $credentials): InitializationResult
     {
+        // Before the request, not after the response. A direct charge that goes
+        // out without its account is not a failed payment — it is a *successful*
+        // payment to the wrong party, and nothing in the response says so.
+        if (($problem = $this->directChargeProblem($intent, $credentials)) !== null) {
+            Log::error('bachs.direct_charge.refused', [
+                'reference' => $intent->reference,
+                'reason' => $problem,
+                'declared_account' => $intent->directChargeAccountId,
+                'credential_account' => $credentials->accountId(),
+            ]);
+
+            return InitializationResult::failed($problem);
+        }
+
         $response = $this->client($credentials)->post($this->baseUrl($credentials).'/checkout-sessions', array_filter([
             // `pricing` rather than `product_cart`: the amount is whatever the
             // customer is paying on this order, and it exists in no catalogue.
@@ -99,6 +125,13 @@ final class BachsGateway implements PaymentGateway
                 // charge a hundred times the amount.
                 'amount' => Naira::decimalFromKobo($intent->amountMinor),
             ],
+            // Our cut, on a direct charge only, and "taken from the account's
+            // proceeds" — it never passes through our balance and we never pay
+            // Bachs' processing fee. Omitted entirely when there is no cut to
+            // take: Bachs refuses `platform_fee >= gross` with
+            // `400 INVALID_PLATFORM_FEE`, and a `0.00` line is not the same
+            // request as no line at all.
+            'platform_fee' => $this->platformFee($intent),
             // Ours to choose and unique per organisation for good — expired
             // checkouts included. `generateReference()` issues one per attempt.
             'reference' => $intent->reference,
@@ -246,6 +279,11 @@ final class BachsGateway implements PaymentGateway
      * not that the customer has the money. Bachs allows **one refund per charge**:
      * refunding part of a payment forecloses the rest of it, which the response
      * status makes visible but nothing here can undo.
+     *
+     * On a connected account — the header comes from `client()` — the refund
+     * debits **that account's** balance, not ours, and a customer's chargeback can
+     * push it negative. That is the whole point of the direct-charge model: we
+     * are not the party who has to fund it.
      */
     public function refund(RefundRequest $refund, GatewayCredentials $credentials): RefundResult
     {
@@ -351,6 +389,56 @@ final class BachsGateway implements PaymentGateway
     public function supportsPartialPayment(): bool
     {
         return true;
+    }
+
+    /**
+     * Why this charge must not be posted, or null when it may be.
+     *
+     * Only ever refuses a charge the caller *asked* to be direct. An ordinary
+     * charge — the platform's own subscription billing, or a business's own keys
+     * — declares no account and is unaffected, which is what keeps the platform's
+     * billing key from being mistaken for a managed connection here.
+     *
+     * The two ids are compared rather than trusted: a mismatch means the
+     * resolver answered for one account and something else is about to be
+     * charged, and the only safe response to that is to stop.
+     */
+    private function directChargeProblem(PaymentIntent $intent, GatewayCredentials $credentials): ?string
+    {
+        $declared = $intent->directChargeAccountId;
+
+        if ($declared === null || $declared === '') {
+            return null;
+        }
+
+        if (! str_starts_with($declared, 'acct_')) {
+            return 'This payment could not be started: the connected account it needs is not a valid account id.';
+        }
+
+        if ($credentials->accountId() !== $declared) {
+            return 'This payment could not be started: the payment account does not match the account being charged.';
+        }
+
+        if ((string) $credentials->get('api_key') === '') {
+            return 'This payment could not be started: no gateway credentials are configured for it.';
+        }
+
+        return null;
+    }
+
+    /**
+     * The platform fee as Bachs takes it — a decimal string, like every other
+     * amount over this boundary — or null when no cut is configured.
+     *
+     * Zero is reported as null rather than `"0.00"`: a platform with no
+     * commission is not asking for a zero-fee deduction, and sending one would
+     * put a record on every settlement that says nothing.
+     */
+    private function platformFee(PaymentIntent $intent): ?string
+    {
+        $fee = $intent->platformFeeMinor;
+
+        return $fee === null || $fee < 1 ? null : Naira::decimalFromKobo($fee);
     }
 
     /**
@@ -512,9 +600,7 @@ final class BachsGateway implements PaymentGateway
     /** Test keys are not interchangeable with live ones, and the hosts differ. */
     private function baseUrl(GatewayCredentials $credentials): string
     {
-        $key = (string) $credentials->get('api_key');
-
-        return str_starts_with($key, 'sk_sandbox_') ? self::SANDBOX_URL : self::LIVE_URL;
+        return BachsApi::baseUrl($credentials);
     }
 
     private function refundReference(): string
@@ -522,10 +608,16 @@ final class BachsGateway implements PaymentGateway
         return 'RF_'.time().'_'.strtoupper(substr(md5(uniqid('', true)), 0, 8));
     }
 
+    /**
+     * Every call to Bachs, with the connected account attached when there is one.
+     *
+     * The header is set inside {@see BachsApi} rather than at each call site
+     * because it decides whose money a request moves, and Bachs does not reject
+     * its absence. One place that cannot be forgotten beats six that can — this
+     * covers the charge, the read-back, the refund and the account lookup alike.
+     */
     private function client(GatewayCredentials $credentials): PendingRequest
     {
-        return Http::withToken((string) $credentials->get('api_key'))
-            ->timeout(30)
-            ->acceptJson();
+        return BachsApi::client($credentials);
     }
 }

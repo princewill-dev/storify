@@ -65,6 +65,10 @@ final class BusinessResource extends JsonResource
             'prefix' => $business->prefix,
             'slug' => $business->slug,
             'status' => $business->status,
+            // The console renders the grant control from this, so it has to be
+            // on the list and the detail alike — an admin should not have to
+            // open a business to see which ones already hold it.
+            'can_connect_own_gateway' => (bool) $business->can_connect_own_gateway,
             'owner' => $owner ? [
                 'id' => $owner->id,
                 'name' => $owner->name,

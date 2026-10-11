@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1\Admin;
 use App\Http\Controllers\Api\V1\Admin\Concerns\EnsuresPlatformAdmin;
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Models\PaymentMethod;
+use App\Services\Payments\Connect\PlatformCommission;
 use App\Services\Subscription\PlatformBillingGateway;
 use App\Support\Payments\PaymentGatewayRegistry;
 use Illuminate\Http\JsonResponse;
@@ -58,10 +59,28 @@ class PaymentMethodController extends ApiController
     {
         $gateway = app(PlatformBillingGateway::class);
         $selected = $gateway->code();
+        $commission = PlatformCommission::fromSettings();
 
         return [
             'gateway' => $selected,
             'webhook_configured' => $gateway->webhookConfigured(),
+            // What Storify takes from a sale it processes on a business's
+            // behalf. Shown here rather than on a page of its own because it is
+            // the other half of the same decision: this screen already says
+            // *through which gateway* the platform takes money, and this says
+            // *how much of it it keeps*.
+            'commission' => [
+                // Percent as a percentage, not basis points: the number the
+                // admin typed is the number they are shown, and the conversion
+                // to basis points is an internal detail of the calculator.
+                'percent' => $commission->percentBasisPoints() / 100,
+                'fixed_kobo' => $commission->fixedKobo(),
+                'is_zero' => $commission->isZero(),
+                // Which providers can currently run a platform-managed
+                // connection, so the screen can say what the commission applies
+                // to instead of implying it applies to everything.
+                'managed_providers' => PaymentGatewayRegistry::managedCodes(),
+            ],
             'options' => collect(PlatformBillingGateway::selectableCodes())
                 ->map(function (string $code) use ($gateway, $selected): array {
                     $reason = $gateway->reasonFor($code);

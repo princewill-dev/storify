@@ -27,6 +27,14 @@ class Business extends Model
         'store_slug',
         'business_location',
         'status',
+        // Whether this business may connect payment methods of its own, or is
+        // processed by Storify through the platform's provider account. Set by
+        // an admin, never by the business.
+        'can_connect_own_gateway',
+        // Whether settled money is withdrawn to the business's registered bank
+        // automatically, or left in its account at the provider until it asks.
+        // An admin's decision, and read by `PlatformPayoutService`.
+        'auto_payout',
     ];
 
     protected function casts(): array
@@ -34,6 +42,8 @@ class Business extends Model
         return [
             'created_at' => 'datetime',
             'updated_at' => 'datetime',
+            'can_connect_own_gateway' => 'boolean',
+            'auto_payout' => 'boolean',
         ];
     }
 

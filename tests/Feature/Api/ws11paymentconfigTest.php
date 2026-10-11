@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\Business;
 use App\Models\PaymentMethod;
 use App\Models\Store;
 use App\Models\StoreBank;
@@ -19,6 +20,20 @@ use Illuminate\Support\Facades\Schema;
 function ws11Token(User $user): string
 {
     return $user->createToken('management-access', ['management'], now()->addHour())->plainTextToken;
+}
+
+/**
+ * Allow this business to keep gateway keys of its own.
+ *
+ * WS-11's gateway endpoints are the legacy surface for connecting them, and
+ * they now go through the same permission as WS-39: the platform default is
+ * that Storify processes a business's payments, so connecting own keys is
+ * refused until an admin grants it. Set on the row directly — the admin
+ * endpoint that grants it has its own suite.
+ */
+function ws11GrantOwnGateway(Business $business): void
+{
+    $business->update(['can_connect_own_gateway' => true]);
 }
 
 function ws11Store(User $owner, array $attributes = []): Store
@@ -391,7 +406,8 @@ test('a bank belonging to another business cannot be updated, promoted or delete
 });
 
 test('a paystack gateway can be connected, edited, toggled, tested and removed', function () {
-    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    ws11GrantOwnGateway($business);
 
     $created = $this->withToken(ws11Token($owner))
         ->postJson('/api/v1/management/payment-settings/gateways', [

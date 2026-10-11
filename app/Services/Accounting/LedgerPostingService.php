@@ -341,6 +341,271 @@ class LedgerPostingService
     }
 
     /**
+     * A sale the platform processed on a business's behalf.
+     *
+     * Structurally different from {@see postPaymentReceived()} and deliberately
+     * so. There, the whole gross becomes an asset we hold — a store balance and
+     * a clearing account that clears to our bank. Here **nothing is ours**: the
+     * money lands in the business's own provider account, already reduced by the
+     * provider's processing fee and by our commission, and we never hold a naira
+     * of it.
+     *
+     * So the business's books take the net as an asset and the two fees as
+     * expenses, and the entry balances against the receivable the order already
+     * raised:
+     *
+     *     Dr 1030 Payment Gateway Clearing   net   (their balance at the provider)
+     *     Dr 5500 Bank & Gateway Fees        fee   (the provider's charge)
+     *     Dr 5500 Bank & Gateway Fees        cut   (our commission)
+     *     Cr 1100 Accounts Receivable      gross
+     *
+     * Both fees land on 5500 because to the business they are the same kind of
+     * thing — the cost of taking this payment — even though one is the
+     * provider's and one is ours. Splitting them would need a chart-of-accounts
+     * entry for "platform fees", which is a reporting distinction rather than a
+     * bookkeeping one; the descriptions keep them apart.
+     *
+     * The share that `platform_fee` settles to **us** is a separate entry on the
+     * platform's own books — see {@see postPlatformCommissionEarned()}.
+     */
+    public function postManagedPaymentReceived(
+        Transaction $transaction,
+        int $providerFeeKobo,
+        int $commissionKobo,
+        ?int $userId = null,
+    ): ?JournalEntry {
+        $grossKobo = (int) round((float) $transaction->amount * 100);
+
+        if ($grossKobo <= 0) {
+            return null;
+        }
+
+        $businessId = $transaction->business_id ?: $transaction->order?->business_id;
+
+        if (! $businessId) {
+            return null;
+        }
+
+        // Clamped rather than trusted: a provider reporting a fee larger than
+        // the sale would otherwise post a negative asset and a credit that does
+        // not balance. The clamp can only trigger on bad data.
+        $providerFeeKobo = max(0, min($providerFeeKobo, $grossKobo));
+        $commissionKobo = max(0, min($commissionKobo, $grossKobo - $providerFeeKobo));
+        $netKobo = $grossKobo - $providerFeeKobo - $commissionKobo;
+
+        $storeId = $transaction->order?->store_id;
+        $contactId = $transaction->order?->customer_id;
+
+        $lines = [[
+            'account_key' => 'gateway_clearing',
+            'debit' => $netKobo,
+            'store_id' => $storeId,
+            'description' => 'Payment '.$transaction->reference,
+            'contact_type' => $contactId ? 'customer' : null,
+            'contact_id' => $contactId,
+        ]];
+
+        if ($providerFeeKobo > 0) {
+            $lines[] = [
+                'account_key' => 'gateway_fees',
+                'debit' => $providerFeeKobo,
+                'store_id' => $storeId,
+                'description' => 'Processing fee '.$transaction->reference,
+            ];
+        }
+
+        if ($commissionKobo > 0) {
+            $lines[] = [
+                'account_key' => 'gateway_fees',
+                'debit' => $commissionKobo,
+                'store_id' => $storeId,
+                'description' => 'Storify commission '.$transaction->reference,
+            ];
+        }
+
+        $lines[] = [
+            'account_key' => 'accounts_receivable',
+            'credit' => $grossKobo,
+            'store_id' => $storeId,
+            'description' => 'Payment '.$transaction->reference,
+            'contact_type' => $contactId ? 'customer' : null,
+            'contact_id' => $contactId,
+        ];
+
+        // The same idempotency key the own-key path uses, on purpose: for one
+        // transaction these two postings are alternatives, not a pair, and the
+        // key is what makes posting both impossible.
+        return $this->post($businessId, $lines, [
+            'memo' => 'Payment received '.$transaction->reference,
+            'reference' => $transaction->reference,
+            'source' => $transaction,
+            'idempotency_key' => 'payment:txn:'.$transaction->id,
+            'user_id' => $userId,
+            'date' => optional($transaction->paid_at ?? $transaction->created_at)->toDateString() ?? now()->toDateString(),
+        ]);
+    }
+
+    /**
+     * The commission on a managed sale, on the business's own books — for a sale
+     * whose money never passed through Accounts Receivable.
+     *
+     * A storefront sale accrues to 1100 before it is paid, so its payment entry
+     * ({@see postManagedPaymentReceived()}) takes the commission back off the
+     * receivable on the way through. A POS sale has no receivable: the till takes
+     * the money and {@see postSale()} debits the asset directly, so the
+     * commission has to be taken off that asset explicitly, or the business's
+     * books would claim it still holds money Bachs split off for us:
+     *
+     *     Dr 5500 Bank & Gateway Fees        commission
+     *     Cr 1030 Payment Gateway Clearing   commission
+     *
+     * The platform's side of the same commission is
+     * {@see postPlatformCommissionEarned()}, on the platform's own books. Neither
+     * is a reversal of the other; they are two parties' views of one deduction.
+     *
+     * **Bachs' own processing fee is not posted here, and cannot be.** Bachs
+     * deducts it when the charge settles — days after the till closed the sale —
+     * and at the moment this row is written no number for it exists anywhere. It
+     * is the one part of a managed sale's cost that this ledger books late rather
+     * than at the sale, and it leaves that much more in 1030 until it is
+     * recognised.
+     */
+    public function postManagedCommissionExpense(
+        Transaction $transaction,
+        int $commissionKobo,
+        ?int $userId = null,
+    ): ?JournalEntry {
+        if ($commissionKobo <= 0) {
+            return null;
+        }
+
+        $businessId = $transaction->business_id ?: $transaction->order?->business_id;
+
+        if (! $businessId) {
+            return null;
+        }
+
+        $storeId = $transaction->order?->store_id;
+
+        $lines = [
+            [
+                'account_key' => 'gateway_fees',
+                'debit' => $commissionKobo,
+                'store_id' => $storeId,
+                'description' => 'Storify commission '.$transaction->reference,
+            ],
+            [
+                'account_key' => 'gateway_clearing',
+                'credit' => $commissionKobo,
+                'store_id' => $storeId,
+                'description' => 'Storify commission '.$transaction->reference,
+            ],
+        ];
+
+        return $this->post($businessId, $lines, [
+            'memo' => 'Platform commission '.$transaction->reference,
+            'reference' => $transaction->reference,
+            'source' => $transaction,
+            'idempotency_key' => 'managed_commission:txn:'.$transaction->id,
+            'user_id' => $userId,
+            'date' => optional($transaction->paid_at ?? $transaction->created_at)->toDateString() ?? now()->toDateString(),
+        ]);
+    }
+
+    /**
+     * Storify's commission on a managed sale, on the platform's own books.
+     *
+     * `businessId = null` is the platform scope — the ledger has always
+     * supported one, and this is what it is for. The commission is collected by
+     * the provider out of the business's proceeds and settles into our account,
+     * so it is cash at the provider:
+     *
+     *     Dr 1030 Payment Gateway Clearing   commission
+     *     Cr 4020 Service Charge Income      commission
+     *
+     * Kept off the business's books because it is not the business's income: on
+     * their side it is an expense, already posted to 5500 by
+     * {@see postManagedPaymentReceived()}.
+     */
+    public function postPlatformCommissionEarned(
+        Transaction $transaction,
+        int $commissionKobo,
+        ?int $userId = null,
+    ): ?JournalEntry {
+        if ($commissionKobo <= 0) {
+            return null;
+        }
+
+        $lines = [
+            [
+                'account_key' => 'gateway_clearing',
+                'debit' => $commissionKobo,
+                'store_id' => $transaction->order?->store_id,
+                'description' => 'Commission '.$transaction->reference,
+            ],
+            [
+                'account_key' => 'service_charge_income',
+                'credit' => $commissionKobo,
+                'store_id' => $transaction->order?->store_id,
+                'description' => 'Commission '.$transaction->reference,
+            ],
+        ];
+
+        return $this->post(null, $lines, [
+            'memo' => 'Platform commission '.$transaction->reference,
+            'reference' => $transaction->reference,
+            'source' => $transaction,
+            'idempotency_key' => 'commission:txn:'.$transaction->id,
+            'user_id' => $userId,
+            'date' => optional($transaction->paid_at ?? $transaction->created_at)->toDateString() ?? now()->toDateString(),
+        ]);
+    }
+
+    /**
+     * A withdrawal from a business's balance at the provider into its bank.
+     *
+     * The second half of the managed model: 1030 holds what the business has at
+     * the provider, and the payout is what empties it. Posted when the provider
+     * reports the payout paid, not when it is requested — the debit at creation
+     * is not the money having arrived, and a payout can still fail.
+     */
+    public function postGatewayWithdrawal(
+        int $businessId,
+        ?int $storeId,
+        int $amountKobo,
+        string $reference,
+        ?int $userId = null,
+    ): ?JournalEntry {
+        if ($amountKobo <= 0) {
+            return null;
+        }
+
+        $lines = [
+            [
+                'account_key' => 'bank',
+                'debit' => $amountKobo,
+                'store_id' => $storeId,
+                'description' => 'Payout '.$reference,
+            ],
+            [
+                'account_key' => 'gateway_clearing',
+                'credit' => $amountKobo,
+                'store_id' => $storeId,
+                'description' => 'Payout '.$reference,
+            ],
+        ];
+
+        return $this->post($businessId, $lines, [
+            'memo' => 'Payout to bank '.$reference,
+            'reference' => $reference,
+            // Keyed on the provider's payout id, so a replayed `payout.paid`
+            // cannot post the withdrawal twice.
+            'idempotency_key' => 'payout:'.$reference,
+            'user_id' => $userId,
+        ]);
+    }
+
+    /**
      * Invoice issued (Dr AR, Cr revenue + VAT).
      */
     public function postInvoice(Invoice $invoice, ?int $userId = null): ?JournalEntry

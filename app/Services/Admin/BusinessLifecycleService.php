@@ -260,6 +260,56 @@ final class BusinessLifecycleService
     }
 
     /**
+     * Allow, or stop allowing, a business to connect payment methods of its own.
+     *
+     * **This is the platform's default setting, not a per-business feature
+     * flag.** Left alone, a business never sees a gateway key form: its
+     * customers' payments are processed by Storify through the platform's
+     * provider account and paid out to the business's own bank. Granting this
+     * changes how that business charges from that moment on — its own keys win
+     * over the platform's account — which is why the admin console says so
+     * beside the control rather than presenting it as a neutral toggle.
+     *
+     * The flag and its audit row stand or fall together, like every other
+     * transition here: a grant with no record of who made it would be the one
+     * permission change on the platform nobody could account for.
+     */
+    public function setGatewayAccess(Business $business, bool $allowed, ?string $reason, User $actor): void
+    {
+        $before = (bool) $business->can_connect_own_gateway;
+
+        if ($before === $allowed) {
+            // Nothing to write and nothing to record. An idempotent save from
+            // the console should not fill the activity log with changes that
+            // did not happen.
+            return;
+        }
+
+        DB::transaction(function () use ($business, $allowed, $reason, $before, $actor) {
+            $this->businesses->updateBusiness($business, ['can_connect_own_gateway' => $allowed]);
+
+            ActivityRecorder::record(
+                action: $allowed ? 'business_gateway_access_granted' : 'business_gateway_access_revoked',
+                description: $allowed
+                    ? "Business '{$business->name}' may now connect its own payment methods"
+                    : "Business '{$business->name}' may no longer connect its own payment methods",
+                subject: $business,
+                old: ['can_connect_own_gateway' => $before],
+                new: ['can_connect_own_gateway' => $allowed],
+                metadata: $reason === null ? [] : ['reason' => $reason],
+                actor: $actor,
+                businessId: $business->id,
+            );
+        });
+
+        Log::info('api.admin.business_gateway_access_changed', [
+            'business_id' => $business->id,
+            'can_connect_own_gateway' => $allowed,
+            'actor_user_id' => $actor->id,
+        ]);
+    }
+
+    /**
      * Suspend the business and its owner, then email the owner. Legacy never
      * guarded activate — only suspend and delete — so the asymmetry is kept
      * (the main-store and deleted checks run in the controller).

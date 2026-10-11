@@ -4,8 +4,10 @@ namespace App\Services\Payments;
 
 use App\Models\Store;
 use App\Services\Payments\Data\GatewayCredentials;
+use App\Services\Payments\Data\ManagedAccount;
 use App\Services\Payments\Data\ResolvedGateway;
 use App\Services\Plugins\PluginResolver;
+use App\Services\Subscription\PlatformBillingGateway;
 use App\Support\Money\ExchangeRateService;
 use App\Support\Money\StoreCurrency;
 use App\Support\Payments\CredentialCipher;
@@ -47,7 +49,14 @@ final class PaymentGatewayResolver
 {
     private const DEFAULT_CURRENCY = 'NGN';
 
-    public function __construct(private readonly ExchangeRateService $rates) {}
+    public function __construct(
+        private readonly ExchangeRateService $rates,
+        // A managed connection charges with the platform's key, so the resolver
+        // needs to know whether the platform holds one. Read through the same
+        // seam the platform's own billing uses, rather than reaching into config
+        // here: two readers of one secret are two chances to disagree.
+        private readonly PlatformBillingGateway $platform,
+    ) {}
 
     /**
      * Every provider a store can actually take money with, keyed by code.
@@ -121,9 +130,25 @@ final class PaymentGatewayResolver
         $business = $this->businessRows($businessId);
         $storeRows = $store ? $this->storeRows((int) $store->id) : collect();
         $currency = $store ? $this->currencyFor($store) : null;
-        // Resolved once rather than per provider — it cannot change inside the
-        // loop, and it is a query.
-        $businessCode = DB::table('businesses')->where('id', $businessId)->value('business_code');
+        // Resolved once rather than per provider — neither can change inside the
+        // loop, and each is a query. The grant is read here rather than passed
+        // in because the screen must never be told a regime the server would not
+        // honour: this is the same column `PaymentGatewayService::connect()`
+        // refuses on.
+        //
+        // `auto_payout` rides along here because it is read for the same reason
+        // and at the same cost: the screen promises the owner their money is
+        // withdrawn automatically, and an admin can switch that off, so the
+        // promise has to come from the column the sweep actually reads. A
+        // missing row — no business — resolves to on, matching
+        // `PlatformPayoutService::autoPayoutEnabled()`.
+        $businessRow = DB::table('businesses')
+            ->where('id', $businessId)
+            ->first(['business_code', 'can_connect_own_gateway', 'auto_payout']);
+
+        $businessCode = $businessRow?->business_code;
+        $canConnectOwn = (bool) ($businessRow?->can_connect_own_gateway ?? false);
+        $autoPayout = (bool) ($businessRow?->auto_payout ?? true);
 
         $states = [];
 
@@ -159,17 +184,63 @@ final class PaymentGatewayResolver
                 'connection_id' => $resolved->connectionId,
                 'business_connected' => $resolved->businessConnected,
                 'store_overrides' => $resolved->storeOverrides,
-                'has_credentials' => $resolved->credentials->isComplete($required),
+                // Which of the two ways this provider is provisioned, or `none`.
+                // The screen renders a payout-account form rather than a
+                // credentials form off this, so it must reflect what the
+                // resolver *did*, not what the provider supports.
+                'payment_mode' => $resolved->paymentMode(),
+                // Switched off by the business itself, as opposed to never
+                // connected or switched off by an admin. The screen offers the
+                // switch back on this flag and on nothing else.
+                'is_paused' => $resolved->paused,
+                // Whether the business may ever connect its own keys. Sent with
+                // every provider rather than once, because the screen asks the
+                // question per card and a second request would be a second
+                // source of truth.
+                'can_connect_own_gateway' => $canConnectOwn,
+                // Whether settled money is withdrawn to the business's bank on
+                // its own, or held in its provider account until an admin pays
+                // it out. Sent with every provider for the same reason as the
+                // grant above: it is a business-wide fact the screen states
+                // while looking at a provider card, and a second request for it
+                // would be a second source of truth. It is not per-provider
+                // state, and nothing on this screen can change it.
+                'auto_payout' => $autoPayout,
+                'is_managed_supported' => PaymentGatewayRegistry::supportsManaged($code),
+                // "Complete" means different things per regime: keys for an
+                // own-key connection, a cleared account for a managed one.
+                'has_credentials' => $resolved->isManaged()
+                    ? ($resolved->managed?->canCharge($code) ?? false)
+                    : $resolved->credentials->isComplete($required),
                 // Masked values only — the screen shows which key is stored,
                 // never the key. Secrets never leave the server in a response.
                 'masked' => $resolved->credentials->masked(),
+                // The connected account, when there is one. Null for own-key
+                // connections, so the screen can tell "no payout account yet"
+                // from "payout account not ready".
+                'managed' => $resolved->managed === null ? null : [
+                    'account_id' => $resolved->credentials->accountId(),
+                    'status' => $resolved->managed->status,
+                    'is_active' => $resolved->managed->isActive,
+                    'can_charge' => $resolved->managed->canCharge($code),
+                    'can_be_paid_out' => $resolved->managed->canBePaidOut(),
+                    'granted_capabilities' => $resolved->managed->grantedCapabilities($code),
+                    'payout_destination' => $resolved->managed->maskedDestination(),
+                    'requirements' => $resolved->managed->requirementPayload(),
+                ],
                 // The URL this business pastes into the provider's dashboard.
                 //
                 // Present whether or not the provider is connected, because the
                 // order matters: some providers only issue the webhook secret
                 // *after* you have saved a URL with them, so the merchant has to
                 // be able to read this before they can fill in the form.
-                'webhook_url' => $this->webhookUrl($code, $method, $store, $businessCode),
+                //
+                // Null for a managed connection: the charges are the platform's,
+                // so the deliveries go to the platform's endpoint. There is
+                // nothing for this business to paste anywhere, and showing them a
+                // URL that would never receive anything would be worse than
+                // showing none.
+                'webhook_url' => $resolved->isManaged() ? null : $this->webhookUrl($code, $method, $store, $businessCode),
                 'unavailable_reason' => $this->unavailableReason($code, $resolved, $currency, $businessId),
             ];
         }
@@ -182,17 +253,35 @@ final class PaymentGatewayResolver
         $secrets = PaymentGatewayRegistry::secretKeysFor($code);
         $effective = $storeRow ?? $businessRow;
 
-        // Enablement and credentials resolve independently: a store row decides
-        // *whether*, and carries its own credentials only if it was given any.
-        // A store row without config therefore inherits the business's keys —
-        // which is what makes every existing plain-assignment row keep working.
-        $configRow = ($storeRow !== null && ! empty($storeRow->config)) ? $storeRow : $businessRow;
+        // Enablement and the connection's details resolve independently: a store
+        // row decides *whether*, and supplies its own details only when it has
+        // any. A store row with neither config nor an account therefore inherits
+        // the business's — which is what makes every existing plain-assignment
+        // row keep working.
+        //
+        // "Details" now means either of two things: the business's own keys, or
+        // a connected account the platform charges through on their behalf.
+        $detail = ($storeRow !== null && $this->carriesConnection($storeRow)) ? $storeRow : $businessRow;
 
-        $credentials = GatewayCredentials::make(
-            $code,
-            $this->decrypt($configRow?->config, $secrets),
-            $secrets,
-        );
+        $config = $this->decrypt($detail?->config, $secrets);
+        $credentials = GatewayCredentials::make($code, $config, $secrets);
+        $managed = null;
+
+        // A connected account is used only when this row holds no usable keys of
+        // its own. Keys win, deliberately: a business that has connected its own
+        // gateway means it, and only a business an admin has granted that
+        // ability can be in this position at all. The account is kept either
+        // way — it lives in its own column, not in the `config` a keyed connect
+        // rewrites — so revoking the grant puts the business back on it.
+        if ($credentials->isEmpty() && ($accountId = $this->accountIdOf($detail)) !== null) {
+            $managed = ManagedAccount::fromConfig(is_array($config['managed'] ?? null) ? $config['managed'] : null);
+
+            // Built from the platform's credentials for this provider, with the
+            // account attached. `withAccountId` is what makes the driver send
+            // `X-Account-Id`; without it the charge would silently be the
+            // platform's own.
+            $credentials = $this->platform->credentialsFor($code)->withAccountId($accountId);
+        }
 
         return new ResolvedGateway(
             code: $code,
@@ -206,7 +295,34 @@ final class PaymentGatewayResolver
             // is applied. This is what tells "an admin switched it off" apart
             // from "they never connected it".
             hasActiveConnection: $effective !== null && (bool) $effective->is_active,
+            managed: $managed,
+            // Off, and off on purpose. Read from `$detail` — the row the account
+            // came from — because that is the row `setManagedActive()` writes,
+            // and a store that merely inherits a paused business connection is
+            // paused by *that* row's switch rather than by one of its own.
+            paused: $managed !== null && ! (bool) ($detail?->is_active ?? false),
         );
+    }
+
+    /**
+     * Whether this row states a connection of its own, rather than being a
+     * bare "this store may use it" assignment.
+     *
+     * The `config` half is the pre-existing test and is unchanged. The account
+     * half is what lets a store register its own subaccount without also having
+     * to carry a config — which it has no reason to, since a managed connection
+     * holds no credentials at all.
+     */
+    private function carriesConnection(object $row): bool
+    {
+        return ! empty($row->config) || $this->accountIdOf($row) !== null;
+    }
+
+    private function accountIdOf(?object $row): ?string
+    {
+        $id = $row->gateway_account_id ?? null;
+
+        return is_string($id) && $id !== '' ? $id : null;
     }
 
     /**
@@ -230,12 +346,33 @@ final class PaymentGatewayResolver
      */
     private function isProvisioned(string $code, ResolvedGateway $resolved, ?int $businessId): bool
     {
+        if ($resolved->isManaged()) {
+            return $this->managedIsProvisioned($code, $resolved);
+        }
+
         if (! $this->usesCredentials($code)) {
             return $businessId === null || $this->businessHasBankAccount($businessId);
         }
 
         return ! $resolved->credentials->isEmpty()
             && $resolved->credentials->isComplete(PaymentGatewayRegistry::requiredKeysFor($code));
+    }
+
+    /**
+     * Whether the platform can charge on this business's behalf here.
+     *
+     * Three things, and all three are needed before a customer is offered the
+     * method: the platform holds a key to charge with, the account is active,
+     * and it has been cleared for at least one collection capability. This is
+     * the first of the two guards against the header going missing — a store
+     * with no usable subaccount is never offered the gateway at all, so there is
+     * no path on which a charge could fall through to the platform's own
+     * account. The driver carries the second guard, for callers that skip this.
+     */
+    private function managedIsProvisioned(string $code, ResolvedGateway $resolved): bool
+    {
+        return $this->platform->credentialProblem($code) === null
+            && ($resolved->managed?->canCharge($code) ?? false);
     }
 
     private function usesCredentials(string $code): bool
@@ -267,6 +404,13 @@ final class PaymentGatewayResolver
             return null;
         }
 
+        // A connection the platform processes. Each of these is a different
+        // thing for the owner to do — or wait for — so they are not collapsed
+        // into one "payout account not ready".
+        if ($resolved->isManaged()) {
+            return $this->managedUnavailableReason($code, $resolved);
+        }
+
         if (! $this->usesCredentials($code) && ! $this->businessHasBankAccount($businessId)) {
             return 'Add a verified bank account before enabling bank transfers.';
         }
@@ -287,6 +431,50 @@ final class PaymentGatewayResolver
             }
 
             return "Charges in {$provider}. No {$provider} exchange rate has been fetched yet — the daily rate job has not run.";
+        }
+
+        return null;
+    }
+
+    /**
+     * Why a platform-processed connection cannot take money, or null when it can.
+     *
+     * Ordered by which party has to act, and the order is load-bearing: the
+     * owner's own switch comes first, because it explains the others away — a
+     * paused account that is also under review is paused, and the review is not
+     * news. After that: an unconfigured platform is ours to fix, an account
+     * still under review is the provider's, and a missing destination is the
+     * owner's again.
+     */
+    private function managedUnavailableReason(string $code, ResolvedGateway $resolved): ?string
+    {
+        // First, because it is the only one of these the owner did themselves,
+        // and telling someone their account is under review when they switched
+        // it off last week would send them to support for no reason.
+        if ($resolved->paused) {
+            return 'You have switched Storify payments off. Switch it back on to take payments again — your payout account stays connected either way.';
+        }
+
+        if ($this->platform->credentialProblem($code) !== null) {
+            return 'Storify cannot process payments at the moment.';
+        }
+
+        $account = $resolved->managed;
+
+        if ($account === null || ! $account->isActive) {
+            return 'Your payout account is still being reviewed. You will be able to take payments once it is approved.';
+        }
+
+        if ($account->grantedCapabilities($code) === []) {
+            return 'Your payout account cannot take payments yet — the provider is still checking it.';
+        }
+
+        if ($account->hasOutstandingRequirements()) {
+            return 'Your payout account still needs some information before it can take payments.';
+        }
+
+        if (! $account->canBePaidOut()) {
+            return 'Add a bank account so Storify can pay your sales out to you.';
         }
 
         return null;
@@ -383,6 +571,9 @@ final class PaymentGatewayResolver
                 'bpm.id',
                 'bpm.is_active',
                 'bpm.config',
+                // Read as a column so a managed connection is decided from one
+                // scalar rather than by decoding JSON on every resolve.
+                'bpm.gateway_account_id',
             ])
             ->keyBy('code');
     }
@@ -401,6 +592,7 @@ final class PaymentGatewayResolver
                 'spm.id',
                 'spm.is_active',
                 'spm.config',
+                'spm.gateway_account_id',
             ])
             ->keyBy('code');
     }

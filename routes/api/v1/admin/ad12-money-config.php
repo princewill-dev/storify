@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\V1\Admin\BankAccountController;
+use App\Http\Controllers\Api\V1\Admin\ConnectPayoutController;
 use App\Http\Controllers\Api\V1\Admin\CouponUpdateController;
 use App\Http\Controllers\Api\V1\Admin\PaymentMethodController;
 use App\Http\Controllers\Api\V1\Admin\VatController;
@@ -38,6 +39,19 @@ Route::middleware([ForceJsonResponse::class, 'permission:admin.finance', AdminAp
 
     Route::get('payment-methods', [PaymentMethodController::class, 'index'])->name('payment-methods.index');
     Route::post('payment-methods/{paymentMethod}/toggle', [PaymentMethodController::class, 'toggle'])->name('payment-methods.toggle');
+
+    // Withdrawing a business's settled money from the provider account Storify
+    // processes its sales through. Here rather than in AD-04 with the rest of
+    // the business console because it is money configuration, and because it is
+    // `admin.finance` — the permission that already governs every other action
+    // that moves money — rather than `admin.businesses`.
+    Route::get('businesses/{business}/payouts', [ConnectPayoutController::class, 'index'])->name('payouts.index');
+    Route::post('businesses/{business}/payouts', [ConnectPayoutController::class, 'store'])->name('payouts.store');
+    // The switch, not a payout: whether the hourly sweep withdraws this
+    // business's settled money on its own. `PUT` because it replaces that one
+    // setting rather than adding anything, and `payouts/automatic` so it reads
+    // as a noun beside the routes above rather than as another verb.
+    Route::put('businesses/{business}/payouts/automatic', [ConnectPayoutController::class, 'updateAutomatic'])->name('payouts.automatic');
 
     Route::get('bank-accounts', [BankAccountController::class, 'index'])->name('bank-accounts.index');
     Route::post('bank-accounts', [BankAccountController::class, 'store'])->name('bank-accounts.store');

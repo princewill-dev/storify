@@ -66,6 +66,11 @@ return [
     'bachs' => [
         'api_key' => env('BACHS_API_KEY'),
         'webhook_secret' => env('BACHS_WEBHOOK_SECRET'),
+        // The connect endpoint's own secret, when Bachs issues it a different
+        // one. Left unset it falls back to the value above, so one secret for
+        // both endpoints needs no configuration — see
+        // `PlatformBillingGateway::connectWebhookCredentials()`.
+        'connect_webhook_secret' => env('BACHS_CONNECT_WEBHOOK_SECRET'),
     ],
 
 ];

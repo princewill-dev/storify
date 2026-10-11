@@ -41,6 +41,15 @@ Route::middleware(['permission:admin.businesses', AdminApiActivityLogger::class]
     Route::post('businesses/{business}/activate', [BusinessLifecycleController::class, 'activate'])->name('businesses.activate');
 });
 
+// Whether a business may connect payment methods of its own, or has its sales
+// processed by Storify through the platform's provider account and paid out to
+// its bank. Under `admin.businesses` rather than `admin.settings`: the platform
+// default lives in settings, but this is a per-business permission and belongs
+// with the rest of the business console's controls.
+Route::put('businesses/{business}/gateway-access', [BusinessLifecycleController::class, 'setGatewayAccess'])
+    ->middleware(['permission:admin.businesses', AdminApiActivityLogger::class])
+    ->name('businesses.gateway-access');
+
 Route::post('businesses/{business}/verify-owner', [BusinessLifecycleController::class, 'verifyOwner'])
     ->middleware(['permission:admin.businesses', 'permission:admin.users', AdminApiActivityLogger::class])
     ->name('businesses.verify-owner');
