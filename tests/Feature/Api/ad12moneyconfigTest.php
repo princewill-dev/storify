@@ -3,11 +3,15 @@
 use App\Models\BankAccount;
 use App\Models\Coupon;
 use App\Models\PaymentMethod;
+use App\Models\Setting;
 use App\Models\User;
 use App\Models\Vat;
+use App\Services\Subscription\PlatformBillingGateway;
+use Database\Seeders\PaymentMethodSeeder;
 use Database\Seeders\SpatiePermissionSeeder;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
+use Tests\TestCase;
 
 /*
 |--------------------------------------------------------------------------
@@ -277,6 +281,90 @@ test('a missing payment method is a 404', function () {
 
     $this->postJson('/api/v1/admin/payment-methods/999999/toggle', [], ad12AdminToken($admin))
         ->assertStatus(404);
+});
+
+// ---------------------------------------------------------------------------
+// Platform subscription billing (which gateway charges for the platform itself)
+// ---------------------------------------------------------------------------
+
+/**
+ * Both gateways usable: Paystack's keys are in the test `.env` and Bachs' are
+ * set here, and the seeder gives each a row. Anything that wants to watch one
+ * option go unavailable changes exactly one thing from this state.
+ */
+function ad12BothGatewaysReady(TestCase $test): void
+{
+    config(['services.bachs' => ['api_key' => 'sk_sandbox_ad12abcdefgh', 'webhook_secret' => 'whsec_ad12abcdefgh']]);
+
+    $test->seed(PaymentMethodSeeder::class);
+}
+
+/** The `billing` block, which is what the admin screen's gateway picker reads. */
+function ad12BillingBlock(TestCase $test, User $admin): array
+{
+    $response = $test->getJson('/api/v1/admin/payment-methods', ad12AdminToken($admin));
+
+    $response->assertOk()
+        ->assertJsonStructure(['data' => ['billing' => [
+            'gateway',
+            'webhook_configured',
+            'options' => [['code', 'name', 'selected', 'available', 'unavailable_reason']],
+        ]]]);
+
+    return $response->json('data.billing');
+}
+
+test('the billing block reports every selectable gateway, each with its own availability', function () {
+    ad12BothGatewaysReady($this);
+
+    $billing = ad12BillingBlock($this, ad12FinanceAdmin());
+    $options = collect($billing['options']);
+
+    // Derived from the credential map: a gateway the platform holds no keys for
+    // is not a gateway it can bill through, however good a merchant gateway.
+    expect($options->pluck('code')->all())->toBe(PlatformBillingGateway::selectableCodes())
+        // Exactly one is in use, and it is the column's value.
+        ->and($options->where('selected', true)->pluck('code')->all())->toBe([$billing['gateway']])
+        ->and($billing['gateway'])->toBe(PlatformBillingGateway::DEFAULT_CODE)
+        // Every option is reported as usable, not just the selected one —
+        // otherwise the admin picks the other one blind.
+        ->and($options->pluck('available')->all())->toBe([true, true])
+        ->and($options->pluck('unavailable_reason')->all())->toBe([null, null]);
+});
+
+test('a gateway the server holds no keys for is reported unavailable, naming the missing field', function () {
+    ad12BothGatewaysReady($this);
+    config(['services.bachs' => ['api_key' => null, 'webhook_secret' => null]]);
+
+    $bachs = collect(ad12BillingBlock($this, ad12FinanceAdmin())['options'])->firstWhere('code', 'bachs');
+
+    // The reason is a sentence, not a boolean, because the two causes need
+    // different fixes — and it names the field, never its value.
+    expect($bachs['available'])->toBeFalse()
+        ->and($bachs['unavailable_reason'])->toBe('Its server credentials are not configured (api_key).');
+});
+
+test('a gateway switched off in the table above is reported unavailable for that reason', function () {
+    ad12BothGatewaysReady($this);
+    PaymentMethod::where('code', 'bachs')->update(['is_active' => false]);
+
+    $bachs = collect(ad12BillingBlock($this, ad12FinanceAdmin())['options'])->firstWhere('code', 'bachs');
+
+    expect($bachs['available'])->toBeFalse()
+        ->and($bachs['unavailable_reason'])
+        ->toBe('Bachs is switched off for the whole platform, so subscription payments cannot be taken through it.');
+});
+
+test('the billing block follows the saved gateway', function () {
+    ad12BothGatewaysReady($this);
+    Setting::create(['billing_gateway' => 'bachs']);
+
+    $billing = ad12BillingBlock($this, ad12FinanceAdmin());
+    $options = collect($billing['options']);
+
+    expect($billing['gateway'])->toBe('bachs')
+        ->and($options->firstWhere('code', 'bachs')['selected'])->toBeTrue()
+        ->and($options->firstWhere('code', 'paystack')['selected'])->toBeFalse();
 });
 
 // ---------------------------------------------------------------------------

@@ -131,6 +131,11 @@ function ws39Paystack(): array
     return ['public_key' => 'pk_live_test1234567890', 'secret_key' => 'sk_live_test1234567890'];
 }
 
+function ws39BachsConfig(): array
+{
+    return ['api_key' => 'sk_sandbox_abcdefghij', 'webhook_secret' => 'whsec_test1234567890'];
+}
+
 beforeEach(function () {
     // Bring the catalogue up to date the way a deploy would.
     $this->seed(PaymentMethodSeeder::class);
@@ -360,18 +365,32 @@ test('the management state reports where each setting comes from', function () {
         ->and(json_encode($states))->not->toContain('sk_live_test1234567890');
 });
 
-test('a provider with no driver is not seeded and reads as unavailable', function () {
+test('a provider is seeded and chargeable once it has a driver', function () {
     // Guards the rollout: a half-finished integration must not offer a gateway
-    // that would fail at checkout.
+    // that would fail at checkout, and the seeder is the gate — it skips every
+    // code the manager cannot resolve a driver for.
     //
-    // Bachs is the live example. Its published API requires pre-created product
-    // ids rather than an amount, and does not document payment retrieval,
-    // webhook signing or refunds — so it is registered (its card and fee are
-    // real information) but has no driver, and therefore no `payment_methods`
-    // row, so it can never be connected.
-    expect(PaymentMethod::where('code', 'bachs')->exists())->toBeFalse()
-        ->and(PaymentGatewayRegistry::has('bachs'))->toBeTrue()
-        ->and(app(PaymentGatewayManager::class)->isImplemented('bachs'))->toBeFalse();
+    // Bachs was the example of the gate working: registered, listed with its
+    // real card and fee, and impossible to connect because it had no driver and
+    // therefore no row. It has one now, so it is seeded like any other provider
+    // and a merchant can charge through it.
+    expect(PaymentGatewayRegistry::has('bachs'))->toBeTrue()
+        ->and(app(PaymentGatewayManager::class)->isImplemented('bachs'))->toBeTrue()
+        ->and(PaymentMethod::where('code', 'bachs')->exists())->toBeTrue();
+
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    $store = ws39Store($owner);
+
+    // A row is not an offer: an unconnected store is still shown nothing.
+    expect(ws39Resolver()->forStore($store))->not->toHaveKey('bachs');
+
+    ws39Connect($business, 'bachs', ws39BachsConfig());
+
+    $usable = ws39Resolver()->forStore($store);
+
+    expect($usable)->toHaveKey('bachs')
+        ->and($usable['bachs']->isUsable())->toBeTrue()
+        ->and($usable['bachs']->credentials->get('api_key'))->toBe('sk_sandbox_abcdefghij');
 });
 
 /* ------------------------------------------------- management API surface */
@@ -602,8 +621,10 @@ test('the pos is offered cash plus whatever the store actually accepts', functio
     // Cash is the till's own and always present.
     expect($methods)->toHaveKey('cash')
         ->and($methods)->toHaveKey('paystack')
-        // A provider this store never connected must not appear at the till,
-        // and neither must one with no driver behind it.
+        // A provider this store never connected must not appear at the till —
+        // `bachs` now has a driver and a seeded row, and is still absent here for
+        // that reason alone. `bitfra` is USD-priced and has no rate seeded, so it
+        // is hidden for a reason of its own.
         ->and($methods)->not->toHaveKey('bitfra')
         ->and($methods)->not->toHaveKey('bachs');
 });
@@ -674,7 +695,31 @@ test('a switched-off provider is reported as disabled, not as unbuilt', function
         ->and($states['paystack']['disabled_by_platform'])->toBeTrue()
         ->and($states['paystack']['unavailable_reason'])->toContain('platform');
 
-    // A provider with no driver at all is unavailable for a different reason.
+    // The same false on a screen must not always read as the platform's doing:
+    // Bachs is on offer and has been switched off by nobody — this business has
+    // simply never connected it, and the screen has to say that instead.
+    expect($states['bachs']['available'])->toBeTrue()
+        ->and($states['bachs']['disabled_by_platform'])->toBeFalse()
+        ->and($states['bachs']['has_connection'])->toBeFalse()
+        ->and($states['bachs']['is_enabled'])->toBeFalse();
+});
+
+test('a provider with no row at all is unavailable without blaming the platform', function () {
+    // The other half of the distinction, and the state a provider is in between
+    // being added to the registry and having a driver built: no `payment_methods`
+    // row. Nothing is switched off, nothing is connected, and the screen must say
+    // "not built" rather than "turned off by Storify".
+    //
+    // No registered code is in this state right now — every one of them has a
+    // driver — so the row is removed to reach it, which is what the seeder
+    // skipping an unimplemented code leaves behind.
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    ws39Connect($business, 'bachs', ws39BachsConfig());
+
+    PaymentMethod::where('code', 'bachs')->delete();
+
+    $states = collect(ws39Resolver()->states((int) $business->id))->keyBy('code');
+
     expect($states['bachs']['available'])->toBeFalse()
         ->and($states['bachs']['disabled_by_platform'])->toBeFalse();
 });

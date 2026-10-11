@@ -6,6 +6,7 @@ use App\Models\Coupon;
 use App\Models\Subscription;
 use App\Models\SubscriptionPlan;
 use App\Models\User;
+use App\Services\Subscription\PlatformBillingGateway;
 use App\Support\Money\Naira;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
@@ -32,6 +33,7 @@ final class CheckoutSummaryResource extends JsonResource
         $user = $this->resource['user'];
         /** @var ?Subscription $expiredSubscription */
         $expiredSubscription = $this->resource['expired_subscription'];
+        $billing = app(PlatformBillingGateway::class);
 
         return [
             'plan' => PlanResource::make($plan)->resolve($request),
@@ -50,7 +52,15 @@ final class CheckoutSummaryResource extends JsonResource
             // Legacy regenerated a UUID per page view; the SPA keeps it for the
             // whole checkout attempt so retries cannot double-charge.
             'idempotency_key' => (string) Str::uuid(),
-            'gateway_available' => filled(config('services.paystack.secret_key')),
+            // Who will take the money, so the checkout screen can say so. The
+            // name comes from the seam rather than from a literal: the SPA used
+            // to print "Paystack" no matter which gateway an admin had selected,
+            // which is a lie about who is charging the customer.
+            'gateway' => [
+                'code' => $billing->code(),
+                'name' => $billing->name(),
+            ],
+            'gateway_available' => $billing->available(),
             'expired_subscription' => $expiredSubscription
                 ? ExpiredSubscriptionResource::make($expiredSubscription)->resolve($request)
                 : null,

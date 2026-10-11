@@ -51,4 +51,21 @@ return [
         'merchant_email' => env('PAYSTACK_MERCHANT_EMAIL', env('MAIL_FROM_ADDRESS')),
     ],
 
+    /*
+     * The platform's own Bachs account, used to bill Storify's subscriptions
+     * when an admin selects Bachs as the billing gateway. Merchant connections
+     * do not come from here — those are stored per business, encrypted, the way
+     * every other gateway's are.
+     *
+     * Hand-managed in `.env` on the server, exactly like the Paystack keys
+     * above. `BACHS_WEBHOOK_SECRET` is the signing secret of the webhook
+     * endpoint created in Bachs' dashboard, not an API key; the API host is
+     * chosen from the key's `sk_sandbox_` / `sk_live_` prefix, so there is
+     * nothing to configure for it.
+     */
+    'bachs' => [
+        'api_key' => env('BACHS_API_KEY'),
+        'webhook_secret' => env('BACHS_WEBHOOK_SECRET'),
+    ],
+
 ];

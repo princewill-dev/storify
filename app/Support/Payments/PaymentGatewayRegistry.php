@@ -2,6 +2,7 @@
 
 namespace App\Support\Payments;
 
+use App\Services\Payments\Gateways\BachsGateway;
 use App\Services\Payments\Gateways\BitfraGateway;
 use App\Services\Payments\Gateways\FlutterwaveGateway;
 use App\Services\Payments\Gateways\KorapayGateway;
@@ -258,6 +259,7 @@ final class PaymentGatewayRegistry
                 'supports_partial' => true,
                 'status' => self::STATUS_BETA,
                 'credential_source' => 'keys',
+                'driver' => BachsGateway::class,
                 'fields' => [
                     [
                         'key' => 'api_key',
@@ -270,8 +272,12 @@ final class PaymentGatewayRegistry
                     [
                         'key' => 'webhook_secret',
                         'label' => 'Webhook secret',
-                        'help' => 'Set alongside the API key, so we can trust incoming webhooks.',
-                        'placeholder' => 'your-webhook-secret',
+                        // Not the API key: Bachs signs each webhook with the
+                        // secret of the endpoint it is delivered to, minted when
+                        // that endpoint is created (and rotatable from the same
+                        // screen). Pasting the API key here rejects every event.
+                        'help' => 'The signing secret of the webhook endpoint you created in Bachs — not the API key. Rotating it in Bachs means pasting the new one here.',
+                        'placeholder' => 'your-webhook-signing-secret',
                         'secret' => true,
                         'rules' => ['required', 'string', 'max:255', self::SAFE],
                     ],

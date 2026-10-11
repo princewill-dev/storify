@@ -4,6 +4,7 @@ namespace App\Http\Resources\Admin;
 
 use App\Models\Setting;
 use App\Models\Store;
+use App\Services\Subscription\PlatformBillingGateway;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -66,6 +67,7 @@ final class SettingsResource extends JsonResource
             'store_creation_limit' => $settings?->store_creation_limit ?? 5,
             'trial_enabled' => (bool) ($settings?->trial_enabled ?? true),
             'trial_days' => (int) ($settings?->trial_days ?? 7),
+            'billing_gateway' => $settings?->billing_gateway ?? PlatformBillingGateway::DEFAULT_CODE,
             'default_currency_id' => $this->defaultCurrencyId,
             'greeting_modal_enabled' => (bool) ($settings?->greeting_modal_enabled ?? false),
             'greeting_modal_frequency' => $settings?->greeting_modal_frequency ?? 'never',

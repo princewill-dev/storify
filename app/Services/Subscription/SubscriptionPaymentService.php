@@ -12,7 +12,8 @@ use App\Models\SubscriptionPlan;
 use App\Models\User;
 use App\Repositories\Subscription\SubscriptionPaymentRepository;
 use App\Services\Accounting\LedgerPostingService;
-use App\Services\PaystackService;
+use App\Services\Payments\Data\InitializationResult;
+use App\Services\Payments\Data\PaymentIntent;
 use App\Services\StoreActivationNotifier;
 use App\Support\Money\Naira;
 use Illuminate\Support\Facades\DB;
@@ -24,11 +25,24 @@ use Throwable;
  * The WS-08 money path's atomic workflows: the pending attempt triple, the
  * gateway call with its failure bookkeeping and the verified activation with
  * its post-commit mail, notifications and ledger posting.
+ *
+ * The gateway is {@see PlatformBillingGateway} rather than Paystack directly, so
+ * the platform bills through whichever provider an admin selected. The driver
+ * contract is the same one the merchant path uses, which is what keeps this
+ * class free of `if ($code === '…')` arms: a provider that can take a merchant's
+ * money can take Storify's.
+ *
+ * One normalisation is load-bearing. Every driver returns its own response body,
+ * and three things here read Paystack's keys out of it: the idempotent replay
+ * (`gateway_response.authorization_url`) and the repository's `$gateway['id']`
+ * for the payment's `gateway_reference`. So `initializeWithGateway()` writes
+ * `array_merge($result->raw, ['id' => …, 'authorization_url' => …])` — the
+ * provider's real payload, plus the two names this codebase asks for by.
  */
 final class SubscriptionPaymentService
 {
     public function __construct(
-        private readonly PaystackService $paystack,
+        private readonly PlatformBillingGateway $billing,
         private readonly SubscriptionPaymentRepository $payments,
         private readonly ActivateSubscriptionWithCoupon $couponActivator,
         private readonly StoreActivationNotifier $activationNotifier,
@@ -63,6 +77,11 @@ final class SubscriptionPaymentService
                 'currency' => $plan->currency,
                 'payment_type' => $paymentType,
                 'ip_address' => $ipAddress,
+                // Recorded from the first write, not at the gateway call: the
+                // pending transaction is filed under this code a line below, and
+                // a payment that is never initialized still has to say which
+                // gateway it was started against.
+                'payment_gateway' => $this->billing->code(),
                 'metadata' => [
                     'plan_name' => $plan->name,
                     'plan_id' => $plan->id,
@@ -81,11 +100,9 @@ final class SubscriptionPaymentService
     }
 
     /**
-     * Send the pending attempt to Paystack. A failed initialization is
-     * marked on the payment, subscription and transaction inside one
-     * transaction so it cannot sit indefinitely pending.
-     *
-     * @return array<string, mixed> the gateway result
+     * Send the pending attempt to whichever gateway platform billing is set to.
+     * A failed initialization is marked on the payment, subscription and
+     * transaction inside one transaction so it cannot sit indefinitely pending.
      */
     public function initializeWithGateway(
         User $user,
@@ -94,59 +111,178 @@ final class SubscriptionPaymentService
         Payment $payment,
         int $totalKobo,
         ?string $callbackUrl,
-    ): array {
-        $result = $this->paystack->initializePayment([
-            'email' => $user->email,
-            'amount' => $totalKobo,
-            'currency' => $payment->currency,
-            'reference' => $payment->reference,
-            'callback_url' => $callbackUrl ?? url('/subscription/callback'),
-            'metadata' => [
-                'user_id' => $user->id,
-                'business_id' => $user->business_id,
-                'payment_id' => $payment->id,
-                'subscription_id' => $subscription->id,
-                'plan_name' => $plan->name,
-            ],
-        ]);
+    ): InitializationResult {
+        $driver = $this->billing->driver();
 
-        if (! ($result['success'] ?? false)) {
-            $this->markInitializationFailed($payment, $subscription, $result['message'] ?? 'Initialization failed.');
+        // Refused before the provider is called. An earlier version of this
+        // method assumed a gateway that was always there, and the failure mode
+        // of guessing — charging through a provider nobody selected — is a
+        // customer paying the wrong company.
+        if ($driver === null || ! $this->billing->available()) {
+            $message = $this->billing->unavailableReason() ?? 'No payment gateway is available for this charge.';
+            $this->markInitializationFailed($payment, $subscription, $message);
+
+            return InitializationResult::failed($message);
+        }
+
+        $result = $driver->initialize(
+            new PaymentIntent(
+                reference: $payment->reference,
+                amountMinor: $totalKobo,
+                // The provider's own currency, not the plan's. They agree for
+                // every gateway in the catalogue today; passing the plan's
+                // instead would silently send the plan's units to a provider
+                // that prices in another.
+                currency: $driver->currency(),
+                email: (string) $user->email,
+                callbackUrl: $callbackUrl ?? url('/subscription/callback'),
+                customerName: null,
+                metadata: [
+                    'user_id' => $user->id,
+                    'business_id' => $user->business_id,
+                    'payment_id' => $payment->id,
+                    'subscription_id' => $subscription->id,
+                    'plan_name' => $plan->name,
+                ],
+            ),
+            $this->billing->credentials(),
+        );
+
+        if (! $result->success) {
+            $this->markInitializationFailed($payment, $subscription, $result->message ?? 'Initialization failed.');
 
             return $result;
         }
 
-        $this->payments->setPaymentGatewayResponse($payment, $result['data']);
+        $this->payments->recordInitializedGateway(
+            $payment,
+            $driver->code(),
+            $this->normalizedGateway($result),
+            // For a gateway that names its own payments, this is the only name
+            // the payment can be verified under later — the same round-trip the
+            // storefront and the till make. Null for the ones that adopt ours,
+            // and null is not stored: an absent key means "ask under the
+            // reference we issued".
+            $result->ownReference($payment->reference),
+        );
 
         return $result;
     }
 
     /**
-     * Double-verify the payment with Paystack and fail it — payment and
-     * transaction together — when the gateway disagrees on status, amount or
-     * currency.
+     * Verify the payment with the gateway it was made through and fail it —
+     * payment and transaction together — when the gateway disagrees on status,
+     * amount or currency.
      *
-     * koboFromStrict is deliberate: a malformed stored amount must convert to
+     * `koboFromStrict` is deliberate: a malformed stored amount must convert to
      * zero and fail the comparison rather than match a guessed value.
+     *
+     * Both sides of the comparison are now the provider's own figures under the
+     * driver contract, rather than Paystack's field names. That matters for the
+     * gateways that report money as a decimal string (Bachs) or in the major
+     * unit: each driver converts to minor units before this ever sees it, so
+     * there is one place — the driver — where a provider's units are known.
      */
-    public function verifyGatewayPayment(Payment $payment): GatewayVerificationResult
+    public function verifyGatewayPayment(Payment $payment, ?string $providerReference = null): GatewayVerificationResult
     {
-        $verification = $this->paystack->doubleVerifyPayment($payment->reference);
-        $gateway = $verification['data'] ?? [];
-        $expectedKobo = Naira::koboFromStrict($payment->amount);
-        $verifiedKobo = (int) ($gateway['amount'] ?? -1);
-        $verifiedCurrency = strtoupper((string) ($gateway['currency'] ?? ''));
+        $verification = $this->inspectGatewayPayment($payment, $providerReference);
 
-        $verified = ($verification['success'] ?? false)
-            && strtolower((string) ($gateway['status'] ?? '')) === 'success'
-            && $verifiedKobo === $expectedKobo
-            && $verifiedCurrency === strtoupper((string) $payment->currency);
-
-        if (! $verified) {
+        if (! $verification->verified) {
             $this->markGatewayMismatch($payment);
         }
 
-        return new GatewayVerificationResult($verified, $gateway, $expectedKobo, $verifiedKobo, $verifiedCurrency);
+        return $verification;
+    }
+
+    /**
+     * The read half of {@see verifyGatewayPayment()} — ask, compare, report, and
+     * change nothing.
+     *
+     * For callers that must not fail a payment on a disagreement. That is the
+     * webhook: a delivery is a notification about a payment the customer may
+     * still be completing, and it can be replayed, so a disagreement there is
+     * far more likely to be a race than a fact. Failing the payment would burn
+     * an attempt the browser callback or the provider's next delivery would have
+     * settled. The browser callback keeps the failing behaviour: it is the end
+     * of the line, and there is somebody watching to be told.
+     */
+    public function inspectGatewayPayment(Payment $payment, ?string $providerReference = null): GatewayVerificationResult
+    {
+        // The gateway the payment was *made through*, not the one selected now.
+        // An admin switching platform billing from Paystack to Bachs does not
+        // rewrite the payments already in flight, and asking the newly selected
+        // provider about them would be asking a stranger about a stranger's
+        // reference. The switch stops new checkouts; it does not void old ones.
+        $code = $this->chargedThrough($payment);
+
+        $driver = $this->billing->driverFor($code);
+        $problem = $this->billing->credentialProblem($code);
+        $expectedKobo = Naira::koboFromStrict($payment->amount);
+
+        if ($driver === null || $problem !== null) {
+            Log::warning('api.management.subscription_payment_gateway_unusable', [
+                'payment_id' => $payment->id,
+                'payment_gateway' => $code,
+                'reason' => $problem,
+            ]);
+
+            return new GatewayVerificationResult(
+                false,
+                [],
+                $expectedKobo,
+                -1,
+                strtoupper((string) $payment->currency),
+            );
+        }
+
+        $reference = $providerReference
+            ?? data_get($payment->metadata, 'provider_reference')
+            ?? $payment->reference;
+
+        $verification = $driver->verify($reference, $this->billing->credentialsFor($code));
+        $verifiedKobo = $verification->amountMinor ?? -1;
+        $verifiedCurrency = strtoupper((string) $verification->currency);
+
+        $verified = $verification->isPaid()
+            && $verifiedKobo === $expectedKobo
+            && ($verifiedCurrency === '' || $verifiedCurrency === strtoupper((string) $payment->currency));
+
+        return new GatewayVerificationResult(
+            $verified,
+            $verification->raw,
+            $expectedKobo,
+            $verifiedKobo,
+            $verifiedCurrency !== '' ? $verifiedCurrency : strtoupper((string) $payment->currency),
+            // The driver's name for this payment, which is what the merchant
+            // path writes to `transactions.gateway_reference` and therefore what
+            // a later delivery or reconcile matches on. Taken from the driver
+            // rather than from `raw['id']` because the two differ exactly where
+            // it matters: Bachs' payload is a charge with an `id` of its own,
+            // and the name its webhooks quote is the *checkout* id beside it.
+            $verification->providerId,
+        );
+    }
+
+    /**
+     * The provider's payload plus the two names the rest of this codebase asks
+     * it by, so the idempotent replay and the repository do not need to know
+     * which gateway produced it.
+     *
+     * The `id` here is the driver's own id for the *initialized* payment, which
+     * is not the same thing as the name settlement writes to `gateway_reference`
+     * — see {@see GatewayVerificationResult::$providerReference}. Nothing reads
+     * it for that purpose; the replay needs `authorization_url` and the reports
+     * want a link to the checkout, which is what `id` is used for.
+     *
+     * @return array<string, mixed>
+     */
+    public function normalizedGateway(InitializationResult $result): array
+    {
+        return array_filter([
+            ...$result->raw,
+            'id' => $result->providerId ?? $result->providerReference,
+            'authorization_url' => $result->redirectUrl,
+        ], fn ($value) => $value !== null && $value !== '');
     }
 
     /**
@@ -155,17 +291,17 @@ final class SubscriptionPaymentService
      * Returns whether this call performed the activation; a concurrent
      * callback that already succeeded returns false and is left untouched.
      */
-    public function activate(Payment $payment, array $gateway, ?User $requestUser): bool
+    public function activate(Payment $payment, GatewayVerificationResult $verification, ?User $requestUser): bool
     {
-        [$activated, $exhaustedCoupon] = DB::transaction(function () use ($payment, $gateway) {
+        [$activated, $exhaustedCoupon] = DB::transaction(function () use ($payment, $verification) {
             $lockedPayment = $this->payments->lockPaymentForUpdate($payment->id);
 
             if ($lockedPayment->status === Payment::STATUS_SUCCESS) {
                 return [false, null];
             }
 
-            $this->payments->markPaymentSuccessful($lockedPayment, $gateway);
-            $this->payments->confirmTransactions($lockedPayment->reference, $gateway);
+            $this->payments->markPaymentSuccessful($lockedPayment, $verification->gateway, $verification->providerReference);
+            $this->payments->confirmTransactions($lockedPayment->reference, $verification->gateway, $verification->providerReference);
 
             $subscription = $this->payments->lockSubscriptionForUpdate($lockedPayment->subscription_id);
             $plan = $subscription->subscriptionPlan;
@@ -249,6 +385,22 @@ final class SubscriptionPaymentService
             'subscription_id' => $result->subscription->id,
             'coupon_code' => $coupon->code,
         ]);
+    }
+
+    /**
+     * Which gateway this payment was charged through.
+     *
+     * Written when the attempt is created and again when the provider answers,
+     * so it is set for everything this codebase created. The fallback covers
+     * rows written before the platform could bill through more than one
+     * gateway: their column holds the schema default `'paystack'`, which is also
+     * the truth for them.
+     */
+    private function chargedThrough(Payment $payment): string
+    {
+        $code = $payment->payment_gateway;
+
+        return is_string($code) && $code !== '' ? $code : $this->billing->code();
     }
 
     private function markInitializationFailed(Payment $payment, Subscription $subscription, string $message): void

@@ -5,16 +5,22 @@ use App\Mail\CouponExhaustedMail;
 use App\Mail\StoreActivated;
 use App\Models\Coupon;
 use App\Models\Payment;
+use App\Models\PaymentMethod;
+use App\Models\Setting;
 use App\Models\Store;
 use App\Models\Subscription;
 use App\Models\SubscriptionPlan;
+use App\Models\Transaction;
 use App\Models\User;
 use App\Services\Accounting\LedgerSetupService;
+use App\Services\Subscription\PlatformBillingGateway;
+use Database\Seeders\PaymentMethodSeeder;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
+use Tests\TestCase;
 
 function ws08Token(User $user): string
 {
@@ -79,7 +85,14 @@ function ws08FakeGateway(
                 'data' => [
                     'authorization_url' => 'https://checkout.paystack.com/ws08',
                     'access_code' => 'ws08_access',
-                    'reference' => $reference,
+                    // Paystack echoes the reference the *request* carried, which
+                    // is not this helper's `$reference` when the fake is
+                    // registered before the payment exists. Echoing the request
+                    // is what keeps the fake honest: the money path records a
+                    // provider's name for a payment only when the provider
+                    // really did rename it, so a placeholder echoed back here
+                    // would be read as Paystack having named the charge itself.
+                    'reference' => $request->data()['reference'] ?? $reference,
                 ],
             ]);
         }
@@ -718,4 +731,349 @@ test('process payment validates its input', function () {
         ->getJson('/api/v1/management/subscription/callback')
         ->assertStatus(422)
         ->assertJsonValidationErrors('reference');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Platform billing on Bachs, and the platform's own webhook
+|--------------------------------------------------------------------------
+|
+| Storify's subscriptions are the platform's own charges, so they run on
+| credentials the platform holds rather than on a business's connection. These
+| tests cover the second gateway that can take them and the delivery that
+| settles one without the customer's browser.
+*/
+
+/** The platform's Bachs account, as `config/services.php` would hold it. */
+function ws08BachsConfig(): void
+{
+    config(['services.bachs' => [
+        'api_key' => 'sk_sandbox_ws08abcdefgh',
+        'webhook_secret' => 'whsec_ws08abcdefgh',
+    ]]);
+}
+
+/**
+ * Fake the two Bachs calls this money path makes: create the checkout session,
+ * then read it back to see what the customer paid.
+ *
+ * The amount is a decimal string on purpose — Bachs quotes money in the
+ * currency's major unit, and a fake that answered in kobo would let a units bug
+ * through every test that used it.
+ */
+function ws08FakeBachs(string $chargeStatus = 'succeeded', string $amount = '5000.00'): void
+{
+    Http::swap(new Factory);
+
+    Http::fake(function (Request $request) use ($chargeStatus, $amount) {
+        if ($request->method() === 'POST') {
+            return Http::response([
+                'checkout_id' => 'chk_ws08',
+                'checkout_url' => 'https://checkout.bachs.io/chk_ws08',
+                'status' => 'open',
+            ]);
+        }
+
+        return Http::response([
+            'checkout_id' => 'chk_ws08',
+            'status' => 'completed',
+            'charge' => [
+                'id' => 'chg_ws08',
+                'status' => $chargeStatus,
+                'amount' => $amount,
+                'currency' => 'NGN',
+            ],
+        ]);
+    });
+}
+
+/**
+ * A signed Bachs delivery: the raw body plus the `X-Bachs-Signature-V2` header
+ * it is HMAC'd into. Returns both because the controller hashes the bytes it
+ * received, not a re-encoding of the array.
+ *
+ * @return array{0: string, 1: array<string, string>}
+ */
+function ws08BachsWebhook(array $payload, string $secret = 'whsec_ws08abcdefgh'): array
+{
+    $body = json_encode($payload);
+    $timestamp = time();
+
+    return [$body, [
+        'HTTP_X_BACHS_SIGNATURE_V2' => 't='.$timestamp.',v1='.hash_hmac('sha256', $timestamp.'.'.$body, $secret),
+    ]];
+}
+
+/** A `checkout.completed` for the session the fake above opens. */
+function ws08BachsCompleted(string $paymentStatus = 'paid'): array
+{
+    return [
+        'type' => 'checkout.completed',
+        'data' => [
+            'checkout_id' => 'chk_ws08',
+            'payment_status' => $paymentStatus,
+            'charge_id' => 'chg_ws08',
+            'reference' => 'chk_ws08',
+        ],
+    ];
+}
+
+/**
+ * A business set up to be billed through Bachs, with a plan chosen.
+ *
+ * The test case is passed in rather than reached for: a plain function has no
+ * `$this`, and the seeder is a method on the case.
+ *
+ * @return array{0: User, 1: Business}
+ */
+function ws08BachsBilling(TestCase $test): array
+{
+    // The payment-methods row is what the admin switch reads. Bachs is not
+    // seeded by a migration (Paystack is, for history reasons), so it only
+    // exists once the seeder has run.
+    $test->seed(PaymentMethodSeeder::class);
+    ws08BachsConfig();
+    Setting::create(['billing_gateway' => 'bachs']);
+
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addDays(2), 'status' => 'pending']);
+    $plan = ws08Plan();
+    $owner->update(['selected_plan_id' => $plan->id]);
+    ws08Store($owner);
+
+    return [$owner, $business];
+}
+
+test('bachs can bill a platform subscription end to end', function () {
+    Mail::fake();
+    app(LedgerSetupService::class)->ensureForBusiness(null);
+
+    [$owner] = ws08BachsBilling($this);
+
+    ws08FakeBachs();
+
+    $this->withToken(ws08Token($owner))
+        ->postJson('/api/v1/management/subscription/process-payment', ['idempotency_key' => 'bachs-key-1'])
+        ->assertOk()
+        ->assertJsonPath('data.redirect_url', 'https://checkout.bachs.io/chk_ws08')
+        // The customer is told who is charging them, and it is read from the
+        // engine rather than written into the controller.
+        ->assertJsonPath('message', 'Payment initialized. Redirecting to Bachs.');
+
+    $payment = Payment::latest('id')->first();
+
+    expect($payment->payment_gateway)->toBe('bachs')
+        // The name Bachs knows this payment by, kept because its deliveries and
+        // its verify endpoint are both addressed by it and not by our reference.
+        ->and(data_get($payment->metadata, 'provider_reference'))->toBe('chk_ws08')
+        // The normalization the idempotent replay depends on: Paystack's key
+        // name, holding Bachs' URL.
+        ->and(data_get($payment->gateway_response, 'authorization_url'))->toBe('https://checkout.bachs.io/chk_ws08')
+        ->and((string) Transaction::where('reference', $payment->reference)->value('payment_method_id'))
+        ->toBe((string) PaymentMethod::where('code', 'bachs')->value('id'));
+
+    $this->withToken(ws08Token($owner))
+        ->getJson('/api/v1/management/subscription/callback?reference='.$payment->reference)
+        ->assertOk()
+        ->assertJsonPath('data.already_processed', false);
+
+    $payment->refresh();
+
+    expect($payment->status)->toBe(Payment::STATUS_SUCCESS)
+        ->and($payment->subscription->fresh()->status)->toBe(Subscription::STATUS_ACTIVE);
+});
+
+test('the same idempotency key re-redirects to the stored bachs checkout', function () {
+    Mail::fake();
+
+    [$owner] = ws08BachsBilling($this);
+
+    ws08FakeBachs();
+
+    $first = $this->withToken(ws08Token($owner))
+        ->postJson('/api/v1/management/subscription/process-payment', ['idempotency_key' => 'bachs-replay-1'])
+        ->assertOk();
+
+    $second = $this->withToken(ws08Token($owner))
+        ->postJson('/api/v1/management/subscription/process-payment', ['idempotency_key' => 'bachs-replay-1'])
+        ->assertOk()
+        ->assertJsonPath('data.already_initialized', true);
+
+    expect($second->json('data.redirect_url'))->toBe($first->json('data.redirect_url'))
+        ->and(Payment::query()->count())->toBe(1);
+});
+
+test('a billing gateway switched off refuses the checkout instead of borrowing the other one', function () {
+    Mail::fake();
+
+    [$owner] = ws08BachsBilling($this);
+
+    PaymentMethod::where('code', 'bachs')->update(['is_active' => false]);
+
+    Http::swap(new Factory);
+    Http::fake(fn () => Http::response(['status' => true, 'data' => []]));
+
+    $response = $this->withToken(ws08Token($owner))
+        ->postJson('/api/v1/management/subscription/process-payment', ['idempotency_key' => 'bachs-off-1'])
+        ->assertStatus(503);
+
+    // Says which gateway and why, rather than "try again": an admin switched it
+    // off, and trying again will not change that.
+    expect($response->json('message'))->toContain('Bachs is switched off');
+
+    // Nothing was charged anywhere. Paystack is configured and would have
+    // answered, so a fallback would have shown up as a request here.
+    Http::assertNotSent(fn (Request $request) => str_contains($request->url(), 'checkout-sessions')
+        || str_contains($request->url(), 'paystack'));
+
+    expect(Payment::latest('id')->first()->status)->toBe(Payment::STATUS_FAILED);
+});
+
+test('a billing gateway with no server credentials refuses the checkout', function () {
+    Mail::fake();
+
+    [$owner] = ws08BachsBilling($this);
+
+    config(['services.bachs' => ['api_key' => null, 'webhook_secret' => null]]);
+
+    Http::swap(new Factory);
+    Http::fake(fn () => Http::response(['status' => true, 'data' => []]));
+
+    $response = $this->withToken(ws08Token($owner))
+        ->postJson('/api/v1/management/subscription/process-payment', ['idempotency_key' => 'bachs-nokey-1'])
+        ->assertStatus(503);
+
+    // Names the missing field, never a value.
+    expect($response->json('message'))->toContain('api_key');
+
+    Http::assertNotSent(fn (Request $request) => str_contains($request->url(), 'checkout-sessions'));
+});
+
+test('a signed bachs delivery activates the subscription without the browser coming back', function () {
+    Mail::fake();
+    app(LedgerSetupService::class)->ensureForBusiness(null);
+
+    [$owner] = ws08BachsBilling($this);
+
+    ws08FakeBachs();
+
+    $this->withToken(ws08Token($owner))
+        ->postJson('/api/v1/management/subscription/process-payment', ['idempotency_key' => 'bachs-wh-1'])
+        ->assertOk();
+
+    $payment = Payment::latest('id')->first();
+
+    [$body, $headers] = ws08BachsWebhook(ws08BachsCompleted());
+
+    $this->call('POST', '/webhooks/subscription/bachs', [], [], [], $headers, $body)
+        ->assertOk()
+        ->assertJsonPath('status', 'success');
+
+    $payment->refresh();
+
+    expect($payment->status)->toBe(Payment::STATUS_SUCCESS)
+        ->and($payment->gateway_reference)->toBe('chk_ws08')
+        ->and($payment->subscription->fresh()->status)->toBe(Subscription::STATUS_ACTIVE);
+
+    // A replayed delivery is the ordinary case for a webhook, not an attack.
+    $this->call('POST', '/webhooks/subscription/bachs', [], [], [], $headers, $body)
+        ->assertOk()
+        ->assertJsonPath('status', 'already processed');
+});
+
+test('a collection.succeeded delivery settles just as a checkout.completed one does', function () {
+    Mail::fake();
+    app(LedgerSetupService::class)->ensureForBusiness(null);
+
+    [$owner] = ws08BachsBilling($this);
+
+    ws08FakeBachs();
+
+    $this->withToken(ws08Token($owner))
+        ->postJson('/api/v1/management/subscription/process-payment', ['idempotency_key' => 'bachs-wh-2'])
+        ->assertOk();
+
+    $payment = Payment::latest('id')->first();
+
+    [$body, $headers] = ws08BachsWebhook([
+        'type' => 'collection.succeeded',
+        'data' => ['checkout_id' => 'chk_ws08', 'charge_id' => 'chg_ws08', 'reference' => 'chk_ws08'],
+    ]);
+
+    $this->call('POST', '/webhooks/subscription/bachs', [], [], [], $headers, $body)
+        ->assertOk()
+        ->assertJsonPath('status', 'success');
+
+    expect($payment->fresh()->status)->toBe(Payment::STATUS_SUCCESS)
+        ->and($payment->subscription->fresh()->status)->toBe(Subscription::STATUS_ACTIVE);
+});
+
+test('a subscription delivery with a bad signature is refused and activates nothing', function () {
+    Mail::fake();
+
+    [$owner] = ws08BachsBilling($this);
+
+    ws08FakeBachs();
+
+    $this->withToken(ws08Token($owner))
+        ->postJson('/api/v1/management/subscription/process-payment', ['idempotency_key' => 'bachs-wh-3'])
+        ->assertOk();
+
+    $payment = Payment::latest('id')->first();
+
+    [$body, $headers] = ws08BachsWebhook(ws08BachsCompleted(), 'whsec_not_ours_at_all');
+
+    $this->call('POST', '/webhooks/subscription/bachs', [], [], [], $headers, $body)
+        ->assertStatus(400)
+        ->assertJsonPath('status', 'unverified');
+
+    expect($payment->fresh()->status)->toBe(Payment::STATUS_PENDING)
+        ->and($payment->subscription->fresh()->status)->toBe(Subscription::STATUS_PENDING);
+});
+
+test('a delivery for a gateway the platform does not bill through is refused', function () {
+    Mail::fake();
+    $this->seed(PaymentMethodSeeder::class);
+
+    config(['services.paystack' => ['secret_key' => 'sk_test_ws08', 'public_key' => 'pk_test_ws08']]);
+    config(['services.bachs' => ['api_key' => 'sk_sandbox_ws08abcdefgh', 'webhook_secret' => 'whsec_ws08abcdefgh']]);
+
+    Setting::create(['billing_gateway' => 'paystack']);
+
+    [$body, $headers] = ws08BachsWebhook(ws08BachsCompleted());
+
+    // Bachs is registered, has a driver and is connected here — it is simply not
+    // what the platform bills through, so a delivery from it is about payments
+    // this platform is not reconciling.
+    $this->call('POST', '/webhooks/subscription/bachs', [], [], [], $headers, $body)
+        ->assertStatus(404)
+        ->assertJsonPath('status', 'unknown provider');
+
+    // Switching the setting is enough — the seam reads the column on every call
+    // rather than memoising it, which is what makes the very next request follow
+    // the switch instead of the gateway it saw first.
+    Setting::query()->first()->update(['billing_gateway' => 'bachs']);
+
+    expect(app(PlatformBillingGateway::class)->code())->toBe('bachs');
+
+    $this->call('POST', '/webhooks/subscription/paystack', [], [], [], [], '{}')
+        ->assertStatus(404)
+        ->assertJsonPath('status', 'unknown provider');
+});
+
+test('a verified delivery this endpoint does not act on is answered and ignored', function () {
+    Mail::fake();
+    $this->seed(PaymentMethodSeeder::class);
+    ws08BachsConfig();
+    Setting::create(['billing_gateway' => 'bachs']);
+
+    [$body, $headers] = ws08BachsWebhook([
+        'type' => 'collection.underpaid',
+        'data' => ['checkout_id' => 'chk_ws08'],
+    ]);
+
+    // 200 so the provider stops retrying: understood, verified, and not
+    // something this endpoint settles.
+    $this->call('POST', '/webhooks/subscription/bachs', [], [], [], $headers, $body)
+        ->assertOk()
+        ->assertJsonPath('status', 'unhandled event');
 });

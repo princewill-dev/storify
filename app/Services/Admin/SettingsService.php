@@ -8,6 +8,7 @@ use App\Models\Setting;
 use App\Models\User;
 use App\Repositories\Admin\SettingsRepository;
 use App\Services\ActivityLogger;
+use App\Services\Subscription\PlatformBillingGateway;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -57,6 +58,7 @@ final class SettingsService
         'store_creation_limit',
         'trial_enabled',
         'trial_days',
+        'billing_gateway',
         'og_title',
         'og_description',
         'og_image_path',
@@ -97,6 +99,14 @@ final class SettingsService
                 'store_creation_limit' => $data['store_creation_limit'] ?? 5,
                 'trial_enabled' => (bool) $data['trial_enabled'],
                 'trial_days' => (int) ($data['trial_days'] ?? 7),
+                // Which gateway the platform bills its own subscriptions
+                // through. Absent from the payload means "leave it alone": this
+                // screen is not the only caller of `update()`, and a
+                // coupon-only or partial save must not silently reset platform
+                // billing to the default.
+                'billing_gateway' => $data['billing_gateway']
+                    ?? $settings->billing_gateway
+                    ?? PlatformBillingGateway::DEFAULT_CODE,
                 'og_title' => $data['og_title'] ?? null,
                 'og_description' => $data['og_description'] ?? null,
                 'og_url' => $data['og_url'] ?? null,

@@ -284,6 +284,39 @@ function pgFakeKorapay(): void
     });
 }
 
+/**
+ * Fake Bachs: the checkout session it opens, and the session read that reports
+ * the settled charge.
+ *
+ * Its amounts are decimal strings at the currency's precision, never minor
+ * units, so a settled ₦1,000 sale comes back as `"1000.00"`.
+ */
+function pgFakeBachs(string $chargeStatus = 'succeeded'): void
+{
+    Http::swap(new Factory);
+
+    Http::fake(function (Request $request) use ($chargeStatus) {
+        if ($request->method() === 'POST') {
+            return Http::response([
+                'checkout_id' => 'chk_pg_1',
+                'checkout_url' => 'https://checkout.bachs.io/chk_pg_1',
+                'status' => 'open',
+            ]);
+        }
+
+        return Http::response([
+            'checkout_id' => 'chk_pg_1',
+            'status' => 'completed',
+            'charge' => [
+                'id' => 'chg_pg_1',
+                'status' => $chargeStatus,
+                'amount' => '1000.00',
+                'currency' => 'NGN',
+            ],
+        ]);
+    });
+}
+
 function pgVerifiedBank($business): void
 {
     DB::table('store_banks')->insert([
@@ -582,6 +615,54 @@ test('a second provider is charged through its own checkout, not paystack', func
 
     expect(Order::where('store_id', $store->id)->sole()->transactions->sole()->paymentMethod->code)
         ->toBe('korapay');
+});
+
+test('a bachs leg is charged through its own checkout and settles under the checkout id', function () {
+    // Bachs joins Bitfra in the group that has no lookup by the reference we
+    // issue: it answers to the checkout id it returned, so the till has to
+    // round-trip that or the leg can never be confirmed. Its amounts are decimal
+    // strings rather than minor units, which is the other half of this test — a
+    // ₦1,000 sale must be asked for as "1000.00", and a settled "1000.00" must
+    // credit the store 100000 kobo.
+    [, $business, , $store, $product] = pgContext();
+    pgConnect($business, 'bachs', ['api_key' => 'sk_sandbox_pgtest12345', 'webhook_secret' => 'whsec_pg']);
+    pgFakeBachs();
+
+    $started = $this->postJson("/api/v1/pos/stores/{$store->store_id}/payments/initialize", [
+        'items' => [['product_id' => $product->id, 'quantity' => 1]],
+        'method' => 'bachs',
+        'amount' => 1000,
+    ])->assertCreated();
+
+    expect($started->json('data.authorization_url'))->toBe('https://checkout.bachs.io/chk_pg_1')
+        ->and($started->json('data.provider_reference'))->toBe('chk_pg_1')
+        // The store's own amount stays naira, because the till sums it against
+        // the sale total.
+        ->and((float) $started->json('data.amount'))->toBe(1000.0);
+
+    Http::assertSent(fn (Request $request): bool => $request->method() === 'POST'
+        && $request['pricing']['amount'] === '1000.00'
+        && $request['pricing']['currency'] === 'NGN');
+
+    $this->postJson("/api/v1/pos/stores/{$store->store_id}/checkout", [
+        'idempotency_key' => 'pg-bachs-leg',
+        'items' => [['product_id' => $product->id, 'quantity' => 1]],
+        'payments' => [[
+            'method' => 'bachs',
+            'amount' => 1000,
+            'reference' => $started->json('data.reference'),
+            'provider_reference' => $started->json('data.provider_reference'),
+        ]],
+    ])->assertCreated();
+
+    $order = Order::where('store_id', $store->id)->sole();
+
+    expect($order->transactions->sole()->paymentMethod->code)->toBe('bachs')
+        ->and($store->fresh()->balance)->toBe(100000);
+
+    // Asked under the checkout id, never the POS reference — the checkout id is
+    // the only name Bachs can answer about.
+    Http::assertSent(fn (Request $request): bool => str_contains($request->url(), '/checkout-sessions/chk_pg_1'));
 });
 
 test('a gateway leg clears through the gateway account, not the drawer', function () {

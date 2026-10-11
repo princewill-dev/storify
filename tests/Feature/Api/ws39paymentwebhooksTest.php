@@ -61,6 +61,13 @@ function wh39Paystack(): array
     return ['public_key' => 'pk_live_test1234567890', 'secret_key' => 'sk_live_test1234567890'];
 }
 
+function wh39Bachs(): array
+{
+    // The `sk_sandbox_` prefix is what sends the driver at the sandbox host, so
+    // it matters as much as the value does.
+    return ['api_key' => 'sk_sandbox_wh39abcdefgh', 'webhook_secret' => 'whsec_wh39abcdefgh'];
+}
+
 function wh39Connect(Business $business, string $code, array $config, bool $active = true): void
 {
     $method = PaymentMethod::where('code', $code)->firstOrFail();
@@ -208,6 +215,77 @@ function wh39FakePaystack(string $status = 'success', int $amountKobo = 250000):
             ]],
         ]);
     });
+}
+
+/**
+ * Fake both Bachs calls a settlement makes: the session create at initialize,
+ * and the session read `verify()` performs before anything is credited.
+ *
+ * `Http::swap(new Factory)` first, for the reason given above `wh39FakePaystack`.
+ */
+function wh39FakeBachs(string $chargeStatus = 'succeeded'): void
+{
+    Http::swap(new Factory);
+
+    Http::fake(function (Request $request) use ($chargeStatus) {
+        if ($request->method() === 'POST') {
+            return Http::response([
+                'checkout_id' => 'chk_wh39',
+                'checkout_url' => 'https://checkout.bachs.io/chk_wh39',
+                'status' => 'open',
+            ]);
+        }
+
+        return Http::response([
+            'checkout_id' => 'chk_wh39',
+            'status' => 'completed',
+            'charge' => [
+                'id' => 'chg_wh39',
+                'status' => $chargeStatus,
+                'amount' => '2500.00',
+                'currency' => 'NGN',
+            ],
+        ]);
+    });
+}
+
+/**
+ * A Bachs delivery: the raw body, and the `X-Bachs-Signature-V2` header for it.
+ *
+ * Returned as bytes rather than as an array on purpose — the signature covers
+ * the exact payload, so re-encoding a decoded array before hashing would produce
+ * a different one.
+ *
+ * @param  array<string, mixed>  $payload
+ * @return array{0: string, 1: array<string, string>}
+ */
+function wh39BachsSigned(array $payload, string $secret = 'whsec_wh39abcdefgh'): array
+{
+    $body = json_encode($payload);
+    $timestamp = time();
+
+    return [
+        $body,
+        ['HTTP_X_BACHS_SIGNATURE_V2' => 't='.$timestamp.',v1='.hash_hmac('sha256', $timestamp.'.'.$body, $secret)],
+    ];
+}
+
+/** The `checkout.completed` Bachs posts once the customer has paid. */
+function wh39BachsCompleted(string $checkoutId = 'chk_wh39'): array
+{
+    return wh39BachsSigned([
+        'type' => 'checkout.completed',
+        'data' => [
+            'checkout_id' => $checkoutId,
+            'payment_status' => 'paid',
+            'charge' => [
+                'id' => 'chg_wh39',
+                'status' => 'succeeded',
+                'amount' => '2500.00',
+                'currency' => 'NGN',
+            ],
+        ],
+    ]);
 }
 
 beforeEach(function () {
@@ -682,4 +760,121 @@ test('bitfra settles once the transfer is confirmed, and only then', function ()
         ],
         $seen,
     )->assertOk()->assertJsonPath('status', 'unhandled event');
+});
+
+test('a bachs webhook settles the order once, and the browser verify that follows changes nothing', function () {
+    // Two things are asserted together because they are the same risk seen from
+    // either end. Bachs names its own payment — the checkout id — so the
+    // transaction is matched by the id it issued rather than the reference we
+    // sent, and it fires `checkout.completed` while the customer's browser is
+    // still on its way back to the callback. Whichever arrives first must be the
+    // only one that credits the store.
+    wh39FakeBachs();
+
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    wh39Connect($business, 'bachs', wh39Bachs());
+
+    $store = wh39Store($owner);
+    $order = wh39Order($store);
+
+    $this->postJson('/api/v1/storefront/'.$store->slug.'/payments/bachs/initialize', [
+        'order_number' => $order->order_number,
+        'amount' => 2500,
+    ])->assertOk()
+        ->assertJsonPath('data.authorization_url', 'https://checkout.bachs.io/chk_wh39');
+
+    $transaction = Transaction::where('order_id', $order->id)->sole();
+
+    // The checkout id is written down at initialize because it is the only name
+    // either the webhook or `verify()` can address this payment by: Bachs has no
+    // lookup for the reference we sent it.
+    expect($transaction->gateway_reference)->toBe('chk_wh39')
+        ->and($transaction->metadata['provider_reference'])->toBe('chk_wh39')
+        ->and($transaction->status)->toBe(TransactionStatus::PENDING);
+
+    [$body, $headers] = wh39BachsCompleted();
+
+    $this->call('POST', '/webhooks/payments/bachs/'.$store->store_id, [], [], [], array_merge([
+        'CONTENT_TYPE' => 'application/json',
+        'HTTP_ACCEPT' => 'application/json',
+    ], $headers), $body)
+        ->assertOk()
+        ->assertJsonPath('status', 'success');
+
+    $transaction->refresh();
+
+    expect($transaction->status)->toBe(TransactionStatus::CONFIRMED)
+        ->and($transaction->paid_at)->not->toBeNull()
+        // Credited the naira the order asked for, from the decimal string Bachs
+        // reports — 2500.00, not 250000.
+        ->and((int) $store->fresh()->balance)->toBe(250000)
+        ->and((float) $order->fresh()->amount_paid)->toBe(2500.0);
+
+    // And then the customer's browser lands on the callback, and they refresh.
+    $this->postJson('/api/v1/storefront/'.$store->slug.'/payments/bachs/verify', [
+        'reference' => $transaction->reference,
+    ])->assertOk();
+
+    expect((int) $store->fresh()->balance)->toBe(250000)
+        ->and((float) $order->fresh()->amount_paid)->toBe(2500.0);
+});
+
+test('a replayed bachs webhook does not credit the balance twice', function () {
+    wh39FakeBachs();
+
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    wh39Connect($business, 'bachs', wh39Bachs());
+
+    $store = wh39Store($owner);
+    $order = wh39Order($store);
+
+    $this->postJson('/api/v1/storefront/'.$store->slug.'/payments/bachs/initialize', [
+        'order_number' => $order->order_number,
+        'amount' => 2500,
+    ])->assertOk();
+
+    [$body, $headers] = wh39BachsCompleted();
+    $uri = '/webhooks/payments/bachs/'.$store->store_id;
+    $server = array_merge(['CONTENT_TYPE' => 'application/json', 'HTTP_ACCEPT' => 'application/json'], $headers);
+
+    $this->call('POST', $uri, [], [], [], $server, $body)->assertOk()->assertJsonPath('status', 'success');
+    $this->call('POST', $uri, [], [], [], $server, $body)->assertOk()->assertJsonPath('status', 'already processed');
+
+    expect((int) $store->fresh()->balance)->toBe(250000)
+        ->and((float) $order->fresh()->amount_paid)->toBe(2500.0);
+});
+
+test('a bachs webhook signed with the wrong secret settles nothing', function () {
+    // The signature is the only thing standing between a public URL and an
+    // attacker crediting an order they never paid for.
+    wh39FakeBachs();
+
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    wh39Connect($business, 'bachs', wh39Bachs());
+
+    $store = wh39Store($owner);
+    $order = wh39Order($store);
+
+    $this->postJson('/api/v1/storefront/'.$store->slug.'/payments/bachs/initialize', [
+        'order_number' => $order->order_number,
+        'amount' => 2500,
+    ])->assertOk();
+
+    [$body, $headers] = wh39BachsSigned([
+        'type' => 'checkout.completed',
+        'data' => [
+            'checkout_id' => 'chk_wh39',
+            'payment_status' => 'paid',
+            'charge' => ['id' => 'chg_wh39', 'status' => 'succeeded', 'amount' => '2500.00', 'currency' => 'NGN'],
+        ],
+    ], 'not-this-businesss-secret');
+
+    $this->call('POST', '/webhooks/payments/bachs/'.$store->store_id, [], [], [], array_merge([
+        'CONTENT_TYPE' => 'application/json',
+        'HTTP_ACCEPT' => 'application/json',
+    ], $headers), $body)->assertStatus(401);
+
+    expect((int) $store->fresh()->balance)->toBe(0)
+        ->and((float) $order->fresh()->amount_paid)->toBe(0.0)
+        ->and(Transaction::where('order_id', $order->id)->sole()->status)->toBe(TransactionStatus::PENDING);
 });

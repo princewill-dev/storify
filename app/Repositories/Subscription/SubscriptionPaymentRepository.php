@@ -155,7 +155,11 @@ final class SubscriptionPaymentRepository
 
     public function createPendingTransaction(Payment $payment, string $paymentType): Transaction
     {
-        $method = PaymentMethod::query()->where('code', 'paystack')->first();
+        // Read off the payment rather than hard-coded: the platform can bill
+        // through more than one gateway, and a transaction filed under the
+        // wrong method makes the admin reports — which group by this column —
+        // attribute the money to a provider that never took it.
+        $method = PaymentMethod::query()->where('code', $payment->payment_gateway)->first();
 
         return Transaction::create([
             'reference' => $payment->reference,
@@ -176,16 +180,39 @@ final class SubscriptionPaymentRepository
         ]);
     }
 
-    public function setPaymentGatewayResponse(Payment $payment, ?array $response): void
+    /**
+     * Everything the gateway call established about this attempt, in one write.
+     *
+     * The three columns answer three different questions and all three are asked
+     * later, in different places: `payment_gateway` is *who to ask* when the
+     * payment is verified or refunded, `gateway_response` is what the checkout
+     * looked like at the time (the idempotent replay re-reads its
+     * `authorization_url`), and `metadata.provider_reference` is the name the
+     * provider knows this payment by when it is not the reference we issued.
+     *
+     * `metadata` is merged, never replaced — it already carries the plan, the
+     * coupon and the amount breakdown that activation and the reports read.
+     */
+    public function recordInitializedGateway(Payment $payment, string $code, ?array $response, ?string $providerReference): void
     {
-        $payment->update(['gateway_response' => $response]);
+        $metadata = $payment->metadata ?? [];
+
+        if ($providerReference !== null) {
+            $metadata['provider_reference'] = $providerReference;
+        }
+
+        $payment->update([
+            'payment_gateway' => $code,
+            'gateway_response' => $response,
+            'metadata' => $metadata,
+        ]);
     }
 
-    public function markPaymentSuccessful(Payment $payment, array $gateway): void
+    public function markPaymentSuccessful(Payment $payment, array $gateway, ?string $providerReference = null): void
     {
         $payment->update([
             'status' => Payment::STATUS_SUCCESS,
-            'gateway_reference' => $gateway['id'] ?? null,
+            'gateway_reference' => $this->gatewayReference($gateway, $providerReference),
             'gateway_response' => $gateway,
             'paid_at' => now(),
         ]);
@@ -207,14 +234,32 @@ final class SubscriptionPaymentRepository
         ]);
     }
 
-    public function confirmTransactions(string $reference, array $gateway): void
+    public function confirmTransactions(string $reference, array $gateway, ?string $providerReference = null): void
     {
         Transaction::where('reference', $reference)->update([
             'status' => TransactionStatus::CONFIRMED->value,
-            'gateway_reference' => $gateway['id'] ?? null,
+            'gateway_reference' => $this->gatewayReference($gateway, $providerReference),
             'gateway_response' => $gateway,
             'paid_at' => now(),
         ]);
+    }
+
+    /**
+     * The provider's name for a settled payment, as its deliveries quote it.
+     *
+     * The caller's name wins when it has one: it comes from the driver, which is
+     * the only place that knows whether a payload's `id` is the payment or
+     * something nested inside it. Paystack's is the payment, so the two agree.
+     * Bachs reports a charge whose `id` is the charge, while the name its
+     * webhooks and its lookup are both addressed by is the *checkout* id beside
+     * it — and this column has to hold that one or a replayed delivery cannot be
+     * matched. The fallback keeps callers that hold only the payload working.
+     *
+     * @param  array<string, mixed>  $gateway
+     */
+    private function gatewayReference(array $gateway, ?string $providerReference): ?string
+    {
+        return $providerReference ?? ($gateway['id'] ?? null);
     }
 
     public function activateSubscription(Subscription $subscription, ?SubscriptionPlan $plan, Payment $payment): void

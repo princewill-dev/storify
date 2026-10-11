@@ -17,6 +17,7 @@ use App\Models\Payment;
 use App\Models\SubscriptionPlan;
 use App\Models\User;
 use App\Repositories\Subscription\SubscriptionPaymentRepository;
+use App\Services\Subscription\PlatformBillingGateway;
 use App\Services\Subscription\SubscriptionPaymentService;
 use App\Services\Subscription\SubscriptionPricingService;
 use App\Support\Money\Naira;
@@ -28,8 +29,12 @@ use Illuminate\Support\Facades\Log;
 use Throwable;
 
 /**
- * The subscription money path — checkout, idempotent Paystack initialization
- * and the verified callback that activates the business.
+ * The subscription money path — checkout, idempotent initialization and the
+ * verified callback that activates the business.
+ *
+ * The gateway is whatever {@see PlatformBillingGateway} reports, so nothing here
+ * names a provider except in a message to the customer, and that message reads
+ * the name off the seam rather than writing it out.
  *
  * Money moves through kobo integers here: the tables keep naira decimals for
  * backwards compatibility, but every calculation (discount, total, gateway
@@ -43,6 +48,7 @@ class PaymentController extends ApiController
         private readonly SubscriptionPaymentRepository $payments,
         private readonly SubscriptionPaymentService $paymentService,
         private readonly SubscriptionPricingService $pricing,
+        private readonly PlatformBillingGateway $billing,
     ) {}
 
     /**
@@ -93,7 +99,7 @@ class PaymentController extends ApiController
     }
 
     /**
-     * Initialize (or replay) a Paystack payment.
+     * Initialize (or replay) a payment on the platform's billing gateway.
      */
     public function initialize(InitializePaymentRequest $request): JsonResponse
     {
@@ -165,12 +171,25 @@ class PaymentController extends ApiController
             $data['callback_url'] ?? null,
         );
 
-        if (! ($result['success'] ?? false)) {
+        if (! $result->success) {
             Log::warning('api.management.subscription_payment_initialize_failed', [
                 'user_id' => $user->id,
                 'payment_id' => $payment->id,
                 'reference' => $payment->reference,
             ]);
+
+            // An unusable gateway is not a transient fault. Telling the customer
+            // to "try again" while an admin has the gateway switched off — or
+            // while the server is missing its keys — sends them round the loop
+            // for nothing. The reason is a sentence this API wrote, not a
+            // provider's, so it is safe to show; the provider's own message
+            // stays in the log and out of the response.
+            if (! $this->billing->available()) {
+                return $this->error(
+                    $this->billing->unavailableReason() ?? 'Subscription payments are unavailable right now.',
+                    503,
+                );
+            }
 
             return $this->error('Failed to initialize payment. Please try again.', 502);
         }
@@ -180,20 +199,21 @@ class PaymentController extends ApiController
             'payment_id' => $payment->id,
             'reference' => $payment->reference,
             'amount_kobo' => $totalKobo,
+            'payment_gateway' => $payment->payment_gateway,
         ]);
 
         return $this->ok([
-            'redirect_url' => $result['data']['authorization_url'] ?? null,
+            'redirect_url' => $result->redirectUrl,
             'reference' => $payment->reference,
             'payment_id' => $payment->id,
             'subscription_id' => $subscription->id,
             'total_kobo' => $totalKobo,
             'total' => Naira::decimalFromKobo($totalKobo),
-        ], 'Payment initialized. Redirecting to Paystack.');
+        ], 'Payment initialized. Redirecting to '.$this->billing->name().'.');
     }
 
     /**
-     * Paystack returns the browser here (via the SPA callback route). The
+     * The gateway returns the browser here (via the SPA callback route). The
      * payment is verified a second time against the gateway before anything
      * is activated.
      */
@@ -232,7 +252,7 @@ class PaymentController extends ApiController
             return $this->error('Payment verification failed.', 422);
         }
 
-        $activated = $this->paymentService->activate($payment, $verification->gateway, $this->user($request));
+        $activated = $this->paymentService->activate($payment, $verification, $this->user($request));
 
         $payment = $payment->fresh();
 

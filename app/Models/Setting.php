@@ -24,6 +24,8 @@ class Setting extends Model
         'main_store_id',
         'trial_enabled',
         'trial_days',
+        // Which gateway the platform bills its own subscriptions through.
+        'billing_gateway',
         // SEO
         'og_title',
         'og_description',

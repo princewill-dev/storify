@@ -6,6 +6,7 @@ use App\Enums\InitializationMode;
 use App\Enums\OrderStatus;
 use App\Enums\TransactionStatus;
 use App\Models\Order;
+use App\Models\PaymentMethod;
 use App\Models\Store;
 use App\Models\Transaction;
 use App\Repositories\Storefront\CheckoutRepository;
@@ -107,6 +108,19 @@ final class CheckoutPaymentService
         // and the platform from-address is used — as before.
         $email = $order->customer?->email ?: $data['email'] ?? null;
 
+        // Which method took this payment, recorded on the transaction.
+        //
+        // This is not bookkeeping: `PaymentWebhookProcessor` matches a provider's
+        // own payment id against `transactions.gateway_reference` **scoped to
+        // this column**, because a provider's ids are small and local and two
+        // gateways both have a "12345678". Without it written here, a provider
+        // that names its own payments — Bitfra's `payment_id`, Bachs'
+        // `checkout_id` — could not have its webhook matched to a storefront
+        // order at all, and the sale would settle only if the customer's browser
+        // made it back to the callback. The admin reports join on this column
+        // too, and were counting these payments as belonging to no method.
+        $paymentMethodId = PaymentMethod::query()->where('code', $provider)->value('id');
+
         if (! $email || str_contains($email, '@walkin.local')) {
             $email = config('mail.from.address', 'no-reply@storify.test');
         }
@@ -118,6 +132,7 @@ final class CheckoutPaymentService
                 'reference' => $reference,
                 'order_id' => $order->id,
                 'business_id' => $order->business_id,
+                'payment_method_id' => $paymentMethodId,
                 'amount' => $amount,
                 // The store's currency, because that is the currency `amount`
                 // is in. This previously held the driver's currency, which

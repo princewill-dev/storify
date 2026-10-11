@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Payment\PaymentWebhookController;
 use App\Http\Controllers\Payment\PaystackWebhookController;
+use App\Http\Controllers\Payment\SubscriptionWebhookController;
 use App\Support\Payments\PaymentGatewayRegistry;
 use Illuminate\Support\Facades\Route;
 
@@ -37,6 +38,17 @@ Route::post('/webhooks/payments/{provider}/{scope}', [PaymentWebhookController::
 // Kept because this exact URL is registered in Paystack's dashboard; changing
 // it would silently stop settlement until someone updated it there.
 Route::post('/webhooks/paystack', [PaystackWebhookController::class, 'handle'])->name('webhooks.paystack');
+
+// Storify's own subscription payments, on whichever gateway an admin selected.
+// A different endpoint from the merchant one above, not a scope of it: those
+// deliveries settle a store's orders against a business's own connection, and
+// are checked against every connection on the platform until one verifies.
+// These settle the platform's subscription charges against credentials the
+// platform holds itself, so the provider in the path is the whole of the
+// routing — and a provider that is not the selected gateway is refused.
+Route::post('/webhooks/subscription/{provider}', [SubscriptionWebhookController::class, 'handle'])
+    ->whereIn('provider', PaymentGatewayRegistry::keys())
+    ->name('webhooks.subscription');
 
 // Send www traffic to the apex so links and cookies share one origin.
 Route::domain('www.'.config('app.main_domain', parse_url(config('app.url'), PHP_URL_HOST)))->group(function () {

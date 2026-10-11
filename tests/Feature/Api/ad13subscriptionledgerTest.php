@@ -95,7 +95,11 @@ function ad13subsFakeGateway(string $reference, int $amountKobo = 1500000): void
                 'data' => [
                     'authorization_url' => 'https://checkout.paystack.com/ad13subs',
                     'access_code' => 'ad13subs_access',
-                    'reference' => $reference,
+                    // Echoed from the request, as Paystack does. This helper is
+                    // registered with a placeholder reference before the payment
+                    // exists, and a placeholder echoed back would read as
+                    // Paystack having renamed the charge.
+                    'reference' => $request->data()['reference'] ?? $reference,
                 ],
             ]);
         }

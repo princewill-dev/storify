@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Admin;
 
 use App\Models\Store;
+use App\Services\Subscription\PlatformBillingGateway;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Validation\Rule;
@@ -90,6 +91,12 @@ class UpdateSettingsRequest extends FormRequest
             'greeting_modal_enabled' => ['sometimes', 'boolean'],
             'greeting_modal_frequency' => ['nullable', Rule::in(array_keys(self::GREETING_FREQUENCIES))],
             'og_title' => ['nullable', 'string', 'max:255'],
+            // Only a gateway the platform holds credentials for can be billed
+            // through, and the list comes from the billing seam rather than
+            // being written out again here. What the request can validate is the
+            // *code*; whether its keys are present is a runtime state that this
+            // column cannot express, and is reported by the screen instead.
+            'billing_gateway' => ['nullable', Rule::in(PlatformBillingGateway::selectableCodes())],
             'og_description' => ['nullable', 'string', 'max:2000'],
             'og_url' => ['nullable', 'url', 'max:255'],
             'og_type' => ['nullable', Rule::in(self::OG_TYPES)],

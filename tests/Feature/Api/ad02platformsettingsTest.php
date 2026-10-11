@@ -488,3 +488,43 @@ test('a platform admin holding admin.settings can read and save', function () {
 
     expect(Setting::query()->first()->company_name)->toBe('Renamed');
 });
+
+test('the billing gateway only accepts a gateway the platform can bill through', function () {
+    $admin = ad02SuperAdmin();
+    ad02Settings();
+
+    $this->putJson('/api/v1/admin/settings', ad02FullPayload(['billing_gateway' => 'stripe']), ad02Headers($admin))
+        ->assertStatus(422)
+        ->assertJsonValidationErrors('billing_gateway');
+
+    // Nothing was written: a rejected save must not half-apply.
+    expect(Setting::query()->first()->billing_gateway)->toBe('paystack');
+});
+
+test('the billing gateway can be switched, and the change is audited', function () {
+    $admin = ad02SuperAdmin();
+    ad02Settings(['billing_gateway' => 'paystack']);
+
+    $response = $this->putJson('/api/v1/admin/settings', ad02FullPayload(['billing_gateway' => 'bachs']), ad02Headers($admin));
+
+    $response->assertOk()->assertJsonPath('data.settings.billing_gateway', 'bachs');
+
+    expect(Setting::query()->first()->billing_gateway)->toBe('bachs')
+        ->and($response->json('data.changed_keys'))->toContain('billing_gateway');
+});
+
+test('a save that does not name the billing gateway leaves the selected one alone', function () {
+    // The settings screen is not the only caller of the save workflow, and a
+    // coupon-only or partial save carries no opinion about who bills the
+    // platform. Defaulting an absent field would silently move every
+    // subscription charge back to Paystack.
+    $admin = ad02SuperAdmin();
+    ad02Settings(['billing_gateway' => 'bachs']);
+
+    $response = $this->putJson('/api/v1/admin/settings', ad02FullPayload(['company_name' => 'Renamed']), ad02Headers($admin));
+
+    $response->assertOk()->assertJsonPath('data.settings.billing_gateway', 'bachs');
+
+    expect(Setting::query()->first()->billing_gateway)->toBe('bachs')
+        ->and($response->json('data.changed_keys'))->not->toContain('billing_gateway');
+});
