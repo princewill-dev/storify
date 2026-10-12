@@ -13,6 +13,7 @@ use App\Support\Money\StoreCurrency;
 use App\Support\Payments\CredentialCipher;
 use App\Support\Payments\PaymentGatewayRegistry;
 use App\Support\Payments\PaymentWebhookUrl;
+use App\Support\Payments\SystemProcessor;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -32,6 +33,22 @@ use Illuminate\Support\Facades\DB;
  *        AND an effective row exists AND effective.is_active
  *        AND the provider's currency can be priced for this store
  *        AND the credentials are complete
+ *
+ * ## When the platform enforces one processor
+ *
+ * An admin can select a single system payment processor
+ * ({@see SystemProcessor}). From then on the precedence above is not consulted
+ * for *new* charges: one provider is offered — the selected one — and it is
+ * charged through the business's registered settlement account with the split
+ * made at the provider. A business's own keys play no part, and neither do the
+ * offline rails, because a business collecting cash has nothing for us to
+ * split.
+ *
+ * That is a second resolution rule, not a special case bolted onto the first,
+ * so it lives in {@see self::resolveEnforced()} and the ordinary path is left
+ * untouched. It has to: every deployment that has not turned the switch on must
+ * behave exactly as it did before this existed, and a shared code path with an
+ * `if` in the middle is how that stops being true by accident.
  *
  * Two things this fixes, both live defects:
  *
@@ -68,11 +85,15 @@ final class PaymentGatewayResolver
         $business = $this->businessRows((int) $store->business_id);
         $storeRows = $this->storeRows((int) $store->id);
         $currency = $this->currencyFor($store);
+        // Read once for the whole loop rather than once per provider: it is one
+        // platform-wide value, and asking it fourteen times per storefront render
+        // would be fourteen identical queries.
+        $enforced = SystemProcessor::stored();
 
         $usable = [];
 
         foreach (PaymentGatewayRegistry::keys() as $code) {
-            $resolved = $this->resolve($code, $business->get($code), $storeRows->get($code));
+            $resolved = $this->resolve($code, $business->get($code), $storeRows->get($code), $enforced);
 
             if (! $resolved->isEnabled) {
                 continue;
@@ -93,7 +114,7 @@ final class PaymentGatewayResolver
                 continue;
             }
 
-            if (! $this->isProvisioned($code, $resolved, (int) $store->business_id)) {
+            if (! $this->isProvisioned($code, $resolved, (int) $store->business_id, $enforced !== null)) {
                 continue;
             }
 
@@ -101,6 +122,43 @@ final class PaymentGatewayResolver
         }
 
         return $usable;
+    }
+
+    /**
+     * Why this store has no payment method to offer, or null when it has one.
+     *
+     * Exists because an empty checkout with no explanation is the worst version
+     * of this state, and the switch creates it deliberately for a business that
+     * has not registered a settlement account. The customer is owed the sentence;
+     * the business's own screen is owed the same one rather than a different one
+     * invented at the call site.
+     *
+     * Null when the platform is not enforcing anything: with the switch off, an
+     * empty list means the ordinary "this store has not connected anything",
+     * which the storefront has always rendered as simply no options, and
+     * inventing a message for it now would be a change to the off deployment this
+     * whole design is built to leave alone.
+     *
+     * Under enforcement the answer is the selected processor's own reason, from
+     * the same ordering {@see self::states()} reports — so what the customer
+     * reads and what the owner reads cannot disagree.
+     */
+    public function storeUnavailableReason(Store $store): ?string
+    {
+        $enforced = SystemProcessor::stored();
+
+        if ($enforced === null) {
+            return null;
+        }
+
+        $resolved = $this->resolve(
+            $enforced,
+            $this->businessRows((int) $store->business_id)->get($enforced),
+            $this->storeRows((int) $store->id)->get($enforced),
+            $enforced,
+        );
+
+        return $this->enforcedUnavailableReason($enforced, $resolved, $enforced);
     }
 
     /**
@@ -116,6 +174,7 @@ final class PaymentGatewayResolver
             $code,
             $this->businessRows($businessId)->get($code),
             $storeId ? $this->storeRows($storeId)->get($code) : null,
+            SystemProcessor::stored(),
         );
     }
 
@@ -147,13 +206,19 @@ final class PaymentGatewayResolver
             ->first(['business_code', 'can_connect_own_gateway', 'auto_payout']);
 
         $businessCode = $businessRow?->business_code;
-        $canConnectOwn = (bool) ($businessRow?->can_connect_own_gateway ?? false);
+        $enforced = SystemProcessor::stored();
+        // The grant is reported as *usable* only when the platform is not
+        // enforcing a processor. An admin holding a grant while the switch is on
+        // is not a state the screen should render a key form for: the connect
+        // would be refused (`GatewayGrant`), so showing it would be a form whose
+        // only outcome is an error.
+        $canConnectOwn = (bool) ($businessRow?->can_connect_own_gateway ?? false) && $enforced === null;
         $autoPayout = (bool) ($businessRow?->auto_payout ?? true);
 
         $states = [];
 
         foreach (PaymentGatewayRegistry::keys() as $code) {
-            $resolved = $this->resolve($code, $business->get($code), $storeRows->get($code));
+            $resolved = $this->resolve($code, $business->get($code), $storeRows->get($code), $enforced);
             $required = PaymentGatewayRegistry::requiredKeysFor($code);
 
             $method = DB::table('payment_methods')->where('code', $code)->first();
@@ -207,6 +272,13 @@ final class PaymentGatewayResolver
                 // state, and nothing on this screen can change it.
                 'auto_payout' => $autoPayout,
                 'is_managed_supported' => PaymentGatewayRegistry::supportsManaged($code),
+                // Whether the platform is processing every business's payments
+                // itself, and through what. Sent per provider for the same
+                // reason the grant above is: the screen renders one card per
+                // provider and must not have to make a second request to learn
+                // the regime it is looking at.
+                'platform_enforced' => $enforced !== null,
+                'platform_enforced_code' => $enforced,
                 // "Complete" means different things per regime: keys for an
                 // own-key connection, a cleared account for a managed one.
                 'has_credentials' => $resolved->isManaged()
@@ -241,15 +313,23 @@ final class PaymentGatewayResolver
                 // URL that would never receive anything would be worse than
                 // showing none.
                 'webhook_url' => $resolved->isManaged() ? null : $this->webhookUrl($code, $method, $store, $businessCode),
-                'unavailable_reason' => $this->unavailableReason($code, $resolved, $currency, $businessId),
+                'unavailable_reason' => $this->unavailableReason($code, $resolved, $currency, $businessId, $enforced),
             ];
         }
 
         return $states;
     }
 
-    private function resolve(string $code, ?object $businessRow, ?object $storeRow): ResolvedGateway
+    /**
+     * @param  string|null  $enforced  the platform's system processor, or null
+     *                                 when the platform is not enforcing one
+     */
+    private function resolve(string $code, ?object $businessRow, ?object $storeRow, ?string $enforced = null): ResolvedGateway
     {
+        if ($enforced !== null) {
+            return $this->resolveEnforced($code, $businessRow, $storeRow, $enforced);
+        }
+
         $secrets = PaymentGatewayRegistry::secretKeysFor($code);
         $effective = $storeRow ?? $businessRow;
 
@@ -305,6 +385,86 @@ final class PaymentGatewayResolver
     }
 
     /**
+     * The platform-enforced resolution: one provider, the business's settlement
+     * account, and nothing else.
+     *
+     * Four differences from {@see self::resolve()}, and each is the point of the
+     * switch rather than a detail of it:
+     *
+     * 1. **Only the selected processor is offered.** Every other code — the ones
+     *    a business connected, the ones an admin left switched on, the offline
+     *    rails — resolves to not-enabled. That is the discount the switch buys:
+     *    under enforcement there is exactly one way money may arrive.
+     * 2. **The business's own keys are ignored.** `config` is never read for
+     *    credentials. This is a live fix as much as a new rule: the ordinary path
+     *    lets stored keys keep charging after an admin has taken the grant away,
+     *    so the console's promise that they "stop being used immediately" was
+     *    not true of the code.
+     * 3. **A store row cannot mask the business's account.** The ordinary path
+     *    prefers the store's row when it carries a connection, which for a store
+     *    holding its own keys would hide the account the money has to reach. Here
+     *    the account is sought on the store's row and then the business's, and
+     *    keys are not a connection at all — hence the deliberate absence of
+     *    {@see self::carriesConnection()} from this method.
+     * 4. **An account that cannot be paid out is not usable.** Charging money we
+     *    cannot hand to the business is the failure this change exists to remove,
+     *    so it is refused before a customer is offered the method — enforced in
+     *    {@see self::isProvisioned()}.
+     */
+    private function resolveEnforced(string $code, ?object $businessRow, ?object $storeRow, string $enforced): ResolvedGateway
+    {
+        $secrets = PaymentGatewayRegistry::secretKeysFor($code);
+        $effective = $storeRow ?? $businessRow;
+
+        // The nearest row that holds an account. A store may register its own
+        // settlement account; failing that the business's is used.
+        $accountRow = $this->accountIdOf($storeRow) !== null
+            ? $storeRow
+            : ($this->accountIdOf($businessRow) !== null ? $businessRow : null);
+        $accountId = $this->accountIdOf($accountRow);
+
+        $isSelected = $code === $enforced && PaymentGatewayRegistry::supportsManaged($code);
+
+        $managed = null;
+        // Empty until an account is found: under enforcement there is no other
+        // way to hold the credentials to charge with, so a provider without a
+        // usable account is one nothing can be charged through.
+        $credentials = GatewayCredentials::make($code, [], $secrets);
+
+        if ($isSelected && $accountId !== null) {
+            $config = $this->decrypt($accountRow?->config, $secrets);
+            $managed = ManagedAccount::fromConfig(is_array($config['managed'] ?? null) ? $config['managed'] : null);
+
+            // The platform's credentials with the business's account attached —
+            // the same construction the ordinary managed path uses, so the
+            // driver sees one shape whichever switch is on.
+            $credentials = $this->platform->credentialsFor($code)->withAccountId($accountId);
+        }
+
+        return new ResolvedGateway(
+            code: $code,
+            isEnabled: $isSelected
+                && $this->platformOffers($businessRow, $storeRow)
+                && (bool) ($effective?->is_active ?? false)
+                // A connection switched off at its own row is off, exactly as it
+                // is when the platform is not enforcing anything: the owner's
+                // switch still means what it says.
+                && ($accountRow === null || (bool) $accountRow->is_active),
+            credentials: $credentials,
+            source: $storeRow ? 'store' : ($businessRow ? 'business' : 'none'),
+            connectionId: $effective?->id !== null ? (int) $effective->id : null,
+            businessConnected: $businessRow !== null && (bool) $businessRow->is_active,
+            storeOverrides: $storeRow !== null,
+            // The row the account came from, not `$effective`: with enforcement
+            // on, what the screen calls "connected" is the row carrying the
+            // account, and a store's own key row is not one.
+            hasActiveConnection: $accountRow !== null && (bool) $accountRow->is_active,
+            managed: $managed,
+            paused: $managed !== null && ! (bool) ($accountRow?->is_active ?? false),
+        );
+    }
+
+    /**
      * Whether this row states a connection of its own, rather than being a
      * bare "this store may use it" assignment.
      *
@@ -344,10 +504,10 @@ final class PaymentGatewayResolver
      * when one exists — checking `credentials->isComplete()` on it would mark
      * it permanently unfinished, because it has no fields to fill in.
      */
-    private function isProvisioned(string $code, ResolvedGateway $resolved, ?int $businessId): bool
+    private function isProvisioned(string $code, ResolvedGateway $resolved, ?int $businessId, bool $enforced = false): bool
     {
         if ($resolved->isManaged()) {
-            return $this->managedIsProvisioned($code, $resolved);
+            return $this->managedIsProvisioned($code, $resolved, $enforced);
         }
 
         if (! $this->usesCredentials($code)) {
@@ -368,11 +528,26 @@ final class PaymentGatewayResolver
      * with no usable subaccount is never offered the gateway at all, so there is
      * no path on which a charge could fall through to the platform's own
      * account. The driver carries the second guard, for callers that skip this.
+     *
+     * **`canBePaidOut()` is required only when the platform is enforcing a
+     * processor**, and the asymmetry is the point. A managed connection that
+     * cannot be paid out still *works*: the money sits in the connected account
+     * and the console's sweep pays it out once a destination is registered, so
+     * refusing to charge would stop a business trading over paperwork that can
+     * arrive tomorrow. Under enforcement there is no sweep to wait for — the
+     * provider pays the business directly, out of the same settlement — so an
+     * account with nowhere to pay out to is a charge that strands money, and it
+     * has to be refused *before* the customer is offered the method.
      */
-    private function managedIsProvisioned(string $code, ResolvedGateway $resolved): bool
+    private function managedIsProvisioned(string $code, ResolvedGateway $resolved, bool $enforced = false): bool
     {
-        return $this->platform->credentialProblem($code) === null
-            && ($resolved->managed?->canCharge($code) ?? false);
+        $account = $resolved->managed;
+
+        if ($this->platform->credentialProblem($code) !== null || ! ($account?->canCharge($code) ?? false)) {
+            return false;
+        }
+
+        return ! $enforced || $account->canBePaidOut();
     }
 
     private function usesCredentials(string $code): bool
@@ -388,7 +563,7 @@ final class PaymentGatewayResolver
             ->exists();
     }
 
-    private function unavailableReason(string $code, ResolvedGateway $resolved, ?string $currency, int $businessId): ?string
+    private function unavailableReason(string $code, ResolvedGateway $resolved, ?string $currency, int $businessId, ?string $enforced = null): ?string
     {
         $method = DB::table('payment_methods')->where('code', $code)->first();
 
@@ -398,6 +573,14 @@ final class PaymentGatewayResolver
 
         if (! $method->is_active) {
             return 'Not enabled on this platform.';
+        }
+
+        // Placed before the `source === 'none'` early return below, which reads
+        // "nothing is connected, so there is nothing to explain". Under
+        // enforcement that is exactly the state that *most* needs explaining: a
+        // business with nothing registered is a business that cannot sell.
+        if ($enforced !== null) {
+            return $this->enforcedUnavailableReason($code, $resolved, $enforced);
         }
 
         if ($resolved->source === 'none') {
@@ -431,6 +614,66 @@ final class PaymentGatewayResolver
             }
 
             return "Charges in {$provider}. No {$provider} exchange rate has been fetched yet — the daily rate job has not run.";
+        }
+
+        return null;
+    }
+
+    /**
+     * Why a provider cannot take money while the platform enforces one
+     * processor, or null when it can.
+     *
+     * Ordered from the outside in: the platform's own state first, then whether
+     * this provider is even the enforced one, and only then the connection. Each
+     * earlier answer makes the later questions meaningless — a business with no
+     * settlement account does not need to be told its account is under review.
+     */
+    private function enforcedUnavailableReason(string $code, ResolvedGateway $resolved, string $enforced): ?string
+    {
+        // The admin selected a processor this build cannot run. Nothing can be
+        // charged through *anything*, and saying so once is better than
+        // fourteen provider-shaped variations of the same fact.
+        if (($problem = SystemProcessor::unavailableReason()) !== null) {
+            return $problem;
+        }
+
+        // A provider that is not the enforced one. Not an error on the
+        // business's part, so the message is a statement of the rule rather than
+        // something for them to fix — the one thing they could do (connect it)
+        // is precisely what enforcement forbids.
+        if (! SystemProcessor::is($code)) {
+            return 'Storify processes all payments through '.SystemProcessor::name().'.';
+        }
+
+        // The enforced provider, and this business has no account on it. Named
+        // before the account checks below, which would otherwise all describe an
+        // account that does not exist.
+        if ($resolved->managed === null) {
+            return 'Storify processes all payments; this business has not registered a settlement account yet.';
+        }
+
+        // Past this point it is the account's own state, and it reads the same
+        // under enforcement as without it.
+        $reason = $this->managedUnavailableReason($code, $resolved);
+
+        if ($reason !== null) {
+            return $reason;
+        }
+
+        // The one genuine difference from the managed path: an account with
+        // nowhere to pay out to is refused *here*, because a direct settlement
+        // has no later step in which to fix it — see
+        // {@see self::managedIsProvisioned()}.
+        if (! $resolved->managed->canBePaidOut()) {
+            return 'Add a bank account so Storify can pay your sales out to you.';
+        }
+
+        // Everything about the connection is fine and it is still off, which
+        // means the switch that turned it off was the business's own — at the
+        // store, or on the row the account came from. Dormant rather than
+        // broken, and reversible by its owner.
+        if (! $resolved->isEnabled) {
+            return 'Payments are switched off for this store.';
         }
 
         return null;

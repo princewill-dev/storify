@@ -59,6 +59,7 @@ final class SettingsService
         'trial_enabled',
         'trial_days',
         'billing_gateway',
+        'system_payment_processor',
         'platform_commission_percent',
         'platform_commission_fixed_kobo',
         'og_title',
@@ -109,6 +110,19 @@ final class SettingsService
                 'billing_gateway' => $data['billing_gateway']
                     ?? $settings->billing_gateway
                     ?? PlatformBillingGateway::DEFAULT_CODE,
+                // The processor the platform takes every business's money
+                // through, or null for the original per-business behaviour.
+                //
+                // `array_key_exists`, deliberately, where the two lines above
+                // use `??`. For this column a *null value* is a real instruction
+                // — "turn enforcement off" — and `??` cannot tell it apart from
+                // the key being absent, which is what every other tab's save
+                // looks like. Conflating them would either make the switch
+                // impossible to turn off or let an unrelated settings edit
+                // silently change the platform's whole money path.
+                'system_payment_processor' => array_key_exists('system_payment_processor', $data)
+                    ? $data['system_payment_processor']
+                    : $settings->system_payment_processor,
                 // Storify's cut of a sale it processed on a business's behalf.
                 // Absent means "leave it alone", for the same reason as the line
                 // above — and here it matters more, because a partial save that

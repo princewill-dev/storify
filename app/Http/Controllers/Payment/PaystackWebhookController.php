@@ -14,6 +14,30 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
+/**
+ * The legacy Paystack endpoint: own-key deliveries that credit a store's
+ * balance.
+ *
+ * Superseded by {@see PaymentWebhookController}, which settles through
+ * {@see PaymentWebhookProcessor} and is what every provider should be pointed
+ * at now; this one is still routed because its URL is registered in live
+ * Paystack dashboards and removing it would silently stop settlement until
+ * somebody remembered to update it there.
+ *
+ * **It must not be brought under the system processor, and neither must the
+ * controller that supersedes it.** An admin selecting one processor stops own
+ * keys being *used* for new charges — it does not un-take the money already
+ * charged through them, and this is the only thing that can complete those
+ * sales. Refusing deliveries here because the platform "no longer uses own
+ * keys" would strand every payment made before the switch. What enforcement
+ * governs is which credentials start a charge, which is decided in
+ * {@see PaymentGatewayResolver} and nowhere else.
+ *
+ * Its own credit-to-balance model is the reason it is legacy: a managed sale's
+ * money is the business's at the provider and must never also land in a balance
+ * we hold. Neither path is reachable under enforcement, because neither is how
+ * a charge under enforcement is started.
+ */
 class PaystackWebhookController extends Controller
 {
     public function __construct(protected PaystackService $paystackService) {}

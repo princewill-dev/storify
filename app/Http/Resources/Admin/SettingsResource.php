@@ -5,6 +5,8 @@ namespace App\Http\Resources\Admin;
 use App\Models\Setting;
 use App\Models\Store;
 use App\Services\Subscription\PlatformBillingGateway;
+use App\Support\Payments\PaymentGatewayRegistry;
+use App\Support\Payments\SystemProcessor;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -40,6 +42,7 @@ final class SettingsResource extends JsonResource
         /** @var Setting|null $settings */
         $settings = $this->resource;
         $certificatePath = $settings?->company_certificate_path;
+        $processorName = $this->processorName($settings?->system_payment_processor);
 
         return [
             'company_name' => $settings?->company_name,
@@ -68,6 +71,22 @@ final class SettingsResource extends JsonResource
             'trial_enabled' => (bool) ($settings?->trial_enabled ?? true),
             'trial_days' => (int) ($settings?->trial_days ?? 7),
             'billing_gateway' => $settings?->billing_gateway ?? PlatformBillingGateway::DEFAULT_CODE,
+            // The raw stored value, not `SystemProcessor::code()`. An admin
+            // looking at a switch that is on but not working — a selected
+            // processor this build cannot run — has to be able to see *what* is
+            // selected, and `code()` would report null and look like "off".
+            // Whether it can actually be run is reported separately, as the
+            // problem string below.
+            'system_payment_processor' => $settings?->system_payment_processor,
+            // Three facts the console needs to render the switch without a
+            // second request: what the selected processor is called, why it
+            // cannot be used when it cannot, and what an admin may choose
+            // between. Derived from the registry rather than listed in the SPA,
+            // so a provider that gains or loses an on-behalf path moves in one
+            // place — the registry — and every screen follows.
+            'system_payment_processor_name' => $processorName,
+            'system_payment_processor_problem' => SystemProcessor::unavailableReason(),
+            'system_payment_processors' => $this->processors(),
             'platform_commission_percent' => (float) ($settings?->platform_commission_percent ?? 0),
             'platform_commission_fixed_kobo' => (int) ($settings?->platform_commission_fixed_kobo ?? 0),
             'default_currency_id' => $this->defaultCurrencyId,
@@ -86,5 +105,44 @@ final class SettingsResource extends JsonResource
     private function fileUrl(?string $path): ?string
     {
         return $path ? asset('storage/'.$path) : null;
+    }
+
+    /**
+     * The stored processor's display name — read from the registry by the
+     * *stored* code, not through `SystemProcessor::name()`.
+     *
+     * `name()` returns null when the selected processor cannot be run, which is
+     * right for a screen deciding what to render and wrong here: an admin
+     * looking at a broken switch has to see which processor is selected, and
+     * "no name" reads as "nothing selected". The reason it cannot be run is
+     * reported beside it.
+     */
+    private function processorName(?string $code): ?string
+    {
+        if ($code === null || $code === '') {
+            return null;
+        }
+
+        return (string) (PaymentGatewayRegistry::get($code)['name'] ?? $code);
+    }
+
+    /**
+     * The processors an admin may choose between, as `code`/`name` pairs.
+     *
+     * An option the console cannot label is an option it cannot offer, so the
+     * name is resolved here rather than in the SPA — the registry is the one
+     * place a provider's display name is written down.
+     *
+     * @return array<int, array{code: string, name: string}>
+     */
+    private function processors(): array
+    {
+        return array_map(
+            fn (string $code): array => [
+                'code' => $code,
+                'name' => (string) (PaymentGatewayRegistry::get($code)['name'] ?? $code),
+            ],
+            SystemProcessor::selectableCodes(),
+        );
     }
 }

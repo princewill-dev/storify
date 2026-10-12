@@ -12,6 +12,7 @@ use App\Models\Transaction;
 use App\Services\Accounting\LedgerPostingService;
 use App\Services\Payments\PaymentGatewayResolver;
 use App\Services\PaystackService;
+use App\Support\Payments\SystemProcessor;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -46,12 +47,25 @@ class InvoicePaymentController extends Controller
 
         $storeHasPaystack = $store && $store->paymentMethods()->where('code', 'paystack')->wherePivot('is_active', true)->exists();
 
+        // While the platform processes every charge itself there is nothing for
+        // this page's Paystack button to do — the endpoint below refuses — so
+        // the button goes rather than being offered and then rejected. Set here
+        // rather than in the view because the flag the view already reads is the
+        // honest place for it: this is the same fact, decided on the server.
+        if (SystemProcessor::enforced()) {
+            $storeHasPaystack = false;
+        }
+
         return view('storefront.pages.invoice-pay', compact('invoice', 'store', 'businessName', 'storeBankAccounts', 'storeHasPaystack', 'token'));
     }
 
     public function initialize(Request $request, string $token): JsonResponse
     {
         $invoice = Invoice::where('payment_token', $token)->firstOrFail();
+
+        if (($problem = $this->enforcementProblem()) !== null) {
+            return response()->json(['success' => false, 'message' => $problem], 409);
+        }
 
         if ($invoice->status === InvoiceStatus::PAID || $invoice->status === InvoiceStatus::VOID) {
             return response()->json(['success' => false, 'message' => 'This invoice is no longer accepting payments.'], 400);
@@ -142,6 +156,32 @@ class InvoicePaymentController extends Controller
 
             return response()->json(['success' => false, 'message' => 'An error occurred.'], 500);
         }
+    }
+
+    /**
+     * Why an invoice cannot be paid at all right now, or null when it can.
+     *
+     * This controller is the Paystack-legacy path: it charges through either the
+     * business's stored keys or — when that read fails, which it always used to —
+     * the platform's own keys, and it credits the store's balance rather than
+     * splitting the money. Neither shape is one a system processor can allow,
+     * because in both the money lands in an account the split is not defined for.
+     *
+     * So it is refused in words rather than quietly repointed at the selected
+     * processor: rebuilding invoices on the resolver is its own piece of work,
+     * and a half-done version that charges through the platform's account and
+     * credits a store balance is precisely the kind of silent "charged through us,
+     * unpaid" path the switch exists to close.
+     */
+    private function enforcementProblem(): ?string
+    {
+        if (! SystemProcessor::enforced()) {
+            return null;
+        }
+
+        return 'Storify processes all payments through '
+            .(SystemProcessor::name() ?? SystemProcessor::stored())
+            .'. Invoice payments through a provider of your own are not available while that is switched on.';
     }
 
     public function callback(Request $request, string $token): RedirectResponse
@@ -254,6 +294,14 @@ class InvoicePaymentController extends Controller
     public function bankTransfer(Request $request, string $token): RedirectResponse
     {
         $invoice = Invoice::where('payment_token', $token)->firstOrFail();
+
+        // The offline rail too: a slip is money paid outside the platform, so
+        // there is no split to make and nothing for it to be a payment *through*
+        // Storify. Refused for the same reason the storefront stops offering
+        // manual transfers while a processor is set.
+        if (($problem = $this->enforcementProblem()) !== null) {
+            return back()->with('error', $problem);
+        }
 
         if ($invoice->status === InvoiceStatus::PAID || $invoice->status === InvoiceStatus::VOID) {
             return back()->with('error', 'This invoice is no longer accepting payments.');

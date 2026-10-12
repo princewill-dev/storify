@@ -23,12 +23,18 @@ class PaystackService
 
     /**
      * Initialize a payment transaction
+     *
+     * The split fields (`subaccount`, `transaction_charge`, `bearer`) are passed
+     * through when the caller supplies them and left out of the request entirely
+     * when it does not — the same shape as every other optional field here. They
+     * are absent on an ordinary charge, which is most of them, and sending a
+     * `null` for them would be a different request from not mentioning them.
      */
     public function initializePayment(array $data): array
     {
         try {
             $response = Http::withToken($this->secretKey)
-                ->post("{$this->baseUrl}/transaction/initialize", [
+                ->post("{$this->baseUrl}/transaction/initialize", array_filter([
                     'email' => $data['email'],
                     'amount' => $data['amount'],
                     'currency' => $data['currency'] ?? 'NGN',
@@ -36,7 +42,13 @@ class PaystackService
                     'callback_url' => $data['callback_url'] ?? route('payment.paystack.callback'),
                     'metadata' => $data['metadata'] ?? [],
                     'channels' => $data['channels'] ?? ['card', 'bank', 'ussd', 'qr', 'mobile_money', 'bank_transfer'],
-                ]);
+                    // Which subaccount this charge is split with, who bears
+                    // Paystack's fee, and the platform's cut in kobo — see
+                    // {@see PaystackGateway::initialize()} for what each means.
+                    'subaccount' => $data['subaccount'] ?? null,
+                    'transaction_charge' => $data['transaction_charge'] ?? null,
+                    'bearer' => $data['bearer'] ?? null,
+                ], fn ($value) => $value !== null && $value !== ''));
 
             $result = $response->json();
 
@@ -446,11 +458,21 @@ class PaystackService
 
     /**
      * Set dynamic keys from a business gateway configuration.
+     *
+     * A missing public key is not an error, and reading it as one used to be:
+     * `PaystackGateway` builds this object from `GatewayCredentials`, which
+     * keeps only the values it was actually given, and the platform's own
+     * credential map declares the secret key the only *required* one — a
+     * correctly configured platform can legitimately hold no public key, because
+     * nothing in a server-side charge needs it. An undefined property here threw
+     * on the way into every initialize, which is the worst place to discover it.
+     * The secret key is still required, and its absence is refused upstream by
+     * `PaymentGatewayResolver`.
      */
     public function usingGateway(object $gateway): self
     {
-        $this->secretKey = $gateway->secret_key;
-        $this->publicKey = $gateway->public_key;
+        $this->secretKey = (string) ($gateway->secret_key ?? '');
+        $this->publicKey = (string) ($gateway->public_key ?? '');
 
         return $this;
     }

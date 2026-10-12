@@ -20,6 +20,16 @@ use Illuminate\Validation\ValidationException;
  * is not a rule — it is a detour. Small enough to be a static, and static so
  * that neither service can quietly hold a different opinion.
  *
+ * **The system processor outranks the grant.** When an admin has selected one
+ * provider for every customer inflow ({@see SystemProcessor}), a grant to
+ * connect own keys is not a permission the platform can honour: the charges
+ * would still go through whoever's keys they are, and the split the platform
+ * promised would not happen. The check is here rather than only in the resolver
+ * so that the refusal arrives at the moment of the attempt, in words, instead of
+ * the connection being written and silently ignored at every checkout. The keys
+ * already stored are left alone — nothing is deleted, and turning the switch off
+ * returns every one of them to service.
+ *
  * Only `keys` providers are gated. Manual bank transfer's "credentials" are the
  * business's own bank accounts; there is no other kind, so gating it would
  * remove a payment method rather than protect anything.
@@ -33,6 +43,23 @@ final class GatewayGrant
     {
         if (! self::usesOwnKeys($provider)) {
             return;
+        }
+
+        // Before the grant, not after: being granted the ability does not make
+        // it possible while the platform processes every charge itself, and a
+        // message about asking support for a grant would send a granted business
+        // somewhere with nothing to give it.
+        //
+        // `enforced()` rather than `name() !== null`: a selected processor this
+        // build cannot run is still a closed door, so it must still refuse —
+        // naming the raw stored value, because the code is what an admin has to
+        // go and change.
+        if (SystemProcessor::enforced()) {
+            throw ValidationException::withMessages([
+                'config' => 'Storify processes all payments through '
+                    .(SystemProcessor::name() ?? SystemProcessor::stored())
+                    .'. Connect your bank account to be paid instead of your own payment provider.',
+            ]);
         }
 
         if (self::isGranted($businessId)) {

@@ -26,6 +26,11 @@ class Setting extends Model
         'trial_days',
         // Which gateway the platform bills its own subscriptions through.
         'billing_gateway',
+        // The one processor Storify takes every business's customer money
+        // through, or null for the platform's original behaviour: each business
+        // charges through whatever it has connected. See `SystemProcessor` —
+        // null is not "unset", it is "off".
+        'system_payment_processor',
         // Storify's commission on a sale it processed on a business's behalf:
         // a percentage and a per-sale fixed amount, in kobo.
         'platform_commission_percent',

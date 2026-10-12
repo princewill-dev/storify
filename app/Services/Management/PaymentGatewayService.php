@@ -6,12 +6,11 @@ use App\Models\Business;
 use App\Models\Store;
 use App\Models\User;
 use App\Services\ActivityRecorder;
-use App\Services\Payments\Connect\BachsConnectAccountService;
-use App\Services\Payments\Connect\ConnectRequirementService;
 use App\Services\Payments\Connect\ConnectResult;
 use App\Services\Payments\Connect\PayoutResult;
 use App\Services\Payments\Connect\PlatformPayoutService;
 use App\Services\Payments\Data\ManagedAccount;
+use App\Services\Payments\OnBehalf\OnBehalfProcessors;
 use App\Support\Payments\CredentialCipher;
 use App\Support\Payments\GatewayGrant;
 use App\Support\Payments\PaymentGatewayRegistry;
@@ -40,9 +39,14 @@ use Illuminate\Validation\ValidationException;
 final class PaymentGatewayService
 {
     public function __construct(
-        private readonly BachsConnectAccountService $accounts,
+        // The provider-neutral seam. This service used to hold
+        // `BachsConnectAccountService` and `ConnectRequirementService` directly,
+        // which was the same thing while Bachs was the only provider that could
+        // be provisioned for a business — and stopped being the same thing the
+        // moment a second one existed. The two classes are unchanged; they are
+        // simply reached through the provider's own processor now.
+        private readonly OnBehalfProcessors $processors,
         private readonly PlatformPayoutService $payouts,
-        private readonly ConnectRequirementService $requirements,
     ) {}
 
     /**
@@ -135,11 +139,10 @@ final class PaymentGatewayService
     ): ConnectResult {
         $definition = PaymentGatewayRegistry::get($provider);
 
-        if (! PaymentGatewayRegistry::supportsManaged($provider)) {
-            throw ValidationException::withMessages([
-                'provider' => ($definition['name'] ?? $provider).' cannot process payments on your behalf. Connect your own account instead.',
-            ]);
-        }
+        // Refused in words when the platform has no way to process for a
+        // business on this provider. The message names the provider from the
+        // registry, so a second managed provider needed no change here.
+        $processor = $this->processors->forOrFail($provider);
 
         $business = Business::query()->findOrFail((int) $actor->business_id);
         $bank = $this->resolveBank($input, $actor);
@@ -148,8 +151,8 @@ final class PaymentGatewayService
         $accountId = $existing->gateway_account_id ?? null;
 
         $result = is_string($accountId) && $accountId !== ''
-            ? $this->accounts->registerDestination($accountId, $bank)
-            : $this->accounts->provision($business, $store, $bank, (string) $input['entity_type']);
+            ? $processor->registerDestination($accountId, $bank)
+            : $processor->provision($business, $store, $bank, (string) $input['entity_type']);
 
         if (! $result->success) {
             // The row is still written when the account exists but its bank was
@@ -172,10 +175,30 @@ final class PaymentGatewayService
         //
         // The terms acceptance is written to the row *before* this runs, because
         // this is what submits `tos_acceptance` from it.
-        $requirements = $this->requirements->submit((string) $result->accountId, $business, $store, account: $result->account);
+        $requirements = $processor->submitRequirements((string) $result->accountId, $business, $store, account: $result->account);
 
         if ($requirements->account !== null) {
             $this->persistManagedConnection($provider, $actor, $store, (string) $result->accountId, $requirements->account, $result->destination, $input);
+        }
+
+        // The provider now pays this business itself, rather than holding the
+        // balance until our sweep comes for it. Asked for at registration rather
+        // than on the next sweep for the same reason the requirements pass is:
+        // it is the difference between a business whose money arrives on its own
+        // and one that waits for a cron that must also be alive.
+        //
+        // A refusal is *not* a failed registration. The account exists, it can be
+        // charged, and the money is direct either way — what failed is the
+        // schedule, which is a reason stated to the business rather than a reason
+        // to unwind a real account at the provider. So the connection stays and
+        // the message travels back on the result.
+        $settlementProblem = $processor->ensureDirectSettlement(
+            (string) $result->accountId,
+            (bool) ($business->auto_payout ?? true),
+        );
+
+        if ($settlementProblem !== null) {
+            return ConnectResult::failed($settlementProblem, [], (string) $result->accountId);
         }
 
         ActivityRecorder::record(

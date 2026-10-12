@@ -4,6 +4,7 @@ namespace App\Http\Requests\Pos;
 
 use App\Models\Store;
 use App\Services\Payments\PaymentGatewayResolver;
+use App\Support\Payments\SystemProcessor;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -23,11 +24,18 @@ final class PosCheckoutRequest extends FormRequest
         // list. The old `['cash','paystack','transfer']` rejected every provider
         // a business connected beyond the one built in — and `transfer` is not
         // even a catalogue code, it is the POS's older name for `bank_transfer`.
+        //
+        // Under a system processor there is no "plus": neither cash nor the
+        // legacy `transfer` alias is an option any more, because both are money
+        // the platform never sees and so cannot split. Dropping them from the
+        // list as well as from {@see PaymentMethodController} is the point —
+        // a till that never offers cash but still accepts a posted `cash` is a
+        // rule enforced only on the client.
         $allowedMethods = array_values(array_unique(array_merge(
-            ['cash'],
+            SystemProcessor::enforced() ? [] : ['cash'],
             array_keys(app(PaymentGatewayResolver::class)->forStore($store)),
             // Tills in the field still send this; they do not all update at once.
-            ['transfer'],
+            SystemProcessor::enforced() ? [] : ['transfer'],
         )));
 
         return [

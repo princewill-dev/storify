@@ -10,6 +10,8 @@ use App\Services\Payments\Gateways\ManualTransferGateway;
 use App\Services\Payments\Gateways\MonnifyGateway;
 use App\Services\Payments\Gateways\PaystackGateway;
 use App\Services\Payments\Gateways\SquadGateway;
+use App\Services\Payments\OnBehalf\BachsOnBehalf;
+use App\Services\Payments\OnBehalf\PaystackOnBehalf;
 use App\Support\Plugins\PluginRegistry;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
@@ -86,6 +88,43 @@ final class PaymentGatewayRegistry
                 'supports_partial' => true,
                 'status' => self::STATUS_STABLE,
                 'credential_source' => 'keys',
+                // The second way this gateway can be provisioned, and the one
+                // the platform uses when an admin selects Paystack as the system
+                // processor: instead of the business holding keys, Storify
+                // creates it a *subaccount* and charges on its behalf with the
+                // split made by Paystack at settlement. `credential_source` above
+                // still describes the keys path, which is unchanged — this is
+                // additive, and which of the two is in force depends on the
+                // connection, not on this entry. See PaymentGatewayResolver.
+                'managed' => [
+                    'label' => 'Processed by Storify',
+                    // **Empty on purpose.** Bachs requires every collection type
+                    // to be requested and cleared; a Paystack subaccount has no
+                    // equivalent, so there is nothing to check. The empty list
+                    // means "this provider asks no such question" — see
+                    // `ManagedAccount::canCharge()`, which reads it that way
+                    // rather than as "may collect nothing".
+                    'capabilities' => [],
+                    // Who absorbs Paystack's own processing fee. The driver
+                    // sends `bearer: subaccount`, which makes the subaccount bear
+                    // it, so the business's share arrives net of Paystack's fee
+                    // and Storify pays nothing per sale — the same bargain as
+                    // Bachs' `bachs` above.
+                    'fee_collector' => 'subaccount',
+                    // A Paystack subaccount cannot exist without a settlement
+                    // bank, so an account that exists has always somewhere to be
+                    // paid. False rather than absent so the two providers are
+                    // read the same way; Bachs' is true because registering a
+                    // destination there is a real outstanding step.
+                    'requires_payout_destination' => false,
+                    // The class that provisions and settles an account for a
+                    // business on this provider. Here rather than chosen by a
+                    // `match` in a factory, for the same reason `driver` is:
+                    // adding a provider should be one entry and two classes, not
+                    // one entry, two classes and a branch somewhere else that
+                    // nobody remembers to update.
+                    'processor' => PaystackOnBehalf::class,
+                ],
                 'driver' => PaystackGateway::class,
                 'fields' => [
                     [
@@ -281,6 +320,8 @@ final class PaymentGatewayRegistry
                     // destination, so registration is incomplete until one is
                     // approved.
                     'requires_payout_destination' => true,
+                    // See the same key on `paystack` above.
+                    'processor' => BachsOnBehalf::class,
                 ],
                 'driver' => BachsGateway::class,
                 'fields' => [
@@ -436,7 +477,7 @@ final class PaymentGatewayRegistry
      */
     public static function supportsManaged(string $key): bool
     {
-        return self::managedSpecFor($key) !== null;
+        return self::managedSpecFor($key) !== null && self::managedProcessorClassFor($key) !== null;
     }
 
     /**
@@ -450,6 +491,22 @@ final class PaymentGatewayRegistry
             self::keys(),
             static fn (string $key): bool => self::supportsManaged($key),
         ));
+    }
+
+    /**
+     * The class that provisions and settles accounts for this provider, or null
+     * when the platform cannot process on a business's behalf here.
+     *
+     * Read together with {@see self::supportsManaged()}, and never instead of it:
+     * a spec with no `processor` is a provider whose managed path has not been
+     * built yet, and treating the class name as the capability would put an
+     * unimplemented provider in front of a business.
+     */
+    public static function managedProcessorClassFor(string $key): ?string
+    {
+        $class = self::managedSpecFor($key)['processor'] ?? null;
+
+        return is_string($class) && $class !== '' ? $class : null;
     }
 
     /**
@@ -565,9 +622,14 @@ final class PaymentGatewayRegistry
                 // business's behalf. The screen uses its presence to decide
                 // whether a payout-account form is on the table at all, and its
                 // label so the wording is the provider's, not the SPA's.
-                'managed' => ($managed = self::managedSpecFor($key)) === null ? null : [
-                    'label' => $managed['label'] ?? 'Processed by Storify',
-                    'requires_payout_destination' => (bool) ($managed['requires_payout_destination'] ?? false),
+                // Gated on `supportsManaged()` rather than on the spec's
+                // presence, so a provider whose managed path is declared but not
+                // yet built is reported as one the platform cannot process for a
+                // business — not as one that can, with a form the server would
+                // refuse.
+                'managed' => ! self::supportsManaged($key) ? null : [
+                    'label' => self::managedSpecFor($key)['label'] ?? 'Processed by Storify',
+                    'requires_payout_destination' => (bool) (self::managedSpecFor($key)['requires_payout_destination'] ?? false),
                 ],
                 // Provider-specific wording for the webhook URL the screen
                 // shows. It belongs here rather than in the SPA because it is a

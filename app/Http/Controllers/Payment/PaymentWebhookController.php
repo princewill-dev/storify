@@ -13,6 +13,7 @@ use App\Services\Payments\PaymentGatewayManager;
 use App\Services\Payments\PaymentWebhookProcessor;
 use App\Support\Payments\CredentialCipher;
 use App\Support\Payments\PaymentGatewayRegistry;
+use App\Support\Payments\SystemProcessor;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -46,6 +47,22 @@ use Symfony\Component\HttpFoundation\Response;
  * `POST /webhooks/paystack` is kept as an alias, because the URL is registered
  * in Paystack's own dashboard and changing it would silently stop settlement
  * until someone remembered to update it there.
+ *
+ * ## Deliberately outside the system processor
+ *
+ * When an admin selects one processor for every customer inflow
+ * ({@see SystemProcessor}) a business's own keys stop being used — but they are
+ * not deleted, and neither is anybody's connection. Money charged through them
+ * before the switch is still in flight, and this endpoint is the only thing that
+ * can settle it: a payment made yesterday, on a provider the platform no longer
+ * offers, must still complete today.
+ *
+ * So this controller must **not** be brought under enforcement. "Nothing is
+ * charged on own keys any more, so let us refuse these" reads like tidying and
+ * would strand every sale charged the day before the switch. What enforcement
+ * governs is which keys are *used* to start a charge — decided in
+ * {@see PaymentGatewayResolver} — not whether a delivery that has already been
+ * paid can be recognised.
  */
 final class PaymentWebhookController extends Controller
 {

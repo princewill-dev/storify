@@ -51,15 +51,18 @@ Route::post('/webhooks/subscription/{provider}', [SubscriptionWebhookController:
     ->whereIn('provider', PaymentGatewayRegistry::keys())
     ->name('webhooks.subscription');
 
-// Deliveries about a business's *connected account* — sales the platform
-// processed on its behalf, and the payouts that empty it.
+// Deliveries about the platform's own processing of a business's money — sales
+// the platform made on its behalf, and (on Bachs) the payouts that empty the
+// account those sales landed in.
 //
 // A path of its own, not a scope of `/webhooks/payments/…`, and that is forced
 // rather than chosen: `{scope}` on that route is a single `[A-Za-z0-9_]+`
 // segment, so `/webhooks/payments/bachs/connect` would resolve to
 // `provider=bachs, scope=connect` and be handled as somebody's store code.
-// Nothing here collides, and adding a second provider with an accounts API later
-// is one driver and one registry entry.
+// Nothing here collides, and `{provider}` is narrowed to the registry's keys
+// while the controller accepts only the ones with a managed spec — the providers
+// the platform can process on a business's behalf, which is the only thing these
+// deliveries can be about.
 Route::post('/webhooks/connect/{provider}', [ConnectWebhookController::class, 'handle'])
     ->whereIn('provider', PaymentGatewayRegistry::keys())
     ->name('webhooks.payments.connect');

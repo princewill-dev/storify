@@ -55,7 +55,10 @@ class ConnectWebhookEvent extends Model
             return null;
         }
 
-        return static::query()->where('event_id', $eventId)->first();
+        // Scoped by provider as well as id, which it has to be now that more
+        // than one provider writes here: an id is unique *within* a provider's
+        // numbering, and only the pair is ours to look up.
+        return static::query()->where('provider', $provider)->where('event_id', $eventId)->first();
     }
 
     /**

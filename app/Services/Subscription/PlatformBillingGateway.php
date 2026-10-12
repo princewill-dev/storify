@@ -8,6 +8,7 @@ use App\Services\Payments\Contracts\PaymentGateway;
 use App\Services\Payments\Data\GatewayCredentials;
 use App\Services\Payments\PaymentGatewayManager;
 use App\Support\Payments\PaymentGatewayRegistry;
+use App\Support\Payments\SystemProcessor;
 
 /**
  * Which gateway Storify bills its own subscriptions through, and the platform's
@@ -97,9 +98,23 @@ final class PlatformBillingGateway
      * persistent worker, where the instance outlives the request and would keep
      * answering with the gateway it saw first. One cheap query per call is a
      * small price for not having that class of bug at all.
+     *
+     * **A selected system processor wins over the column.** "Which processor
+     * takes payments" is one decision, and Storify's own subscription checkout
+     * charging through a *different* provider than every business's would mean
+     * two webhook secrets, two credential sets and two settlement reports to
+     * reconcile for that one decision. The column stays as the fallback for the
+     * ordinary case — no system processor selected — which is every deployment
+     * that never turns the switch on.
      */
     public function code(): string
     {
+        $system = SystemProcessor::code();
+
+        if ($system !== null && isset(self::CREDENTIALS[$system])) {
+            return $system;
+        }
+
         $configured = Setting::query()->value('billing_gateway');
 
         // A column holding something this class does not know — a gateway
@@ -261,9 +276,22 @@ final class PlatformBillingGateway
      */
     public function webhookConfigured(): bool
     {
-        $spec = self::CREDENTIALS[$this->code()] ?? null;
+        return $this->webhookConfiguredFor($this->code());
+    }
 
-        return $spec !== null && $this->credentials()->has($spec['webhook']);
+    /**
+     * The same question asked of any gateway, so the admin's screen can report
+     * the whole row before one of them is chosen — the same reason
+     * {@see self::reasonFor()} is per-code. A gateway whose keys are present but
+     * whose signing secret is missing takes money and cannot confirm it, which
+     * is precisely the gap that otherwise shows up as a subscription that never
+     * activates.
+     */
+    public function webhookConfiguredFor(string $code): bool
+    {
+        $spec = self::CREDENTIALS[$code] ?? null;
+
+        return $spec !== null && $this->credentialsFor($code)->has($spec['webhook']);
     }
 
     /**
@@ -284,6 +312,30 @@ final class PlatformBillingGateway
      */
     public function connectWebhookCredentials(): GatewayCredentials
     {
+        return $this->connectWebhookCredentialsFor('bachs');
+    }
+
+    /**
+     * The same, for any provider — because the platform now processes on a
+     * business's behalf on more than one.
+     *
+     * Bachs keeps its own shape: a connect-specific secret if one has been
+     * configured, else the ordinary webhook secret, with the API key travelling
+     * alongside because settlement re-verifies the payment through the API.
+     *
+     * Every other provider gets the platform's ordinary credentials, and that is
+     * not a shortcut — Paystack signs its deliveries with the secret key itself,
+     * so `credentialsFor()` already holds the signing secret, and there is no
+     * `connect_webhook_secret` to read because Paystack has no separate connect
+     * surface. A per-provider accessor rather than a Bachs-shaped one with a
+     * branch at each call site, so the third provider has one place to be added.
+     */
+    public function connectWebhookCredentialsFor(string $code): GatewayCredentials
+    {
+        if ($code !== 'bachs') {
+            return $this->credentialsFor($code);
+        }
+
         $connect = config('services.bachs.connect_webhook_secret');
 
         return GatewayCredentials::make('bachs', [
@@ -297,7 +349,25 @@ final class PlatformBillingGateway
     /** Whether connected-account deliveries can be verified at all. */
     public function connectWebhookConfigured(): bool
     {
-        return $this->connectWebhookCredentials()->has('webhook_secret');
+        return $this->connectWebhookConfiguredFor('bachs');
+    }
+
+    /**
+     * Whether this provider's platform-processed deliveries can be verified.
+     *
+     * The signing field is read from the same credential map the rest of this
+     * class uses, so a provider whose webhook secret is a different field than
+     * its API key is described once rather than remembered here.
+     */
+    public function connectWebhookConfiguredFor(string $code): bool
+    {
+        $spec = self::CREDENTIALS[$code] ?? null;
+
+        if ($spec === null) {
+            return false;
+        }
+
+        return $this->connectWebhookCredentialsFor($code)->has($spec['webhook']);
     }
 
     /**

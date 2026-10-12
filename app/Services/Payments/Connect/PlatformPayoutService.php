@@ -8,6 +8,8 @@ use App\Services\Accounting\LedgerPostingService;
 use App\Services\ActivityRecorder;
 use App\Services\Payments\Data\GatewayCredentials;
 use App\Services\Payments\Gateways\BachsApi;
+use App\Services\Payments\OnBehalf\Contracts\OnBehalfProcessor;
+use App\Services\Payments\OnBehalf\OnBehalfProcessors;
 use App\Services\Subscription\PlatformBillingGateway;
 use App\Support\Money\Naira;
 use Illuminate\Http\Client\Response;
@@ -22,19 +24,33 @@ use Illuminate\Support\Facades\Log;
  * schedule, and after a charge settles — so nobody has to click anything, and
  * again by hand from the admin console when a business asks.
  *
+ * **This is no longer the money path, and that is the point of the change.**
+ * Under the platform's direct-settlement doctrine the provider pays the business
+ * itself (`interval: instant` on Bachs, the subaccount's own settlement on
+ * Paystack), so this service is the *fallback and the console*: it still pays a
+ * business whose provider cannot settle directly, it still handles an account
+ * deliberately left on `manual`, it is still what an admin clicks when a
+ * business asks where its money is, and it is still the only place a balance can
+ * be read. What it is not any more is a step in the middle of somebody else's
+ * money on the ordinary path — see {@see OnBehalfProcessor::settlementMode()}.
+ *
  * **Automatic is the default, not a law.** `businesses.auto_payout` is an
  * admin's switch, and the automatic paths consult it — see
  * {@see autoPayoutEnabled()} and {@see setAutoPayout()}. With it off, a
  * business's settled money stays in its own account at the provider and moves
  * only when somebody asks for it. The switch never governs the manual payout:
  * holding a business's money and refusing to release it are different things.
+ * The column is now also pushed to the provider as its own schedule, so the two
+ * cannot disagree about whether money is being held.
  *
  * **What "instant" can and cannot mean.** A charge lands in `pending_balance`
  * and only becomes movable when the provider settles it; nothing anywhere can
  * withdraw unsettled funds, and an attempt returns `INSUFFICIENT_BALANCE`. So
- * the promise this makes is "withdrawn the moment it settles", which is a
- * settlement window of days — not seconds after the customer pays. The screen
- * has to say that in those words rather than implying otherwise.
+ * the promise this service makes is "withdrawn the moment it settles", which is
+ * a settlement window of days — not seconds after the customer pays. Bachs'
+ * `instant` schedule is the only thing in this feature that moves money sooner
+ * than that, and it too reacts to settlement rather than to the customer's card.
+ * The screen has to say that in those words rather than implying otherwise.
  *
  * **Three things make this the most dangerous code in the payment stack.**
  * Money leaves, a payout **cannot be cancelled**, and the provider holds an
@@ -46,6 +62,26 @@ use Illuminate\Support\Facades\Log;
  */
 final class PlatformPayoutService
 {
+    /**
+     * The provider this service pulls money from.
+     *
+     * Named rather than looked up, because everything below is Bachs' own
+     * vocabulary: `GET /balances`, `POST /payouts`, an account that holds a
+     * balance until somebody empties it. That is a *pull* model, and it is now
+     * one provider's among two.
+     *
+     * Under the platform's direct-settlement doctrine a provider that pays the
+     * business itself has no balance of ours to empty, and this service must
+     * therefore never be pointed at its accounts — asking Bachs about a Paystack
+     * `ACCT_…` would be a lookup that can only fail, and, worse, a sweep that
+     * reported a business's money as paid on the strength of an error would be a
+     * lie the console shows. So every read and every payout below is scoped to
+     * this constant, and {@see self::pushSettlementSchedule()} is the only thing
+     * in this class that reaches another provider — to set the schedule by which
+     * that provider pays, which is the opposite of pulling.
+     */
+    private const PROVIDER = 'bachs';
+
     /** How many past payouts a connection row keeps for the console to show. */
     private const HISTORY_LIMIT = 20;
 
@@ -67,6 +103,12 @@ final class PlatformPayoutService
         private readonly BachsConnectAccountService $accounts,
         private readonly LedgerPostingService $ledger,
         private readonly ConnectConnections $connections,
+        // Only for the settlement schedule: `auto_payout` is now the *provider's*
+        // setting as well as ours, and pushing it is the one thing this service
+        // does through the on-behalf seam rather than through Bachs directly.
+        // Everything else here stays Bachs-shaped because everything else here
+        // *is* Bachs — reading its balances and asking it to pay out.
+        private readonly OnBehalfProcessors $processors,
     ) {}
 
     /**
@@ -97,7 +139,7 @@ final class PlatformPayoutService
             return $counts;
         }
 
-        foreach ($this->connections->all() as $connection) {
+        foreach ($this->connections->all(self::PROVIDER) as $connection) {
             $target = $this->connections->scopeOf($connection);
 
             if (! $this->autoPayoutEnabled($target['business_id'])) {
@@ -147,6 +189,21 @@ final class PlatformPayoutService
      * this business's payouts, and when" is a question that arrives weeks later,
      * from a business asking where its money is. The flag and its record stand
      * or fall together, exactly as the gateway grant does.
+     *
+     * **The column is the intent; the provider holds the schedule.** Under the
+     * platform's direct-settlement doctrine the money is paid by the provider
+     * itself, so flipping this column without telling the provider would leave an
+     * admin believing a business's money is being held while it is actually
+     * leaving — or the reverse, which is worse. So the same switch is pushed to
+     * every connected account this business has, and a provider that refuses is
+     * logged rather than swallowed.
+     *
+     * Pushed *after* the column write and outside its transaction, deliberately:
+     * the column is what the platform believes and it must be committed first, so
+     * a provider being unreachable leaves the intent recorded and the next
+     * attempt — the registration flow, or the hour's sweep — able to reconcile it.
+     * Rolling the column back because a third party was down would make the switch
+     * unusable exactly when a business most wanted it.
      */
     public function setAutoPayout(Business $business, bool $autoPayout, User $actor, ?string $reason = null): void
     {
@@ -180,11 +237,65 @@ final class PlatformPayoutService
             );
         });
 
+        $this->pushSettlementSchedule((int) $business->id, $autoPayout);
+
         Log::info('bachs.payout.auto_payout_changed', [
             'business_id' => $business->id,
             'auto_payout' => $autoPayout,
             'actor_user_id' => $actor->id,
         ]);
+    }
+
+    /**
+     * Tell every connected account this business has how it should be paid.
+     *
+     * Every account, at both scopes, because the switch is a business-wide fact
+     * and a store with its own settlement account has its own schedule at the
+     * provider. Providers whose `settlementMode()` is not direct are skipped:
+     * their money *is* waited for by this service, so the schedule is this
+     * service's own and pushing anything to them would be inventing a call.
+     *
+     * Read from the connection columns rather than from a resolver: what matters
+     * here is whether an account exists at the provider, not whether the platform
+     * currently offers the provider or the business has it switched on. An account
+     * that exists and is paused still has a schedule, and leaving it stale would
+     * pay a business money the moment it resumed — on a setting an admin changed
+     * months ago.
+     */
+    private function pushSettlementSchedule(int $businessId, bool $autoPayout): void
+    {
+        $accounts = DB::table('business_payment_method as bpm')
+            ->join('payment_methods as pm', 'pm.id', '=', 'bpm.payment_method_id')
+            ->where('bpm.business_id', $businessId)
+            ->whereNotNull('bpm.gateway_account_id')
+            ->get(['pm.code', 'bpm.gateway_account_id'])
+            ->merge(
+                DB::table('store_payment_method as spm')
+                    ->join('payment_methods as pm', 'pm.id', '=', 'spm.payment_method_id')
+                    ->join('stores as s', 's.id', '=', 'spm.store_id')
+                    ->where('s.business_id', $businessId)
+                    ->whereNotNull('spm.gateway_account_id')
+                    ->get(['pm.code', 'spm.gateway_account_id'])
+            );
+
+        foreach ($accounts as $account) {
+            $code = (string) $account->code;
+            $processor = $this->processors->for($code);
+
+            if ($processor === null || $processor->settlementMode() !== OnBehalfProcessor::SETTLEMENT_DIRECT) {
+                continue;
+            }
+
+            $problem = $processor->ensureDirectSettlement((string) $account->gateway_account_id, $autoPayout);
+
+            Log::info('payments.payout.schedule_pushed', [
+                'business_id' => $businessId,
+                'provider' => $code,
+                'account_id' => $account->gateway_account_id,
+                'auto_payout' => $autoPayout,
+                'problem' => $problem,
+            ]);
+        }
     }
 
     /**
@@ -196,7 +307,7 @@ final class PlatformPayoutService
      */
     public function payOut(int $businessId, ?int $storeId = null): PayoutResult
     {
-        $connection = $this->connections->for($businessId, $storeId);
+        $connection = $this->connections->for($businessId, $storeId, self::PROVIDER);
 
         if ($connection === null) {
             return PayoutResult::skipped('This business has no Storify payment account.');
@@ -221,7 +332,7 @@ final class PlatformPayoutService
      */
     public function history(int $businessId, ?int $storeId = null): array
     {
-        $connection = $this->connections->for($businessId, $storeId);
+        $connection = $this->connections->for($businessId, $storeId, self::PROVIDER);
 
         if ($connection === null) {
             return [];
@@ -244,7 +355,7 @@ final class PlatformPayoutService
      */
     public function accountSummary(int $businessId, ?int $storeId = null): ?array
     {
-        $connection = $this->connections->for($businessId, $storeId);
+        $connection = $this->connections->for($businessId, $storeId, self::PROVIDER);
 
         if ($connection === null) {
             return null;
@@ -333,7 +444,7 @@ final class PlatformPayoutService
             return false;
         }
 
-        foreach ($this->connections->all() as $connection) {
+        foreach ($this->connections->all(self::PROVIDER) as $connection) {
             $history = $this->connections->config($connection)['payouts'] ?? [];
 
             if (! is_array($history)) {
@@ -759,7 +870,7 @@ final class PlatformPayoutService
     {
         $rows = [];
 
-        foreach ($this->connections->all() as $connection) {
+        foreach ($this->connections->all(self::PROVIDER) as $connection) {
             $accountId = (string) ($connection->gateway_account_id ?? '');
 
             if ($accountId === '') {

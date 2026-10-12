@@ -89,8 +89,20 @@ class PaymentMethodController extends ApiController
                         'code' => $code,
                         'name' => (string) (PaymentGatewayRegistry::get($code)['name'] ?? $code),
                         'selected' => $code === $selected,
+                        // `available` folds together "the keys are on the
+                        // server" and "an admin has not switched the method
+                        // off", so on its own it cannot tell an admin which of
+                        // the two to go and fix. The reason sentence does.
                         'available' => $reason === null,
                         'unavailable_reason' => $reason,
+                        // Readiness of the two things a delivery needs, per
+                        // gateway rather than only for the selected one. A key
+                        // that is present but a signing secret that is not takes
+                        // a customer's money and cannot confirm it, and the
+                        // failure surfaces days later as a subscription that
+                        // never activated — so the gap is worth showing here.
+                        'webhook_configured' => $gateway->webhookConfiguredFor($code),
+                        'connect_webhook_configured' => $gateway->connectWebhookConfiguredFor($code),
                     ];
                 })
                 ->values()

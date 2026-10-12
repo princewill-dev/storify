@@ -193,7 +193,7 @@ test('the bank is registered in the provider\'s own shape, and the account numbe
     expect($result->destination['id'])->toBe('pd_ca39')
         ->and($result->destination['last4'])->toBe('6789')
         ->and($result->destination)->not->toHaveKey('account_number')
-        ->and($result->account->canCharge())->toBeTrue()
+        ->and($result->account->canCharge('bachs'))->toBeTrue()
         ->and($result->account->canBePaidOut())->toBeTrue();
 });
 
@@ -375,6 +375,11 @@ test('a store can be given its own payout account', function () {
 });
 
 test('a provider that cannot process payments on our behalf is refused rather than half-registered', function () {
+    // `flutterwave` rather than `paystack`, which this test named while Bachs
+    // was the only provider the platform could provision. Paystack now has a
+    // managed path of its own — a subaccount — so it is exactly the wrong
+    // example: the refusal below is about a provider *without* one, and picking
+    // a managed provider here would assert nothing.
     ca39PlatformKeys();
 
     [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
@@ -383,7 +388,7 @@ test('a provider that cannot process payments on our behalf is refused rather th
     Http::fake();
 
     $this->withToken(ca39Token($owner))
-        ->putJson('/api/v1/management/payment-gateways/paystack/payout-account', [
+        ->putJson('/api/v1/management/payment-gateways/flutterwave/payout-account', [
             'entity_type' => 'company',
             'terms_accepted' => true,
             ...ca39Bank(),

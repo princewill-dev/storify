@@ -13,9 +13,11 @@ use App\Services\Payments\Data\GatewayCredentials;
 use App\Services\Payments\Data\WebhookEvent;
 use App\Services\Payments\Data\WebhookRequest;
 use App\Services\Payments\Data\WebhookScope;
+use App\Services\Payments\Gateways\PaystackGateway;
 use App\Services\Payments\PaymentGatewayManager;
 use App\Services\Payments\PaymentWebhookProcessor;
 use App\Services\Subscription\PlatformBillingGateway;
+use App\Support\Payments\PaymentGatewayRegistry;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -44,11 +46,20 @@ use Symfony\Component\HttpFoundation\Response;
  *
  * Four things, in this order: prove the signature is the platform's, claim the
  * event by its own id so a retry cannot do the work twice, work out which
- * business the delivery concerns, and then hand it to whatever
- * {@see BachsEventCatalogue} says that event means. Settlement is not
- * reimplemented here — the browser verify and this endpoint call the same
- * processor, guarded on the transaction's own status, so a sale cannot be
- * settled twice by arriving on both.
+ * business the delivery concerns, and then hand it to whatever the provider
+ * says it means — {@see BachsEventCatalogue} for an account event, the
+ * provider's own driver for a charge. Settlement is not reimplemented here —
+ * the browser verify and this endpoint call the same processor, guarded on the
+ * transaction's own status, so a sale cannot be settled twice by arriving on
+ * both.
+ *
+ * **Two providers arrive here now, and only two.** `{provider}` is narrowed to
+ * the registry's managed specs, which is the set of providers the platform can
+ * charge a business's customers through: those are the only ones these
+ * deliveries can be about. The merchant endpoint
+ * (`/webhooks/payments/{provider}/{scope}`) is a different thing and stays
+ * exactly as it was — see {@see PaymentWebhookController} for why it must not
+ * follow this.
  *
  * ## The status codes are deliberate
  *
@@ -63,16 +74,6 @@ use Symfony\Component\HttpFoundation\Response;
  */
 final class ConnectWebhookController extends Controller
 {
-    /**
-     * The provider this endpoint speaks for.
-     *
-     * A constant rather than a registry lookup: the connect surface is Bachs'
-     * alone until another provider offers one, and a delivery from any other
-     * provider is refused rather than quietly parsed by a driver that has no
-     * accounts API to settle against.
-     */
-    private const PROVIDER = 'bachs';
-
     public function __construct(
         private readonly PlatformBillingGateway $billing,
         private readonly PaymentGatewayManager $manager,
@@ -81,9 +82,23 @@ final class ConnectWebhookController extends Controller
         private readonly ConnectAccountEventService $events,
     ) {}
 
+    /**
+     * Provider-keyed, and the key is the registry's: the endpoint exists for
+     * deliveries about a business's account *the platform charges through*, and
+     * a managed spec is exactly what declares that. A provider with no on-behalf
+     * path has no such account for a delivery to be about, so it is refused
+     * rather than quietly parsed by a driver that cannot settle against it.
+     *
+     * Bachs and Paystack arrive here for the same reason and are then handled
+     * differently, because their deliveries are different things: Bachs' connect
+     * events are about an *account* (its state, its payouts, its disputes) and
+     * Paystack's are about a *charge*, with no account in the payload at all —
+     * its subaccount event has nothing we act on, since a subaccount needs no
+     * ongoing attention from us to be paid.
+     */
     public function handle(Request $request, string $provider): JsonResponse
     {
-        if ($provider !== self::PROVIDER) {
+        if (! PaymentGatewayRegistry::supportsManaged($provider)) {
             return response()->json(['status' => 'unknown provider'], Response::HTTP_NOT_FOUND);
         }
 
@@ -91,19 +106,19 @@ final class ConnectWebhookController extends Controller
         // unconfigured secret is our misconfiguration, not a bad delivery, and
         // the provider *should* retry this one — once someone has set the value,
         // the same delivery verifies.
-        if (! $this->billing->connectWebhookConfigured()) {
-            Log::error('bachs.connect.webhook_not_configured', ['ip' => $request->ip()]);
+        if (! $this->billing->connectWebhookConfiguredFor($provider)) {
+            Log::error($provider.'.connect.webhook_not_configured', ['ip' => $request->ip()]);
 
             return response()->json(['status' => 'not configured'], Response::HTTP_SERVICE_UNAVAILABLE);
         }
 
-        $driver = $this->manager->driver(self::PROVIDER);
+        $driver = $this->manager->driver($provider);
 
         if ($driver === null) {
             return response()->json(['status' => 'unknown provider'], Response::HTTP_NOT_FOUND);
         }
 
-        $credentials = $this->billing->connectWebhookCredentials();
+        $credentials = $this->billing->connectWebhookCredentialsFor($provider);
 
         $event = $driver->parseWebhook(
             new WebhookRequest($request->getContent(), $this->headers($request)),
@@ -111,7 +126,7 @@ final class ConnectWebhookController extends Controller
         );
 
         if ($event === null) {
-            Log::warning('bachs.connect.unverified_signature', ['ip' => $request->ip()]);
+            Log::warning($provider.'.connect.unverified_signature', ['ip' => $request->ip()]);
 
             return response()->json(['status' => 'unverified'], Response::HTTP_BAD_REQUEST);
         }
@@ -119,21 +134,24 @@ final class ConnectWebhookController extends Controller
         $payload = json_decode($request->getContent(), true);
         $payload = is_array($payload) ? $payload : [];
         $data = is_array($payload['data'] ?? null) ? $payload['data'] : [];
-        $type = strtolower((string) ($payload['type'] ?? ''));
+        // Bachs names the event `type` and Paystack names it `event`. Read both
+        // rather than branching on the provider: the field is a fact about the
+        // payload, and the endpoints that follow are chosen from what it says.
+        $type = strtolower((string) ($payload['type'] ?? $payload['event'] ?? ''));
 
         $accountId = $this->accountId($payload, $data);
 
         // Claimed before any work, and only when the provider named the event.
         // A redelivery of an event we have already handled is answered here,
         // without touching a balance, the ledger or the account.
-        $claim = $this->claim($payload, $type, $accountId);
+        $claim = $this->claim($provider, $payload, $type, $accountId);
 
         if ($claim === false) {
             return response()->json(['status' => 'duplicate']);
         }
 
         try {
-            [$status, $http] = $this->dispatch($event, $driver, $credentials, $type, $data, $accountId);
+            [$status, $http] = $this->dispatch($provider, $event, $driver, $credentials, $type, $data, $accountId);
         } catch (\Throwable $e) {
             // The claim is given back so the provider's retry is processed
             // rather than dismissed as a duplicate of an event that never
@@ -161,28 +179,57 @@ final class ConnectWebhookController extends Controller
      * doing one thing twice, which the handlers themselves mostly tolerate.
      * `false` when someone already has it. Otherwise the claim.
      *
+     * Paystack's platform deliveries never name one — its payload is `event`
+     * plus `data`, and the only id in it is the transaction's — so nothing is
+     * claimed there and settlement relies on the transaction's own status,
+     * which is idempotent anyway. Said out loud because it is the reason a
+     * Paystack redelivery is not answered as a duplicate.
+     *
      * @param  array<string, mixed>  $payload
      */
-    private function claim(array $payload, string $type, ?string $accountId): ConnectWebhookEvent|bool
+    private function claim(string $provider, array $payload, string $type, ?string $accountId): ConnectWebhookEvent|bool
     {
         $eventId = $payload['id'] ?? null;
 
         if (! is_string($eventId) || $eventId === '') {
-            Log::warning('bachs.connect.event_without_id', ['type' => $type]);
+            // The level is the provider's, because the same absence means
+            // opposite things. A Bachs connect event always names itself, so
+            // one without an id is a payload shape we do not expect — and the
+            // cost of it is a delivery that can be processed twice, which is
+            // worth somebody seeing. Paystack's platform deliveries *never*
+            // name one — its payload is `event` plus `data`, and the only id in
+            // it is the transaction's — so warning there would be a warning on
+            // every ordinary charge.
+            $context = ['provider' => $provider, 'type' => $type];
+
+            $provider === 'bachs'
+                ? Log::warning($provider.'.connect.event_without_id', $context)
+                : Log::info($provider.'.connect.event_without_id', $context);
 
             return true;
         }
 
-        return ConnectWebhookEvent::claim(self::PROVIDER, $eventId, $type, $accountId) ?? false;
+        return ConnectWebhookEvent::claim($provider, $eventId, $type, $accountId) ?? false;
     }
 
     /**
-     * Hand the delivery to whatever the catalogue says it means.
+     * Hand the delivery to whatever the provider says it means.
+     *
+     * Two shapes, chosen by the provider rather than by the payload, because
+     * they answer different questions. Bachs' deliveries are about an account,
+     * so they go through {@see BachsEventCatalogue} and the services that act on
+     * account state. Paystack's are about a charge, and the provider's own
+     * vocabulary for those is already translated by its driver in
+     * {@see PaystackGateway::parseWebhook()} — `charge.success` to
+     * `PAYMENT_SUCCESS`, and so on — so there is no second catalogue to keep in
+     * step with the first, and the dispatch below reads the driver's answer
+     * instead of inventing a parallel one.
      *
      * @param  array<string, mixed>  $data
      * @return array{0: string, 1: int}
      */
     private function dispatch(
+        string $provider,
         ?WebhookEvent $event,
         PaymentGateway $driver,
         GatewayCredentials $credentials,
@@ -190,6 +237,10 @@ final class ConnectWebhookController extends Controller
         array $data,
         ?string $accountId,
     ): array {
+        if ($provider !== 'bachs') {
+            return $this->dispatchCharge($driver, $credentials, $event, $type, $accountId);
+        }
+
         $disposition = BachsEventCatalogue::dispositionFor($type);
 
         // Some events concern the platform's account or name one at all only by
@@ -234,6 +285,54 @@ final class ConnectWebhookController extends Controller
             BachsEventCatalogue::SETTLE => $this->settle($event, $driver, $credentials, $tenant, $type, $accountId),
             default => $this->unknown($type),
         };
+    }
+
+    /**
+     * A platform-processed charge, as Paystack reports it.
+     *
+     * The whole of it is settlement, and the settling is not done here:
+     * {@see PaymentWebhookProcessor::settle()} re-verifies the payment through
+     * the provider, credits whoever the transaction says the money belongs to,
+     * posts the ledger and delivers anything digital. A managed sale's money is
+     * the business's from the moment the split was made, which that processor
+     * already knows from the transaction (`isPlatformManaged()`), so nothing
+     * about the split is re-decided on this path.
+     *
+     * **No account is used or needed.** Paystack's payload names none, and there
+     * is nothing to address: unlike Bachs' connect calls, settling a Paystack
+     * charge is a read of the transaction, not an instruction to an account.
+     *
+     * A failed charge and a refund are answered 200 and nothing else. Both are
+     * states the customer's own verification already reports, and acting on a
+     * refund here would be a second implementation of something the merchant
+     * webhook path owns — this endpoint exists to settle, and it says so.
+     *
+     * @return array{0: string, 1: int}
+     */
+    private function dispatchCharge(
+        PaymentGateway $driver,
+        GatewayCredentials $credentials,
+        ?WebhookEvent $event,
+        string $type,
+        ?string $accountId,
+    ): array {
+        if ($event === null || ! $event->isSettlement()) {
+            Log::info('connect.charge.not_a_settlement', [
+                'provider' => $driver->code(),
+                'type' => $type,
+                'account_id' => $accountId,
+            ]);
+
+            return ['noted', Response::HTTP_OK];
+        }
+
+        // No scope: the delivery is about a charge the platform made, and the
+        // transaction's own reference is what identifies it. A scope would be
+        // the *connection* the URL named, which is a merchant concept this
+        // endpoint deliberately does not have.
+        $result = $this->processor->settle($event, $driver, $credentials);
+
+        return [$result['status'], $result['http']];
     }
 
     /**

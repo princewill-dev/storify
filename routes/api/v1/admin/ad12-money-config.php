@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\V1\Admin\BankAccountController;
 use App\Http\Controllers\Api\V1\Admin\ConnectPayoutController;
 use App\Http\Controllers\Api\V1\Admin\CouponUpdateController;
+use App\Http\Controllers\Api\V1\Admin\EnforcementPreviewController;
 use App\Http\Controllers\Api\V1\Admin\PaymentMethodController;
 use App\Http\Controllers\Api\V1\Admin\VatController;
 use App\Http\Middleware\AdminApiActivityLogger;
@@ -39,6 +40,13 @@ Route::middleware([ForceJsonResponse::class, 'permission:admin.finance', AdminAp
 
     Route::get('payment-methods', [PaymentMethodController::class, 'index'])->name('payment-methods.index');
     Route::post('payment-methods/{paymentMethod}/toggle', [PaymentMethodController::class, 'toggle'])->name('payment-methods.toggle');
+
+    // What turning the system processor on would cost, asked *before* it is
+    // turned on. Read-only and here rather than in AD-02 because it is money:
+    // `admin.finance` is the permission that governs the money screens, and the
+    // switch it previews lives on the same tab as everything else in this file.
+    Route::get('payments/enforcement-preview', [EnforcementPreviewController::class, 'index'])
+        ->name('payments.enforcement-preview');
 
     // Withdrawing a business's settled money from the provider account Storify
     // processes its sales through. Here rather than in AD-04 with the rest of

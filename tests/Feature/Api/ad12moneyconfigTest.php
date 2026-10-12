@@ -308,7 +308,7 @@ function ad12BillingBlock(TestCase $test, User $admin): array
         ->assertJsonStructure(['data' => ['billing' => [
             'gateway',
             'webhook_configured',
-            'options' => [['code', 'name', 'selected', 'available', 'unavailable_reason']],
+            'options' => [['code', 'name', 'selected', 'available', 'unavailable_reason', 'webhook_configured', 'connect_webhook_configured']],
         ]]]);
 
     return $response->json('data.billing');
@@ -365,6 +365,37 @@ test('the billing block follows the saved gateway', function () {
     expect($billing['gateway'])->toBe('bachs')
         ->and($options->firstWhere('code', 'bachs')['selected'])->toBeTrue()
         ->and($options->firstWhere('code', 'paystack')['selected'])->toBeFalse();
+});
+
+test('every gateway reports its own signing readiness, not just the selected one', function () {
+    ad12BothGatewaysReady($this);
+
+    $options = collect(ad12BillingBlock($this, ad12FinanceAdmin())['options']);
+
+    // A key that is present but a signing secret that is not takes a customer's
+    // money and cannot confirm it, and the failure surfaces days later as a
+    // subscription that never activated. Paystack signs with the secret key
+    // itself, so its two answers coincide; Bachs has a separate connect secret
+    // and falls back to the ordinary webhook secret when one is not configured,
+    // which is why this is not a single per-gateway flag.
+    expect($options->firstWhere('code', 'paystack')['webhook_configured'])->toBeTrue()
+        ->and($options->firstWhere('code', 'paystack')['connect_webhook_configured'])->toBeTrue()
+        ->and($options->firstWhere('code', 'bachs')['webhook_configured'])->toBeTrue()
+        ->and($options->firstWhere('code', 'bachs')['connect_webhook_configured'])->toBeTrue();
+});
+
+test('a gateway with keys but no signing secret is reported unready for deliveries', function () {
+    ad12BothGatewaysReady($this);
+    // The key it charges with stays; the secret it verifies with does not.
+    config(['services.bachs' => ['api_key' => 'sk_sandbox_ad12abcdefgh', 'webhook_secret' => null]]);
+
+    $bachs = collect(ad12BillingBlock($this, ad12FinanceAdmin())['options'])->firstWhere('code', 'bachs');
+
+    // Chargeable, and unable to confirm a delivery — the state that otherwise
+    // looks like nothing at all until a subscription silently fails to activate.
+    expect($bachs['available'])->toBeTrue()
+        ->and($bachs['webhook_configured'])->toBeFalse()
+        ->and($bachs['connect_webhook_configured'])->toBeFalse();
 });
 
 // ---------------------------------------------------------------------------

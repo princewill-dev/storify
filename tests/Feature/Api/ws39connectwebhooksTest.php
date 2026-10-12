@@ -666,11 +666,29 @@ test('a payout delivery about an account we do not hold is dropped', function ()
     cw39Post($this, $body, $headers)->assertOk()->assertJsonPath('status', 'unknown account');
 });
 
-test('the endpoint refuses any provider but Bachs', function () {
-    $this->call('POST', '/webhooks/connect/paystack', [], [], [], [
+test('the endpoint is keyed by provider: managed ones are parsed, the rest are refused', function () {
+    // The endpoint used to answer to Bachs and nothing else, because Bachs was
+    // the only provider the platform could charge a business's customers
+    // through. Paystack now can too, so the gate is the registry's *managed*
+    // set rather than one hardcoded name — a provider with no on-behalf path
+    // has no account for a delivery to be about, and quietly parsing one with a
+    // driver that cannot settle against it would be worse than refusing.
+    //
+    // Both halves are asserted, because "accepts Paystack" and "refuses
+    // Monnify" are the same fact seen from either side: a rewrite that opened
+    // it to every provider would pass the first and fail the second.
+    $this->call('POST', '/webhooks/connect/monnify', [], [], [], [
         'CONTENT_TYPE' => 'application/json',
         'HTTP_ACCEPT' => 'application/json',
     ], '{}')->assertStatus(404);
+
+    // Accepted as a provider, then refused as a delivery: the empty body cannot
+    // carry a signature that verifies, which is a 400 rather than the 404 an
+    // unknown provider gets.
+    $this->call('POST', '/webhooks/connect/paystack', [], [], [], [
+        'CONTENT_TYPE' => 'application/json',
+        'HTTP_ACCEPT' => 'application/json',
+    ], '{}')->assertStatus(400);
 });
 
 test('a settled sale tries to withdraw at once, and neither that nor its failure is fatal', function () {

@@ -3,6 +3,8 @@
 namespace App\Http\Resources\Admin;
 
 use App\Http\Requests\Admin\UpdateSettingsRequest;
+use App\Support\Payments\PaymentGatewayRegistry;
+use App\Support\Payments\SystemProcessor;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -23,6 +25,20 @@ final class SettingsOptionsResource extends JsonResource
     {
         return [
             'og_types' => UpdateSettingsRequest::OG_TYPES,
+            // The processors the platform can take every business's money
+            // through. Same source as the validation rule above, so the picker
+            // and the validator cannot drift.
+            'system_payment_processors' => collect(SystemProcessor::selectableCodes())
+                ->map(fn (string $code) => [
+                    'value' => $code,
+                    'label' => (string) (PaymentGatewayRegistry::get($code)['name'] ?? $code),
+                ])
+                ->values()
+                ->all(),
+            // Non-null only when a processor *is* selected and this build cannot
+            // run it: the one state the switch can be in where nothing works and
+            // the value alone does not explain why.
+            'system_processor_problem' => SystemProcessor::unavailableReason(),
             'greeting_modal_frequencies' => collect(UpdateSettingsRequest::GREETING_FREQUENCIES)
                 ->map(fn (string $label, string $value) => ['value' => $value, 'label' => $label])
                 ->values()

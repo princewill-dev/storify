@@ -193,7 +193,17 @@ final class ManagedAccount
      *
      * @return array<int, string>
      */
-    public function grantedCapabilities(string $code = 'bachs'): array
+    /**
+     * No default provider, deliberately. The capability vocabulary is the
+     * provider's — Bachs asks which collections a subaccount may perform, and
+     * Paystack has no such concept — so a defaulted `$code` would be one
+     * provider's answer silently applied to another's account. Callers always
+     * know which provider they are looking at; making them say so is cheaper
+     * than the class having to guess.
+     *
+     * @return array<int, string>
+     */
+    public function grantedCapabilities(string $code): array
     {
         $wanted = PaymentGatewayRegistry::managedCapabilitiesFor($code);
 
@@ -210,10 +220,22 @@ final class ManagedAccount
      * cannot collect through any method, and one the provider has deactivated
      * cannot authenticate at all — charging through either is a customer-facing
      * error we can foresee.
+     *
+     * **A provider that asks for no capabilities is judged on its status alone.**
+     * Bachs requires each collection type to be requested and cleared; Paystack's
+     * subaccounts have no equivalent, so an empty `capabilities` list in the
+     * registry means "this provider has no such check", not "this provider may
+     * collect nothing". Treating the two the same is how adding a second
+     * provider silently makes every account on it unchargeable.
      */
-    public function canCharge(string $code = 'bachs'): bool
+    public function canCharge(string $code): bool
     {
-        return $this->isActive && $this->grantedCapabilities($code) !== [];
+        if (! $this->isActive) {
+            return false;
+        }
+
+        return PaymentGatewayRegistry::managedCapabilitiesFor($code) === []
+            || $this->grantedCapabilities($code) !== [];
     }
 
     /**

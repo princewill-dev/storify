@@ -4,6 +4,7 @@ namespace App\Http\Requests\Admin;
 
 use App\Models\Store;
 use App\Services\Subscription\PlatformBillingGateway;
+use App\Support\Payments\SystemProcessor;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Validation\Rule;
@@ -97,6 +98,17 @@ class UpdateSettingsRequest extends FormRequest
             // *code*; whether its keys are present is a runtime state that this
             // column cannot express, and is reported by the screen instead.
             'billing_gateway' => ['nullable', Rule::in(PlatformBillingGateway::selectableCodes())],
+            // The processor the platform processes every business's payments
+            // through. A shorter list than the billing gateways above, and a
+            // different one: a provider the platform cannot provision a
+            // settlement account for has no meaning as *the platform's*
+            // processor, because there is nothing to split. Null is allowed and
+            // is the switch's "off" — see SettingsService, where the difference
+            // between an absent key and a null one is load-bearing.
+            'system_payment_processor' => [
+                'nullable',
+                Rule::in(SystemProcessor::selectableCodes()),
+            ],
             // Storify's cut of a sale it processed on a business's behalf. The
             // percentage is capped below 100 because a commission of the whole
             // sale is not a smaller number that happens to be wrong — it is a

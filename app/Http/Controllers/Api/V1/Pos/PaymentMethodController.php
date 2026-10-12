@@ -9,6 +9,7 @@ use App\Services\Payments\PaymentGatewayResolver;
 use App\Support\Money\ExchangeRateService;
 use App\Support\Money\StoreCurrency;
 use App\Support\Payments\PaymentGatewayRegistry;
+use App\Support\Payments\SystemProcessor;
 use Illuminate\Http\JsonResponse;
 
 /**
@@ -23,8 +24,12 @@ use Illuminate\Http\JsonResponse;
  * the same resolver the storefront uses, so the till and the shopfront agree on
  * what a store accepts by construction rather than by convention.
  *
- * `cash` is always first and always present: it is money in hand, it needs no
- * provider, and a till that cannot record a cash sale is not a till.
+ * `cash` is always first and always present *unless the platform is processing
+ * every payment itself*: it is money in hand, it needs no provider, and a till
+ * that cannot record a cash sale is not a till — but a cash sale is also money
+ * Storify has no sight of and no split of, which is exactly what a system
+ * processor rules out. So the rule stands while the switch is off and the till
+ * loses the option, with the reason, while it is on.
  */
 final class PaymentMethodController extends Controller
 {
@@ -36,18 +41,23 @@ final class PaymentMethodController extends Controller
     public function index(Store $store): JsonResponse
     {
         $storeCurrency = StoreCurrency::for($store);
+        $enforced = SystemProcessor::stored();
+
+        $methods = [];
 
         // `cash` is the POS's own method, not a gateway — it is never in the
         // provider catalogue, so it is prepended here rather than resolved. It
         // is taken in the store's own currency and never converted.
-        $methods = [[
-            'code' => 'cash',
-            'name' => 'Cash',
-            'mode' => 'offline',
-            'requires_bank_account' => false,
-            'currency' => $storeCurrency,
-            'conversion' => null,
-        ]];
+        if ($enforced === null) {
+            $methods[] = [
+                'code' => 'cash',
+                'name' => 'Cash',
+                'mode' => 'offline',
+                'requires_bank_account' => false,
+                'currency' => $storeCurrency,
+                'conversion' => null,
+            ];
+        }
 
         foreach ($this->gateways->forStore($store) as $code => $connection) {
             $definition = PaymentGatewayRegistry::get($code);
@@ -72,6 +82,12 @@ final class PaymentMethodController extends Controller
             'success' => true,
             'data' => [
                 'store_currency' => $storeCurrency,
+                // The same sentence the storefront shows, from the same method,
+                // for the same state: a till whose list is down to nothing has to
+                // be able to tell the cashier whether to send the customer to the
+                // bank or to call support. Null in the ordinary case — see
+                // {@see PaymentGatewayResolver::storeUnavailableReason()}.
+                'unavailable_reason' => $methods === [] ? $this->gateways->storeUnavailableReason($store) : null,
                 'payment_methods' => $methods,
             ],
         ]);

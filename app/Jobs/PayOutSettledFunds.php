@@ -27,6 +27,16 @@ use Throwable;
  * already available — so a failure here is logged and left to the sweep rather
  * than retried on the queue, where a permanently unreachable provider would
  * fill the table with copies of the same attempt.
+ *
+ * **Under the platform's direct doctrine there is nothing for this job to do**,
+ * and it is left dispatched rather than deleted: the provider pays the business
+ * out of the same settlement the charge lands in, so the money is not sitting in
+ * an account for this to empty. No guard is needed for that beyond the one
+ * {@see PlatformPayoutService::payOut()} already applies — it is scoped to the
+ * provider that holds a balance to pull from, so on a direct provider it
+ * answers "no Storify payment account" and stops. The job stays because the pull
+ * path stays: an account deliberately left on `manual`, or a provider that can
+ * only be pulled, is still emptied by exactly this.
  */
 class PayOutSettledFunds implements ShouldQueue
 {

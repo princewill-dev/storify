@@ -20,6 +20,7 @@ use App\Models\PaymentMethod;
 use App\Models\Store;
 use App\Models\Transaction;
 use App\Repositories\Storefront\CheckoutRepository;
+use App\Services\Payments\PaymentGatewayResolver;
 use App\Services\Storefront\CheckoutPaymentService;
 use App\Support\Money\StoreCurrency;
 use Illuminate\Http\JsonResponse;
@@ -73,6 +74,12 @@ class CheckoutController extends ApiController
     public function __construct(
         private readonly CheckoutRepository $repository,
         private readonly CheckoutPaymentService $payments,
+        // Only for one thing: saying *why* there is nothing to pay with. An empty
+        // options list used to be self-explanatory — the store had connected no
+        // provider — and under a system processor it is not: the store may have
+        // connected several and still have nothing to offer, and a customer
+        // staring at a dead checkout deserves the sentence rather than a blank.
+        private readonly PaymentGatewayResolver $gateways,
     ) {}
 
     public function paymentMethods(Request $request, string $store): JsonResponse
@@ -81,9 +88,16 @@ class CheckoutController extends ApiController
 
         $currency = StoreCurrency::for($store);
 
+        $methods = $this->repository->paymentMethodsFor($store);
+
         return $this->ok([
             'store_currency' => $currency,
-            'payment_methods' => $this->repository->paymentMethodsFor($store)
+            // Null in the ordinary case, and that is deliberate rather than
+            // unfinished: with no system processor set, nothing here has changed
+            // and a new field with a new message would be a change to a
+            // deployment that did not ask for one.
+            'unavailable_reason' => $methods->isEmpty() ? $this->gateways->storeUnavailableReason($store) : null,
+            'payment_methods' => $methods
                 // Each entry is built with the store's currency, which is what
                 // tells it whether it has to show a converted figure.
                 ->map(fn (PaymentMethod $method): array => (new CheckoutPaymentMethodResource($method, $currency))
