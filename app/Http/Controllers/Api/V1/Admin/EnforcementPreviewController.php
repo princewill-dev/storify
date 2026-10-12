@@ -18,11 +18,10 @@ use Illuminate\Validation\Rule;
  * turned on.
  *
  * The switch is the most consequential thing in the admin console and the least
- * reversible in its consequences: under enforcement a business with no usable
- * settlement account on the selected processor **takes no payments at all**,
- * including cash at the till. An admin clicking through a confirmation dialog
- * that does not say how many businesses that is has not been told what they are
- * doing.
+ * reversible in its consequences: under enforcement a business whose sales have
+ * nowhere to be paid out to **takes no payments at all**, including cash at the
+ * till. An admin clicking through a confirmation dialog that does not say how
+ * many businesses that is has not been told what they are doing.
  *
  * So this answers, ahead of the click: how many businesses would stop being able
  * to sell, which ones, why each of them, and how many stores sit behind them.
@@ -87,8 +86,10 @@ class EnforcementPreviewController extends ApiController
 
         // `business_code` rides along so the console can link each affected
         // business to its own screen: a list of names an admin has to search for
-        // one at a time is a list they will not act on.
-        $businesses = DB::table('businesses')->get(['id', 'business_code', 'name']);
+        // one at a time is a list they will not act on. `payout_bank_id` rides
+        // along because it is what decides *which* sentence each affected
+        // business gets — see {@see self::problemFor()}.
+        $businesses = DB::table('businesses')->get(['id', 'business_code', 'name', 'payout_bank_id']);
 
         // One query for every store on the platform, rather than one per
         // business: this runs while an admin is waiting for a dialog to open,
@@ -98,6 +99,11 @@ class EnforcementPreviewController extends ApiController
 
         $lockedOut = [];
         $lockedOutStores = 0;
+
+        // Broken down by what an admin would do about it, which is the only
+        // distinction that makes the count actionable: businesses to go and ask
+        // for a bank account, and businesses whose setup is simply not finished.
+        $counts = ['bank_account' => 0, 'setup' => 0, 'connection' => 0, 'destination' => 0];
 
         // Nothing is counted when there is no processor to count against — the
         // switch is off, and no candidate was named. Skipping the pass keeps that
@@ -121,7 +127,8 @@ class EnforcementPreviewController extends ApiController
                     }
                 }
 
-                $problem = $this->problemFor($businessRow, $countedFor);
+                $hasBank = $business->payout_bank_id !== null;
+                $problem = $this->problemFor($businessRow, $countedFor, $hasBank);
 
                 // A store's own usable account is what saves it when the
                 // business's is unusable, and vice versa — the resolver prefers
@@ -132,24 +139,35 @@ class EnforcementPreviewController extends ApiController
                 foreach ($storeIds as $storeId) {
                     $row = $storeRows[$storeId] ?? $businessRow;
 
-                    if ($this->problemFor($row, $countedFor) !== null) {
+                    if ($this->problemFor($row, $countedFor, $hasBank)['reason'] !== null) {
                         $broken++;
                     }
                 }
 
                 $lockedOutStores += $broken;
 
-                if ($problem !== null || $broken > 0) {
-                    $lockedOut[] = [
-                        'business_id' => $businessId,
-                        'business_code' => $business->business_code,
-                        'name' => (string) $business->name,
-                        'stores' => count($storeIds),
-                        'stores_locked_out' => $broken,
-                        'account_id' => $businessRow->gateway_account_id ?? null,
-                        'reason' => $problem ?? 'Some of this business\'s stores have no usable settlement account.',
-                    ];
+                if ($problem['reason'] === null && $broken === 0) {
+                    continue;
                 }
+
+                // The business's own state decides the sentence; when the
+                // business is fine and only some of its stores are not, the
+                // sentence says exactly that instead of blaming a bank account
+                // the business has already named.
+                $kind = $problem['reason'] !== null ? $problem['kind'] : 'connection';
+
+                $counts[$kind] = ($counts[$kind] ?? 0) + 1;
+
+                $lockedOut[] = [
+                    'business_id' => $businessId,
+                    'business_code' => $business->business_code,
+                    'name' => (string) $business->name,
+                    'stores' => count($storeIds),
+                    'stores_locked_out' => $broken,
+                    'account_id' => $businessRow->gateway_account_id ?? null,
+                    'kind' => $kind,
+                    'reason' => $problem['reason'] ?? 'Some of this business\'s stores cannot take payments.',
+                ];
             }
         }
 
@@ -173,6 +191,10 @@ class EnforcementPreviewController extends ApiController
             'counted_for_name' => $countedFor === null ? null : $this->name($countedFor),
             'businesses_total' => $businesses->count(),
             'businesses_locked_out' => count($lockedOut),
+            // The breakdown an admin acts on: who has to name a bank account,
+            // and who is simply waiting for their payment account to be set up.
+            'businesses_without_bank_account' => $counts['bank_account'],
+            'businesses_awaiting_setup' => $counts['setup'],
             'stores_total' => $storesTotal,
             'stores_locked_out' => $lockedOutStores,
             'businesses' => $lockedOut,
@@ -206,36 +228,59 @@ class EnforcementPreviewController extends ApiController
     }
 
     /**
-     * Why this business could not take payments, in the same words the
-     * business's own screen uses — or null when it could.
+     * Why this business could not take payments, and what kind of problem it is.
      *
-     * Deliberately the same ordering as
-     * {@see PaymentGatewayResolver}'s enforced reason:
-     * an admin reading "no settlement account" while the owner reads "under
-     * review" would be two support conversations about one state. The wording
-     * differs only in person — this speaks about a business, that speaks to one.
+     * A `reason` of null means it could take payments. The `kind` is which of
+     * those reasons it is, as a word the console can count by — the sentence
+     * itself is for reading, and string-matching it to group a list would break
+     * the first time somebody improves the wording.
+     *
+     * ## Why the sentence is about a bank account
+     *
+     * The provider's own view of a business's destination — a subaccount, a
+     * connected account — is Storify's plumbing. The business was never asked
+     * about it and cannot see it, and reporting it as *their* missing
+     * "settlement account" is what an admin read as the platform blaming the
+     * wrong party for something they had never been asked to do. What the
+     * business is actually asked for is one thing: the bank account its sales
+     * are paid into. So that is what this names, and no provider is named at all.
+     *
+     * The two states differ by who has to act, which is why they are two
+     * sentences rather than one: a business with no bank account named is a
+     * business somebody has to go and ask, and a business that has named one but
+     * holds no account at *this* processor is one whose setup has not caught up
+     * — which is what it looks like right after an admin changes the processor.
+     *
+     * The ordering below is the same as
+     * {@see PaymentGatewayResolver}'s enforced reason, so an admin reading one
+     * thing while the owner reads another is not possible. The wording differs
+     * only in person: this speaks about a business, that speaks to one.
+     *
+     * @return array{reason: ?string, kind: string}
      */
-    private function problemFor(?object $row, string $processor): ?string
+    private function problemFor(?object $row, string $processor, bool $hasBank): array
     {
         if ($row === null) {
-            return 'No settlement account has been registered on '.$this->name($processor).'.';
+            return $hasBank
+                ? ['reason' => 'Its bank account is on file, but its payment account has not been set up yet.', 'kind' => 'setup']
+                : ['reason' => 'No bank account has been set for its payments to be paid into.', 'kind' => 'bank_account'];
         }
 
         if (! (bool) $row->is_active) {
-            return 'Payments are switched off for this connection.';
+            return ['reason' => 'Payments are switched off for this connection.', 'kind' => 'connection'];
         }
 
         $account = ManagedAccount::fromConfig($this->managedState($row));
 
         if (! $account->canCharge($processor)) {
-            return 'Its settlement account is not ready to take payments.';
+            return ['reason' => 'Its payment account is not ready to take payments.', 'kind' => 'connection'];
         }
 
         if (! $account->canBePaidOut()) {
-            return 'Its settlement account has no usable bank destination, so money could not be paid out.';
+            return ['reason' => 'Its payment account has no usable bank destination yet.', 'kind' => 'destination'];
         }
 
-        return null;
+        return ['reason' => null, 'kind' => 'ready'];
     }
 
     /**
@@ -247,8 +292,12 @@ class EnforcementPreviewController extends ApiController
      *
      * Rows with no account id are excluded: a connection without one is a
      * business's own keys, which enforcement ignores entirely, and counting one
-     * as a settlement account would report a business as safe when nothing of
-     * its money has anywhere to go.
+     * as an account the platform can charge through would report a business as
+     * safe when nothing of its money has anywhere to go.
+     *
+     * Note what is *not* read here: the business's own bank account. That decides
+     * the sentence a broken business gets, not whether it is broken, and keeping
+     * the two apart is deliberate — see {@see self::problemFor()}.
      *
      * @return array<int, array<int, object>>
      */

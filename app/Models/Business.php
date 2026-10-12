@@ -35,6 +35,17 @@ class Business extends Model
         // automatically, or left in its account at the provider until it asks.
         // An admin's decision, and read by `PlatformPayoutService`.
         'auto_payout',
+        // The bank account this business's sales are paid into when Storify
+        // processes them. The provider's own view of it — a Paystack subaccount,
+        // a Bachs connected account — is built from this row and is never
+        // something the business sees or maintains. See the migration for why it
+        // is not `store_banks.is_primary`.
+        'payout_bank_id',
+        // `company` or `individual`, as the owner declared it. A provider that
+        // needs the distinction fixes it at the first registration and will not
+        // change it afterwards, so the answer is kept rather than derived again
+        // on the next processor.
+        'payout_entity_type',
     ];
 
     protected function casts(): array
@@ -78,6 +89,18 @@ class Business extends Model
     public function stores(): HasMany
     {
         return $this->hasMany(Store::class);
+    }
+
+    /**
+     * The bank account this business's sales are paid into.
+     *
+     * A relation rather than a balance, and read through `payout_bank_id`: the
+     * row is the business's own, listable and editable in the bank accounts
+     * screen, and this only names which of them receives the money.
+     */
+    public function payoutBank(): BelongsTo
+    {
+        return $this->belongsTo(StoreBank::class, 'payout_bank_id');
     }
 
     public function warehouses(): HasMany

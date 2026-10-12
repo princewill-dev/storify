@@ -10,11 +10,20 @@ use Illuminate\Http\Resources\Json\JsonResource;
  * WS-11 — a business bank account as the payment-settings screen renders it.
  * The account number is only ever exposed masked; the assigned-store count is
  * scoped to the stores the acting user can reach.
+ *
+ * `is_payout` is which of the accounts the business's sales are paid into. It
+ * is a property of the business rather than of the account, and it rides here
+ * because this is the only place a screen can learn it: the row itself is
+ * ordinary in every other respect, and a business that deleted or repointed it
+ * blindly would change where its money goes without meaning to.
  */
 class StoreBankResource extends JsonResource
 {
-    public function __construct(StoreBank $bank, private readonly int $assignedStoresCount)
-    {
+    public function __construct(
+        StoreBank $bank,
+        private readonly int $assignedStoresCount,
+        private readonly bool $isPayout = false,
+    ) {
         parent::__construct($bank);
     }
 
@@ -31,6 +40,7 @@ class StoreBankResource extends JsonResource
             'masked_account_number' => $this->resource->masked_account_number,
             'is_primary' => (bool) $this->resource->is_primary,
             'is_verified' => (bool) $this->resource->is_verified,
+            'is_payout' => $this->isPayout,
             'assigned_stores_count' => $this->assignedStoresCount,
             'created_at' => $this->resource->created_at?->toISOString(),
         ];

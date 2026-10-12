@@ -18,6 +18,7 @@ use App\Http\Resources\Management\PaymentSettings\PaystackBankResource;
 use App\Http\Resources\Management\PaymentSettings\ResolvedAccountResource;
 use App\Http\Resources\Management\PaymentSettings\StoreBankResource;
 use App\Http\Resources\Management\PaymentSettings\StoreSummaryResource;
+use App\Models\Business;
 use App\Models\Store;
 use App\Models\StoreBank;
 use App\Repositories\Management\PaymentSettingsRepository;
@@ -75,8 +76,13 @@ class PaymentSettingsController extends ApiController
 
         $bankTransfer = $this->repository->businessMethodRow($businessId, 'bank_transfer');
 
+        // Read once for the whole list rather than once per row: this is the
+        // screen that renders every account, and whether any given one is the
+        // payout destination is a single fact about the business.
+        $payoutBankId = $this->payoutBankId($businessId);
+
         return $this->ok([
-            'banks' => $banks->map(fn (StoreBank $bank) => $this->bankPayload($bank, $storeIds))->all(),
+            'banks' => $banks->map(fn (StoreBank $bank) => $this->bankPayload($bank, $storeIds, $payoutBankId))->all(),
             'gateways' => $this->repository->businessGateways($businessId)
                 ->map(fn ($row) => $this->gatewayPayload($row, $storeIds))->all(),
             'available_gateways' => AvailableGatewayResource::collection(
@@ -124,12 +130,21 @@ class PaymentSettingsController extends ApiController
         ]);
 
         return $this->ok(
-            ['bank' => $this->bankPayload($bank, $this->accessibleStoreIds($request))],
+            ['bank' => $this->bankPayload($bank, $this->accessibleStoreIds($request), $this->payoutBankId((int) $bank->business_id))],
             'Bank account added successfully.',
             201,
         );
     }
 
+    /**
+     * Rename an account, or make it the primary one.
+     *
+     * The account *itself* is immutable here — the request accepts a display name
+     * and the primary flag and nothing else — which is what keeps the provider's
+     * destination from going stale behind an edit. Editing the payout bank is
+     * therefore always safe, and moving the destination means naming a different
+     * account, which is the deliberate act with its own place to do it.
+     */
     public function updateBankAccount(UpdateBankAccountRequest $request, StoreBank $bank): JsonResponse
     {
         $this->tenantGuard->authorizeBusiness($bank, $this->user($request), self::ACCESS_DENIED_BANK);
@@ -137,7 +152,7 @@ class PaymentSettingsController extends ApiController
         $this->service->updateBankAccount($bank, $request->validated(), (int) $this->user($request)->business_id);
 
         return $this->ok(
-            ['bank' => $this->bankPayload($bank->fresh(), $this->accessibleStoreIds($request))],
+            ['bank' => $this->bankPayload($bank->fresh(), $this->accessibleStoreIds($request), $this->payoutBankId((int) $bank->business_id))],
             'Bank account updated successfully.',
         );
     }
@@ -146,6 +161,16 @@ class PaymentSettingsController extends ApiController
      * The primary account cannot be deleted (legacy store-bank rule, applied
      * to business accounts too): a storefront must always have a payout
      * account to fall back to, so the owner has to promote another first.
+     *
+     * The account named as where sales are paid into cannot be deleted either,
+     * and for a harder reason. The provider holds it as a subaccount's
+     * settlement bank, and the row here is the only record of which of the
+     * business's accounts that is; deleting it would leave the business with
+     * money going to an account it can no longer see, and — because the pointer
+     * is what names a destination — would silently send it back through the
+     * setup step as though it had never answered. Changing where the money goes
+     * is a deliberate act with its own place to do it, not a side effect of
+     * tidying up a list of bank accounts.
      */
     public function destroyBankAccount(Request $request, StoreBank $bank): JsonResponse
     {
@@ -155,9 +180,40 @@ class PaymentSettingsController extends ApiController
             return $this->error('Cannot delete the primary bank account. Set another account as primary first.', 422);
         }
 
+        if ($this->isPayoutBank($request, $bank)) {
+            return $this->error('Cannot delete the bank account your sales are paid into. Choose another account to be paid into first.', 422);
+        }
+
         $this->service->deleteBankAccount($bank, (int) $this->user($request)->business_id);
 
         return $this->ok([], 'Bank account deleted successfully.');
+    }
+
+    /**
+     * Whether this is the account the business's sales are paid into.
+     *
+     * Read from the business rather than from the bank row so that the answer
+     * does not depend on the tenant guard's own assumptions: the pointer is a
+     * column on `businesses`, and the account it names is this business's by
+     * construction.
+     */
+    private function isPayoutBank(Request $request, StoreBank $bank): bool
+    {
+        return $this->payoutBankId((int) $this->user($request)->business_id) === (int) $bank->id;
+    }
+
+    /**
+     * The account this business's sales are paid into, if it has named one.
+     *
+     * The pointer lives on `businesses` rather than on the bank row, so reading
+     * it is a query of its own. Callers rendering a list should read it once and
+     * pass it down rather than let a payload builder reach for it per row.
+     */
+    private function payoutBankId(int $businessId): ?int
+    {
+        $id = Business::query()->whereKey($businessId)->value('payout_bank_id');
+
+        return $id === null ? null : (int) $id;
     }
 
     public function setPrimaryBank(Request $request, StoreBank $bank): JsonResponse
@@ -414,9 +470,13 @@ class PaymentSettingsController extends ApiController
      * @param  Collection<int, int>|array<int, int>  $storeIds
      * @return array<string, mixed>
      */
-    private function bankPayload(StoreBank $bank, $storeIds): array
+    private function bankPayload(StoreBank $bank, $storeIds, ?int $payoutBankId): array
     {
-        return (new StoreBankResource($bank, $this->repository->assignedBankStoreCount($bank, $storeIds)))->resolve();
+        return (new StoreBankResource(
+            $bank,
+            $this->repository->assignedBankStoreCount($bank, $storeIds),
+            $payoutBankId !== null && $payoutBankId === (int) $bank->id,
+        ))->resolve();
     }
 
     /**

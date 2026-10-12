@@ -22,12 +22,17 @@ use Illuminate\Validation\Rule;
  * for a sole trader would put them through a registration-number requirement
  * they can never satisfy.
  *
- * `terms_accepted` is the owner's acceptance of Bachs' terms, given here and
- * submitted by us as `tos_acceptance`. It is required rather than defaulted
+ * `terms_accepted` is the owner's acceptance of the provider's terms, given here
+ * and submitted by us as `tos_acceptance`. It is required rather than defaulted
  * because it is a contractual act: the provider holds the business to it, so it
  * has to be something the owner actually did, on a form that names what they
  * were accepting. The timestamp and the IP we submit are recorded from this
  * request at the moment the box was ticked, not invented at submission time.
+ *
+ * The messages name no provider, deliberately. Which one is in force is the
+ * platform's decision and not the business's, so a business that is told to
+ * accept "Bachs' terms" is being asked to agree to something it never chose —
+ * and on a screen that otherwise never mentions the provider at all.
  */
 final class RegisterPayoutAccountRequest extends FormRequest
 {
@@ -85,8 +90,8 @@ final class RegisterPayoutAccountRequest extends FormRequest
     {
         return [
             'entity_type.required' => 'Tell us whether this business is registered as a company or owned by an individual.',
-            'terms_accepted.accepted' => 'Accept Bachs\' terms to register the account your sales will be paid into.',
-            'terms_accepted.required' => 'Accept Bachs\' terms to register the account your sales will be paid into.',
+            'terms_accepted.accepted' => 'Accept the payment terms to register the account your sales are paid into.',
+            'terms_accepted.required' => 'Accept the payment terms to register the account your sales are paid into.',
             'store_bank_id.exists' => 'That bank account is not one of this business\'s accounts.',
             'account_number.required_without' => 'Enter the account number, or choose a bank account already on file.',
             'account_number.digits' => 'A Nigerian account number is ten digits.',

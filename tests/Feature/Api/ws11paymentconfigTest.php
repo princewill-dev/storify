@@ -382,6 +382,75 @@ test('the primary bank cannot be deleted and a secondary one can', function () {
     expect(StoreBank::find($secondary->id))->toBeNull();
 });
 
+test('the bank account a business is paid into cannot be deleted', function () {
+    // Deleting it would null the pointer through the foreign key's
+    // `nullOnDelete` and put the business straight back into the forced step —
+    // where the only thing it could do is name the account it just deleted. The
+    // refusal is the same shape as the primary bank's, and the way out is the
+    // same: choose a different account to be paid into first.
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+
+    $payout = ws11Bank($owner, ['account_number' => '0333333333']);
+    $other = ws11Bank($owner, ['account_number' => '0444444444', 'is_primary' => false]);
+
+    $business->forceFill(['payout_bank_id' => $payout->id, 'payout_entity_type' => 'company'])->save();
+
+    $this->withToken(ws11Token($owner))
+        ->deleteJson("/api/v1/management/payment-settings/bank-accounts/{$payout->id}")
+        ->assertStatus(422)
+        ->assertJsonPath('message', 'Cannot delete the bank account your sales are paid into. Choose another account to be paid into first.');
+
+    expect(StoreBank::find($payout->id))->not->toBeNull();
+
+    // Pointing the business elsewhere is what releases it, and then it goes.
+    $business->forceFill(['payout_bank_id' => $other->id])->save();
+
+    $this->withToken(ws11Token($owner))
+        ->deleteJson("/api/v1/management/payment-settings/bank-accounts/{$payout->id}")
+        ->assertOk();
+
+    expect(StoreBank::find($payout->id))->toBeNull();
+});
+
+test('a bank account that is not the payout one is still deletable', function () {
+    // The guard is on one row, not on the feature: a business with three
+    // accounts must still be able to tidy up the two it does not use.
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+
+    $payout = ws11Bank($owner, ['account_number' => '0555555555']);
+    $spare = ws11Bank($owner, ['account_number' => '0666666666', 'is_primary' => false]);
+
+    $business->forceFill(['payout_bank_id' => $payout->id])->save();
+
+    $this->withToken(ws11Token($owner))
+        ->deleteJson("/api/v1/management/payment-settings/bank-accounts/{$spare->id}")
+        ->assertOk();
+
+    expect(StoreBank::find($spare->id))->toBeNull()
+        ->and((int) $business->refresh()->payout_bank_id)->toBe((int) $payout->id);
+});
+
+test('the list marks the account a business is paid into, and only that one', function () {
+    // The screen has to be able to say which account is the destination, or the
+    // refusal above reads as an arbitrary rule. It is a pointer on `businesses`
+    // rather than a column on the bank, so the flag is computed per list and the
+    // thing worth pinning is that exactly one row carries it.
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+
+    $payout = ws11Bank($owner, ['account_number' => '0777777777']);
+    ws11Bank($owner, ['account_number' => '0888888888', 'is_primary' => false]);
+
+    $business->forceFill(['payout_bank_id' => $payout->id])->save();
+
+    $banks = collect($this->withToken(ws11Token($owner))
+        ->getJson('/api/v1/management/payment-settings')
+        ->assertOk()
+        ->json('data.banks'));
+
+    expect($banks->where('is_payout', true))->toHaveCount(1)
+        ->and($banks->firstWhere('is_payout', true)['id'])->toBe($payout->id);
+});
+
 test('a bank belonging to another business cannot be updated, promoted or deleted', function () {
     [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
     [$otherOwner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);

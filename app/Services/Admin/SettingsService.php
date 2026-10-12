@@ -10,6 +10,7 @@ use App\Repositories\Admin\SettingsRepository;
 use App\Services\ActivityLogger;
 use App\Services\Subscription\PlatformBillingGateway;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -24,9 +25,10 @@ use Illuminate\Support\Facades\Storage;
  * this screen has always used the file lifecycle: the superseded file is
  * deleted just before the replacement is stored. After the transaction
  * commits, in this exact sequence: the branding caches are busted, the audit
- * row is written (changed key *names* only — never values) and the change mail
- * is queued to the first superadmin. Those three must stay after the commit
- * and in that order.
+ * row is written (changed key *names* only — never values), the change mail is
+ * queued to the first superadmin, and — when the platform's processor actually
+ * changed — the job that re-points businesses' payout destinations. Those four
+ * must stay after the commit and in that order.
  *
  * The `settings` table is a singleton row. Four caches read it at runtime
  * (`company_settings`, `admin_main_store`, `home_main_store` and
@@ -167,8 +169,43 @@ final class SettingsService
         $this->bustCaches($changed);
         $this->recordAudit($changed);
         $this->notifySuperadmin($changed);
+        $this->repointPayees($changed);
 
         return [$settings, $changed];
+    }
+
+    /**
+     * Re-point businesses' payout destinations after the processor in force has
+     * changed.
+     *
+     * Queued, and queued *here*, after the transaction rather than inside it: a
+     * worker picking the job up mid-save would read the old settings and register
+     * destinations for the processor that is on its way out.
+     *
+     * This is a latency improvement and not the mechanism. Businesses that have
+     * been named at one processor and are now enforced at another are shown the
+     * step that registers the new one on their next visit, and `connect:payees`
+     * runs hourly regardless — so a job that never gets a worker costs an hour,
+     * not correctness.
+     *
+     * Only when the change actually happened: `changedKeys()` compares the row
+     * as it was against the row as it now is, so saving an unrelated tab — which
+     * this column rides along on — does not re-queue a platform-wide pass.
+     *
+     * @param  array<int, string>  $changed
+     */
+    private function repointPayees(array $changed): void
+    {
+        if (! in_array('system_payment_processor', $changed, true)) {
+            return;
+        }
+
+        try {
+            Artisan::queue('connect:payees');
+        } catch (\Throwable $e) {
+            // The scheduled run is what this was ever going to accelerate.
+            Log::warning('api.admin.connect_payees_not_queued', ['error' => $e->getMessage()]);
+        }
     }
 
     /**

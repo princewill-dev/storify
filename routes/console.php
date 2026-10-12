@@ -61,3 +61,26 @@ Schedule::command('connect:requirements')
     // Shorter than the gap between runs, for the same reason the sweep's is:
     // one account stuck on an unresponsive provider call must not skip the hour.
     ->withoutOverlapping(10);
+
+// Point each business's account at the bank account it named, for the two ways
+// those come apart after the fact: an admin changing the processor, which leaves
+// businesses named at one provider and enforced at another, and a registration
+// whose destination call failed while the account itself was created.
+//
+// It creates no accounts — a provider's entity type and terms acceptance are
+// decided once, and terms are not accepted on anybody's behalf, so account
+// creation stays in the business's own session. A business with no account at
+// the processor in force is reported and skipped, and the step it sees on its
+// next visit is what closes that.
+//
+// Cheap enough to run every hour: it compares the stored destination with the
+// account on file and makes no provider call unless the two disagree, so a
+// platform with nothing out of step costs one local read per connection. Not
+// guarded by a `when()` for the same reason the sweep is not — the cheapest way
+// to learn this has stopped running is a business whose money is not moving.
+Schedule::command('connect:payees')
+    // After the requirement pass and well clear of the sweep's own minute, so a
+    // destination registered here is picked up by the next hour's payout rather
+    // than racing it.
+    ->hourlyAt(40)
+    ->withoutOverlapping(10);

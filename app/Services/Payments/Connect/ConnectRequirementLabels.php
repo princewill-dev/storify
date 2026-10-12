@@ -7,9 +7,9 @@ namespace App\Services\Payments\Connect;
  *
  * The provider names its requirements as field paths — `company.registration_number`,
  * `persons.per_3a91c0d7.id_document` — which is exactly right for an API and
- * useless on a screen. A business owner shown "Add a bank account so Storify can
- * pay your sales out to you" beside "persons.per_3a91c0d7.id_document" has been
- * told half a sentence and a database key.
+ * useless on a screen. A business owner shown "Add the bank account your sales
+ * are paid into" beside "persons.per_3a91c0d7.id_document" has been told half a
+ * sentence and a database key.
  *
  * One table, read by two callers: the management screen, to label each
  * outstanding requirement, and {@see ConnectRequirementService}, to say why it

@@ -158,7 +158,43 @@ final class PaymentGatewayResolver
             $enforced,
         );
 
-        return $this->enforcedUnavailableReason($enforced, $resolved, $enforced);
+        return $this->enforcedUnavailableReason($enforced, $resolved, $enforced, (int) $store->business_id);
+    }
+
+    /**
+     * Whether the platform can charge on this business's behalf right now.
+     *
+     * The same test {@see self::states()} applies, asked at business scope: an
+     * account registered at the enforced processor that can be charged *and* can
+     * be paid out to. It is deliberately not a reason string — the callers that
+     * need one get it from `states()`, and the caller that needs a yes or no is
+     * the sign-in gate deciding whether a business still has to be asked where
+     * its money goes.
+     *
+     * Only the business's own row is read. A store's separate settlement account
+     * is that store's, and does not answer the question this asks: whether the
+     * business has named a destination at all.
+     *
+     * False when the stored processor is one this build cannot run, because
+     * `SystemProcessor::code()` is null — a state in which nobody can be charged,
+     * and which is an admin's to fix rather than a business's.
+     */
+    public function enforcedProcessorReady(int $businessId): bool
+    {
+        $code = SystemProcessor::code();
+
+        if ($code === null) {
+            return false;
+        }
+
+        $resolved = $this->resolve(
+            $code,
+            $this->businessRows($businessId)->get($code),
+            null,
+            SystemProcessor::stored(),
+        );
+
+        return $this->managedIsProvisioned($code, $resolved, true);
     }
 
     /**
@@ -563,6 +599,31 @@ final class PaymentGatewayResolver
             ->exists();
     }
 
+    /**
+     * Whether the business has named which of its accounts its sales are paid
+     * into — which is a different question from {@see self::businessHasBankAccount()}.
+     *
+     * That one asks whether an account exists to receive a manual transfer, and a
+     * business may hold several for its own bookkeeping. This one asks whether the
+     * owner has answered the question only they can answer, and it is the answer
+     * the provider's subaccount is built from.
+     *
+     * Null is a "no": the callers that pass one either have no business in hand or
+     * are describing a business that cannot be resolved, and both are states in
+     * which nothing has been named.
+     */
+    private function hasPayoutBank(?int $businessId): bool
+    {
+        if ($businessId === null) {
+            return false;
+        }
+
+        return DB::table('businesses')
+            ->where('id', $businessId)
+            ->whereNotNull('payout_bank_id')
+            ->exists();
+    }
+
     private function unavailableReason(string $code, ResolvedGateway $resolved, ?string $currency, int $businessId, ?string $enforced = null): ?string
     {
         $method = DB::table('payment_methods')->where('code', $code)->first();
@@ -580,7 +641,7 @@ final class PaymentGatewayResolver
         // enforcement that is exactly the state that *most* needs explaining: a
         // business with nothing registered is a business that cannot sell.
         if ($enforced !== null) {
-            return $this->enforcedUnavailableReason($code, $resolved, $enforced);
+            return $this->enforcedUnavailableReason($code, $resolved, $enforced, $businessId);
         }
 
         if ($resolved->source === 'none') {
@@ -627,8 +688,18 @@ final class PaymentGatewayResolver
      * this provider is even the enforced one, and only then the connection. Each
      * earlier answer makes the later questions meaningless — a business with no
      * settlement account does not need to be told its account is under review.
+     *
+     * The two answers for "no account at the enforced processor" are told apart
+     * by the business's own bank account rather than by the provider's view of
+     * it, because they are different situations with different owners: a business
+     * that has never named an account has something to do, and one that has named
+     * it but holds no account at *this* processor is waiting on a setup step —
+     * which happens when an admin changes the processor under a business that had
+     * already registered. Saying "you have not registered a settlement account"
+     * to the second is what the admin read as the platform blaming the wrong
+     * party for its own plumbing.
      */
-    private function enforcedUnavailableReason(string $code, ResolvedGateway $resolved, string $enforced): ?string
+    private function enforcedUnavailableReason(string $code, ResolvedGateway $resolved, string $enforced, ?int $businessId = null): ?string
     {
         // The admin selected a processor this build cannot run. Nothing can be
         // charged through *anything*, and saying so once is better than
@@ -649,7 +720,9 @@ final class PaymentGatewayResolver
         // before the account checks below, which would otherwise all describe an
         // account that does not exist.
         if ($resolved->managed === null) {
-            return 'Storify processes all payments; this business has not registered a settlement account yet.';
+            return $this->hasPayoutBank($businessId)
+                ? 'Your bank account is registered, but your payment account is not set up yet.'
+                : 'Set the bank account your sales are paid into to take payments.';
         }
 
         // Past this point it is the account's own state, and it reads the same
@@ -665,7 +738,7 @@ final class PaymentGatewayResolver
         // has no later step in which to fix it — see
         // {@see self::managedIsProvisioned()}.
         if (! $resolved->managed->canBePaidOut()) {
-            return 'Add a bank account so Storify can pay your sales out to you.';
+            return 'Add the bank account your sales are paid into.';
         }
 
         // Everything about the connection is fine and it is still off, which
@@ -717,7 +790,7 @@ final class PaymentGatewayResolver
         }
 
         if (! $account->canBePaidOut()) {
-            return 'Add a bank account so Storify can pay your sales out to you.';
+            return 'Add the bank account your sales are paid into.';
         }
 
         return null;

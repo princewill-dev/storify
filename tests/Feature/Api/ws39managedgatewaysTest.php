@@ -302,7 +302,7 @@ test('a managed account with no bank registered is offered, but says what is mis
     expect($state['managed']['can_charge'])->toBeTrue()
         ->and($state['managed']['can_be_paid_out'])->toBeFalse()
         ->and($state['managed']['payout_destination'])->toBeNull()
-        ->and($state['unavailable_reason'])->toBe('Add a bank account so Storify can pay your sales out to you.');
+        ->and($state['unavailable_reason'])->toBe('Add the bank account your sales are paid into.');
 });
 
 test('a direct charge with no usable account id is refused before anything is posted', function () {

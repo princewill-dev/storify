@@ -6,6 +6,7 @@ use App\Models\Order;
 use App\Models\PaymentMethod;
 use App\Models\Setting;
 use App\Models\Store;
+use App\Models\StoreBank;
 use App\Models\Transaction;
 use App\Models\User;
 use App\Services\Payments\Connect\PlatformPayoutService;
@@ -159,6 +160,25 @@ function ws40Managed(Business $business, string $code, string $accountId, bool $
             'updated_at' => now(),
         ],
     );
+}
+
+/**
+ * The business has said which bank account its sales are paid into.
+ *
+ * The pointer and nothing else: no provider account, no connection row. It is
+ * the state a business lands in when it has named an account and the platform
+ * has not yet — or can no longer — be paid through.
+ */
+function ws40PayoutBank(Business $business, string $entityType = 'company'): StoreBank
+{
+    $bank = StoreBank::factory()->create(['business_id' => $business->id]);
+
+    $business->forceFill([
+        'payout_bank_id' => $bank->id,
+        'payout_entity_type' => $entityType,
+    ])->save();
+
+    return $bank;
 }
 
 /**
@@ -514,7 +534,7 @@ test('every provider but the selected one is not offered, and says why', functio
         ->and($states['bachs']['platform_enforced_code'])->toBe('bachs');
 });
 
-test('a business with no settlement account offers nothing, and says why', function () {
+test('a business with no bank account named offers nothing, and says why', function () {
     ws40PlatformPaystack();
     ws40Switch('paystack');
 
@@ -523,9 +543,31 @@ test('a business with no settlement account offers nothing, and says why', funct
 
     $payload = $this->getJson('/api/v1/storefront/'.$store->slug.'/payment-methods')->assertOk();
 
+    // The customer and the owner get the same sentence, and it asks for the
+    // thing the business is actually asked for. It used to say the business had
+    // "not registered a settlement account", which is Storify's word for its own
+    // plumbing and names a step the business was never given.
     expect($payload->json('data.payment_methods'))->toBe([])
         ->and($payload->json('data.unavailable_reason'))
-        ->toBe('Storify processes all payments; this business has not registered a settlement account yet.');
+        ->toBe('Set the bank account your sales are paid into to take payments.');
+});
+
+test('a business that has named a bank account is told it is waiting on setup', function () {
+    ws40PlatformPaystack();
+    ws40Switch('paystack');
+
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    $store = ws40Store($owner);
+    ws40PayoutBank($business);
+
+    // The state a processor switch creates: the business has said where its
+    // money goes, and has no account at the processor now in force. That is not
+    // something it did wrong and not something it can do anything about, so it
+    // is told it is waiting rather than asked to register anything again.
+    $payload = $this->getJson('/api/v1/storefront/'.$store->slug.'/payment-methods')->assertOk();
+
+    expect($payload->json('data.unavailable_reason'))
+        ->toBe('Your bank account is registered, but your payment account is not set up yet.');
 });
 
 test('an account with nowhere to pay out to is refused only under enforcement', function () {
@@ -549,7 +591,7 @@ test('an account with nowhere to pay out to is refused only under enforcement', 
 
     expect(collect($resolver->forStore($store))->keys())->not->toContain('bachs')
         ->and($resolver->storeUnavailableReason($store))
-        ->toBe('Add a bank account so Storify can pay your sales out to you.');
+        ->toBe('Add the bank account your sales are paid into.');
 });
 
 test('the PosCheckoutRequest allow-list drops cash and the legacy transfer alias', function () {
@@ -574,7 +616,7 @@ test('the PosCheckoutRequest allow-list drops cash and the legacy transfer alias
     $this->withToken($token)
         ->getJson('/api/v1/pos/stores/'.$store->store_id.'/payment-methods')
         ->assertOk()
-        ->assertJsonPath('data.unavailable_reason', 'Storify processes all payments; this business has not registered a settlement account yet.');
+        ->assertJsonPath('data.unavailable_reason', 'Set the bank account your sales are paid into to take payments.');
 });
 
 /*
@@ -948,10 +990,16 @@ test('the pre-flight lists the businesses that would stop being able to sell', f
     // reason and the stores behind it.
     expect($lockedOut->pluck('business_id')->all())->toBe([(int) $broken->id])
         ->and($lockedOut->first()['stores_locked_out'])->toBe(1)
-        ->and($lockedOut->first()['reason'])->toBe('No settlement account has been registered on Paystack.')
+        ->and($lockedOut->first()['reason'])->toBe('No bank account has been set for its payments to be paid into.')
+        ->and($lockedOut->first()['kind'])->toBe('bank_account')
         ->and($payload->json('data.businesses_locked_out'))->toBe(1)
         ->and($payload->json('data.stores_locked_out'))->toBe(1)
-        ->and($payload->json('data.businesses_total'))->toBe(2);
+        ->and($payload->json('data.businesses_total'))->toBe(2)
+        // And the two counts beside the total, which are the difference between
+        // a list an admin works through and a list they read. Nobody here has a
+        // bank account, so nothing is waiting on setup.
+        ->and($payload->json('data.businesses_without_bank_account'))->toBe(1)
+        ->and($payload->json('data.businesses_awaiting_setup'))->toBe(0);
 });
 
 test('the pre-flight answers for a processor that is not switched on yet', function () {
@@ -976,9 +1024,57 @@ test('the pre-flight answers for a processor that is not switched on yet', funct
         ->assertJsonPath('data.counted_for', 'bachs')
         ->assertJsonPath('data.counted_for_name', 'Bachs')
         ->assertJsonPath('data.businesses_locked_out', 1)
-        ->assertJsonPath('data.businesses.0.reason', 'No settlement account has been registered on Bachs.');
+        ->assertJsonPath('data.businesses.0.reason', 'No bank account has been set for its payments to be paid into.');
 
     expect(collect($payload->json('data.businesses'))->pluck('business_id')->all())->toBe([(int) $broken->id]);
+});
+
+test('the pre-flight separates businesses that named a bank account from those that have not', function () {
+    // The distinction the admin asked for, and the reason it is a distinction:
+    // one of these is a conversation and the other is not. A business that has
+    // never said where its money should go has to be asked; one that has said,
+    // and is merely waiting for an account at the processor in force, has done
+    // everything it was ever asked to do — which is exactly what a processor
+    // switch looks like from the console, and is not something to go and ask
+    // anybody about.
+    //
+    // Neither row may name the processor. It is Storify's plumbing, the admin
+    // has nothing to build there, and a reason that named it is what read as the
+    // platform blaming the wrong party.
+    ws40PlatformBachs();
+    ws40Switch('bachs');
+
+    [$namedOwner, $named] = createBusinessOwner(['trial_ends_at' => now()->addWeek()], ['name' => 'Ada Trading Ltd']);
+    ws40Store($namedOwner);
+    ws40PayoutBank($named);
+
+    [$silentOwner, $silent] = createBusinessOwner(['trial_ends_at' => now()->addWeek()], ['name' => 'Bola Stores']);
+    ws40Store($silentOwner);
+
+    // And one that can sell, which must not be listed however the counts are
+    // re-keyed: the list is of businesses that cannot take money, and an account
+    // that works is an account that works.
+    [$readyOwner, $ready] = createBusinessOwner(['trial_ends_at' => now()->addWeek()], ['name' => 'Chidi Ltd']);
+    ws40Store($readyOwner);
+    ws40Managed($ready, 'bachs', 'ACCT_ready');
+
+    $payload = $this->getJson('/api/v1/admin/payments/enforcement-preview', ws40AdminHeaders(ws40Admin()))
+        ->assertOk()
+        ->assertJsonPath('data.businesses_locked_out', 2)
+        ->assertJsonPath('data.businesses_total', 3)
+        ->assertJsonPath('data.businesses_without_bank_account', 1)
+        ->assertJsonPath('data.businesses_awaiting_setup', 1);
+
+    $rows = collect($payload->json('data.businesses'))->keyBy('business_id');
+
+    expect($rows->keys()->all())->not->toContain((int) $ready->id)
+        ->and($rows[(int) $silent->id]['reason'])->toBe('No bank account has been set for its payments to be paid into.')
+        ->and($rows[(int) $silent->id]['kind'])->toBe('bank_account')
+        ->and($rows[(int) $named->id]['reason'])->toBe('Its bank account is on file, but its payment account has not been set up yet.')
+        ->and($rows[(int) $named->id]['kind'])->toBe('setup');
+
+    // No processor name anywhere in the reasons, which is the whole complaint.
+    expect(collect($rows)->pluck('reason')->implode(' '))->not->toContain('Bachs');
 });
 
 test('the pre-flight counts nobody when no processor is named and none is set', function () {

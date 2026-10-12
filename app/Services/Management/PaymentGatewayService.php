@@ -165,7 +165,16 @@ final class PaymentGatewayService
             return $result;
         }
 
-        $this->persistManagedConnection($provider, $actor, $store, (string) $result->accountId, $result->account, $result->destination, $input);
+        // The connection row and the business's naming of its payout bank are
+        // written together or not at all. They are two halves of one act — the
+        // provider now knows where to send the money, and the business has told
+        // us which of its accounts that is — and a half-applied version would
+        // leave a registered account at the provider with no record of which
+        // bank the owner chose.
+        DB::transaction(function () use ($provider, $actor, $store, $business, $result, $input): void {
+            $this->persistManagedConnection($provider, $actor, $store, (string) $result->accountId, $result->account, $result->destination, $input);
+            $this->recordPayoutBank($business, $store, $result->destination, $input);
+        });
 
         // Everything the provider is asking for that we already hold, submitted
         // in the same breath as the registration. Doing it here rather than only
@@ -279,6 +288,54 @@ final class PaymentGatewayService
             'bank_code' => (string) $input['bank_code'],
             'bank_name' => isset($input['bank_name']) ? (string) $input['bank_name'] : null,
         ];
+    }
+
+    /**
+     * Record which of the business's bank accounts its sales are paid into.
+     *
+     * The provider's own idea of a destination is a subaccount or a connected
+     * account, and it is on the far side of an API we do not control. This is the
+     * business's answer kept in our own terms: one row it owns, named on the
+     * business, which is what the business is asked for and the only thing the
+     * admin's view of "who cannot be paid" speaks about.
+     *
+     * **Only for a business-scoped registration.** A store may bank separately,
+     * and a store's registration says where *that store's* money goes. Writing it
+     * here as well would name a store's bank as the whole business's destination
+     * and quietly redirect every other store's settlements.
+     *
+     * **Only when the owner named one of the accounts on file.** Today's screen
+     * saves the account and then points at it, so the typed-detail payload is the
+     * exception rather than the rule; when it is used, no pointer is written
+     * rather than inventing a `store_banks` row from arguments this service is
+     * otherwise not responsible for. That leaves the pointer missing, which costs
+     * one extra confirmation on the business's next visit — and because the
+     * account at the provider already exists, confirming re-registers that same
+     * account rather than opening a second one.
+     *
+     * @param  array<string, mixed>|null  $destination  what the provider reported back
+     * @param  array<string, mixed>  $input  the validated registration payload
+     */
+    private function recordPayoutBank(Business $business, ?Store $store, ?array $destination, array $input): void
+    {
+        // A registration the provider accepted the account for but not the
+        // destination: nothing was registered to point at.
+        if ($store !== null || $destination === null || $destination === []) {
+            return;
+        }
+
+        $bankId = $input['store_bank_id'] ?? null;
+
+        if ($bankId === null || $bankId === '') {
+            return;
+        }
+
+        $business->forceFill([
+            'payout_bank_id' => (int) $bankId,
+            // Immutable at the provider once the account exists, so the answer
+            // given now is the one every later processor will be handed.
+            'payout_entity_type' => $input['entity_type'] ?? $business->payout_entity_type,
+        ])->save();
     }
 
     /**

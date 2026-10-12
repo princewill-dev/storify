@@ -2,6 +2,7 @@
 
 use App\Models\Business;
 use App\Models\Store;
+use App\Models\StoreBank;
 use App\Models\User;
 use App\Services\Payments\Connect\BachsConnectAccountService;
 use App\Services\Payments\PaymentGatewayResolver;
@@ -304,6 +305,32 @@ test('a business with no grant registers a payout account and never a gateway', 
         // Masked: enough to recognise the account, never enough to use it.
         ->and($bachs['managed']['payout_destination']['last4'])->toBe('6789')
         ->and($bachs['webhook_url'])->toBeNull();
+});
+
+test('choosing one of the business\'s own accounts names it as the payout bank', function () {
+    // The shape the form sends now: the account is saved — and name-verified
+    // through Paystack — by the bank-transfer screen, and this screen points at
+    // it by id rather than retyping a number that has already been checked. That
+    // id is what gets recorded as the business's payout bank, and it is the only
+    // thing the business is ever asked for: what the provider then builds out of
+    // it is Storify's, and is not something it holds a reference to.
+    ca39PlatformKeys();
+    ca39FakeBachs();
+
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+
+    $bank = StoreBank::factory()->create(['business_id' => $business->id]);
+
+    $this->withToken(ca39Token($owner))
+        ->putJson('/api/v1/management/payment-gateways/bachs/payout-account', [
+            'store_bank_id' => $bank->id,
+            'entity_type' => 'company',
+            'terms_accepted' => true,
+        ])
+        ->assertOk();
+
+    expect((int) $business->refresh()->payout_bank_id)->toBe((int) $bank->id)
+        ->and($business->payout_entity_type)->toBe('company');
 });
 
 test('a business already holding an account registers its bank against that one', function () {
