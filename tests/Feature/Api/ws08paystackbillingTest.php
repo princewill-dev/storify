@@ -871,11 +871,11 @@ test('bachs can bill a platform subscription end to end', function () {
         ->and((string) Transaction::where('reference', $payment->reference)->value('payment_method_id'))
         ->toBe((string) PaymentMethod::where('code', 'bachs')->value('id'));
 
-    // What Bachs was told to return the customer to. Bachs redirects to
-    // `success_url` verbatim — it appends nothing — so without the reference on
-    // it the customer arrived at a page that could not name the payment, and a
-    // paid subscription sat on "No payment reference was supplied." Paystack
-    // hid the omission by appending a reference of its own.
+    // What Bachs was told to return the customer to. Bachs appends its own
+    // `checkout_id` to whatever it is given, and not a reference — so without
+    // ours on the URL the customer arrived at a page that could not name the
+    // payment, and a paid subscription sat on "No payment reference was
+    // supplied." Paystack hid that by appending our own name for it.
     $sent = Http::recorded(fn (Request $request): bool => str_contains($request->url(), 'checkout-sessions'));
 
     expect($sent)->toHaveCount(1);
@@ -902,6 +902,66 @@ test('bachs can bill a platform subscription end to end', function () {
 
     expect($payment->status)->toBe(Payment::STATUS_SUCCESS)
         ->and($payment->subscription->fresh()->status)->toBe(Subscription::STATUS_ACTIVE);
+});
+
+test('a bachs charge for more than the plan is settled money, not a mismatch', function () {
+    // Bachs grosses the customer's charge up by its own fee: the 5,000.00 plan
+    // arrives as 5,075.00, exactly 1.5%. The customer has paid, in full and then
+    // some, so failing here would reject real money and leave somebody who
+    // completed a checkout without the plan they bought. A live sandbox
+    // subscription died on this — 7,500,000 kobo asked for, 7,612,500 reported.
+    Mail::fake();
+    app(LedgerSetupService::class)->ensureForBusiness(null);
+
+    [$owner] = ws08BachsBilling($this);
+
+    ws08FakeBachs('succeeded', '5075.00');
+
+    $this->withToken(ws08Token($owner))
+        ->postJson('/api/v1/management/subscription/process-payment', ['idempotency_key' => 'bachs-over-1'])
+        ->assertOk();
+
+    $payment = Payment::latest('id')->first();
+
+    $this->withToken(ws08Token($owner))
+        ->getJson('/api/v1/management/subscription/callback?reference='.$payment->reference)
+        ->assertOk()
+        ->assertJsonPath('data.already_processed', false);
+
+    $payment->refresh();
+
+    expect($payment->status)->toBe(Payment::STATUS_SUCCESS)
+        ->and($payment->subscription->fresh()->status)->toBe(Subscription::STATUS_ACTIVE)
+        // The plan, not the surplus: revenue is the price of the plan, and the
+        // extra 750 kobo is the provider's fee, which never reaches this ledger.
+        ->and((float) $payment->amount)->toBe(5000.0);
+});
+
+test('a bachs charge for less than the plan is still refused', function () {
+    // Underpayment stays a mismatch, and stays deliberate: a subscription has a
+    // fixed price, so a customer who paid less has not bought the plan.
+    Mail::fake();
+
+    [$owner] = ws08BachsBilling($this);
+
+    ws08FakeBachs('succeeded', '4000.00');
+
+    $this->withToken(ws08Token($owner))
+        ->postJson('/api/v1/management/subscription/process-payment', ['idempotency_key' => 'bachs-under-1'])
+        ->assertOk();
+
+    $payment = Payment::latest('id')->first();
+
+    $this->withToken(ws08Token($owner))
+        ->getJson('/api/v1/management/subscription/callback?reference='.$payment->reference)
+        ->assertStatus(422)
+        ->assertJsonPath('message', 'Payment verification failed.');
+
+    $payment->refresh();
+
+    expect($payment->status)->toBe(Payment::STATUS_FAILED)
+        ->and($payment->failure_reason)->toBe('Gateway verification mismatch.')
+        ->and($payment->subscription->fresh()->status)->toBe(Subscription::STATUS_PENDING);
 });
 
 test('the same idempotency key re-redirects to the stored bachs checkout', function () {

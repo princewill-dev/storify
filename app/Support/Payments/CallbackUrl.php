@@ -14,12 +14,13 @@ namespace App\Support\Payments;
  * not exist as far as the screen is concerned.
  *
  * The callback page was written against Paystack, which appends
- * `?reference=…&trxref=…` to the `callback_url` it was given. Most providers do
- * not. Bachs takes `success_url` and redirects to it *verbatim* — the customer
- * came back to exactly the URL we sent, with no query string at all, and every
- * Bachs payment ended on that dead end. Nothing in the codebase had ever added
- * a reference, so the working Paystack flow was an accident of that provider's
- * redirect convention rather than something this application arranged.
+ * `?reference=…&trxref=…` to the `callback_url` it was given. Providers that
+ * decorate the URL at all decorate it their own way, and Bachs' way is
+ * `?checkout_id=chk_…` — its own name for the payment, which is not a value
+ * `GET /subscription/callback` can look anything up by. Nothing in the codebase
+ * had ever added a reference, so the working Paystack flow was an accident of
+ * that provider's redirect convention rather than something this application
+ * arranged, and every Bachs payment ended on the dead end below.
  *
  * So the reference is now part of the URL before the gateway is called. Every
  * provider then returns the customer to a page that can verify, whether it

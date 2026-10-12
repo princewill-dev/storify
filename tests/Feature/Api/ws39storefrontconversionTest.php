@@ -320,11 +320,11 @@ test('a naira charge keeps its byte-identical shape, with no pricing block', fun
 /* ------------------------------------------- the return leg names the payment */
 
 test('the return url the provider is given carries the reference the success page needs', function () {
-    // Only Paystack decorates the callback URL itself. Every other provider
-    // redirects to what it was handed, so without the reference on it the
-    // success page has nothing to verify against and — if the webhook has not
-    // landed yet — sends the customer back to pay for an order they already
-    // paid, which is the failure this pins shut.
+    // A provider that decorates the callback URL uses its own name for the
+    // payment — Bachs appends `checkout_id`, which nothing here can look up —
+    // so without a reference of ours on it the success page has nothing to
+    // verify against and, if the webhook has not landed yet, sends the customer
+    // back to pay for an order they already paid. This pins that shut.
     sc39FakeBitfra();
 
     [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);

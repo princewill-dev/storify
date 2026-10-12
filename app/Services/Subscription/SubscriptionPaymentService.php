@@ -138,10 +138,10 @@ final class SubscriptionPaymentService
                 email: (string) $user->email,
                 // The reference rides on the return URL, because the callback
                 // page has nothing else to name this payment by. Paystack
-                // appends one of its own; Bachs — and every other provider
-                // here — redirects to what it was given, verbatim, which is
-                // how a paid Bachs subscription ended on "No payment reference
-                // was supplied." See {@see CallbackUrl}.
+                // appends one of its own; Bachs appends `checkout_id`, which
+                // the callback endpoint has no lookup for — so a paid Bachs
+                // subscription ended on "No payment reference was supplied."
+                // See {@see CallbackUrl}.
                 callbackUrl: CallbackUrl::withReference(
                     $callbackUrl ?? url('/subscription/callback'),
                     $payment->reference,
@@ -182,7 +182,10 @@ final class SubscriptionPaymentService
     /**
      * Verify the payment with the gateway it was made through and fail it —
      * payment and transaction together — when the gateway disagrees on status,
-     * amount or currency.
+     * underpayment or currency.
+     *
+     * A provider reporting *more* than was asked for is not a disagreement and
+     * does not fail the payment: see {@see self::inspectGatewayPayment()}.
      *
      * `koboFromStrict` is deliberate: a malformed stored amount must convert to
      * zero and fail the comparison rather than match a guessed value.
@@ -253,9 +256,37 @@ final class SubscriptionPaymentService
         $verifiedKobo = $verification->amountMinor ?? -1;
         $verifiedCurrency = strtoupper((string) $verification->currency);
 
+        // `>=`, not `===`: a provider reporting **more** than was asked for is
+        // settled money, and refusing it rejects a customer who has already
+        // paid. Bachs is the case that forced this — it grosses the customer's
+        // charge up by its own fee, so ₦75,000 asked for arrives as ₦76,125,
+        // exactly 1.5% — and the merchant path reached the same conclusion
+        // first, in `CheckoutPaymentService::isUnderpaid()`, where the surplus
+        // is FX movement instead.
+        //
+        // Underpayment is still refused, and that stays deliberate: a
+        // subscription has a fixed price, so a customer who paid less has not
+        // bought the plan. It also cannot be gamed in the other direction — a
+        // subscription grants the plan whatever was paid, so there is nothing to
+        // gain by overpaying.
         $verified = $verification->isPaid()
-            && $verifiedKobo === $expectedKobo
+            && $verifiedKobo >= $expectedKobo
             && ($verifiedCurrency === '' || $verifiedCurrency === strtoupper((string) $payment->currency));
+
+        if ($verified && $verifiedKobo > $expectedKobo) {
+            // Logged rather than passed over: the surplus is real money in the
+            // provider's account that the ledger does not know about, because
+            // `postSubscriptionPayment()` books revenue from `$payment->amount`
+            // — the price of the plan, which is the right figure for income and
+            // the wrong one for a reconciliation against the bank.
+            Log::info('api.management.subscription_payment_overpaid', [
+                'payment_id' => $payment->id,
+                'payment_gateway' => $code,
+                'expected_kobo' => $expectedKobo,
+                'verified_kobo' => $verifiedKobo,
+                'surplus_kobo' => $verifiedKobo - $expectedKobo,
+            ]);
+        }
 
         return new GatewayVerificationResult(
             $verified,

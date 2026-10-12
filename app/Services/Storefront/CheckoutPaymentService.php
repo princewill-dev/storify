@@ -179,9 +179,10 @@ final class CheckoutPaymentService
                     currency: $driver->currency(),
                     email: (string) $email,
                     // The return page is told which payment it is receiving,
-                    // because a provider that redirects to what it was handed —
-                    // Bachs does, Paystack does not — would otherwise send the
-                    // customer back to a page that cannot name the payment.
+                    // because a provider that decorates the URL decorates it
+                    // with its own name — Bachs appends `checkout_id`, Paystack
+                    // its own `reference` — and only the latter is one this
+                    // application can look a payment up by.
                     callbackUrl: CallbackUrl::withReference(
                         (string) ($data['callback_url'] ?? url('/')),
                         $reference,
