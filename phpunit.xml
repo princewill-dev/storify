@@ -20,6 +20,13 @@
     <php>
         <env name="APP_ENV" value="testing"/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
+        <!-- Debug mode stays on in .env for local development, and it reaches
+             tests too, where debugbar then instruments every request a test
+             makes. Tests assert on status codes and payloads, never on debug
+             output, so it is switched off here rather than left to whatever the
+             developer's .env happens to say. -->
+        <env name="APP_DEBUG" value="false"/>
+        <env name="DEBUGBAR_ENABLED" value="false"/>
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="CACHE_STORE" value="array"/>
         <env name="DB_CONNECTION" value="mysql"/>

@@ -3,7 +3,7 @@
 use App\Models\Business;
 use App\Models\User;
 use Database\Seeders\SpatiePermissionSeeder;
-use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Support\SeedsPlatformFixturesOnce;
 use Tests\TestCase;
 
 /*
@@ -18,7 +18,7 @@ use Tests\TestCase;
 */
 
 pest()->extend(TestCase::class)
-    ->use(RefreshDatabase::class)
+    ->use(SeedsPlatformFixturesOnce::class)
     ->in('Feature');
 
 /*
@@ -56,6 +56,11 @@ function something()
  * Build a fully authorized business owner without relying on production seed
  * data. Feature tests can override either model with the provided attributes.
  *
+ * The permission catalogue and the platform roles are already in the database by
+ * the time this runs — `Tests\Support\SeedsPlatformFixturesOnce` commits them
+ * once per test process. All that is left for a test to do is this business's own
+ * roles, which is the part that genuinely differs test to test.
+ *
  * @return array{0: User, 1: Business}
  */
 function createBusinessOwner(array $userAttributes = [], array $businessAttributes = []): array
@@ -73,9 +78,7 @@ function createBusinessOwner(array $userAttributes = [], array $businessAttribut
     ], $businessAttributes));
 
     $user->update(['business_id' => $business->id]);
-    $permissionSeeder = new SpatiePermissionSeeder;
-    $permissionSeeder->run();
-    $permissionSeeder->createRolesForBusiness($business);
+    (new SpatiePermissionSeeder)->createRolesForBusiness($business);
     setPermissionsTeamId($business->id);
 
     return [$user->fresh(), $business->fresh()];
