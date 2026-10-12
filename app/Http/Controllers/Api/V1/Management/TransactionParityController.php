@@ -66,6 +66,10 @@ class TransactionParityController extends ApiController
         return $this->ok(
             [
                 'transactions' => TransactionResource::collection($transactions->getCollection())->resolve($request),
+                // The whole filtered set, not this page — the same filters the
+                // rows were chosen by, so the bar and the list always describe
+                // the same money.
+                'totals' => $this->repository->totals($user, $filters),
                 'stores' => StoreOptionResource::collection($this->repository->storeFilterOptions($user))->resolve($request),
                 'statuses' => TransactionStatusResource::collection(TransactionStatus::cases())->resolve($request),
             ],

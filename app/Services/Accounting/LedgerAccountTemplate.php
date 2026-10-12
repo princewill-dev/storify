@@ -43,7 +43,14 @@ class LedgerAccountTemplate
             ['code' => '5200', 'name' => 'Rent', 'type' => 'expense', 'subtype' => 'rent'],
             ['code' => '5300', 'name' => 'Utilities', 'type' => 'expense', 'subtype' => 'utilities'],
             ['code' => '5400', 'name' => 'Marketing', 'type' => 'expense', 'subtype' => 'marketing'],
-            ['code' => '5500', 'name' => 'Bank & Gateway Fees', 'type' => 'expense', 'subtype' => 'gateway_fees'],
+            // Named for the one thing a business sees on this account: what it
+            // cost to take the payment. Both the provider's charge and Storify's
+            // cut post here, on one line, so "Processing Fee" is what the
+            // account actually holds — "Bank & Gateway Fees" described only half
+            // of it. The `gateway_fees` subtype is the mapping key the posting
+            // engine resolves this account through; it is a contract and does
+            // not move with the label.
+            ['code' => '5500', 'name' => 'Processing Fee', 'type' => 'expense', 'subtype' => 'gateway_fees'],
             ['code' => '5600', 'name' => 'Office Supplies', 'type' => 'expense', 'subtype' => 'office_supplies'],
             ['code' => '5900', 'name' => 'Miscellaneous Expense', 'type' => 'expense', 'subtype' => 'default_expense'],
         ];

@@ -105,7 +105,7 @@ final class PaymentWebhookProcessor
             $managed = $transaction->isPlatformManaged();
             $commissionKobo = $transaction->platformFeeKobo();
 
-            DB::transaction(function () use ($transaction, $verification, $feesMinor, $managed) {
+            DB::transaction(function () use ($transaction, $verification, $feesMinor, $managed, $commissionKobo) {
                 $amountMinor = Naira::koboFromRounded($transaction->amount);
 
                 $transaction->update([
@@ -114,7 +114,18 @@ final class PaymentWebhookProcessor
                     'gateway_reference' => $verification->providerId,
                     'gateway_response' => $verification->raw,
                     'fee_kobo' => $feesMinor,
-                    'net_kobo' => $feesMinor !== null ? max(0, $amountMinor - $feesMinor) : null,
+                    // Both fees come off, because both were taken before the
+                    // money landed: the provider's charge and our commission,
+                    // which the provider split off at source. Subtracting only
+                    // the provider's fee — which is what this did — reported a
+                    // bank balance larger than the business received.
+                    // The column, filled from `$commissionKobo` — which is the
+                    // column where it exists and the charge-time metadata key
+                    // where it does not. So settling a sale charged before the
+                    // column existed writes it into the column on the way past,
+                    // rather than waiting for the backfill.
+                    'platform_fee_kobo' => $managed ? $commissionKobo : null,
+                    'net_kobo' => Transaction::netKoboFor($amountMinor, $feesMinor, $commissionKobo),
                     'metadata' => array_merge($transaction->metadata ?? [], [
                         'webhook_received' => true,
                     ]),

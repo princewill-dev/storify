@@ -12,6 +12,7 @@ use App\Models\Transaction;
 use App\Services\Accounting\LedgerPostingService;
 use App\Services\Payments\PaymentGatewayResolver;
 use App\Services\PaystackService;
+use App\Support\Money\Naira;
 use App\Support\Payments\SystemProcessor;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -221,14 +222,17 @@ class InvoicePaymentController extends Controller
 
         DB::transaction(function () use ($invoice, $transaction, $verification) {
             $feesKobo = isset($verification['data']['fees']) ? (int) $verification['data']['fees'] : null;
-            $amountKobo = (int) round($transaction->amount * 100);
+            $amountKobo = Naira::koboFromRounded($transaction->amount);
+            $commissionKobo = $transaction->platformFeeKobo();
 
             $transaction->update([
                 'status' => TransactionStatus::CONFIRMED->value,
                 'gateway_reference' => $verification['data']['id'] ?? null,
                 'gateway_response' => $verification['data'],
                 'fee_kobo' => $feesKobo,
-                'net_kobo' => $feesKobo !== null ? max(0, $amountKobo - $feesKobo) : null,
+                // Via the shared rule rather than an inline subtraction — see
+                // the same change in PaystackWebhookController for why.
+                'net_kobo' => Transaction::netKoboFor($amountKobo, $feesKobo, $commissionKobo),
                 'paid_at' => now(),
             ]);
 

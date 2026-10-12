@@ -374,6 +374,16 @@ final class ProcessPosSale
                 // this is what the provider calls the charge, and it is the only
                 // name a refund or a late webhook can address it by.
                 'gateway_reference' => $payment['provider_reference'] ?? null,
+                // The commission as a column, not only in the metadata below —
+                // the two move together from here on.
+                'platform_fee_kobo' => $commissionKobo,
+                // `fee_kobo` and `net_kobo` are deliberately left unset, and this
+                // is the one place in the pipeline where that is the right
+                // answer. The provider does not report what it charged until the
+                // charge settles, days after the till closed the sale, so there
+                // is no fee to record and therefore no net to state. Writing
+                // `amount - commission` here would put a number in a column
+                // meaning "reached the bank" that no bank ever saw.
                 'metadata' => array_merge([
                     'leg_method' => $method,
                     'amount_tendered' => $payment['amount_tendered'] ?? null,

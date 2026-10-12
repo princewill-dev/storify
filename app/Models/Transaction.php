@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\TransactionStatus;
+use App\Support\Money\Naira;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Str;
@@ -32,6 +33,7 @@ class Transaction extends Model
         'store_balance_after',
         'fee_kobo',
         'net_kobo',
+        'platform_fee_kobo',
     ];
 
     protected $casts = [
@@ -42,6 +44,7 @@ class Transaction extends Model
         'metadata' => 'array',
         'fee_kobo' => 'integer',
         'net_kobo' => 'integer',
+        'platform_fee_kobo' => 'integer',
     ];
 
     protected static function boot()
@@ -131,9 +134,81 @@ class Transaction extends Model
      */
     public function platformFeeKobo(): int
     {
-        $fee = $this->metadata['platform_fee_kobo'] ?? null;
+        // Column first, metadata second. The column is where it is written now;
+        // the metadata key is what every row written before that column existed
+        // carries, and what the backfill reads to fill it in. Falling back means
+        // a row is reported correctly whether or not it has been backfilled yet.
+        $fee = $this->platform_fee_kobo ?? ($this->metadata['platform_fee_kobo'] ?? null);
 
         return is_numeric($fee) ? max(0, (int) $fee) : 0;
+    }
+
+    /**
+     * Everything taken out of this sale before it reached the business, in kobo.
+     *
+     * The provider's fee *and* our commission, as one figure — which is how the
+     * business experiences it and how its ledger books it, both on one line.
+     * The two stay distinguishable on the row (`fee_kobo` against
+     * `platform_fee_kobo`) and on our own books; they are not presented to the
+     * business as two separate costs.
+     *
+     * Null, not zero, when the provider's fee is not known yet: a POS managed leg
+     * is written when the till closes the sale, and the provider does not report
+     * its charge until it settles days later. Returning the commission alone
+     * would be understating the fee, and returning zero would be claiming there
+     * was none.
+     */
+    public function processingFeeKobo(): ?int
+    {
+        if ($this->fee_kobo === null) {
+            return null;
+        }
+
+        return max(0, (int) $this->fee_kobo) + $this->platformFeeKobo();
+    }
+
+    /**
+     * What actually reached the business's bank, in kobo.
+     *
+     * Derived rather than read from `net_kobo`, and that is deliberate. The
+     * column was written by code that subtracted only the provider's fee, so for
+     * a managed sale it overstates the money by our commission — the exact
+     * discrepancy this change exists to remove. Deriving means the figure is
+     * right as soon as this code ships, while the column catches up in the
+     * backfill. Both are computed by {@see netKoboFor()}, so they cannot
+     * disagree once it has run.
+     *
+     * Null when the provider's fee is unknown — see {@see processingFeeKobo()}.
+     * A partial subtraction is a wrong number; an absent one is an honest gap.
+     */
+    public function netKobo(): ?int
+    {
+        return self::netKoboFor(
+            Naira::koboFromRounded($this->amount),
+            $this->fee_kobo !== null ? (int) $this->fee_kobo : null,
+            $this->platformFeeKobo(),
+        );
+    }
+
+    /**
+     * The one place the net is worked out.
+     *
+     * Static and taking its inputs as arguments because the writers need it
+     * *before* the row carries these values: they are computing what to persist,
+     * not reading what was persisted. Four call sites used to carry their own
+     * copy of `max(0, $amount - $fee)` and every one of them silently omitted the
+     * commission, which is why it lives in one place now.
+     */
+    public static function netKoboFor(int $grossKobo, ?int $providerFeeKobo, int $platformFeeKobo = 0): ?int
+    {
+        if ($providerFeeKobo === null) {
+            return null;
+        }
+
+        // Clamped, not trusted: a provider reporting a fee larger than the sale
+        // would otherwise produce a negative net and a ledger that does not
+        // balance. Only reachable on bad data.
+        return max(0, $grossKobo - max(0, $providerFeeKobo) - max(0, $platformFeeKobo));
     }
 
     /**

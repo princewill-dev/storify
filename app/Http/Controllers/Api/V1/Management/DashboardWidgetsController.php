@@ -117,6 +117,10 @@ class DashboardWidgetsController extends ApiController
                 'total' => $revenue['total'],
                 'this_month' => $revenue['this_month'],
                 'last_month' => $revenue['last_month'],
+                // What the confirmed revenue cost to collect, so the card can
+                // say so. `total` stays gross — the revenue card reports what
+                // customers paid, and the fee is a separate fact about it.
+                'processing_fee' => $revenue['processing_fee'],
                 // Legacy's exact definition: no baseline means "up 100% when
                 // anything came in, flat otherwise" rather than a division by
                 // zero. The audit confirmed only this card carried a %.

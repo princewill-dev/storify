@@ -10,6 +10,7 @@ use App\Models\Transaction;
 use App\Services\Accounting\LedgerPostingService;
 use App\Services\Digital\DigitalDeliveryService;
 use App\Services\PaystackService;
+use App\Support\Money\Naira;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -117,7 +118,8 @@ class PaystackWebhookController extends Controller
             if ($verification['success'] && ($verification['data']['status'] ?? '') === 'success') {
                 DB::transaction(function () use ($transaction, $data) {
                     $feesKobo = isset($data->fees) ? (int) $data->fees : null;
-                    $amountKobo = (int) round($transaction->amount * 100);
+                    $amountKobo = Naira::koboFromRounded($transaction->amount);
+                    $commissionKobo = $transaction->platformFeeKobo();
 
                     $transaction->update([
                         'status' => TransactionStatus::CONFIRMED->value,
@@ -125,7 +127,11 @@ class PaystackWebhookController extends Controller
                         'gateway_reference' => $data->id ?? null,
                         'gateway_response' => $data,
                         'fee_kobo' => $feesKobo,
-                        'net_kobo' => $feesKobo !== null ? max(0, $amountKobo - $feesKobo) : null,
+                        // Via the shared rule rather than an inline subtraction.
+                        // Zero on this path today — these are the business's own
+                        // Paystack keys, with no commission — but a copy of the
+                        // expression here is a copy that can drift again.
+                        'net_kobo' => Transaction::netKoboFor($amountKobo, $feesKobo, $commissionKobo),
                         'metadata' => array_merge($transaction->metadata ?? [], [
                             'webhook_received' => true,
                             'webhook_data' => $data,

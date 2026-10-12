@@ -16,6 +16,7 @@ use App\Models\Store;
 use App\Models\Transaction;
 use App\Models\User;
 use App\Models\Warehouse;
+use App\Support\Money\Naira;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -70,9 +71,20 @@ final class DashboardWidgetsRepository
     }
 
     /**
-     * Confirmed revenue in scope: all time, this month and last month.
+     * Confirmed revenue in scope: all time, this month and last month — plus the
+     * processing fees taken out of it.
      *
-     * @return array{total: float, this_month: float, last_month: float}
+     * The revenue figures stay gross, which is what they have always meant and
+     * what the card is labelled. The fee is reported beside them rather than
+     * subtracted from them, so the card can say what was charged and what it cost
+     * without either number silently changing meaning. Anything that wants to
+     * show the money that actually arrived subtracts one from the other.
+     *
+     * Summed in kobo because both columns are kobo; `amount` is a decimal naira
+     * column, and mixing the two units in one round() is how a total ends up a
+     * hundred times off.
+     *
+     * @return array{total: float, this_month: float, last_month: float, processing_fee: array{total: float, this_month: float, last_month: float}}
      */
     public function revenueTotals(int $businessId, Collection $storeIds, Carbon $now): array
     {
@@ -87,7 +99,36 @@ final class DashboardWidgetsRepository
             'last_month' => round((float) $confirmed->clone()
                 ->whereBetween('created_at', [$now->copy()->subMonth()->startOfMonth(), $now->copy()->subMonth()->endOfMonth()])
                 ->sum('amount'), 2),
+            'processing_fee' => [
+                'total' => $this->processingFeeNaira($confirmed),
+                'this_month' => $this->processingFeeNaira($confirmed, $now->copy()->startOfMonth(), $now),
+                'last_month' => $this->processingFeeNaira(
+                    $confirmed,
+                    $now->copy()->subMonth()->startOfMonth(),
+                    $now->copy()->subMonth()->endOfMonth(),
+                ),
+            ],
         ];
+    }
+
+    /**
+     * The provider's fee plus our commission, over confirmed rows, in naira.
+     */
+    private function processingFeeNaira(Builder $confirmed, ?Carbon $from = null, ?Carbon $to = null): float
+    {
+        $query = $confirmed->clone()
+            ->selectRaw('COALESCE(SUM(fee_kobo), 0) + COALESCE(SUM(platform_fee_kobo), 0) as fee_kobo');
+
+        if ($from !== null && $to !== null) {
+            $query->whereBetween('created_at', [$from, $to]);
+        }
+
+        // Read off the row rather than through value('fee_kobo'), which would
+        // replace the raw aggregate with a plain column select and hand back a
+        // single row's fee instead of the sum.
+        $row = $query->first();
+
+        return round(Naira::floatFromKobo((int) round((float) ($row->fee_kobo ?? 0))), 2);
     }
 
     /**

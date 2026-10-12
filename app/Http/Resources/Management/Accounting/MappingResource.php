@@ -41,7 +41,7 @@ final class MappingResource extends JsonResource
         'other_income' => 'Other income',
         'sales_discounts' => 'Sales discounts',
         'cogs' => 'Cost of goods sold',
-        'gateway_fees' => 'Gateway fees',
+        'gateway_fees' => 'Processing fee',
         'default_expense' => 'Default expense',
     ];
 

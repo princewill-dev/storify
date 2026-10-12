@@ -157,6 +157,12 @@ final class CheckoutPaymentService
                 // labelled a naira figure "USD" for Bitfra.
                 'currency' => $storeCurrency,
                 'status' => TransactionStatus::PENDING,
+                // The commission as a column, alongside the metadata key below.
+                // Both are written: the column is what queries, totals and the
+                // backfill read; the metadata key is the record of what was
+                // charged, kept so a row written before this column existed
+                // still reports the right thing.
+                'platform_fee_kobo' => $commissionKobo,
                 'metadata' => array_merge([
                     'order_number' => $order->order_number,
                     'is_partial' => $amount < $remaining,
@@ -329,13 +335,23 @@ final class CheckoutPaymentService
             $managed = $transaction->isPlatformManaged();
             $commissionKobo = $transaction->platformFeeKobo();
 
-            DB::transaction(function () use ($transaction, $order, $verification, $managed) {
+            DB::transaction(function () use ($transaction, $order, $verification, $managed, $commissionKobo) {
                 $transaction->update([
                     'status' => TransactionStatus::CONFIRMED->value,
                     'gateway_reference' => $verification->providerId,
                     'gateway_response' => $verification->raw,
                     'paid_at' => now(),
                     'fee_kobo' => $verification->feesMinor,
+                    // This path never wrote a net at all, so a payment settled
+                    // by the customer's own return trip rather than by webhook
+                    // showed an empty Net forever. Same rule as the webhook's:
+                    // both fees off, or nothing when the provider's is unknown.
+                    'platform_fee_kobo' => $managed ? $commissionKobo : null,
+                    'net_kobo' => Transaction::netKoboFor(
+                        Naira::koboFromRounded($transaction->amount),
+                        $verification->feesMinor,
+                        $commissionKobo,
+                    ),
                 ]);
 
                 $order->amount_paid = (float) $order->amount_paid + (float) $transaction->amount;

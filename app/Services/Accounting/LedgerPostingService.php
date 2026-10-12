@@ -355,15 +355,16 @@ class LedgerPostingService
      * raised:
      *
      *     Dr 1030 Payment Gateway Clearing   net   (their balance at the provider)
-     *     Dr 5500 Bank & Gateway Fees        fee   (the provider's charge)
-     *     Dr 5500 Bank & Gateway Fees        cut   (our commission)
+     *     Dr 5500 Processing Fee             fee   (both fees, combined)
      *     Cr 1100 Accounts Receivable      gross
      *
-     * Both fees land on 5500 because to the business they are the same kind of
-     * thing — the cost of taking this payment — even though one is the
-     * provider's and one is ours. Splitting them would need a chart-of-accounts
-     * entry for "platform fees", which is a reporting distinction rather than a
-     * bookkeeping one; the descriptions keep them apart.
+     * Both fees land on 5500 as one line, because to the business they are the
+     * same kind of thing — the cost of taking this payment — and that is how it
+     * is presented to them everywhere else. Splitting them would need a
+     * chart-of-accounts entry for "platform fees", which is a reporting
+     * distinction rather than a bookkeeping one, and which would tell the
+     * business what our margin is on every sale it makes. The split is recorded
+     * rather than posted: `fee_kobo` and `platform_fee_kobo` on the transaction.
      *
      * The share that `platform_fee` settles to **us** is a separate entry on the
      * platform's own books — see {@see postPlatformCommissionEarned()}.
@@ -405,21 +406,22 @@ class LedgerPostingService
             'contact_id' => $contactId,
         ]];
 
-        if ($providerFeeKobo > 0) {
+        // One line for both fees, because that is what the business was charged
+        // and what it now sees on the transaction: a single processing fee. This
+        // used to post two debits to the same account with different
+        // descriptions, which made the ledger the only place the split was
+        // visible — and put Storify's margin in front of the business on its own
+        // books. The split is not lost: it is on the transaction row, as
+        // `fee_kobo` and `platform_fee_kobo`, and in full on our own books via
+        // {@see postPlatformCommissionEarned()}.
+        $processingFeeKobo = $providerFeeKobo + $commissionKobo;
+
+        if ($processingFeeKobo > 0) {
             $lines[] = [
                 'account_key' => 'gateway_fees',
-                'debit' => $providerFeeKobo,
+                'debit' => $processingFeeKobo,
                 'store_id' => $storeId,
                 'description' => 'Processing fee '.$transaction->reference,
-            ];
-        }
-
-        if ($commissionKobo > 0) {
-            $lines[] = [
-                'account_key' => 'gateway_fees',
-                'debit' => $commissionKobo,
-                'store_id' => $storeId,
-                'description' => 'Storify commission '.$transaction->reference,
             ];
         }
 
@@ -456,7 +458,7 @@ class LedgerPostingService
      * commission has to be taken off that asset explicitly, or the business's
      * books would claim it still holds money Bachs split off for us:
      *
-     *     Dr 5500 Bank & Gateway Fees        commission
+     *     Dr 5500 Processing Fee             commission
      *     Cr 1030 Payment Gateway Clearing   commission
      *
      * The platform's side of the same commission is
@@ -469,6 +471,13 @@ class LedgerPostingService
      * is the one part of a managed sale's cost that this ledger books late rather
      * than at the sale, and it leaves that much more in 1030 until it is
      * recognised.
+     *
+     * The line is described as a processing fee rather than a commission even
+     * though it carries only our share today, because that is the only name the
+     * business is given for this cost anywhere — the account it lands on, the
+     * column on the transaction, the CSV. When the provider's charge is
+     * recognised later it posts under the same description, and the two lines
+     * together are the fee the business was actually charged.
      */
     public function postManagedCommissionExpense(
         Transaction $transaction,
@@ -492,18 +501,22 @@ class LedgerPostingService
                 'account_key' => 'gateway_fees',
                 'debit' => $commissionKobo,
                 'store_id' => $storeId,
-                'description' => 'Storify commission '.$transaction->reference,
+                'description' => 'Processing fee '.$transaction->reference,
             ],
             [
                 'account_key' => 'gateway_clearing',
                 'credit' => $commissionKobo,
                 'store_id' => $storeId,
-                'description' => 'Storify commission '.$transaction->reference,
+                'description' => 'Processing fee '.$transaction->reference,
             ],
         ];
 
         return $this->post($businessId, $lines, [
-            'memo' => 'Platform commission '.$transaction->reference,
+            // "Processing fee", like the account it debits and the column the
+            // business reads. The idempotency key below keeps its older name
+            // deliberately: it is a uniqueness claim on an entry that may already
+            // exist, so changing it would let a re-run post a second time.
+            'memo' => 'Processing fee '.$transaction->reference,
             'reference' => $transaction->reference,
             'source' => $transaction,
             'idempotency_key' => 'managed_commission:txn:'.$transaction->id,

@@ -6,6 +6,7 @@ use App\Enums\TransactionStatus;
 use App\Models\Store;
 use App\Models\Transaction;
 use App\Models\User;
+use App\Support\Money\Naira;
 use Illuminate\Contracts\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 
@@ -55,6 +56,73 @@ class TransactionRepository
         return $this->applyFilters($this->scopedQuery($user), $filters)
             ->with(self::LIST_RELATIONS)
             ->latest();
+    }
+
+    /**
+     * The money behind the rows the list is showing, for the totals bar.
+     *
+     * Scoped and filtered exactly like `listQuery()`, minus the paging, and
+     * narrowed to settled rows: a pending payment is a claim on money, not money,
+     * and adding it to a figure labelled "received" would count a customer's
+     * unpaid invoice as income.
+     *
+     * Summed in kobo in the database rather than in PHP over the page, so the
+     * figures describe the whole filtered set and not the twenty rows on screen.
+     *
+     * `net` is gross minus fees, **never** SUM(net_kobo). The column is null on
+     * every row whose provider fee is not known yet, and summing it would quietly
+     * drop those rows' entire amounts — turning an incomplete figure into a
+     * smaller-looking one, which is the failure this whole change exists to
+     * remove. `fees_pending_count` states the incompleteness out loud instead.
+     *
+     * Reads the commission from its column, which the backfill fills. Until that
+     * has run, totals understate by the commission on sales settled before the
+     * column existed — see the deploy order in the backfill command.
+     *
+     * @param  array<string, mixed>  $filters
+     * @return array{amount: float, processing_fee: float, net: float, fees_pending_count: int}
+     */
+    public function totals(User $user, array $filters): array
+    {
+        $query = $this->applyFilters($this->scopedQuery($user), $filters)
+            ->where('status', TransactionStatus::CONFIRMED->value);
+
+        $sums = (clone $query)
+            ->selectRaw('COALESCE(SUM(amount * 100), 0) as gross_kobo')
+            ->selectRaw('COALESCE(SUM(fee_kobo), 0) as provider_fee_kobo')
+            ->selectRaw('COALESCE(SUM(platform_fee_kobo), 0) as commission_kobo')
+            ->first();
+
+        $grossKobo = (int) round((float) $sums->gross_kobo);
+        $processingFeeKobo = (int) round((float) $sums->provider_fee_kobo)
+            + (int) round((float) $sums->commission_kobo);
+
+        return [
+            'amount' => Naira::floatFromKobo($grossKobo),
+            'processing_fee' => Naira::floatFromKobo($processingFeeKobo),
+            'net' => Naira::floatFromKobo(max(0, $grossKobo - $processingFeeKobo)),
+            'fees_pending_count' => $this->feesPendingCount($query),
+        ];
+    }
+
+    /**
+     * Settled rows whose provider fee has not been reported yet.
+     *
+     * Restricted to rows that went through a provider, because a cash sale has no
+     * fee to wait for and counting it would leave the number permanently non-zero
+     * — a warning that never clears is one nobody reads. The two markers are the
+     * provider's own id for the charge, and the managed flag, which is what a POS
+     * gateway leg carries before any webhook has found it.
+     */
+    private function feesPendingCount(Builder $query): int
+    {
+        return (clone $query)
+            ->whereNull('fee_kobo')
+            ->where(function (Builder $scope) {
+                $scope->whereNotNull('gateway_reference')
+                    ->orWhere('metadata->payment_mode', 'platform_managed');
+            })
+            ->count();
     }
 
     /**

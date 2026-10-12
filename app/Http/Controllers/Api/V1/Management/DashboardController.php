@@ -10,6 +10,8 @@ use App\Models\Order;
 use App\Models\Product;
 use App\Models\Transaction;
 use App\Models\User;
+use App\Support\Money\Naira;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -49,6 +51,15 @@ class DashboardController extends ApiController
             'revenue' => [
                 'total' => $revenueTotal,
                 'this_month' => $revenueThisMonth,
+                // What it cost to collect that revenue, beside it rather than
+                // out of it — see DashboardWidgetsRepository::revenueTotals()
+                // for why neither dashboard subtracts it from the gross.
+                'processing_fee' => [
+                    'total' => $this->processingFeeNaira($txnQuery->clone()),
+                    'this_month' => $this->processingFeeNaira(
+                        $txnQuery->clone()->where('created_at', '>=', $startOfMonth)
+                    ),
+                ],
             ],
             'orders' => [
                 'total' => $orderQuery->clone()->count(),
@@ -109,5 +120,18 @@ class DashboardController extends ApiController
             'recent_orders' => $recentOrders,
             'revenue_series' => $revenueSeries,
         ]);
+    }
+
+    /**
+     * The provider's fee plus our commission, summed over whatever the given
+     * confirmed-transaction query already scopes to, in naira.
+     */
+    private function processingFeeNaira(Builder $query): float
+    {
+        $row = $query
+            ->selectRaw('COALESCE(SUM(fee_kobo), 0) + COALESCE(SUM(platform_fee_kobo), 0) as fee_kobo')
+            ->first();
+
+        return round(Naira::floatFromKobo((int) round((float) ($row->fee_kobo ?? 0))), 2);
     }
 }

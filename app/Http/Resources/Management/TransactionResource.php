@@ -23,7 +23,7 @@ class TransactionResource extends JsonResource
      */
     public const CSV_HEADERS = [
         'Reference', 'Order / Invoice', 'Store', 'Customer', 'Payment method',
-        'Amount', 'Fee', 'Net', 'Currency', 'Status', 'Date',
+        'Amount', 'Processing Fee', 'Net', 'Currency', 'Status', 'Date',
     ];
 
     /**
@@ -34,13 +34,29 @@ class TransactionResource extends JsonResource
         /** @var Transaction $transaction */
         $transaction = $this->resource;
         $store = $this->store();
+        $processingFee = $transaction->processingFeeKobo();
+        $net = $transaction->netKobo();
 
         return [
             'id' => $transaction->id,
             'reference' => $transaction->reference,
             'amount' => (float) $transaction->amount,
-            'fee' => $transaction->fee_kobo !== null ? Naira::floatFromKobo($transaction->fee_kobo) : null,
-            'net' => $transaction->net_kobo !== null ? Naira::floatFromKobo($transaction->net_kobo) : null,
+            // Everything taken out before the money landed, as one figure: the
+            // provider's charge plus our commission. Named for what the business
+            // experiences, not for its two parts — `fee_kobo` and
+            // `platform_fee_kobo` still hold those separately on the row, and
+            // Storify's own books still show them apart.
+            'processing_fee' => $processingFee !== null ? Naira::floatFromKobo($processingFee) : null,
+            // Deprecated alias, byte-for-byte the same figure. Both SPAs read
+            // `fee` today and this change removes what it used to mean — the
+            // provider's fee alone — so dropping the key in the same release as
+            // the value changes would blank a live column for whichever of the
+            // two deploys (SPAs on push, API by hand) landed second. Remove once
+            // both SPAs read `processing_fee`.
+            'fee' => $processingFee !== null ? Naira::floatFromKobo($processingFee) : null,
+            // Derived, not read from the column: rows settled before this change
+            // carry a `net_kobo` that subtracted only the provider's fee.
+            'net' => $net !== null ? Naira::floatFromKobo($net) : null,
             'currency' => $transaction->currency,
             'status' => $transaction->status instanceof TransactionStatus ? $transaction->status->value : $transaction->status,
             'status_label' => $transaction->status_label,
@@ -67,6 +83,12 @@ class TransactionResource extends JsonResource
         /** @var Transaction $transaction */
         $transaction = $this->resource;
 
+        // The same two figures the list row renders, from the same two methods,
+        // so the CSV cannot disagree with what was on screen when it was asked
+        // for. Blank rather than zero where a fee is not yet known.
+        $processingFee = $transaction->processingFeeKobo();
+        $net = $transaction->netKobo();
+
         return [
             $transaction->reference,
             $transaction->order?->order_number ?? $transaction->invoice?->invoice_number ?? '',
@@ -74,8 +96,8 @@ class TransactionResource extends JsonResource
             $this->customerName() ?? '',
             $this->paymentMethodLabel() ?? '',
             number_format((float) $transaction->amount, 2, '.', ''),
-            $transaction->fee_kobo !== null ? number_format(Naira::floatFromKobo($transaction->fee_kobo), 2, '.', '') : '',
-            $transaction->net_kobo !== null ? number_format(Naira::floatFromKobo($transaction->net_kobo), 2, '.', '') : '',
+            $processingFee !== null ? number_format(Naira::floatFromKobo($processingFee), 2, '.', '') : '',
+            $net !== null ? number_format(Naira::floatFromKobo($net), 2, '.', '') : '',
             $transaction->currency ?? '',
             $transaction->status_label,
             $transaction->created_at?->toDateTimeString() ?? '',

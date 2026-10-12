@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1\Admin;
 use App\Enums\TransactionStatus;
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Models\Transaction;
+use App\Support\Money\Naira;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -59,7 +60,18 @@ class TransactionController extends ApiController
 
         if ($detailed) {
             $data['gateway_reference'] = $transaction->gateway_reference;
-            $data['fee'] = $transaction->fee_kobo !== null ? $transaction->fee_kobo / 100 : null;
+            // The combined figure, matching the business-facing read model — an
+            // admin looking at the same payment should see the same number the
+            // business sees, or every support call becomes a reconciliation.
+            $processingFee = $transaction->processingFeeKobo();
+            $data['processing_fee'] = $processingFee !== null ? Naira::floatFromKobo($processingFee) : null;
+            // Deprecated alias, same figure — see the note on the shape of this
+            // in Management\TransactionResource. Both SPAs and the API deploy
+            // separately here, and carrying both keys means neither order leaves
+            // a live screen showing a dash where a fee used to be.
+            $data['fee'] = $processingFee !== null ? Naira::floatFromKobo($processingFee) : null;
+            $net = $transaction->netKobo();
+            $data['net'] = $net !== null ? Naira::floatFromKobo($net) : null;
             $data['customer'] = $transaction->order?->customer?->full_name;
             $data['gateway_response'] = $transaction->gateway_response;
         }
