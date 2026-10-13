@@ -11,12 +11,13 @@ use Illuminate\Http\Resources\Json\JsonResource;
  * WS-8 (admin console) — impersonation start and stop payloads.
  *
  * The start response is the hand-off contract the admin SPA consumes: the
- * token pair plus `handoff.url`, a fully-formed deep link carrying the pair in
- * the URL fragment for the management app to exchange. `handoff.fragment` is
- * the key the fragment is stored under; the management app consumes the
- * fragment on load (see storify-management/src/components/ImpersonationHandoff.vue).
- * The SPA composes the full URL — the API has no configured management-app
- * origin — and passes `fragment` verbatim as the fragment key.
+ * token pair plus a `handoff` block carrying the pair, base64url-encoded, for
+ * the management app to exchange. `handoff.fragment` is the key the fragment is
+ * stored under; the management app consumes the fragment on load, before its
+ * router resolves a route
+ * (see storify-management/src/lib/impersonationHandoff.ts). The SPA composes
+ * the full URL — the API has no configured management-app origin — and passes
+ * `fragment` verbatim as the fragment key.
  *
  * The same resource shapes the stop response, which carries only the ended
  * session.
