@@ -33,6 +33,11 @@ class TransactionRepository
         'order:id,order_number,store_id,customer_id',
         'invoice:id,invoice_number,store_id',
         'paymentMethod',
+        // The settlement column on a list row. Eager-loaded because the row asks
+        // "which payout paid this" and without this it would ask once per row —
+        // the relation is the reading end of the money path, not an optional
+        // detail, so it belongs in the same load as the order it hangs off.
+        'payoutAllocations.payout:id,reference,status,amount_kobo,paid_at',
     ];
 
     /**

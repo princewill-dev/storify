@@ -9,13 +9,6 @@ use App\Models\Store;
 use App\Models\StoreBank;
 use App\Models\Transaction;
 use App\Models\User;
-use App\Services\Payments\Connect\PlatformPayoutService;
-use App\Services\Payments\Data\GatewayCredentials;
-use App\Services\Payments\Data\PaymentIntent;
-use App\Services\Payments\Gateways\PaystackGateway;
-use App\Services\Payments\OnBehalf\BachsOnBehalf;
-use App\Services\Payments\OnBehalf\Contracts\OnBehalfProcessor;
-use App\Services\Payments\OnBehalf\OnBehalfProcessors;
 use App\Services\Payments\PaymentGatewayResolver;
 use App\Services\Subscription\PlatformBillingGateway;
 use App\Support\Payments\CredentialCipher;
@@ -24,9 +17,9 @@ use App\Support\Payments\SystemProcessor;
 use Database\Seeders\PaymentMethodSeeder;
 use Database\Seeders\SpatiePermissionSeeder;
 use Illuminate\Http\Client\Factory;
-use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
 
 /*
 | WS-40 — the system payment processor.
@@ -34,15 +27,27 @@ use Illuminate\Support\Facades\Http;
 | `settings.system_payment_processor` is one switch with two states and a third
 | that is neither: unset means the platform behaves exactly as it always has,
 | set means every business's customer inflow goes through the platform's own
-| connection on that one provider with the split made at settlement, and a
-| *stored* value this build cannot run means enforced-with-no-processor rather
-| than off.
+| credentials on that one provider, and a *stored* value this build cannot run
+| means enforced-with-no-processor rather than off.
 |
 | The three states are what this suite pins down, because each of them is a
 | decision that would be silent if it were wrong: an off deployment must be
 | byte-identical to what it was, an on deployment must not fall back to a
-| business's own keys when the platform's account is missing, and a broken
-| switch must fail closed rather than open.
+| business's own keys, and a broken switch must fail closed rather than open.
+|
+| What the switch buys changed shape with collect-and-pay-out, and this file
+| changed with it. Under enforcement the charge is Storify's own: it carries the
+| platform's key and names nothing of the business's — no settlement account, no
+| destination, no header — because the gross lands in Storify's balance and a
+| payout run hands it over afterwards. So the provisioning machinery these tests
+| used to arrange is gone rather than updated, and what a business's payment
+| rows are read for is the one thing they still say on its behalf: its owner has
+| switched Storify payments *off*.
+|
+| The other half of the model lives where it belongs rather than here. What a
+| collected charge does to the wallet and both sets of books is WS-45's subject;
+| what a delivery settles is WS-39's. This file is about the switch: what it
+| offers, what it refuses, and who it leaves holding money nobody can hand over.
 */
 
 /**
@@ -110,106 +115,70 @@ function ws40Store(User $owner, array $attributes = []): Store
 }
 
 /**
- * The `managed` block as it is stored on a connection row.
+ * A business Storify collects for.
  *
- * Written by hand rather than produced by a provider call, because these tests
- * are about what the *resolver* does with a connection that already exists —
- * the account lifecycle has its own suite, and routing every one of these
- * through a provisioning round trip would make them fail for reasons that have
- * nothing to do with the switch.
- *
- * @param  array<string, mixed>  $overrides
- * @return array<string, mixed>
+ * The column defaults true and the migration that decommissioned the connected
+ * accounts backfilled every row, so a business a test creates is already
+ * collected for. Written out anyway, for the same reason it is written out in
+ * the custody suites: what every test below turns on is the *distinction*, and a
+ * suite whose precondition is a column default stops testing anything the day
+ * the default moves.
  */
-function ws40ManagedState(bool $usable = true, array $overrides = []): array
+function ws40Collected(Business $business): Business
 {
-    return array_merge([
-        'status' => 'active',
-        'capabilities' => [
-            'card_collection' => 'active',
-            'ngn_card_collection' => 'active',
-            'bank_transfer' => 'active',
-            'payouts' => 'active',
-        ],
-        'requirements' => [],
-        'payout_destination' => [
-            'id' => 'pd_ws40',
-            'is_usable' => $usable,
-            'currency' => 'NGN',
-            'bank_name' => 'Guaranty Trust Bank',
-            'account_name' => 'ADA TRADING LTD',
-            'last4' => '6789',
-        ],
-    ], $overrides);
+    $business->forceFill(['custody_enabled' => true, 'custody_enabled_at' => now()])->save();
+
+    return $business->fresh();
 }
 
 /**
- * A settlement account the platform charges a business's customers through.
+ * A business still on the old arrangement, whose own keys charge its customers.
+ *
+ * Not an arrangement a deployment should be in once the switch is on — the
+ * enforcement pre-flight exists to name exactly these businesses — which is why
+ * so many of the tests below have to arrange it deliberately.
  */
-function ws40Managed(Business $business, string $code, string $accountId, bool $active = true, bool $usable = true): void
+function ws40NotCollected(Business $business): Business
+{
+    $business->forceFill(['custody_enabled' => false, 'custody_enabled_at' => null])->save();
+
+    return $business->fresh();
+}
+
+/**
+ * The one thing a payment-method row still says on a business's behalf: its
+ * owner has switched Storify payments off.
+ *
+ * Rows used to carry the settlement account the platform charged through, and
+ * every test that wanted a *chargeable* business had to write one. There is no
+ * account any more — the charge is Storify's own and names nothing of the
+ * business's, and `resolveEnforced()` reads the rows for `is_active` and nothing
+ * else — so the only row worth writing here is a "no".
+ */
+function ws40SwitchedOff(Business $business, string $code = 'paystack'): void
 {
     $method = PaymentMethod::where('code', $code)->firstOrFail();
 
     DB::table('business_payment_method')->updateOrInsert(
         ['business_id' => $business->id, 'payment_method_id' => $method->id],
-        [
-            'is_active' => $active,
-            'gateway_account_id' => $accountId,
-            'config' => json_encode(['managed' => ws40ManagedState($usable)]),
-            'created_at' => now(),
-            'updated_at' => now(),
-        ],
+        ['is_active' => false, 'config' => null, 'created_at' => now(), 'updated_at' => now()],
     );
 }
 
 /**
- * The business has said which bank account its sales are paid into.
+ * The bank account a business's sales are paid into.
  *
- * The pointer and nothing else: no provider account, no connection row. It is
- * the state a business lands in when it has named an account and the platform
- * has not yet — or can no longer — be paid through.
+ * The pointer and nothing else. It is what the payout sweep reads and therefore
+ * what decides whether a business that can sell can also be *paid*, which is now
+ * a separate question from whether it can sell at all.
  */
-function ws40PayoutBank(Business $business, string $entityType = 'company'): StoreBank
+function ws40PayoutBank(Business $business): StoreBank
 {
     $bank = StoreBank::factory()->create(['business_id' => $business->id]);
 
-    $business->forceFill([
-        'payout_bank_id' => $bank->id,
-        'payout_entity_type' => $entityType,
-    ])->save();
+    $business->forceFill(['payout_bank_id' => $bank->id])->save();
 
     return $bank;
-}
-
-/**
- * One row holding *both* a business's own keys and a settlement account — the
- * state a business is in when an admin turns the switch on after it had already
- * connected its own gateway.
- *
- * The two live in the same row because they live in the same row in life:
- * `config` holds whatever the business stored, and `gateway_account_id` is a
- * column of its own that nothing overwrites. What the switch changes is which
- * of them the resolver reads.
- *
- * @param  array<string, mixed>  $ownKeys
- */
-function ws40ManagedWithOwnKeys(Business $business, string $code, string $accountId, array $ownKeys): void
-{
-    $method = PaymentMethod::where('code', $code)->firstOrFail();
-
-    DB::table('business_payment_method')->updateOrInsert(
-        ['business_id' => $business->id, 'payment_method_id' => $method->id],
-        [
-            'is_active' => true,
-            'gateway_account_id' => $accountId,
-            'config' => json_encode(array_merge(
-                CredentialCipher::encrypt($ownKeys, PaymentGatewayRegistry::secretKeysFor($code)),
-                ['managed' => ws40ManagedState()],
-            )),
-            'created_at' => now(),
-            'updated_at' => now(),
-        ],
-    );
 }
 
 /**
@@ -326,7 +295,7 @@ test('the console\'s form-encoded save can clear the switch with an empty value'
     expect(Setting::query()->value('system_payment_processor'))->toBeNull();
 });
 
-test('the settings payload offers exactly the processors the platform can provision', function () {
+test('the settings payload offers exactly the processors the platform can charge through', function () {
     ws40Admin();
 
     $options = collect($this->getJson('/api/v1/admin/settings', ws40AdminHeaders(ws40Admin()))
@@ -335,10 +304,12 @@ test('the settings payload offers exactly the processors the platform can provis
         ->pluck('code')
         ->all();
 
-    // The registry's managed set, not a list written into the console: a
-    // provider without an on-behalf path cannot be *the platform's* processor,
-    // because there would be nothing to split.
-    expect($options)->toBe(PaymentGatewayRegistry::managedCodes())
+    // The platform's own list, not one written into the console: a provider
+    // Storify holds no key for cannot be *the platform's* processor, because
+    // there would be nothing for it to charge with. There is no second
+    // condition any more — the per-business account that used to gate this went
+    // with the accounts.
+    expect($options)->toBe(SystemProcessor::selectableCodes())
         ->and($options)->toContain('paystack')
         ->and($options)->toContain('bachs')
         ->and($options)->not->toContain('flutterwave');
@@ -394,8 +365,13 @@ test('while the switch is off a business charges through its own keys, unchanged
 
     expect($resolved->isEnabled)->toBeTrue()
         ->and($resolved->credentials->get('secret_key'))->toBe('sk_live_own1234567890')
-        ->and($resolved->credentials->accountId())->toBeNull()
-        ->and($resolved->isManaged())->toBeFalse();
+        ->and($resolved->isManaged())->toBeFalse()
+        // And nothing is recorded as collected, whatever the business's own
+        // custody flag says. With no processor enforced the charge is the
+        // business's, its money lands in the business's own provider account,
+        // and a `true` here would have the delivery credit a wallet for money
+        // Storify never held: the business paid twice for one sale.
+        ->and($resolved->custody)->toBeFalse();
 
     // The offline rail too: it needs its own assignment and a verified bank, so
     // its presence here is a real answer rather than a default.
@@ -442,44 +418,47 @@ test('while the switch is off an empty checkout carries no reason', function () 
 |--------------------------------------------------------------------------
 */
 
-test('under enforcement the platform account is used and a business\'s own keys are ignored', function () {
+test('under enforcement the platform\'s own keys are used and a business\'s are ignored', function () {
     ws40PlatformPaystack();
     ws40Switch('paystack');
 
     [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
     $business->update(['can_connect_own_gateway' => true]);
+    ws40Collected($business);
     $store = ws40Store($owner);
 
-    // Both, on the same row: keys stored from when the business connected its
-    // own gateway, and the settlement account opened for it. Under enforcement
-    // the account is the only thing that may charge.
-    ws40ManagedWithOwnKeys($business, 'paystack', 'ACCT_business01', ws40PaystackKeys());
+    // Keys the business connected when it ran its own gateway, still stored. They
+    // are the live defect the switch closes as much as they are a rule of it:
+    // the ordinary path keeps charging through stored keys after an admin takes
+    // the grant away, so the console's promise that they "stop being used
+    // immediately" was not true of the code.
+    ws40OwnKeys($business, 'paystack', ws40PaystackKeys());
 
     $resolved = app(PaymentGatewayResolver::class)->connection((int) $business->id, 'paystack');
 
     expect($resolved->isEnabled)->toBeTrue()
-        ->and($resolved->credentials->accountId())->toBe('ACCT_business01')
         // The platform's key, not the business's: the two are different strings
         // and this is the assertion that says which one went into the driver.
         ->and($resolved->credentials->get('secret_key'))->toBe('sk_live_platform1234567890')
-        ->and($resolved->isManaged())->toBeTrue();
+        ->and($resolved->isManaged())->toBeTrue()
+        ->and($resolved->custody)->toBeTrue();
 
     expect(collect($this->getJson('/api/v1/storefront/'.$store->slug.'/payment-methods')->json('data.payment_methods'))->pluck('code')->all())
         ->toBe(['paystack']);
 });
 
-test('a store\'s own key row cannot mask the business\'s settlement account', function () {
-    // The live-fix case. The ordinary precedence prefers a store row that carries
-    // a connection, which for a store holding its own keys is exactly the row
-    // that hides the account the money has to reach. Under enforcement keys are
-    // not a connection at all.
+test('a store\'s own key row cannot mask the platform\'s charge', function () {
+    // The ordinary precedence prefers a store row that carries a connection,
+    // which for a store holding its own keys is exactly the row that would keep
+    // the charge on the business's account. Under enforcement the only path that
+    // supplies credentials is the platform's, so a store's stored keys are read
+    // for nothing at all.
     ws40PlatformPaystack();
     ws40Switch('paystack');
 
     [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    ws40Collected($business);
     $store = ws40Store($owner);
-
-    ws40Managed($business, 'paystack', 'ACCT_business01');
 
     $method = PaymentMethod::where('code', 'paystack')->firstOrFail();
 
@@ -496,9 +475,9 @@ test('a store\'s own key row cannot mask the business\'s settlement account', fu
 
     $resolved = app(PaymentGatewayResolver::class)->connection((int) $business->id, 'paystack', (int) $store->id);
 
-    expect($resolved->credentials->accountId())->toBe('ACCT_business01')
-        ->and($resolved->credentials->get('secret_key'))->toBe('sk_live_platform1234567890')
-        ->and($resolved->isEnabled)->toBeTrue();
+    expect($resolved->credentials->get('secret_key'))->toBe('sk_live_platform1234567890')
+        ->and($resolved->isEnabled)->toBeTrue()
+        ->and($resolved->isManaged())->toBeTrue();
 });
 
 test('every provider but the selected one is not offered, and says why', function () {
@@ -506,19 +485,13 @@ test('every provider but the selected one is not offered, and says why', functio
     ws40Switch('bachs');
 
     [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    ws40Collected($business);
     $store = ws40Store($owner);
 
-    ws40Managed($business, 'bachs', 'acct_ws40');
-    // A Paystack account the business holds, and the offline rail it may have
-    // been assigned — neither is a way money may arrive any more.
-    ws40Managed($business, 'paystack', 'ACCT_business01');
-
-    $method = PaymentMethod::where('code', 'bank_transfer')->firstOrFail();
-
-    DB::table('store_payment_method')->updateOrInsert(
-        ['store_id' => $store->id, 'payment_method_id' => $method->id],
-        ['business_id' => $business->id, 'is_active' => true, 'created_at' => now(), 'updated_at' => now()],
-    );
+    // A Paystack connection the business holds, and the offline rail it could
+    // have been assigned — neither is a way money may arrive any more.
+    ws40OwnKeys($business, 'paystack', ws40PaystackKeys());
+    ws40Assign($business, $store, 'bank_transfer');
 
     expect(collect($this->getJson('/api/v1/storefront/'.$store->slug.'/payment-methods')->json('data.payment_methods'))->pluck('code')->all())
         ->toBe(['bachs']);
@@ -531,208 +504,128 @@ test('every provider but the selected one is not offered, and says why', functio
         // And the business's own screen is told the regime rather than being
         // left to infer it from a card that has gone quiet.
         ->and($states['bachs']['platform_enforced'])->toBeTrue()
-        ->and($states['bachs']['platform_enforced_code'])->toBe('bachs');
+        ->and($states['bachs']['platform_enforced_code'])->toBe('bachs')
+        ->and($states['bachs']['custody'])->toBeTrue();
 });
 
-test('a business with no bank account named offers nothing, and says why', function () {
+test('a business Storify does not collect for is offered nothing, and told why', function () {
+    // The refusal that replaced four account-shaped ones. A business an admin has
+    // not yet flipped cannot be charged through the platform at all, because the
+    // gross would land in Storify's balance with nothing recording that the
+    // business is owed it — which is precisely the outcome the whole change
+    // exists to prevent, and a storefront that quietly took the payment anyway
+    // would be the way it happened.
+    //
+    // The sentence names an admin's step rather than the business's. It used to
+    // say the business had "not registered a settlement account", which is
+    // Storify's word for its own plumbing and names something the business was
+    // never given.
     ws40PlatformPaystack();
     ws40Switch('paystack');
 
-    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    ws40NotCollected($business);
     $store = ws40Store($owner);
 
     $payload = $this->getJson('/api/v1/storefront/'.$store->slug.'/payment-methods')->assertOk();
 
-    // The customer and the owner get the same sentence, and it asks for the
-    // thing the business is actually asked for. It used to say the business had
-    // "not registered a settlement account", which is Storify's word for its own
-    // plumbing and names a step the business was never given.
     expect($payload->json('data.payment_methods'))->toBe([])
         ->and($payload->json('data.unavailable_reason'))
-        ->toBe('Set the bank account your sales are paid into to take payments.');
+        ->toBe('Storify is not collecting payments for this business yet, so it cannot take payments here.');
 });
 
-test('a business that has named a bank account is told it is waiting on setup', function () {
+test('a business Storify collects for is offered payments whether or not it has named a bank', function () {
+    // The gate this change exists to open, asserted where the closing one used to
+    // be. A destination had to be registered to *sell*, so a business that had
+    // not filled in a bank form could not ring up a sale at all — a failure worse
+    // than the one it prevented. The money now waits for the bank instead of the
+    // customer waiting for the money.
+    //
+    // Both halves matter. Offered, and with nothing to say about it: the empty
+    // reason is the assertion that a missing destination is no longer a reason a
+    // customer sees nothing at checkout.
     ws40PlatformPaystack();
     ws40Switch('paystack');
 
     [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
-    $store = ws40Store($owner);
-    ws40PayoutBank($business);
-
-    // The state a processor switch creates: the business has said where its
-    // money goes, and has no account at the processor now in force. That is not
-    // something it did wrong and not something it can do anything about, so it
-    // is told it is waiting rather than asked to register anything again.
-    $payload = $this->getJson('/api/v1/storefront/'.$store->slug.'/payment-methods')->assertOk();
-
-    expect($payload->json('data.unavailable_reason'))
-        ->toBe('Your bank account is registered, but your payment account is not set up yet.');
-});
-
-test('an account with nowhere to pay out to is refused only under enforcement', function () {
-    // The asymmetry the switch introduces. Without it a managed account that
-    // cannot be paid out still works — the console's sweep pays it once a bank
-    // is registered — but a direct settlement has no later step in which to fix
-    // it, so charging would strand the money.
-    ws40PlatformPaystack();
-    ws40PlatformBachs();
-
-    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    ws40Collected($business);
     $store = ws40Store($owner);
 
-    ws40Managed($business, 'bachs', 'acct_ws40', usable: false);
+    expect($business->fresh()->payout_bank_id)->toBeNull();
 
     $resolver = app(PaymentGatewayResolver::class);
 
-    expect(collect($resolver->forStore($store))->keys())->toContain('bachs');
-
-    ws40Switch('bachs');
-
-    expect(collect($resolver->forStore($store))->keys())->not->toContain('bachs')
-        ->and($resolver->storeUnavailableReason($store))
-        ->toBe('Add the bank account your sales are paid into.');
+    expect(collect($resolver->forStore($store))->keys())->toContain('paystack')
+        ->and($resolver->storeUnavailableReason($store))->toBeNull()
+        ->and(collect($this->getJson('/api/v1/storefront/'.$store->slug.'/payment-methods')->json('data.payment_methods'))->pluck('code')->all())
+        ->toBe(['paystack']);
 });
 
-test('the PosCheckoutRequest allow-list drops cash and the legacy transfer alias', function () {
-    // Enforced at the rule rather than only at the list, because a till that
-    // never offers cash but still accepts a posted `cash` is a rule enforced
-    // only on the client.
+test('a business that switched Storify payments off is told so', function () {
+    // The one thing a payment-method row still says on a business's behalf, and
+    // the only state in which the owner rather than an admin is the one who can
+    // put it right. Asked *after* custody, because a business Storify does not
+    // collect for cannot be charged whatever its rows say, and telling its owner
+    // to switch payments back on would be advice that changes nothing.
+    ws40PlatformPaystack();
     ws40Switch('paystack');
 
     [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    ws40Collected($business);
+    $store = ws40Store($owner);
+
+    ws40SwitchedOff($business, 'paystack');
+
+    $payload = $this->getJson('/api/v1/storefront/'.$store->slug.'/payment-methods')->assertOk();
+
+    expect($payload->json('data.payment_methods'))->toBe([])
+        ->and($payload->json('data.unavailable_reason'))
+        ->toBe('You have switched Storify payments off. Switch it back on to take payments again.');
+
+    $state = collect(app(PaymentGatewayResolver::class)->states((int) $business->id, $store))
+        ->firstWhere('code', 'paystack');
+
+    // Reported as a switch somebody threw rather than as nothing being
+    // connected at all, which is what lets the screen offer it back to its owner
+    // instead of showing them a card they have to set up from scratch. `source`
+    // is the half that proves the row was read: `none` is the business that has
+    // never touched this screen, and the two are not the same state.
+    expect($state['is_paused'])->toBeTrue()
+        ->and($state['source'])->toBe('business');
+});
+
+test('the till loses cash and every provider while the platform is enforcing, and is told why', function () {
+    // `cash` is money in hand that Storify has no sight of and no split of, which
+    // is exactly what a system processor rules out, and the legacy transfer alias
+    // is not a gateway at all. Both are asserted at the endpoint rather than only
+    // at the list, because a till that never offers cash but still accepts a
+    // posted `cash` is a rule enforced only on the client.
+    ws40PlatformPaystack();
+    ws40Switch('paystack');
+
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    ws40NotCollected($business);
     $store = ws40Store($owner);
 
     $token = $owner->createToken('pos-access', ['pos'], now()->addHour())->plainTextToken;
 
-    $methods = collect($this->withToken($token)
+    $payload = $this->withToken($token)
         ->getJson('/api/v1/pos/stores/'.$store->store_id.'/payment-methods')
-        ->assertOk()
-        ->json('data.payment_methods'));
+        ->assertOk();
 
-    expect($methods)->toBeEmpty();
-
-    // And the till's own fallback is answered rather than left blank.
-    $this->withToken($token)
-        ->getJson('/api/v1/pos/stores/'.$store->store_id.'/payment-methods')
-        ->assertOk()
-        ->assertJsonPath('data.unavailable_reason', 'Set the bank account your sales are paid into to take payments.');
+    expect($payload->json('data.payment_methods'))->toBeEmpty()
+        // The till's own fallback, from the same method the storefront reads, so
+        // a cashier can be told whether to send the customer to the bank or to
+        // call support.
+        ->and($payload->json('data.unavailable_reason'))
+        ->toBe('Storify is not collecting payments for this business yet, so it cannot take payments here.');
 });
 
 /*
 |--------------------------------------------------------------------------
-| The Paystack split, and the guard
+| The platform's own endpoint, under the platform's own key
 |--------------------------------------------------------------------------
 */
-
-test('a platform-processed Paystack charge carries the subaccount and the platform\'s cut', function () {
-    ws40PlatformPaystack();
-    ws40Commission(2.5);
-    ws40Switch('paystack');
-
-    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
-    $store = ws40Store($owner);
-    ws40Managed($business, 'paystack', 'ACCT_business01');
-
-    $order = Order::create([
-        'business_id' => $business->id,
-        'store_id' => $store->id,
-        'order_number' => 'WS40-'.fake()->unique()->numerify('######'),
-        'subtotal' => 2500,
-        'total' => 2500,
-        'amount_paid' => 0,
-        'status' => 'pending',
-    ]);
-
-    Http::swap(new Factory);
-    Http::fake(['api.paystack.co/transaction/initialize' => Http::response([
-        'status' => true,
-        'data' => ['authorization_url' => 'https://checkout.paystack.com/ws40', 'reference' => 'ws40_ref'],
-    ])]);
-
-    $this->postJson('/api/v1/storefront/'.$store->slug.'/payments/paystack/initialize', [
-        'order_number' => $order->order_number,
-        'amount' => 2500,
-    ])->assertOk();
-
-    $sent = null;
-
-    Http::assertSent(function (Request $request) use (&$sent) {
-        if (! str_contains($request->url(), '/transaction/initialize')) {
-            return false;
-        }
-
-        $sent = $request->data();
-
-        return true;
-    });
-
-    expect($sent['subaccount'])->toBe('ACCT_business01')
-        // `bearer: subaccount` makes the business bear Paystack's own processing
-        // fee, so the platform's cut is what it says it is.
-        ->and($sent['bearer'])->toBe('subaccount')
-        // The platform's cut in kobo, per transaction: 2.5% of ₦2,500. It
-        // overrides the subaccount's `percentage_charge`, which is why the
-        // authoritative figure is sent with the charge.
-        ->and($sent['transaction_charge'])->toBe(6250);
-});
-
-test('a Paystack charge asking for a subaccount that is missing or mismatched is refused before the request', function () {
-    // The highest-risk line in the change. Paystack answers an initialize with
-    // no `subaccount` perfectly happily: it charges the platform's own account,
-    // pays the business nothing, and reports success. Nothing in the response
-    // says a split was dropped, so it must never leave.
-    Http::swap(new Factory);
-    Http::fake();
-
-    $credentials = GatewayCredentials::make('paystack', [
-        'secret_key' => 'sk_live_platform1234567890',
-    ], PaymentGatewayRegistry::secretKeysFor('paystack'))->withAccountId('ACCT_business01');
-
-    $gateway = app(PaystackGateway::class);
-
-    $intent = fn (?string $declared): PaymentIntent => new PaymentIntent(
-        reference: 'ws40_ref',
-        amountMinor: 250000,
-        currency: 'NGN',
-        email: 'ada@example.test',
-        callbackUrl: 'https://shop.test/callback',
-        directChargeAccountId: $declared,
-        platformFeeMinor: 6250,
-    );
-
-    // Declared, and not the account these credentials name.
-    $mismatch = $gateway->initialize($intent('ACCT_somebody_else'), $credentials);
-    expect($mismatch->success)->toBeFalse();
-
-    // Declared, and not even a subaccount code.
-    $malformed = $gateway->initialize($intent('not-an-account'), $credentials);
-    expect($malformed->success)->toBeFalse();
-
-    // No credentials for the provider at all.
-    $bare = $gateway->initialize($intent('ACCT_business01'), GatewayCredentials::make('paystack', [], ['secret_key']));
-    expect($bare->success)->toBeFalse();
-
-    Http::assertNothingSent();
-
-    // And an ordinary charge — no account declared — is untouched by the guard:
-    // the platform's own billing, or a business's own keys, still goes out.
-    //
-    // A fresh recorder, because `Http::fake()` above left a catch-all stub that
-    // answers everything with an empty 200 — and stubs are matched in the order
-    // they were registered, so the specific one below would never be reached.
-    Http::swap(new Factory);
-    Http::fake(['api.paystack.co/transaction/initialize' => Http::response([
-        'status' => true,
-        'data' => ['authorization_url' => 'https://checkout.paystack.com/ws40', 'reference' => 'ws40_ref'],
-    ])]);
-
-    $ordinary = $gateway->initialize($intent(null), $credentials);
-
-    expect($ordinary->success)->toBeTrue();
-
-    Http::assertSent(fn (Request $request) => ! array_key_exists('subaccount', $request->data()));
-});
 
 test('the connect endpoint settles a Paystack delivery signed with the platform key', function () {
     ws40PlatformPaystack();
@@ -814,85 +707,6 @@ test('the connect endpoint settles a Paystack delivery signed with the platform 
 
 /*
 |--------------------------------------------------------------------------
-| Bachs: the schedule, and taking the sweep off the money path
-|--------------------------------------------------------------------------
-*/
-
-test('the account\'s settlement schedule is set to instant, under the account\'s own header', function () {
-    ws40PlatformBachs();
-
-    Http::swap(new Factory);
-    Http::fake(['sandbox-api.bachs.io/*' => Http::response(['id' => 'acct_ws40'])]);
-
-    $problem = app(BachsOnBehalf::class)->ensureDirectSettlement('acct_ws40', true);
-
-    expect($problem)->toBeNull();
-
-    Http::assertSent(fn (Request $request) => str_contains($request->url(), '/balance_settings')
-        // Addressed as the business: without the header this sets the
-        // platform's own schedule and leaves the business's money where it was.
-        && $request->hasHeader('X-Account-Id', 'acct_ws40')
-        && $request->data()['schedule_by_currency']['NGN']['interval'] === 'instant');
-
-    // And the other mode stays reachable: `auto_payout` off is the platform
-    // deliberately keeping the old shape.
-    Http::swap(new Factory);
-    Http::fake(['sandbox-api.bachs.io/*' => Http::response(['id' => 'acct_ws40'])]);
-
-    app(BachsOnBehalf::class)->ensureDirectSettlement('acct_ws40', false);
-
-    Http::assertSent(fn (Request $request) => str_contains($request->url(), '/balance_settings')
-        && $request->data()['schedule_by_currency']['NGN']['interval'] === 'manual');
-});
-
-test('the payout sweep never touches a Paystack connection', function () {
-    // The sweep is scoped to Bachs, and that scoping is the whole reason a
-    // Paystack subaccount cannot be "pulled": its money is already on its way to
-    // the business's bank by Paystack's own schedule, and a payout built from it
-    // would be an attempt to withdraw money we never held.
-    ws40PlatformBachs();
-    ws40PlatformPaystack();
-
-    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
-    ws40Managed($business, 'paystack', 'ACCT_business01');
-
-    Http::swap(new Factory);
-    Http::fake();
-
-    $counts = app(PlatformPayoutService::class)->sweep();
-
-    expect($counts)->toBe(['paid' => 0, 'held' => 0, 'skipped' => 0, 'failed' => 0]);
-    Http::assertNothingSent();
-
-    // Named directly rather than inferred, so the fact this test exists to pin
-    // down is stated: a Paystack account is not a payout candidate.
-    expect(app(OnBehalfProcessors::class)->for('paystack')->settlementMode())
-        ->toBe(OnBehalfProcessor::SETTLEMENT_DIRECT);
-});
-
-test('a business whose payouts are held is given a manual schedule rather than an instant one', function () {
-    ws40PlatformBachs();
-
-    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
-    ws40Managed($business, 'bachs', 'acct_ws40');
-
-    Http::swap(new Factory);
-    Http::fake(['sandbox-api.bachs.io/*' => Http::response(['id' => 'acct_ws40'])]);
-
-    $admin = ws40Admin();
-
-    app(PlatformPayoutService::class)->setAutoPayout($business->fresh(), false, $admin);
-
-    // The switch pushes the schedule at the provider, so the admin's flag means
-    // the same thing it always did — the money waits — rather than being a
-    // promise the provider has not been told about.
-    Http::assertSent(fn (Request $request) => str_contains($request->url(), '/balance_settings')
-        && $request->hasHeader('X-Account-Id', 'acct_ws40')
-        && $request->data()['schedule_by_currency']['NGN']['interval'] === 'manual');
-});
-
-/*
-|--------------------------------------------------------------------------
 | The other doors
 |--------------------------------------------------------------------------
 */
@@ -921,6 +735,10 @@ test('an invoice cannot be paid through its own Paystack while the switch is on'
     ws40Switch('paystack');
 
     [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    // Left on the old arrangement deliberately: with custody on the *custody*
+    // guard answers first and this test would be pinning the other sentence. The
+    // test below is the one that pins it.
+    ws40NotCollected($business);
     $store = ws40Store($owner);
 
     $invoice = Invoice::create([
@@ -953,21 +771,97 @@ test('an invoice cannot be paid through its own Paystack while the switch is on'
     Http::assertNothingSent();
 });
 
+test('an invoice cannot be paid through its own Paystack while Storify collects for the business', function () {
+    // **The other switch, and the reason it needs its own guard.** Custody is set
+    // per business and the processor switch is platform-wide, and the two are set
+    // at different moments — a pilot business is flipped first and the switch
+    // follows. In that window every other path already charges on Storify's
+    // credentials, and this one would still take an invoice payment through a
+    // Paystack account the wallet never sees, credit `stores.balance` for it, and
+    // leave money owed to a business that no payout run can pay out.
+    ws40Switch(null);
+
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    ws40Collected($business);
+    $store = ws40Store($owner);
+    $invoice = ws40Invoice($business, $store, 'ws40-custody-token');
+
+    Http::swap(new Factory);
+    Http::fake();
+
+    $this->postJson('/pay/invoice/ws40-custody-token/initialize', ['amount' => 1000])
+        ->assertStatus(409)
+        ->assertJsonPath(
+            'message',
+            "Storify collects this business's payments, so payments to this invoice must be taken through "
+            .'Storify. Paying it through a provider of your own is not available.',
+        );
+
+    // The offline rail too: a bank-transfer slip is money paid outside the
+    // platform, so there is no collection for Storify to hold and no wallet
+    // credit to make for it.
+    $this->post('/pay/invoice/ws40-custody-token/bank-transfer', [])
+        ->assertRedirect();
+
+    Http::assertNothingSent();
+});
+
+test('the invoice path is open again the moment the business is not collected for', function () {
+    // The control for the guard above. Without it, a refusal that fired for
+    // every business would pass the test above and quietly stop invoice payments
+    // for the whole platform.
+    ws40Switch(null);
+
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    ws40NotCollected($business);
+    $store = ws40Store($owner);
+    ws40Invoice($business, $store, 'ws40-own-token');
+
+    Http::swap(new Factory);
+    Http::fake();
+
+    $this->postJson('/pay/invoice/ws40-own-token/initialize', ['amount' => 1000]);
+
+    // Past the guard and out to Paystack, whatever Paystack then says to a fake.
+    Http::assertSentCount(1);
+});
+
+function ws40Invoice(Business $business, Store $store, string $token): Invoice
+{
+    return Invoice::create([
+        'invoice_number' => 'WS40-INV-'.strtoupper(Str::random(6)),
+        'business_id' => $business->id,
+        'user_id' => $business->user_id,
+        'store_id' => $store->id,
+        'recipient_name' => 'Ada Obi',
+        'recipient_email' => 'ada@example.test',
+        'status' => 'sent',
+        'issue_date' => now()->toDateString(),
+        'due_date' => now()->addWeek()->toDateString(),
+        'subtotal' => 1000,
+        'tax_amount' => 0,
+        'total' => 1000,
+        'amount_paid' => 0,
+        'payment_token' => $token,
+    ]);
+}
+
 /*
 |--------------------------------------------------------------------------
 | The pre-flight, and the platform's own billing
 |--------------------------------------------------------------------------
 */
 
-test('the pre-flight lists the businesses that would stop being able to sell', function () {
+test('the pre-flight lists the businesses Storify has not started collecting for', function () {
     ws40PlatformPaystack();
     ws40Switch('paystack');
 
-    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
-    $store = ws40Store($owner);
-    ws40Managed($business, 'paystack', 'ACCT_business01');
+    [$readyOwner, $ready] = createBusinessOwner(['trial_ends_at' => now()->addWeek()], ['name' => 'Ada Trading Ltd']);
+    ws40Collected($ready);
+    ws40Store($readyOwner);
 
-    [$brokenOwner, $broken] = createBusinessOwner(['trial_ends_at' => now()->addWeek()], ['name' => 'Ada Trading Ltd']);
+    [$brokenOwner, $broken] = createBusinessOwner(['trial_ends_at' => now()->addWeek()], ['name' => 'Bola Stores']);
+    ws40NotCollected($broken);
     ws40Store($brokenOwner);
 
     $admin = ws40Admin();
@@ -981,34 +875,41 @@ test('the pre-flight lists the businesses that would stop being able to sell', f
         // it can be rendered by an admin holding `admin.finance` alone — who may
         // read what the platform is set to without being able to write it.
         ->assertJsonPath('data.stored', 'paystack')
+        ->assertJsonPath('data.platform_offers_processor', true)
         ->assertJsonPath('data.processors.0.code', 'paystack')
         ->assertJsonPath('data.processors.1.code', 'bachs');
 
     $lockedOut = collect($payload->json('data.businesses'));
 
-    // The business with an account is not listed; the one without is, with the
-    // reason and the stores behind it.
+    // The business Storify collects for is not listed as blocked; the one still
+    // on the old arrangement is, with the reason and the stores behind it.
     expect($lockedOut->pluck('business_id')->all())->toBe([(int) $broken->id])
         ->and($lockedOut->first()['stores_locked_out'])->toBe(1)
-        ->and($lockedOut->first()['reason'])->toBe('No bank account has been set for its payments to be paid into.')
-        ->and($lockedOut->first()['kind'])->toBe('bank_account')
+        ->and($lockedOut->first()['reason'])->toBe('Its sales are not yet collected by Storify, so there is nothing to charge them with.')
+        ->and($lockedOut->first()['kind'])->toBe('custody')
         ->and($payload->json('data.businesses_locked_out'))->toBe(1)
         ->and($payload->json('data.stores_locked_out'))->toBe(1)
         ->and($payload->json('data.businesses_total'))->toBe(2)
         // And the two counts beside the total, which are the difference between
-        // a list an admin works through and a list they read. Nobody here has a
-        // bank account, so nothing is waiting on setup.
-        ->and($payload->json('data.businesses_without_bank_account'))->toBe(1)
-        ->and($payload->json('data.businesses_awaiting_setup'))->toBe(0);
+        // a list an admin works through and a list they read.
+        ->and($payload->json('data.businesses_awaiting_custody'))->toBe(1)
+        ->and($payload->json('data.businesses_switched_off'))->toBe(0)
+        // The business that can trade is counted somewhere else, and it matters
+        // that it is somewhere else: it has not named a bank, so its money
+        // accumulates in Storify's balance, but it is working and must not be
+        // reported to an admin as broken.
+        ->and($payload->json('data.businesses_cannot_be_paid'))->toBe(1);
 });
 
 test('the pre-flight answers for a processor that is not switched on yet', function () {
     ws40PlatformBachs();
 
-    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
-    ws40Managed($business, 'bachs', 'ACCT_business01');
+    [$readyOwner, $ready] = createBusinessOwner(['trial_ends_at' => now()->addWeek()], ['name' => 'Ada Trading Ltd']);
+    ws40Collected($ready);
+    ws40Store($readyOwner);
 
-    [$brokenOwner, $broken] = createBusinessOwner(['trial_ends_at' => now()->addWeek()], ['name' => 'Ada Trading Ltd']);
+    [$brokenOwner, $broken] = createBusinessOwner(['trial_ends_at' => now()->addWeek()], ['name' => 'Bola Stores']);
+    ws40NotCollected($broken);
     ws40Store($brokenOwner);
 
     // Nothing is switched on. Asking what Bachs *would* cost has to work anyway:
@@ -1024,19 +925,16 @@ test('the pre-flight answers for a processor that is not switched on yet', funct
         ->assertJsonPath('data.counted_for', 'bachs')
         ->assertJsonPath('data.counted_for_name', 'Bachs')
         ->assertJsonPath('data.businesses_locked_out', 1)
-        ->assertJsonPath('data.businesses.0.reason', 'No bank account has been set for its payments to be paid into.');
+        ->assertJsonPath('data.businesses.0.reason', 'Its sales are not yet collected by Storify, so there is nothing to charge them with.');
 
     expect(collect($payload->json('data.businesses'))->pluck('business_id')->all())->toBe([(int) $broken->id]);
 });
 
-test('the pre-flight separates businesses that named a bank account from those that have not', function () {
+test('the pre-flight separates businesses that are not collected for from those that switched payments off', function () {
     // The distinction the admin asked for, and the reason it is a distinction:
-    // one of these is a conversation and the other is not. A business that has
-    // never said where its money should go has to be asked; one that has said,
-    // and is merely waiting for an account at the processor in force, has done
-    // everything it was ever asked to do — which is exactly what a processor
-    // switch looks like from the console, and is not something to go and ask
-    // anybody about.
+    // these are two different conversations. One is "we have not moved you onto
+    // the new rail yet", which is Storify's own step; the other is a business
+    // that has asked not to be charged through us, which only it can answer.
     //
     // Neither row may name the processor. It is Storify's plumbing, the admin
     // has nothing to build there, and a reason that named it is what read as the
@@ -1044,37 +942,134 @@ test('the pre-flight separates businesses that named a bank account from those t
     ws40PlatformBachs();
     ws40Switch('bachs');
 
-    [$namedOwner, $named] = createBusinessOwner(['trial_ends_at' => now()->addWeek()], ['name' => 'Ada Trading Ltd']);
-    ws40Store($namedOwner);
-    ws40PayoutBank($named);
+    [$offOwner, $off] = createBusinessOwner(['trial_ends_at' => now()->addWeek()], ['name' => 'Ada Trading Ltd']);
+    ws40Collected($off);
+    ws40Store($offOwner);
+    ws40SwitchedOff($off, 'bachs');
 
-    [$silentOwner, $silent] = createBusinessOwner(['trial_ends_at' => now()->addWeek()], ['name' => 'Bola Stores']);
-    ws40Store($silentOwner);
+    [$uncollectedOwner, $uncollected] = createBusinessOwner(['trial_ends_at' => now()->addWeek()], ['name' => 'Bola Stores']);
+    ws40NotCollected($uncollected);
+    ws40Store($uncollectedOwner);
 
     // And one that can sell, which must not be listed however the counts are
-    // re-keyed: the list is of businesses that cannot take money, and an account
-    // that works is an account that works.
+    // re-keyed: the list is of businesses that cannot take money, and a business
+    // the platform collects for is one that can — whether or not it has named a
+    // bank to be paid into.
     [$readyOwner, $ready] = createBusinessOwner(['trial_ends_at' => now()->addWeek()], ['name' => 'Chidi Ltd']);
+    ws40Collected($ready);
     ws40Store($readyOwner);
-    ws40Managed($ready, 'bachs', 'ACCT_ready');
 
     $payload = $this->getJson('/api/v1/admin/payments/enforcement-preview', ws40AdminHeaders(ws40Admin()))
         ->assertOk()
         ->assertJsonPath('data.businesses_locked_out', 2)
         ->assertJsonPath('data.businesses_total', 3)
-        ->assertJsonPath('data.businesses_without_bank_account', 1)
-        ->assertJsonPath('data.businesses_awaiting_setup', 1);
+        ->assertJsonPath('data.businesses_awaiting_custody', 1)
+        ->assertJsonPath('data.businesses_switched_off', 1);
 
     $rows = collect($payload->json('data.businesses'))->keyBy('business_id');
 
     expect($rows->keys()->all())->not->toContain((int) $ready->id)
-        ->and($rows[(int) $silent->id]['reason'])->toBe('No bank account has been set for its payments to be paid into.')
-        ->and($rows[(int) $silent->id]['kind'])->toBe('bank_account')
-        ->and($rows[(int) $named->id]['reason'])->toBe('Its bank account is on file, but its payment account has not been set up yet.')
-        ->and($rows[(int) $named->id]['kind'])->toBe('setup');
+        ->and($rows[(int) $uncollected->id]['kind'])->toBe('custody')
+        ->and($rows[(int) $uncollected->id]['reason'])->toBe('Its sales are not yet collected by Storify, so there is nothing to charge them with.')
+        ->and($rows[(int) $off->id]['kind'])->toBe('connection')
+        ->and($rows[(int) $off->id]['reason'])->toBe('Payments are switched off for this connection.');
 
     // No processor name anywhere in the reasons, which is the whole complaint.
     expect(collect($rows)->pluck('reason')->implode(' '))->not->toContain('Bachs');
+});
+
+test('the pre-flight reports whether the platform itself still offers the processor', function () {
+    // The fourth way a store ends up unchargeable, and the only one that is not
+    // about a business at all: an admin has switched the provider off platform-
+    // wide, so every business is blocked for a reason none of them can act on.
+    // Reported as one field rather than multiplied across every business in the
+    // list, because a list of all of them would bury the one fact that matters.
+    $method = PaymentMethod::where('code', 'bachs')->firstOrFail();
+    DB::table('payment_methods')->where('id', $method->id)->update(['is_active' => false]);
+
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    ws40Collected($business);
+    ws40Store($owner);
+
+    $payload = $this->getJson('/api/v1/admin/payments/enforcement-preview?processor=bachs', ws40AdminHeaders(ws40Admin()))
+        ->assertOk()
+        ->assertJsonPath('data.platform_offers_processor', false)
+        ->assertJsonPath('data.businesses_locked_out', 0);
+
+    // And no business is listed for it. Every one of them can still trade: this
+    // is the platform's switch, the platform is what has to move it, and naming
+    // the businesses would be handing an admin a list of people to call about
+    // something none of them did.
+    expect($payload->json('data.businesses_awaiting_custody'))->toBe(0)
+        ->and($payload->json('data.businesses_switched_off'))->toBe(0);
+});
+
+test('the pre-flight counts a business that can sell but cannot be paid separately', function () {
+    // The two questions used to be one. A business with a working account and no
+    // bank account named was refused at checkout, so it was "locked out" and
+    // belonged in the same list as a business the platform cannot charge for at
+    // all.
+    //
+    // It does not any more: it can take money, and the money waits for it. But
+    // "who are we holding money for that we cannot hand over" is still a question
+    // worth answering before it becomes a backlog, so it gets its own list —
+    // *not* the locked-out one, because a business that is trading happily must
+    // not be reported to an admin as broken.
+    ws40PlatformBachs();
+    ws40Switch('bachs');
+
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()], ['name' => 'Ada Trading Ltd']);
+    ws40Collected($business);
+    ws40Store($owner);
+
+    $payload = $this->getJson('/api/v1/admin/payments/enforcement-preview', ws40AdminHeaders(ws40Admin()))
+        ->assertOk()
+        ->assertJsonPath('data.businesses_locked_out', 0)
+        ->assertJsonPath('data.stores_locked_out', 0)
+        ->assertJsonPath('data.businesses_cannot_be_paid', 1);
+
+    expect(collect($payload->json('data.businesses'))->pluck('business_id')->all())->toBe([]);
+
+    $row = collect($payload->json('data.cannot_be_paid'))->first();
+
+    expect($row['business_id'])->toBe((int) $business->id)
+        ->and($row['reason'])->toBe('It can take payments, but it has not named a bank account to be paid into.');
+});
+
+test('the pre-flight does not list a business the payout run could pay', function () {
+    // The other side of the list, so a bug that lists everybody is caught. The
+    // bank fields are what decide it, because they are what the sweep reads: a
+    // `payout_bank_id` pointing at a row with no account number is a business
+    // the sweep skips in silence, and it belongs on the list.
+    ws40PlatformBachs();
+    ws40Switch('bachs');
+
+    [$paidOwner, $paid] = createBusinessOwner(['trial_ends_at' => now()->addWeek()], ['name' => 'Ada Trading Ltd']);
+    ws40Collected($paid);
+    ws40Store($paidOwner);
+    ws40PayoutBank($paid);
+
+    [$blankOwner, $blank] = createBusinessOwner(['trial_ends_at' => now()->addWeek()], ['name' => 'Bola Stores']);
+    ws40Collected($blank);
+    ws40Store($blankOwner);
+
+    // Empty strings rather than nulls: the columns are not nullable, and the
+    // half-filled row is the state the check has to survive — a bank pointer
+    // whose row a business never finished, which the sweep skips in silence.
+    $bank = StoreBank::factory()->create([
+        'business_id' => $blank->id,
+        'bank_code' => '',
+        'account_number' => '',
+    ]);
+
+    $blank->forceFill(['payout_bank_id' => $bank->id])->save();
+
+    $payload = $this->getJson('/api/v1/admin/payments/enforcement-preview', ws40AdminHeaders(ws40Admin()))
+        ->assertOk()
+        ->assertJsonPath('data.businesses_cannot_be_paid', 1);
+
+    expect(collect($payload->json('data.cannot_be_paid'))->pluck('business_id')->all())
+        ->toBe([(int) $blank->id]);
 });
 
 test('the pre-flight counts nobody when no processor is named and none is set', function () {

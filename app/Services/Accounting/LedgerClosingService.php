@@ -42,7 +42,7 @@ class LedgerClosingService
             ->join('journal_entries', 'journal_entries.id', '=', 'journal_lines.journal_entry_id')
             ->join('ledger_accounts', 'ledger_accounts.id', '=', 'journal_lines.ledger_account_id')
             ->where('journal_entries.business_id', $businessId)
-            ->where('journal_entries.status', JournalEntry::STATUS_POSTED)
+            ->whereIn('journal_entries.status', JournalEntry::IN_BOOKS)
             ->whereIn('ledger_accounts.type', [LedgerAccount::TYPE_INCOME, LedgerAccount::TYPE_EXPENSE])
             ->whereDate('journal_entries.entry_date', '>=', $from)
             ->whereDate('journal_entries.entry_date', '<=', $to)

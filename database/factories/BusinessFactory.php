@@ -23,9 +23,15 @@ class BusinessFactory extends Factory
     /**
      * A business that has named the bank account its sales are paid into.
      *
-     * The state exists because under a system payment processor that is the
-     * difference between a business that can sell and one that cannot, and the
+     * The state exists because under collect-and-pay-out that is the difference
+     * between a business Storify can hand money over to and one whose money
+     * accumulates in Storify's balance until somebody names an account, and the
      * two are otherwise indistinguishable on a factory-made row.
+     *
+     * It is deliberately *not* what makes a business able to sell. It used to be:
+     * a destination had to be registered before a customer could pay, and a
+     * business that had not filled in the form could not ring up a sale. That
+     * gate is gone, and the fact this state exists for is the payout run's.
      *
      * The bank is attached after creation rather than passed into the definition,
      * so that when none is given the row it makes belongs to *this* business —
@@ -34,11 +40,10 @@ class BusinessFactory extends Factory
      */
     public function withPayoutBank(?StoreBank $bank = null): static
     {
-        return $this->state(fn (): array => ['payout_entity_type' => 'company'])
-            ->afterCreating(function (Business $business) use ($bank): void {
-                $business->forceFill([
-                    'payout_bank_id' => ($bank ?? StoreBank::factory()->for($business)->create())->id,
-                ])->save();
-            });
+        return $this->afterCreating(function (Business $business) use ($bank): void {
+            $business->forceFill([
+                'payout_bank_id' => ($bank ?? StoreBank::factory()->for($business)->create())->id,
+            ])->save();
+        });
     }
 }

@@ -3,13 +3,9 @@
 namespace App\Http\Controllers\Api\V1\Auth\Concerns;
 
 use App\Mail\OtpMail;
-use App\Models\Business;
 use App\Models\Customer;
-use App\Models\Impersonation;
 use App\Models\User;
 use App\Services\OtpService;
-use App\Services\Payments\PaymentGatewayResolver;
-use App\Support\Payments\SystemProcessor;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 
@@ -160,74 +156,6 @@ trait BuildsAuthResponses
             return 'plans';
         }
 
-        if ($this->needsPayoutAccount($user, $business)) {
-            return 'payout_account';
-        }
-
         return 'dashboard';
-    }
-
-    /**
-     * Whether this business still has to be asked where its sales are paid into.
-     *
-     * Answered for a platform that processes payments on a business's behalf,
-     * where the destination is the one thing the business must supply and the
-     * one thing nobody else can supply for it: Storify builds the provider's
-     * subaccount out of this answer, and the money cannot reach a bank account
-     * that was never named.
-     *
-     * Placed after `plans` in the order above on purpose. A business whose
-     * subscription has lapsed is asked to pay first, and it can: subscription
-     * billing runs on the platform's own provider credentials, not on the
-     * business's, so being unable to take payments has never stopped a business
-     * from paying Storify.
-     *
-     * Also exempt: anybody who could not submit the form. See the permission
-     * check below for why that is a favour rather than a loophole.
-     */
-    private function needsPayoutAccount(User $user, ?Business $business): bool
-    {
-        if ($business === null) {
-            return false;
-        }
-
-        // `code()`, not `enforced()`. A stored processor this build cannot run
-        // is a state in which no submission can succeed, so it is an admin's to
-        // fix and never a business's to be stuck on — the screen could only ever
-        // fail, and the platform is dark either way.
-        if (SystemProcessor::code() === null) {
-            return false;
-        }
-
-        // An admin looking at a business through impersonation is not its owner:
-        // it cannot open a bank account in the business's name, and it must not
-        // accept a provider's terms on its behalf. So it is not intercepted —
-        // which also means the admin can still see, from inside, that the
-        // business is the state it is.
-        if (Impersonation::activeForToken($user->currentAccessToken()) !== null) {
-            return false;
-        }
-
-        // Only a member of the business who could actually submit this. The
-        // screen is forced — every route goes through it and it cannot be
-        // dismissed — so showing it to somebody the endpoint would refuse is not
-        // a nudge, it is a trap with only the sign-out link as a way past it.
-        // Skipping them costs nothing: money safety is the resolver's, not this
-        // step's, and the account still has to be named before anything sells.
-        setPermissionsTeamId($user->business_id);
-
-        if (! $user->can('settings payment')) {
-            return false;
-        }
-
-        if ($business->payout_bank_id === null) {
-            return true;
-        }
-
-        // The bank account is named, so what is missing is the account at the
-        // provider — which happens when an admin has since changed the processor
-        // and a business that had registered has none at the new one. The same
-        // answer the resolver gives about taking money, so the two cannot drift.
-        return ! app(PaymentGatewayResolver::class)->enforcedProcessorReady((int) $business->id);
     }
 }

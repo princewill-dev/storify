@@ -10,6 +10,7 @@ use App\Models\Transaction;
 use App\Repositories\Management\TransactionRepository;
 use App\Services\Accounting\LedgerPostingService;
 use App\Services\Digital\DigitalDeliveryService;
+use App\Services\Payments\Custody\CustodyService;
 use App\Services\Payments\Data\RefundRequest;
 use App\Services\Payments\PaymentGatewayManager;
 use App\Services\Subscription\PlatformBillingGateway;
@@ -33,6 +34,7 @@ class TransactionWorkflowService
         private readonly DigitalDeliveryService $digital,
         private readonly PaymentGatewayManager $manager,
         private readonly PlatformBillingGateway $platform,
+        private readonly CustodyService $custody,
     ) {}
 
     /**
@@ -213,6 +215,24 @@ class TransactionWorkflowService
 
         $this->ledger->safe(fn () => $this->ledger->postRefund($transaction, $actorId));
 
+        // And, for a sale the platform collected, the custody half of it: the
+        // business stops being owed its share, and the platform's own collection
+        // entry is reversed with it.
+        //
+        // Reached only for a managed sale, because that is the only kind whose
+        // money ever entered the wallet — but *not* reached for every managed
+        // sale either, and deliberately so: a split-at-source charge has no
+        // `managed:collect` entry to undo and no wallet credit to take back, and
+        // the method finds that out from the row rather than from the custody
+        // flag, which may have been switched between the charge and the refund.
+        if ($managed) {
+            $this->custody->unwindCollectedSale(
+                $transaction,
+                'Refund '.$transaction->reference,
+                $actorId,
+            );
+        }
+
         $this->mails->queue($transaction, 'refunded', $reason);
 
         Log::info('api.management.payment_refunded', [
@@ -231,37 +251,45 @@ class TransactionWorkflowService
     }
 
     /**
-     * Ask Bachs to put a managed sale's money back on the customer's card.
+     * Ask the provider to put a platform-collected sale's money back on the
+     * customer's card.
      *
      * Returns null when the refund was accepted — or when there is nothing this
      * method can usefully do — and a failed {@see RefundOutcome} when the
      * provider refused, which the caller returns as-is without writing anything.
      *
-     * The credentials are the **platform's** key carrying the **business's**
-     * connected account, and that second half is the whole point: without it the
-     * refund would be taken out of Storify's own balance, and Bachs does not
-     * reject a request whose account header is missing. The account id comes from
-     * the transaction rather than from the connection, because a business may
-     * have been granted its own keys — or had its subaccount switched off —
-     * between the charge and the refund, and the money has to go back the way it
-     * came.
+     * Always the **platform's** credentials, and now nothing else. The platform
+     * took the charge, so the platform is who the customer's bank is asked to
+     * reverse it with — and under collect-and-pay-out the gross landed in
+     * Storify's provider balance as a whole, so reversing it goes back to that
+     * same balance.
+     *
+     * The account header this used to attach is gone, and with it the one case
+     * that could not be served: a charge taken before its business was flipped,
+     * whose refund had to be reversed out of the business's own account. Those
+     * charges have all been paid out and reconciled by the end of the migration,
+     * and there is no per-business account left to address — see
+     * {@see PlatformBillingGateway}.
      */
     private function refundAtProvider(Transaction $transaction, string $reason, int $actorId): ?RefundOutcome
     {
-        $accountId = $transaction->gatewayAccountId();
+        $provider = $transaction->settlementProviderCode();
 
-        if ($accountId === null) {
-            Log::error('api.management.payment_refund_no_account', [
+        if ($provider === '') {
+            // Nothing on the row says which provider took this charge, and
+            // guessing is how a refund ends up filed against the wrong merchant
+            // account. Refused rather than defaulted.
+            Log::error('api.management.payment_refund_no_provider', [
                 'transaction_id' => $transaction->id,
             ]);
 
             return RefundOutcome::failed(
-                'This payment was processed by Storify but no payout account was recorded against it, '
-                .'so it cannot be refunded through the provider.'
+                'This payment was processed by Storify, but which provider took it could no longer be '
+                .'determined, so it cannot be refunded automatically.'
             );
         }
 
-        $driver = $this->manager->driver('bachs');
+        $driver = $this->manager->driver($provider);
 
         if ($driver === null) {
             return RefundOutcome::failed('The provider this payment was taken through is not available in this build.');
@@ -274,13 +302,13 @@ class TransactionWorkflowService
                 providerId: $transaction->providerChargeId(),
                 reason: $reason,
             ),
-            $this->platform->credentialsFor('bachs')->withAccountId($accountId),
+            $this->platform->credentialsFor($provider),
         );
 
         if (! $result->success) {
             Log::error('api.management.payment_refund_refused', [
                 'transaction_id' => $transaction->id,
-                'account_id' => $accountId,
+                'provider' => $provider,
                 'message' => $result->message,
             ]);
 
@@ -290,6 +318,7 @@ class TransactionWorkflowService
         Log::info('api.management.payment_refund_at_provider', [
             'user_id' => $actorId,
             'transaction_id' => $transaction->id,
+            'provider' => $provider,
             'refund_id' => $result->refundId,
             'status' => $result->status,
         ]);

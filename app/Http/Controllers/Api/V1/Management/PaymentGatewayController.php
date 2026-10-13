@@ -92,67 +92,46 @@ final class PaymentGatewayController extends ApiController
     }
 
     /**
-     * Register the bank this business is paid into.
+     * Name the bank account this business's money is paid into.
      *
      * The form a business with no gateway of its own sees: no keys, no
-     * dashboard, just where the money should land. What comes back is the
-     * provider's own view of the account — active or still under review, which
-     * capabilities have been granted, what documents are still wanted, and the
-     * last four digits of the bank account — because "it worked" is not an
-     * answer a business owner can act on when their first sale is refused.
+     * dashboard, just where the money should land. It used to open an account at
+     * the provider and submit a payout destination; under collect-and-pay-out
+     * there is nothing at the provider to open, so this writes one column and
+     * the money is paid out of the wallet to the account it names.
      *
-     * `store_id` means this store is paid into its own account; absent, the
-     * business's. It is the same scope parameter as every other verb here, for
-     * the same reason: two stores in one business may genuinely bank separately.
+     * **This is not a precondition of selling.** It used to be — a business with
+     * no destination could not take a customer's money — and that is the failure
+     * the whole design was changed to remove. Collected money is held for the
+     * business and paid out as soon as there is somewhere to pay it, so failing
+     * here costs a payout, never a sale.
      */
-    public function registerPayoutAccount(RegisterPayoutAccountRequest $request, string $provider): JsonResponse
+    public function payoutBank(RegisterPayoutAccountRequest $request, string $provider): JsonResponse
     {
         $user = $this->user($request);
         $definition = $this->providerOrFail($provider);
         $store = $this->resolveStore($request, $user);
 
-        $result = $this->service->registerPayoutAccount($provider, $request->validated(), $user, $store);
+        $this->service->setPayoutBank($provider, $request->validated(), $user, $store);
 
-        $payload = [
+        return $this->ok([
             'code' => $provider,
-            'success' => $result->success,
-            'account_id' => $result->accountId,
-            'message' => $result->message,
+            'success' => true,
             'providers' => $this->resolver->states((int) $user->business_id, $store),
-        ];
-
-        if (! $result->success) {
-            // 422 and not 500: the provider refused something about *this*
-            // submission — a bank account that did not resolve, an entity type
-            // it will not accept — and retrying the identical request will
-            // refuse it identically.
-            //
-            // Deliberately the same envelope as a success rather than
-            // `ApiController::error()`, because this is a *partial* outcome: a
-            // half-finished registration still changes what the screen should
-            // render, and a shape the client already knows beats one it has to
-            // learn for the failure case.
-            return response()->json([
-                'data' => $payload,
-                'message' => $result->message ?? 'The payout account could not be registered.',
-            ], Response::HTTP_UNPROCESSABLE_ENTITY);
-        }
-
-        return $this->ok($payload, $result->message ?? $definition['name'].' will pay this business directly.');
+        ], 'Sales will be paid into that bank account.');
     }
 
     /**
      * Stop taking payments through Storify, or start again.
      *
-     * A connection with a real account behind it cannot be removed — the account
-     * holds the business's money and cannot be deleted at the provider — so
-     * without this a business had no way to stop, which is not a reasonable
-     * thing to tell someone about their own shop.
+     * Setting up a bank is not consent to keep selling, so a business being
+     * collected for has to be able to stop — and without this there was no way
+     * to: there are no keys of its own to switch off and nothing at the provider
+     * to delete.
      *
      * Switching off stops new charges and nothing else. Payouts keep running,
-     * because the settlements already sitting in the account are still the
-     * business's money and stopping them would hold it hostage over a decision
-     * about new sales.
+     * because the money already collected is still the business's and stopping
+     * them would hold it hostage over a decision about new sales.
      */
     public function activation(SetGatewayActivationRequest $request, string $provider): JsonResponse
     {

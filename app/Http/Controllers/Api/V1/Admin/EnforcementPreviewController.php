@@ -4,7 +4,7 @@ namespace App\Http\Controllers\Api\V1\Admin;
 
 use App\Http\Controllers\Api\V1\Admin\Concerns\EnsuresPlatformAdmin;
 use App\Http\Controllers\Api\V1\ApiController;
-use App\Services\Payments\Data\ManagedAccount;
+use App\Services\Payments\Custody\PayoutSweepService;
 use App\Services\Payments\PaymentGatewayResolver;
 use App\Support\Payments\PaymentGatewayRegistry;
 use App\Support\Payments\SystemProcessor;
@@ -17,14 +17,34 @@ use Illuminate\Validation\Rule;
  * What turning the system processor on would do to every business — before it is
  * turned on.
  *
- * The switch is the most consequential thing in the admin console and the least
- * reversible in its consequences: under enforcement a business whose sales have
- * nowhere to be paid out to **takes no payments at all**, including cash at the
- * till. An admin clicking through a confirmation dialog that does not say how
- * many businesses that is has not been told what they are doing.
+ * The switch is the most consequential thing in the admin console. Under
+ * enforcement Storify collects every sale itself, and the only businesses it can
+ * do that for are the ones it is holding money for. A business that has not been
+ * moved over therefore **takes no payments at all** once the switch is on,
+ * including cash at the till — the enforced path replaces the whole provider list
+ * rather than adding to it. An admin clicking through a confirmation dialog that
+ * does not say how many businesses that is has not been told what they are doing.
  *
  * So this answers, ahead of the click: how many businesses would stop being able
  * to sell, which ones, why each of them, and how many stores sit behind them.
+ *
+ * ## What a business can be blocked by now
+ *
+ * It used to be an account at the provider — a per-business payee that had to
+ * exist before the business could be charged through. That account has been
+ * deleted along with the split-at-source rail, and what is left is much shorter:
+ *
+ * - **Not collected yet** (`businesses.custody_enabled` is false). The business is
+ *   still on its own keys, so the platform has nothing to charge with and no
+ *   record to hold the money against. This is the list the switch creates.
+ * - **Switched off by its owner.** The one per-business row that still means
+ *   something: an owner who has turned Storify payments off for a store. A row
+ *   that says *on* is the same as no row at all.
+ *
+ * Neither is about a bank account any more, and that is the point of the change:
+ * a business with nowhere to be paid can sell all day, because the money is held
+ * for it and waits. A missing destination is therefore **not** on this list — it
+ * is the separate one at the bottom.
  *
  * ## `?processor=` — the answer that is worth something
  *
@@ -36,6 +56,12 @@ use Illuminate\Validation\Rule;
  * still choosing, and the state fields (`enforced`, `stored`, `processor`) keep
  * reporting the present regardless of what was asked about.
  *
+ * Neither of the two blockers depends on which processor was asked about — being
+ * collected, and being switched off, are facts about the business rather than
+ * about a provider — so in practice the two scenarios differ only in the notes
+ * read from the switch rows. The parameter is kept because the panel's whole
+ * vocabulary is built on asking the same question twice.
+ *
  * ## Why it does not use the resolver
  *
  * {@see PaymentGatewayResolver} is the authority on
@@ -44,18 +70,24 @@ use Illuminate\Validation\Rule;
  * and a platform-wide list would be one query per store per provider.
  *
  * What this does instead is read the same **facts** the resolver reads — the
- * account row, its stored `managed` state, the row's own switch — through
- * {@see ManagedAccount}, which is the same class the resolver uses to decide
- * `canCharge()` and `canBePaidOut()`. It makes **no provider calls**: a
- * pre-flight that took two minutes of Bachs API time would be a pre-flight
- * nobody runs, and every fact needed here is already stored on the row.
+ * custody flag on the business, and the owner's switch on the effective row —
+ * and applies the same precedence: a store's own row beats the business's. It
+ * makes **no provider calls**: every fact needed here is already stored, and a
+ * pre-flight that took two minutes of API time would be a pre-flight nobody runs.
  *
- * ## Two lists, one of them short
+ * ## Three lists, two of them short
  *
  * Businesses that would break are listed in full — they are the ones somebody
  * has to act on, and there are meant to be few. Businesses that would keep
  * working are counted and not listed: a platform with ten thousand businesses
  * cannot render that list, and there is nothing to do about any of them.
+ *
+ * The third list is the one enforcement does **not** create but that a pre-flight
+ * is the right place to see: businesses that keep taking money and have nowhere
+ * for it to go. Listed, unlike the working ones, because somebody has to ask them
+ * for a bank account — but *not* counted as locked out. Being unable to be paid
+ * does not stop a business selling, and reporting it as if it did would send an
+ * admin to fix a business that is trading happily.
  */
 class EnforcementPreviewController extends ApiController
 {
@@ -86,10 +118,11 @@ class EnforcementPreviewController extends ApiController
 
         // `business_code` rides along so the console can link each affected
         // business to its own screen: a list of names an admin has to search for
-        // one at a time is a list they will not act on. `payout_bank_id` rides
-        // along because it is what decides *which* sentence each affected
-        // business gets — see {@see self::problemFor()}.
-        $businesses = DB::table('businesses')->get(['id', 'business_code', 'name', 'payout_bank_id']);
+        // one at a time is a list they will not act on. `custody_enabled` is the
+        // fact the first sentence of {@see self::problemFor()} turns on, and
+        // `payout_bank_id` the one the last section of this method turns on.
+        $businesses = DB::table('businesses')
+            ->get(['id', 'business_code', 'name', 'payout_bank_id', 'custody_enabled']);
 
         // One query for every store on the platform, rather than one per
         // business: this runs while an admin is waiting for a dialog to open,
@@ -100,46 +133,58 @@ class EnforcementPreviewController extends ApiController
         $lockedOut = [];
         $lockedOutStores = 0;
 
-        // Broken down by what an admin would do about it, which is the only
-        // distinction that makes the count actionable: businesses to go and ask
-        // for a bank account, and businesses whose setup is simply not finished.
-        $counts = ['bank_account' => 0, 'setup' => 0, 'connection' => 0, 'destination' => 0];
+        // Businesses that would keep selling but whose collections have nowhere
+        // to land. Not a lock-out — see {@see self::payabilityGap()} — and kept
+        // apart from the list above so the two are never read as one.
+        $unpayable = [];
+
+        // Broken down by what an admin would do about it: businesses to move onto
+        // the new rail, and businesses to ask why they switched it off.
+        $counts = ['custody' => 0, 'connection' => 0];
+
+        // Whether the platform's own switch for this processor is on — the fourth
+        // way a store can end up unchargeable, and the only one that is not about
+        // a business at all. Reported as a field rather than multiplied across
+        // every business in the list, because when it is off *every* business is
+        // locked out and a list of all of them would bury the one fact that
+        // matters.
+        $platformOffers = $countedFor === null || $this->platformOffers($countedFor);
 
         // Nothing is counted when there is no processor to count against — the
         // switch is off, and no candidate was named. Skipping the pass keeps that
         // case free of queries as well as of invented answers.
         if ($countedFor !== null) {
-            $accounts = $this->accountsByBusiness($countedFor);
+            $switches = $this->switchRows($countedFor);
+
+            // The banks the payout run pays into, in one query for the same
+            // reason the stores are. Read from the table rather than through the
+            // business model's `payoutBank` relation, which would be a query per
+            // business for a pre-flight that is meant to be instant.
+            $banks = DB::table('store_banks')
+                ->whereIn('id', $businesses->pluck('payout_bank_id')->filter()->unique()->all())
+                ->get(['id', 'bank_code', 'account_number'])
+                ->keyBy('id');
 
             foreach ($businesses as $business) {
                 $businessId = (int) $business->id;
                 $storeIds = $storesByBusiness[$businessId] ?? [];
-                $rows = $accounts[$businessId] ?? [];
 
-                $businessRow = null;
-                $storeRows = [];
+                $custody = (bool) $business->custody_enabled;
+                $businessOff = $switches['business'][$businessId] ?? null;
 
-                foreach ($rows as $row) {
-                    if ($row->store_id === null) {
-                        $businessRow = $row;
-                    } else {
-                        $storeRows[(int) $row->store_id] = $row;
-                    }
-                }
+                $problem = $this->problemFor($custody, $businessOff);
 
-                $hasBank = $business->payout_bank_id !== null;
-                $problem = $this->problemFor($businessRow, $countedFor, $hasBank);
-
-                // A store's own usable account is what saves it when the
-                // business's is unusable, and vice versa — the resolver prefers
-                // the store's row and falls back to the business's, so a store
-                // breaks only when neither works.
+                // A store's own row is the *effective* row when it exists, so it
+                // is the store's switch that decides — falling back to the
+                // business's, exactly as the resolver does. A store breaks when
+                // either the business is not collected, or the row it ends up
+                // reading says off.
                 $broken = 0;
 
                 foreach ($storeIds as $storeId) {
-                    $row = $storeRows[$storeId] ?? $businessRow;
+                    $off = $switches['store'][$storeId] ?? $businessOff;
 
-                    if ($this->problemFor($row, $countedFor, $hasBank)['reason'] !== null) {
+                    if ($this->problemFor($custody, $off)['reason'] !== null) {
                         $broken++;
                     }
                 }
@@ -147,13 +192,27 @@ class EnforcementPreviewController extends ApiController
                 $lockedOutStores += $broken;
 
                 if ($problem['reason'] === null && $broken === 0) {
+                    // Working, and worth a line only if the money it takes has
+                    // nowhere to go once it has been taken.
+                    $gap = $this->payabilityGap($banks->get((int) $business->payout_bank_id));
+
+                    if ($gap !== null) {
+                        $unpayable[] = [
+                            'business_id' => $businessId,
+                            'business_code' => $business->business_code,
+                            'name' => (string) $business->name,
+                            'stores' => count($storeIds),
+                            'reason' => $gap,
+                        ];
+                    }
+
                     continue;
                 }
 
                 // The business's own state decides the sentence; when the
                 // business is fine and only some of its stores are not, the
-                // sentence says exactly that instead of blaming a bank account
-                // the business has already named.
+                // sentence says exactly that instead of blaming the business for
+                // a switch one of its stores pulled.
                 $kind = $problem['reason'] !== null ? $problem['kind'] : 'connection';
 
                 $counts[$kind] = ($counts[$kind] ?? 0) + 1;
@@ -164,7 +223,6 @@ class EnforcementPreviewController extends ApiController
                     'name' => (string) $business->name,
                     'stores' => count($storeIds),
                     'stores_locked_out' => $broken,
-                    'account_id' => $businessRow->gateway_account_id ?? null,
                     'kind' => $kind,
                     'reason' => $problem['reason'] ?? 'Some of this business\'s stores cannot take payments.',
                 ];
@@ -183,6 +241,11 @@ class EnforcementPreviewController extends ApiController
             // build cannot run — the one state that reads as enforced to every
             // caller and can take no money at all.
             'processor_problem' => SystemProcessor::unavailableReason(),
+            // Whether the platform's own switch for the processor being counted
+            // is on. False means nothing can be charged through it anywhere, so
+            // the lists below describe businesses that are blocked for a reason
+            // they cannot act on.
+            'platform_offers_processor' => $platformOffers,
             'processors' => $this->processors(),
             // What the counts below answer: the processor asked about, or the
             // one in force. Carried so a panel can label the numbers instead of
@@ -191,13 +254,19 @@ class EnforcementPreviewController extends ApiController
             'counted_for_name' => $countedFor === null ? null : $this->name($countedFor),
             'businesses_total' => $businesses->count(),
             'businesses_locked_out' => count($lockedOut),
-            // The breakdown an admin acts on: who has to name a bank account,
-            // and who is simply waiting for their payment account to be set up.
-            'businesses_without_bank_account' => $counts['bank_account'],
-            'businesses_awaiting_setup' => $counts['setup'],
+            // The breakdown an admin acts on: who has to be moved onto the new
+            // rail, and who has asked not to be charged through it.
+            'businesses_awaiting_custody' => $counts['custody'],
+            'businesses_switched_off' => $counts['connection'],
             'stores_total' => $storesTotal,
             'stores_locked_out' => $lockedOutStores,
             'businesses' => $lockedOut,
+            // Not a lock-out, and deliberately a separate list: these businesses
+            // would keep taking payments through the switch. What they cannot do
+            // is have the money handed over, so it accumulates in Storify's
+            // balance until somebody names a bank.
+            'businesses_cannot_be_paid' => count($unpayable),
+            'cannot_be_paid' => $unpayable,
         ]);
     }
 
@@ -211,8 +280,8 @@ class EnforcementPreviewController extends ApiController
      * either. Without these the tab could not render its own selector for a
      * finance-only admin, who must still be able to *read* what the platform is
      * set to. Both lists come from {@see SystemProcessor::selectableCodes()},
-     * so the registry stays the one place a provider gains or loses an
-     * on-behalf path.
+     * so the registry stays the one place a provider gains or loses a
+     * platform-charging path.
      *
      * @return array<int, array{code: string, name: string}>
      */
@@ -235,118 +304,140 @@ class EnforcementPreviewController extends ApiController
      * itself is for reading, and string-matching it to group a list would break
      * the first time somebody improves the wording.
      *
-     * ## Why the sentence is about a bank account
+     * Two sentences, and the order they are asked in matters. Custody is asked
+     * first because it is the one that subsumes the other: a business that has
+     * not been moved over cannot be charged through the platform whatever its
+     * rows say, so telling its owner to switch payments back on would be advice
+     * that changes nothing.
      *
-     * The provider's own view of a business's destination — a subaccount, a
-     * connected account — is Storify's plumbing. The business was never asked
-     * about it and cannot see it, and reporting it as *their* missing
-     * "settlement account" is what an admin read as the platform blaming the
-     * wrong party for something they had never been asked to do. What the
-     * business is actually asked for is one thing: the bank account its sales
-     * are paid into. So that is what this names, and no provider is named at all.
+     * ## Where the bank account went
      *
-     * The two states differ by who has to act, which is why they are two
-     * sentences rather than one: a business with no bank account named is a
-     * business somebody has to go and ask, and a business that has named one but
-     * holds no account at *this* processor is one whose setup has not caught up
-     * — which is what it looks like right after an admin changes the processor.
+     * Both sentences here used to be about a bank account, because a charge had
+     * to name somewhere for the provider to pay the business directly. It does
+     * not any more: Storify collects and pays out, so there is nothing to strand
+     * and a missing destination is a delay rather than a block. That is the whole
+     * shape of the change, and it is why the bank account is now a *separate*
+     * question — see {@see self::payabilityGap()}.
      *
-     * The ordering below is the same as
-     * {@see PaymentGatewayResolver}'s enforced reason, so an admin reading one
-     * thing while the owner reads another is not possible. The wording differs
-     * only in person: this speaks about a business, that speaks to one.
+     * What is preserved is the ordering discipline: the reasons here are the ones
+     * {@see PaymentGatewayResolver} would give, so an admin reading this screen
+     * while an owner reads their own is not possible to be told two things.
      *
+     * @param  ?bool  $switchedOff  the effective row's `is_active`, or null when
+     *                              no row exists at all — which is not a "no"
      * @return array{reason: ?string, kind: string}
      */
-    private function problemFor(?object $row, string $processor, bool $hasBank): array
+    private function problemFor(bool $custody, ?bool $switchedOff): array
     {
-        if ($row === null) {
-            return $hasBank
-                ? ['reason' => 'Its bank account is on file, but its payment account has not been set up yet.', 'kind' => 'setup']
-                : ['reason' => 'No bank account has been set for its payments to be paid into.', 'kind' => 'bank_account'];
+        if (! $custody) {
+            return [
+                'reason' => 'Its sales are not yet collected by Storify, so there is nothing to charge them with.',
+                'kind' => 'custody',
+            ];
         }
 
-        if (! (bool) $row->is_active) {
+        if ($switchedOff === false) {
             return ['reason' => 'Payments are switched off for this connection.', 'kind' => 'connection'];
-        }
-
-        $account = ManagedAccount::fromConfig($this->managedState($row));
-
-        if (! $account->canCharge($processor)) {
-            return ['reason' => 'Its payment account is not ready to take payments.', 'kind' => 'connection'];
-        }
-
-        if (! $account->canBePaidOut()) {
-            return ['reason' => 'Its payment account has no usable bank destination yet.', 'kind' => 'destination'];
         }
 
         return ['reason' => null, 'kind' => 'ready'];
     }
 
     /**
-     * Every account row on the selected processor, grouped by business.
+     * Why money collected for this business could not be handed over, or null
+     * when it could.
      *
-     * Both scopes in one query each, because a store with its own account is a
-     * separate row and therefore a separate answer — the whole point of the
-     * check is that some of a business's stores may break while others do not.
+     * A separate question from {@see self::problemFor()}, and separate on
+     * purpose. A missing destination used to be a reason a business could not
+     * trade — the provider paid the business directly, so an account with
+     * nowhere to pay out to was a charge that stranded money. It is no longer
+     * one: collected money is held for the business and paid out once there is
+     * somewhere to pay it, so a business with no destination can take a
+     * customer's money all day. Reporting it as a lock-out would tell an admin
+     * to go and fix a business that is working.
      *
-     * Rows with no account id are excluded: a connection without one is a
-     * business's own keys, which enforcement ignores entirely, and counting one
-     * as an account the platform can charge through would report a business as
-     * safe when nothing of its money has anywhere to go.
+     * It is still worth counting, because "who can take money we cannot yet hand
+     * over" is how a backlog starts. But the question is about **the bank the
+     * payout run pays into**, not the provider's own destination record: the
+     * sweep reads `bank_code` and `account_number` off the business and nothing
+     * else, so anything else asked here would report a business as payable that
+     * the sweep skips. Read the same fields as
+     * {@see PayoutSweepService} for that reason.
      *
-     * Note what is *not* read here: the business's own bank account. That decides
-     * the sentence a broken business gets, not whether it is broken, and keeping
-     * the two apart is deliberate — see {@see self::problemFor()}.
-     *
-     * @return array<int, array<int, object>>
+     * Null `$bank` means the business never named one. That used to be the
+     * `bank_account` lock-out above and is now this, which is the whole shape of
+     * the change: a business that has not named a bank can still sell.
      */
-    private function accountsByBusiness(string $processor): array
+    private function payabilityGap(?object $bank): ?string
     {
-        $businessRows = DB::table('business_payment_method as bpm')
-            ->join('payment_methods as pm', 'pm.id', '=', 'bpm.payment_method_id')
-            ->where('pm.code', $processor)
-            ->whereNotNull('bpm.gateway_account_id')
-            ->where('bpm.gateway_account_id', '!=', '')
-            ->get(['bpm.business_id', 'bpm.gateway_account_id', 'bpm.is_active', 'bpm.config'])
-            ->map(fn ($row) => (object) [
-                'business_id' => (int) $row->business_id,
-                'gateway_account_id' => (string) $row->gateway_account_id,
-                'is_active' => (bool) $row->is_active,
-                'config' => $row->config,
-                'store_id' => null,
-            ]);
-
-        $storeRows = DB::table('store_payment_method as spm')
-            ->join('payment_methods as pm', 'pm.id', '=', 'spm.payment_method_id')
-            ->join('stores as s', 's.id', '=', 'spm.store_id')
-            ->where('pm.code', $processor)
-            ->whereNotNull('spm.gateway_account_id')
-            ->where('spm.gateway_account_id', '!=', '')
-            ->get(['s.business_id', 'spm.store_id', 'spm.gateway_account_id', 'spm.is_active', 'spm.config'])
-            ->map(fn ($row) => (object) [
-                'business_id' => (int) $row->business_id,
-                'gateway_account_id' => (string) $row->gateway_account_id,
-                'is_active' => (bool) $row->is_active,
-                'config' => $row->config,
-                'store_id' => (int) $row->store_id,
-            ]);
-
-        $grouped = [];
-
-        foreach ($businessRows->merge($storeRows) as $row) {
-            $grouped[$row->business_id][] = $row;
+        if ($bank === null || blank($bank->account_number) || blank($bank->bank_code)) {
+            return 'It can take payments, but it has not named a bank account to be paid into.';
         }
 
-        return $grouped;
+        return null;
+    }
+
+    /**
+     * Whether the platform itself still offers this processor.
+     *
+     * The platform's switch, not the business's: `payment_methods.is_active` is
+     * what {@see PaymentGatewayResolver::platformMethodActive()} reads, and with
+     * it off no business on the platform can charge through this provider at all.
+     */
+    private function platformOffers(string $processor): bool
+    {
+        return (bool) DB::table('payment_methods')->where('code', $processor)->value('is_active');
+    }
+
+    /**
+     * The owner's switches, by scope, for the processor being counted.
+     *
+     * Only rows are read, and only their `is_active` — the rest of a payment-method
+     * row carries credentials and configuration that enforcement ignores entirely,
+     * because under enforcement the charge is Storify's. What survives is the one
+     * thing a row still says on a business's behalf: that its owner wants Storify
+     * payments off. An absent row is deliberately **not** recorded here, so the
+     * caller can tell "no row" from "a row that says on" — both of which mean
+     * chargeable, but only one of which means somebody clicked something.
+     *
+     * The rows are not filtered by `gateway_account_id` the way they used to be.
+     * They had to be then, because a row with no account was a row the platform
+     * could not charge through; now the account is exactly the part that no longer
+     * exists, and filtering on it would hide every off-switch on the platform.
+     *
+     * @return array{business: array<int, bool>, store: array<int, bool>}
+     */
+    private function switchRows(string $processor): array
+    {
+        $business = DB::table('business_payment_method as bpm')
+            ->join('payment_methods as pm', 'pm.id', '=', 'bpm.payment_method_id')
+            ->where('pm.code', $processor)
+            ->pluck('bpm.is_active', 'bpm.business_id')
+            ->map(fn ($active): bool => (bool) $active)
+            ->all();
+
+        $store = DB::table('store_payment_method as spm')
+            ->join('payment_methods as pm', 'pm.id', '=', 'spm.payment_method_id')
+            ->where('pm.code', $processor)
+            ->pluck('spm.is_active', 'spm.store_id')
+            ->map(fn ($active): bool => (bool) $active)
+            ->all();
+
+        // pluck() keys arrive as whatever the driver hands back, and both maps
+        // are looked up with a cast int, so the keys are cast once here rather
+        // than at every lookup.
+        return [
+            'business' => array_combine(array_map('intval', array_keys($business)), $business) ?: [],
+            'store' => array_combine(array_map('intval', array_keys($store)), $store) ?: [],
+        ];
     }
 
     /**
      * Every store on the platform, grouped by the business that owns it.
      *
      * Ids rather than a count, because the store is the unit that breaks: a
-     * business whose own account is unusable may still have a store that banks
-     * separately and is fine, and a count of stores would report that store as
+     * business whose own switch is off may still have a store that never
+     * inherited it and is fine, and a count of stores would report that store as
      * affected when it is not.
      *
      * @return array<int, array<int, int>>
@@ -360,17 +451,6 @@ class EnforcementPreviewController extends ApiController
         }
 
         return $grouped;
-    }
-
-    /**
-     * @return array<string, mixed>|null
-     */
-    private function managedState(object $row): ?array
-    {
-        $config = json_decode((string) ($row->config ?? ''), true);
-        $managed = is_array($config) ? ($config['managed'] ?? null) : null;
-
-        return is_array($managed) ? $managed : null;
     }
 
     private function name(string $processor): string

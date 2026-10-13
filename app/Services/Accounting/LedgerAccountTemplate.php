@@ -16,6 +16,13 @@ class LedgerAccountTemplate
             ['code' => '1010', 'name' => 'Cash on Hand', 'type' => 'asset', 'subtype' => 'cash'],
             ['code' => '1020', 'name' => 'Bank', 'type' => 'asset', 'subtype' => 'bank'],
             ['code' => '1030', 'name' => 'Payment Gateway Clearing', 'type' => 'asset', 'subtype' => 'gateway_clearing'],
+            // Where a business's money sits while Storify holds it. Deliberately
+            // separate from 1030 rather than folded into it: 1030 means "at the
+            // provider, on the business's own keys", and this means "collected by
+            // Storify and owed to the business". Both can be true at once for one
+            // business, and `LedgerReportService::integrity()` has to tell them
+            // apart to reconcile either.
+            ['code' => '1040', 'name' => 'Funds Held by Storify', 'type' => 'asset', 'subtype' => 'held_by_platform'],
             ['code' => '1100', 'name' => 'Accounts Receivable', 'type' => 'asset', 'subtype' => 'accounts_receivable'],
             ['code' => '1200', 'name' => 'Inventory', 'type' => 'asset', 'subtype' => 'inventory'],
             ['code' => '1500', 'name' => 'Fixed Assets', 'type' => 'asset', 'subtype' => 'fixed_asset'],
@@ -24,6 +31,21 @@ class LedgerAccountTemplate
             ['code' => '2010', 'name' => 'Accounts Payable', 'type' => 'liability', 'subtype' => 'accounts_payable'],
             ['code' => '2100', 'name' => 'VAT Payable', 'type' => 'liability', 'subtype' => 'tax_payable'],
             ['code' => '2200', 'name' => 'Accrued Liabilities', 'type' => 'liability', 'subtype' => 'accrued_liability'],
+            // The provider's fee is charged to the business, not to Storify: it is
+            // deducted from our balance before the money ever arrives, so we never
+            // take it as income. Holding it here until the provider settles keeps
+            // the collection entry balanced without inventing a profit.
+            ['code' => '2210', 'name' => 'Provider Fees Payable', 'type' => 'liability', 'subtype' => 'provider_fees_payable'],
+            // The platform's side of the same money. A collected sale credits this
+            // with the business's share; the payout that settles it debits it back
+            // out. It is a liability because the money is not ours — it is the
+            // whole reason the chart needed a new account at all.
+            //
+            // Like every account in this template it exists on both scopes. A
+            // business's books carry it unused, exactly as the platform's carry
+            // Cost of Goods Sold; the template is a superset and the posting
+            // engine resolves only the keys a given entry needs.
+            ['code' => '2300', 'name' => 'Funds Held for Businesses', 'type' => 'liability', 'subtype' => 'business_funds_held'],
 
             // Equity
             ['code' => '3010', 'name' => "Owner's Equity", 'type' => 'equity', 'subtype' => 'owner_equity'],
@@ -67,12 +89,15 @@ class LedgerAccountTemplate
             'cash' => '1010',
             'bank' => '1020',
             'gateway_clearing' => '1030',
+            'held_by_platform' => '1040',
             'accounts_receivable' => '1100',
             'inventory' => '1200',
             'fixed_assets' => '1500',
             'accounts_payable' => '2010',
             'tax_payable' => '2100',
             'accrued_liabilities' => '2200',
+            'provider_fees_payable' => '2210',
+            'business_funds_held' => '2300',
             'owner_equity' => '3010',
             'retained_earnings' => '3020',
             'opening_balance_equity' => '3030',

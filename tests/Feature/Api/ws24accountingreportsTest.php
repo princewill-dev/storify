@@ -4,6 +4,7 @@ use App\Enums\InvoiceStatus;
 use App\Models\Bill;
 use App\Models\Expense;
 use App\Models\Invoice;
+use App\Models\JournalEntry;
 use App\Models\LedgerAccount;
 use App\Models\Store;
 use App\Models\Supplier;
@@ -297,6 +298,47 @@ test('expense summary and integrity csv exports keep the legacy columns', functi
 
     expect(explode("\n", trim($integrityCsv))[0])->toBe('Store,Wallet,Ledger,Difference')
         ->and($integrityCsv)->toContain('"Main Store",0.00,0.00,0.00');
+});
+
+test('an undone sale leaves the store wallet and the ledger both where they started', function () {
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    ws24EnsureBooks($business->id);
+    $token = ws24Token($owner);
+
+    $store = ws24Store($owner);
+
+    // The wallet credited by the sale, written directly: the flow that credits
+    // it is a long way from here and this is about what a *reversal* does.
+    $store->forceFill(['balance' => 100000])->save();
+
+    ws24Post($business->id, [
+        ['account_key' => 'cash', 'debit' => 100000, 'store_id' => $store->id, 'description' => 'Sale'],
+        ['account_key' => 'sales_income', 'credit' => 100000, 'store_id' => $store->id, 'description' => 'Sale'],
+    ], ['idempotency_key' => 'sale:ws24-undone']);
+
+    $before = $this->withToken($token)->get('/api/v1/management/accounting/reports/integrity?export=csv');
+    $before->assertOk();
+
+    expect($before->streamedContent())->toContain('"Main Store",1000.00,1000.00,0.00');
+
+    // The refund, both halves of it: the wallet debited as the refund flow
+    // debits it, and the entry reversed.
+    $store->fresh()->debitBalance(100000);
+
+    app(LedgerPostingService::class)->reverseEntry(
+        JournalEntry::query()->where('idempotency_key', 'sale:ws24-undone')->firstOrFail(),
+        'Refund',
+    );
+
+    $after = $this->withToken($token)->get('/api/v1/management/accounting/reports/integrity?export=csv');
+    $after->assertOk();
+
+    // A voided entry is *in* the books, paired with the reversal that mirrors it
+    // — see JournalEntry::IN_BOOKS. Reading only `posted` drops the original and
+    // counts the reversal, which lands the clearing account at minus the sale and
+    // reports a difference of the whole amount on a business that is perfectly
+    // square. The pair has to cancel instead.
+    expect($after->streamedContent())->toContain('"Main Store",0.00,0.00,0.00');
 });
 
 test('a malformed date filter is a 422, not a legacy 500', function () {

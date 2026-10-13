@@ -6,10 +6,12 @@ use App\Mail\AdminBusinessCreated;
 use App\Mail\BusinessReactivated;
 use App\Mail\BusinessSuspended;
 use App\Models\Business;
+use App\Models\PayoutHold;
 use App\Models\User;
 use App\Repositories\Admin\BusinessRepository;
 use App\Services\ActivityRecorder;
 use App\Services\KycApprovalService;
+use App\Services\Payments\Custody\PayoutHoldService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
@@ -32,6 +34,7 @@ final class BusinessLifecycleService
     public function __construct(
         private readonly BusinessRepository $businesses,
         private readonly KycApprovalService $kycApproval,
+        private readonly PayoutHoldService $holds,
     ) {}
 
     /**
@@ -337,6 +340,23 @@ final class BusinessLifecycleService
                 actor: $actor,
                 businessId: $business->id,
             );
+
+            // Suspension stops the money leaving, and it is in the same
+            // transaction as the status change on purpose. A suspended business
+            // whose payouts still run is a suspension that did not do the thing
+            // it is for, and a status change that commits without its hold would
+            // leave exactly that behind.
+            //
+            // It is a hold rather than a wallet operation, so nothing already
+            // owed is touched: the balance stays visible, the business is still
+            // collectable, and lifting the suspension on reactivation pays it out
+            // on the next sweep with nothing to undo.
+            $this->holds->holdBusiness(
+                $business,
+                'Business suspended: '.$reason,
+                $actor,
+                PayoutHold::SOURCE_SUSPENSION,
+            );
         });
 
         $this->notifyOwner(
@@ -381,6 +401,12 @@ final class BusinessLifecycleService
                 actor: $actor,
                 businessId: $business->id,
             );
+
+            // Only the suspension's own hold. Reactivating a business is not a
+            // statement that an operator's separate investigation is over, and
+            // releasing that too would pay out money somebody is still looking
+            // into — which is why `source` exists on the row.
+            $this->holds->releaseBusiness($business, $actor, PayoutHold::SOURCE_SUSPENSION);
 
             if ($owner === null) {
                 return false;

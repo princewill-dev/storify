@@ -6,10 +6,12 @@ use App\Mail\AdminStoreCreated;
 use App\Mail\StoreActivated;
 use App\Mail\StoreReactivated;
 use App\Mail\StoreSuspended;
+use App\Models\PayoutHold;
 use App\Models\Store;
 use App\Models\User;
 use App\Repositories\Admin\StoreModerationRepository;
 use App\Services\ActivityRecorder;
+use App\Services\Payments\Custody\PayoutHoldService;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -40,6 +42,7 @@ final class StoreLifecycleService
 {
     public function __construct(
         private readonly StoreModerationRepository $stores,
+        private readonly PayoutHoldService $holds,
     ) {}
 
     /**
@@ -358,6 +361,19 @@ final class StoreLifecycleService
                 actor: $actor,
                 businessId: $store->business_id,
             );
+
+            // Suspending a store withholds *that store's* share and nothing else,
+            // which is the agreed behaviour and the reason the store scope exists.
+            // The business keeps being charged, keeps being credited for its other
+            // stores, and keeps being paid for them on the next sweep — so a
+            // dispute about one store's orders does not become a business-wide
+            // payout outage.
+            $this->holds->holdStore(
+                $store,
+                'Store suspended: '.$reason,
+                $actor,
+                PayoutHold::SOURCE_SUSPENSION,
+            );
         });
 
         $this->notifyOwner(
@@ -395,6 +411,11 @@ final class StoreLifecycleService
                 actor: $actor,
                 businessId: $store->business_id,
             );
+
+            // The suspension's hold only, and only that store's — a store coming
+            // back is not a statement about a business-level or system-level hold
+            // somebody else placed while the investigation was running.
+            $this->holds->releaseStore($store, $actor, PayoutHold::SOURCE_SUSPENSION);
         });
 
         $this->notifyOwner(

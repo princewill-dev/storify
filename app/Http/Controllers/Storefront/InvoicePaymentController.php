@@ -53,7 +53,13 @@ class InvoicePaymentController extends Controller
         // the button goes rather than being offered and then rejected. Set here
         // rather than in the view because the flag the view already reads is the
         // honest place for it: this is the same fact, decided on the server.
-        if (SystemProcessor::enforced()) {
+        //
+        // A business Storify collects for is the same case for a different
+        // reason, and is checked here too because the two switches are set
+        // separately: the button would otherwise be offered on a page whose
+        // endpoint refuses it. One question, asked of the one method that
+        // answers it, so the page and the endpoint cannot disagree.
+        if ($this->enforcementProblem($invoice) !== null) {
             $storeHasPaystack = false;
         }
 
@@ -64,7 +70,7 @@ class InvoicePaymentController extends Controller
     {
         $invoice = Invoice::where('payment_token', $token)->firstOrFail();
 
-        if (($problem = $this->enforcementProblem()) !== null) {
+        if (($problem = $this->enforcementProblem($invoice)) !== null) {
             return response()->json(['success' => false, 'message' => $problem], 409);
         }
 
@@ -173,9 +179,28 @@ class InvoicePaymentController extends Controller
      * and a half-done version that charges through the platform's account and
      * credits a store balance is precisely the kind of silent "charged through us,
      * unpaid" path the switch exists to close.
+     *
+     * **Custody refuses it for the same reason, and on its own.** A business
+     * Storify collects for must have its invoice money reach Storify's balance
+     * and be credited to its wallet, and this path does neither: it charges on a
+     * Paystack account — the business's or the platform's, and the transaction
+     * row cannot tell the two apart — and then credits `stores.balance`, which is
+     * the mirror that must never be a payout source. Left open, a custody
+     * business could take an invoice payment that the wallet never sees and that
+     * no payout run can ever pay out: money owed to a business that neither rail
+     * can deliver, which is the one outcome the whole change is built to prevent.
+     *
+     * Gated on custody rather than on enforcement because the two are set
+     * separately: the flag can be flipped before the processor switch, and in
+     * that window this path would still be open on its own.
      */
-    private function enforcementProblem(): ?string
+    private function enforcementProblem(?Invoice $invoice = null): ?string
     {
+        if ($invoice !== null && ($invoice->business?->isUnderCustody() ?? false)) {
+            return 'Storify collects this business\'s payments, so payments to this invoice must be taken '
+                .'through Storify. Paying it through a provider of your own is not available.';
+        }
+
         if (! SystemProcessor::enforced()) {
             return null;
         }
@@ -303,7 +328,7 @@ class InvoicePaymentController extends Controller
         // there is no split to make and nothing for it to be a payment *through*
         // Storify. Refused for the same reason the storefront stops offering
         // manual transfers while a processor is set.
-        if (($problem = $this->enforcementProblem()) !== null) {
+        if (($problem = $this->enforcementProblem($invoice)) !== null) {
             return back()->with('error', $problem);
         }
 

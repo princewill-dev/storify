@@ -4,7 +4,6 @@ use App\Http\Controllers\Api\V1\Admin\BusinessController;
 use App\Http\Controllers\Api\V1\Admin\CouponController;
 use App\Http\Controllers\Api\V1\Admin\DashboardController;
 use App\Http\Controllers\Api\V1\Admin\SearchController;
-use App\Http\Controllers\Api\V1\Admin\StoreController;
 use App\Http\Controllers\Api\V1\Admin\TransactionController;
 use App\Http\Controllers\Api\V1\Admin\UserController;
 use Illuminate\Support\Facades\Route;
@@ -33,10 +32,14 @@ Route::middleware(['auth:sanctum', 'token.audience:admin', 'team.context'])
             Route::post('businesses/{business}/activate', [BusinessController::class, 'activate'])->name('businesses.activate');
         });
 
-        Route::middleware('permission:admin.stores')->group(function () {
-            Route::get('stores', [StoreController::class, 'index'])->name('stores.index');
-            Route::get('stores/{store}', [StoreController::class, 'show'])->name('stores.show');
-        });
+        // The `stores` directory and detail are registered by
+        // `admin/ad06-store-moderation.php`, which owns the whole store lifecycle
+        // (create, edit, suspend, activate, delete) rather than only reading. The
+        // read-only pair that used to live here was shadowed by it — the route
+        // collection keys on method+URI, so the later registration replaced the
+        // earlier one and the class on disk was never reachable. It has been
+        // deleted rather than left to rot: dead code that looks live is how a
+        // payload gets a field added to it that no request will ever receive.
 
         Route::middleware('permission:admin.users')->group(function () {
             Route::get('users', [UserController::class, 'index'])->name('users.index');

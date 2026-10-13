@@ -17,8 +17,10 @@ use App\Models\User;
 use App\Services\Accounting\InventoryCostingService;
 use App\Services\Accounting\LedgerPostingService;
 use App\Services\Payments\Connect\PlatformCommission;
+use App\Services\Payments\Custody\CustodyService;
 use App\Services\Payments\PaymentGatewayResolver;
 use App\Services\StockLedgerService;
+use App\Support\Money\Naira;
 use App\Support\Money\StoreCurrency;
 use App\Support\Payments\PaymentGatewayRegistry;
 use DomainException;
@@ -34,9 +36,18 @@ final class ProcessPosSale
         private readonly PaymentGatewayResolver $gateways,
     ) {}
 
-    public function execute(Store $store, User $staff, PosSession $session, array $data): PosSaleResult
+    /**
+     * @param  array<string, int>  $providerFees  the provider's own charge per gateway
+     *                                            reference, as reported by the verification
+     *                                            the checkout ran moments ago. Absent for a
+     *                                            leg whose provider did not report one, and
+     *                                            for every caller that never asked — which is
+     *                                            why the default is empty rather than the
+     *                                            parameter being required.
+     */
+    public function execute(Store $store, User $staff, PosSession $session, array $data, array $providerFees = []): PosSaleResult
     {
-        return DB::transaction(function () use ($store, $staff, $session, $data): PosSaleResult {
+        return DB::transaction(function () use ($store, $staff, $session, $data, $providerFees): PosSaleResult {
             $lockedStore = Store::query()->lockForUpdate()->findOrFail($store->id);
 
             if (! empty($data['idempotency_key'])) {
@@ -157,7 +168,7 @@ final class ProcessPosSale
             ]);
 
             $order->items()->saveMany($orderItems);
-            $managedLegs = $this->recordPayments($order, $lockedStore, $payments);
+            $managedLegs = $this->recordPayments($order, $lockedStore, $payments, $providerFees);
             $this->removeStock($order, $lockedStore, $staff, $items, $products);
 
             $ledger = app(LedgerPostingService::class);
@@ -172,18 +183,46 @@ final class ProcessPosSale
             // to credit, and crediting one would invent an asset that never
             // existed. Bachs' own fee is neither posted nor knowable at this
             // point — see `postManagedCommissionExpense()`.
+            $custody = app(CustodyService::class);
+
             foreach ($managedLegs as $leg) {
                 $ledger->safe(fn () => $ledger->postManagedCommissionExpense(
                     $leg['transaction'],
                     $leg['commission_kobo'],
                     $staff->id,
+                    custody: $leg['custody'],
                 ));
 
-                $ledger->safe(fn () => $ledger->postPlatformCommissionEarned(
-                    $leg['transaction'],
-                    $leg['commission_kobo'],
-                    $staff->id,
-                ));
+                // Under custody the commission is recognised by the collection
+                // entry instead, against the same money — see below.
+                if (! $leg['custody']) {
+                    $ledger->safe(fn () => $ledger->postPlatformCommissionEarned(
+                        $leg['transaction'],
+                        $leg['commission_kobo'],
+                        $staff->id,
+                    ));
+                }
+
+                // The till is the third way a sale gets paid, and the only one
+                // that never passes through a webhook or a verify callback — so
+                // nothing else in the pipeline will ever credit the wallet for
+                // it, and a custody business selling at the till would simply
+                // never be owed its money.
+                //
+                // A till leg is priced when the provider reports its charge at
+                // the moment the card is read, which for the providers a managed
+                // leg can run on it does — so in the ordinary case the wallet
+                // credits here and the business is owed its money immediately.
+                //
+                // When the provider said nothing about its fee, `fee_kobo` is
+                // null on the row and this call logs and returns without
+                // crediting. That is deliberate: `creditAwaitingSales()`, on the
+                // promote pass, is what comes back for those, and crediting a fee
+                // we have not been told would understate the debt on a number no
+                // one would ever be able to correct.
+                if ($leg['custody']) {
+                    $custody->recordCollectedSale($leg['transaction'], $leg['provider']);
+                }
             }
 
             return new PosSaleResult($order->load(['items', 'transactions.paymentMethod']));
@@ -276,9 +315,11 @@ final class ProcessPosSale
      * leaves nothing to return.
      *
      * @param  array<int, array<string, mixed>>  $payments
+     * @param  array<string, int>  $providerFees  the provider's reported charge, keyed
+     *                                            by the reference the leg carries
      * @return array<int, array{transaction: Transaction, commission_kobo: int}>
      */
-    private function recordPayments(Order $order, Store $store, array $payments): array
+    private function recordPayments(Order $order, Store $store, array $payments, array $providerFees = []): array
     {
         $managedLegs = [];
 
@@ -356,6 +397,22 @@ final class ProcessPosSale
                 ? PlatformCommission::fromSettings()->on((int) round((float) $payment['amount'] * 100))
                 : null;
 
+            // What the provider charged for this leg, when the checkout's own
+            // verification reported it.
+            //
+            // Recorded for a managed leg and only a managed leg. An own-keys
+            // leg's provider fee is just as real, but it has never been on the
+            // row, and putting it there now would move a Processing Fee that
+            // businesses have been reading off their dashboard since before any
+            // of this — a reporting change dressed up as a data fix. For a
+            // managed leg it is the opposite: the fee is taken off the money
+            // before Storify ever holds it, so the column is the only place the
+            // business can see what it actually cost, and under custody it is
+            // what makes the sale priceable at all.
+            $providerFeeKobo = $isManaged && ! empty($providedReference)
+                ? ($providerFees[(string) $providedReference] ?? null)
+                : null;
+
             $transaction = Transaction::create([
                 'reference' => $reference,
                 'order_id' => $order->id,
@@ -377,22 +434,32 @@ final class ProcessPosSale
                 // The commission as a column, not only in the metadata below —
                 // the two move together from here on.
                 'platform_fee_kobo' => $commissionKobo,
-                // `fee_kobo` and `net_kobo` are deliberately left unset, and this
-                // is the one place in the pipeline where that is the right
-                // answer. The provider does not report what it charged until the
-                // charge settles, days after the till closed the sale, so there
-                // is no fee to record and therefore no net to state. Writing
-                // `amount - commission` here would put a number in a column
-                // meaning "reached the bank" that no bank ever saw.
+                // `fee_kobo` and `net_kobo` are written only when the provider
+                // reported what it charged, which for a managed leg it does at
+                // the moment the customer's card is read — the checkout verifies
+                // the charge before this action runs, and the figure it saw is
+                // what arrives here.
+                //
+                // When it did not report one, both stay null, and that is the
+                // right answer rather than a gap: `net` means "reached the
+                // business's bank", and writing `amount - commission` for a fee
+                // that is coming would put a number in that column that no bank
+                // ever saw. The transaction is then unpriced, and under custody
+                // the wallet deliberately refuses to credit it until a later pass
+                // finds the fee — see `CustodyService::creditAwaitingSales()`.
+                'fee_kobo' => $providerFeeKobo,
+                'net_kobo' => $providerFeeKobo === null
+                    ? null
+                    : Transaction::netKoboFor(
+                        Naira::koboFromRounded((float) $payment['amount']),
+                        $providerFeeKobo,
+                        (int) ($commissionKobo ?? 0),
+                    ),
                 'metadata' => array_merge([
                     'leg_method' => $method,
                     'amount_tendered' => $payment['amount_tendered'] ?? null,
                     'is_split' => count($payments) > 1,
                     'payment_mode' => $isManaged ? 'platform_managed' : 'own_keys',
-                    // Written down for the same reason the storefront writes it:
-                    // a refund has to go back to the account the money came
-                    // from, and the connection may have changed by then.
-                    'gateway_account_id' => $managed?->credentials->accountId(),
                     'platform_fee_kobo' => $commissionKobo,
                 ], $this->chargeRecord($payment)),
             ]);
@@ -413,6 +480,25 @@ final class ProcessPosSale
                 $managedLegs[] = [
                     'transaction' => $transaction,
                     'commission_kobo' => (int) $commissionKobo,
+                    // The provider whose settlement window governs this leg,
+                    // carried out of the loop because the wallet below needs it
+                    // and the loop variable is gone by then.
+                    'provider' => $code,
+                    // Whether Storify collected it — read off the row that was
+                    // just written rather than off the business's switch, because
+                    // the switch is what decides how the *next* leg is charged and
+                    // an admin can flip it between this line and the postings
+                    // below. `managedLegs` holds only legs charged on the
+                    // platform's own credentials, and the row records exactly
+                    // that, so the two halves of the postings cannot disagree with
+                    // the till's own history.
+                    //
+                    // It used to name `$lockedStore`, the local in `execute()`,
+                    // which is not in scope here: every managed leg on this branch
+                    // threw "Undefined variable" and the sale died as a 500.
+                    // Latent only because a managed till leg is impossible while no
+                    // processor is enforced, which is every deployment so far.
+                    'custody' => $transaction->isPlatformManaged(),
                 ];
             }
         }

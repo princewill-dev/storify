@@ -2,11 +2,11 @@
 
 use App\Models\ActivityLog;
 use App\Models\Business;
+use App\Models\StoreBank;
 use App\Models\User;
 use App\Support\Payments\GatewayGrant;
 use Database\Seeders\PaymentMethodSeeder;
 use Database\Seeders\SpatiePermissionSeeder;
-use Illuminate\Http\Client\Factory;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 
@@ -78,32 +78,36 @@ test('the legacy settings surface refuses it too', function () {
     expect(gg39KeyedRowCount((int) $business->id))->toBe(0);
 });
 
-test('the business that was refused can still register a payout account', function () {
+test('the business that was refused can still name a bank to be paid into', function () {
     // The other half of the same refusal: being told to have Storify process
-    // your payments is only reasonable if the route that does so is open.
-    config([
-        'services.bachs.api_key' => 'sk_sandbox_platform1234',
-        'services.bachs.webhook_secret' => 'whsec_platform',
-    ]);
-
-    Http::swap(new Factory);
-    Http::fake([
-        'sandbox-api.bachs.io/*/payouts/destinations' => Http::response(['id' => 'pd_gg39', 'is_usable' => true]),
-        'sandbox-api.bachs.io/*' => Http::response(['id' => 'acct_gg39', 'status' => 'active']),
-    ]);
+    // your payments is only reasonable if the route that says where the money
+    // goes is open, and open to everybody rather than gated behind a grant.
+    Http::fake();
 
     [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
 
+    // An account the business already holds, named by id — the path the screen
+    // posts. Typed details are resolved back to one of these and are not a way to
+    // add a new one, so naming a bank means choosing from the business's own.
+    $bank = StoreBank::factory()->create(['business_id' => $business->id]);
+
     $this->withToken(gg39Token($owner))
         ->putJson('/api/v1/management/payment-gateways/bachs/payout-account', [
-            'entity_type' => 'company',
-            'terms_accepted' => true,
-            'account_number' => '0123456789',
-            'account_name' => 'Ada Trading Ltd',
-            'bank_code' => '058',
+            'store_bank_id' => $bank->id,
         ])
         ->assertOk()
-        ->assertJsonPath('data.account_id', 'acct_gg39');
+        ->assertJsonPath('data.success', true);
+
+    // Held on the business rather than registered at a provider. There is no
+    // account to open and no destination to create: the payout sweep reads this
+    // pointer and sends from Storify's own balance, which is the whole reason a
+    // business with a bank and no grant can still be paid.
+    expect($business->fresh()->payout_bank_id)->toBe($bank->id);
+
+    // And nothing was sent anywhere to achieve it. Pinned because the surest way
+    // to reintroduce the deleted model is a helpful-looking call to open the
+    // business an account, and this is where it would be noticed.
+    Http::assertNothingSent();
 });
 
 test('a business granted the ability connects its own keys', function () {

@@ -744,3 +744,51 @@ test('coupon code editing refuses non-platform and unpermitted callers', functio
     $this->putJson("/api/v1/admin/coupons/{$coupon->id}", ['code' => 'EDITED'], ad12AdminToken($admin))
         ->assertOk();
 });
+
+/*
+|--------------------------------------------------------------------------
+| The platform's commission, beside the gateway it is taken through
+|--------------------------------------------------------------------------
+|
+| Moved here from the WS-39 payout suite, which was about the per-business
+| account at the provider. That account is deleted and the payouts with it; the
+| commission is what is left of that screen's money configuration, and it is
+| shown here because this is where the gateway is chosen.
+*/
+
+test('the payment methods screen reports the commission and who it applies to', function () {
+    // The admin sets the platform's cut beside the gateway it is taken through,
+    // and is told which providers can actually carry a platform-processed charge
+    // — otherwise the number implies it applies to everything.
+    $admin = ad12FinanceAdmin();
+    Setting::create([
+        'company_name' => 'Storify',
+        'platform_commission_percent' => 2.5,
+        'platform_commission_fixed_kobo' => 10000,
+    ]);
+
+    $commission = ad12BillingBlock($this, $admin)['commission'];
+
+    expect($commission['percent'])->toBe(2.5)
+        ->and($commission['fixed_kobo'])->toBe(10000)
+        ->and($commission['is_zero'])->toBeFalse()
+        // Read from the credential map, which is the same declaration the charge
+        // path consults — a list built from anywhere else could name a provider
+        // the platform holds no keys for.
+        ->and($commission['platform_providers'])->toBe(PlatformBillingGateway::selectableCodes())
+        ->and($commission['platform_providers'])->toContain('bachs');
+});
+
+test('a commission of zero is a choice, not an error', function () {
+    // A platform that charges businesses only for their subscription is a real
+    // configuration, and the screen has to be able to say so rather than reading
+    // an unset commission as a mistake.
+    $admin = ad12FinanceAdmin();
+    Setting::create([
+        'company_name' => 'Storify',
+        'platform_commission_percent' => 0,
+        'platform_commission_fixed_kobo' => 0,
+    ]);
+
+    expect(ad12BillingBlock($this, $admin)['commission']['is_zero'])->toBeTrue();
+});

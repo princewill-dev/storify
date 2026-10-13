@@ -30,6 +30,10 @@ class TransactionRepository
         'invoice:id,invoice_number,store_id,recipient_name',
         'invoice.store:id,name,store_id',
         'paymentMethod',
+        // The settlement column on a list row — "which payout delivered this sale".
+        // Eager-loaded here rather than left to the resource, which would ask the
+        // same question once per row.
+        'payoutAllocations.payout:id,reference,status,amount_kobo,paid_at',
     ];
 
     /**
@@ -43,6 +47,7 @@ class TransactionRepository
         'invoice.store',
         'paymentMethod',
         'storeBank',
+        'payoutAllocations.payout',
     ];
 
     /**

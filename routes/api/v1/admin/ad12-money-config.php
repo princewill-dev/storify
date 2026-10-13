@@ -1,7 +1,6 @@
 <?php
 
 use App\Http\Controllers\Api\V1\Admin\BankAccountController;
-use App\Http\Controllers\Api\V1\Admin\ConnectPayoutController;
 use App\Http\Controllers\Api\V1\Admin\CouponUpdateController;
 use App\Http\Controllers\Api\V1\Admin\EnforcementPreviewController;
 use App\Http\Controllers\Api\V1\Admin\PaymentMethodController;
@@ -48,19 +47,13 @@ Route::middleware([ForceJsonResponse::class, 'permission:admin.finance', AdminAp
     Route::get('payments/enforcement-preview', [EnforcementPreviewController::class, 'index'])
         ->name('payments.enforcement-preview');
 
-    // Withdrawing a business's settled money from the provider account Storify
-    // processes its sales through. Here rather than in AD-04 with the rest of
-    // the business console because it is money configuration, and because it is
-    // `admin.finance` — the permission that already governs every other action
-    // that moves money — rather than `admin.businesses`.
-    Route::get('businesses/{business}/payouts', [ConnectPayoutController::class, 'index'])->name('payouts.index');
-    Route::post('businesses/{business}/payouts', [ConnectPayoutController::class, 'store'])->name('payouts.store');
-    // The switch, not a payout: whether the hourly sweep withdraws this
-    // business's settled money on its own. `PUT` because it replaces that one
-    // setting rather than adding anything, and `payouts/automatic` so it reads
-    // as a noun beside the routes above rather than as another verb.
-    Route::put('businesses/{business}/payouts/automatic', [ConnectPayoutController::class, 'updateAutomatic'])->name('payouts.automatic');
-
+    // There is deliberately no admin route here for a business's payouts. The
+    // three that used to be — list, request, and toggle the automatic sweep —
+    // withdrew money from a *per-business account at the provider*, which no
+    // longer exists: every payout now moves Storify's own balance to a bank
+    // account, and the only actors are `custody:payouts` on its hourly schedule
+    // and `businesses.auto_payout`. An admin lever over it would be a second way
+    // to move money, which is the shape of bug this whole change is deleting.
     Route::get('bank-accounts', [BankAccountController::class, 'index'])->name('bank-accounts.index');
     Route::post('bank-accounts', [BankAccountController::class, 'store'])->name('bank-accounts.store');
     Route::put('bank-accounts/{bankAccount}', [BankAccountController::class, 'update'])->name('bank-accounts.update');

@@ -14,6 +14,7 @@ use App\Http\Resources\Admin\StoreResource;
 use App\Models\Store;
 use App\Repositories\Admin\StoreModerationRepository;
 use App\Services\Admin\StoreLifecycleService;
+use App\Services\Payments\Custody\WalletSummaryService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -31,8 +32,13 @@ use Illuminate\Http\Request;
  * existing `stores` URIs on top of this controller — the route collection keys
  * on method+URI, so the later registration replaces the earlier one and
  * `route:list` keeps exactly one entry per URI. The old, read-only
- * `Api\V1\Admin\StoreController` is left untouched on disk for the
- * orchestrator to retire; every field it returned is preserved here.
+ * `Api\V1\Admin\StoreController` has since been deleted along with its
+ * registration in the shared file; every field it returned is preserved here.
+ *
+ * **This is the live controller for `/admin/stores`.** Worth stating because the
+ * shadowed pair looked live for as long as it existed: a change made to it (a
+ * new payload key, say) compiled, passed review and reached no request at all.
+ * Nothing about the store directory is reachable through any other class.
  *
  * Legacy defects deliberately not cloned:
  *
@@ -88,6 +94,7 @@ class StoreModerationController extends ApiController
     public function __construct(
         private readonly StoreModerationRepository $stores,
         private readonly StoreLifecycleService $lifecycle,
+        private readonly WalletSummaryService $wallet,
     ) {}
 
     /**
@@ -318,7 +325,20 @@ class StoreModerationController extends ApiController
     {
         $this->stores->loadForDetail($store);
 
-        return StoreDetailResource::make($store, $this->mainStoreId(), $this->stores->detailBlocks($store))->resolve();
+        // The wallet line for this one store, so the console can say where the
+        // money actually is instead of drawing the uncredited `stores.balance`.
+        // Computed here rather than in the resource because it is a walk over the
+        // business's matured sales, and a resource is the wrong place to hide one.
+        $walletBlock = $store->business !== null
+            ? $this->wallet->storeWalletBlock($store->business, $store)
+            : null;
+
+        return StoreDetailResource::make(
+            $store,
+            $this->mainStoreId(),
+            $this->stores->detailBlocks($store),
+            $walletBlock,
+        )->resolve();
     }
 
     /**

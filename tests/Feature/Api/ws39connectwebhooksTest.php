@@ -7,11 +7,12 @@ use App\Models\JournalEntry;
 use App\Models\JournalLine;
 use App\Models\LedgerMapping;
 use App\Models\Order;
-use App\Models\PaymentMethod;
+use App\Models\Payout;
 use App\Models\Setting;
 use App\Models\Store;
 use App\Models\Transaction;
 use App\Models\User;
+use App\Services\Accounting\LedgerPostingService;
 use App\Services\Payments\Connect\BachsEventCatalogue;
 use Database\Seeders\PaymentMethodSeeder;
 use Illuminate\Http\Client\Factory;
@@ -23,19 +24,28 @@ use Illuminate\Testing\TestResponse;
 use Tests\TestCase;
 
 /*
-| WS-39 — the platform's endpoint for a business's connected account.
+| WS-39 — the platform's endpoint for deliveries about a charge Storify made.
 |
-| `POST /webhooks/connect/bachs`. Connected-account deliveries are signed with
-| the *platform's* connect secret, are only sent to an endpoint whose
-| `event_source` is `connect`, and name an account rather than any connection of
-| ours — which is why they cannot arrive at the per-store URL a merchant pastes
-| into a dashboard.
+| `POST /webhooks/connect/{provider}`. These deliveries are signed with the
+| *platform's* signing secret, are only sent to an endpoint whose `event_source`
+| is `connect`, and name an account rather than any connection of ours — which is
+| why they cannot arrive at the per-store URL a merchant pastes into a dashboard.
 |
-| Settlement itself is not reimplemented here: the same idempotent processor the
-| browser verify uses does it, so a sale cannot be settled twice by arriving
-| down both paths. What is asserted is that, the ledger that follows a managed
-| sale, and the one thing that must never happen — a store balance credited for
-| money that is sitting in the business's own account at the provider.
+| The file used to be about a business's connected account, and most of it was
+| therefore about resolving *whose* account a delivery was about, refreshing that
+| account's capabilities and requirements, and folding payouts and disputes into a
+| JSON column on its connection row. All of that is deleted with the rail that
+| needed it: under collect-and-pay-out there is one account at the provider and it
+| is Storify's, so a delivery naming an account identifies nothing and there is
+| nowhere for an account's state to be kept.
+|
+| What is left is what the endpoint actually does now, and the tests are grouped
+| by it: it settles a charge through the same idempotent processor the browser
+| verify uses, it routes everything else by the provider's own vocabulary
+| ({@see BachsEventCatalogue}), it records a payout against a row in `payouts`,
+| and it attaches a chargeback or a refund outcome to a sale **by the charge** —
+| the transaction carries whose sale it was and how much they are owed, which is
+| everything any of these need and is the reason nothing here resolves a tenant.
 */
 
 function cw39Store(User $owner, array $attributes = []): Store
@@ -63,6 +73,36 @@ function cw39Order(Store $store, array $attributes = []): Order
     ], $attributes));
 }
 
+/**
+ * Write the singleton settings row the platform reads.
+ *
+ * `first()`-then-`update` rather than `updateOrCreate(['id' => 1])`, and the
+ * difference is not stylistic: `id` is not fillable on `Setting`, so the lookup
+ * constraint is applied to the query but dropped from the insert. A row is
+ * therefore never created *with* id 1, the update branch never matches, and
+ * every call inserts another one — while `SystemProcessor`, which reads the
+ * first, keeps seeing whichever row happened to land lowest.
+ */
+function cw39Settings(array $attributes): void
+{
+    $settings = Setting::query()->first();
+
+    if ($settings === null) {
+        $settings = Setting::query()->create(['company_name' => 'Storify']);
+    }
+
+    $settings->update($attributes);
+}
+
+/**
+ * The platform's Bachs account: its key, its signing secret, and the switch that
+ * makes Bachs the processor every business is charged through.
+ *
+ * The switch is set rather than left off deliberately. It is what the storefront
+ * reads to decide which provider to offer, and a suite that left it unset would
+ * be exercising the "no processor selected" branch by accident — the same tests,
+ * passing for a reason nobody chose.
+ */
 function cw39Platform(): void
 {
     config([
@@ -70,113 +110,48 @@ function cw39Platform(): void
         'services.bachs.webhook_secret' => 'whsec_platform',
         'services.bachs.connect_webhook_secret' => null,
     ]);
-}
 
-function cw39Commission(float $percent = 2.5): void
-{
-    Setting::query()->updateOrCreate(['id' => 1], [
-        'company_name' => 'Storify',
-        'platform_commission_percent' => $percent,
+    cw39Settings([
+        'system_payment_processor' => 'bachs',
+        'platform_commission_percent' => 2.5,
         'platform_commission_fixed_kobo' => 0,
     ]);
 }
 
 /**
- * A connection the platform processes, in the state Bachs leaves it in once a
- * business has registered a bank.
- */
-function cw39Managed(Business $business, string $accountId = 'acct_cw39'): void
-{
-    $method = PaymentMethod::where('code', 'bachs')->firstOrFail();
-
-    DB::table('business_payment_method')->updateOrInsert(
-        ['business_id' => $business->id, 'payment_method_id' => $method->id],
-        [
-            'is_active' => true,
-            'gateway_account_id' => $accountId,
-            'config' => json_encode(['managed' => [
-                'status' => 'active',
-                'capabilities' => [
-                    'card_collection' => 'active',
-                    'ngn_card_collection' => 'active',
-                    'bank_transfer' => 'active',
-                    'payouts' => 'active',
-                ],
-                'requirements' => [],
-                'payout_destination' => [
-                    'id' => 'pd_cw39',
-                    'is_usable' => true,
-                    'currency' => 'NGN',
-                    'bank_name' => 'Guaranty Trust Bank',
-                    'account_name' => 'ADA TRADING LTD',
-                    'last4' => '6789',
-                ],
-            ]]),
-            'created_at' => now(),
-            'updated_at' => now(),
-        ],
-    );
-}
-
-/**
- * Bachs, answering every call a managed sale makes.
+ * Bachs, answering the two calls a platform-processed charge makes.
  *
- * Routed by URL rather than by a single response, because the settlement path
- * makes three different calls and a fixture that answered them all identically
- * would prove nothing: the charge is verified, then the account is refreshed
- * before a payout, then its balance is read. The balance is deliberately zero —
- * "the charge settled" and "the money is movable" are different facts, and the
- * ordinary state right after a sale is the first without the second.
+ * Routed by URL rather than by a single response, because they are different
+ * questions: the initialize call opens a checkout, and the verify call reads the
+ * charge back. The charge carries Bachs' own ₦50 processing fee, which is what
+ * the business's share is computed against — a fixture without it would make the
+ * net wrong in a way every ledger assertion below would inherit.
+ *
+ * There is no `/balances` and no `/payouts` route any more, and their absence is
+ * load-bearing: a charge that still tried to withdraw at settlement would reach
+ * a fake that answers nothing recognisable, and the `assertNotSent` calls in this
+ * file would fail rather than pass quietly.
  *
  * @param  array<string, mixed>  $chargeOverrides
- * @param  array<string, mixed>|null  $payoutRefusal  the provider's error body, or null to accept
  */
-function cw39FakeBachs(array $chargeOverrides = [], string $balance = '0.00', ?array $payoutRefusal = null): void
+function cw39FakeBachs(array $chargeOverrides = []): void
 {
     Http::swap(new Factory);
 
-    Http::fake(function (Request $request) use ($chargeOverrides, $balance, $payoutRefusal) {
-        $url = $request->url();
-
-        if (str_contains($url, '/balances')) {
-            return Http::response([
-                'balances' => [['currency' => 'NGN', 'available_balance' => $balance, 'pending_balance' => '2500.00']],
-            ]);
-        }
-
-        if (str_contains($url, '/payouts') && $request->method() === 'POST') {
-            return $payoutRefusal === null
-                ? Http::response(['id' => 'po_cw39', 'status' => 'pending', 'amount' => $balance])
-                : Http::response($payoutRefusal, 400);
-        }
-
-        if (str_contains($url, '/accounts/')) {
-            return Http::response([
-                'id' => 'acct_cw39',
-                'status' => 'active',
-                'capabilities' => [
-                    'card_collection' => ['status' => 'active'],
-                    'payouts' => ['status' => 'active'],
-                ],
-                'requirements' => [],
-            ]);
-        }
-
-        if (str_contains($url, '/checkout-sessions')) {
+    Http::fake(function (Request $request) use ($chargeOverrides) {
+        if (str_contains($request->url(), '/checkout-sessions')) {
             if ($request->method() === 'GET') {
-                return Http::response(array_merge([
+                return Http::response([
                     'checkout_id' => 'chk_cw39',
                     'status' => 'completed',
                     'charge' => array_merge([
                         'id' => 'chg_cw39',
                         'status' => 'succeeded',
-                        // ₦2,500 with Bachs' own ₦50 processing fee, deducted at
-                        // source from the business's account.
                         'amount' => '2500.00',
                         'currency' => 'NGN',
                         'processing_fee' => '50.00',
                     ], $chargeOverrides),
-                ]));
+                ]);
             }
 
             return Http::response([
@@ -191,8 +166,7 @@ function cw39FakeBachs(array $chargeOverrides = [], string $balance = '0.00', ?a
 }
 
 /**
- * A delivery from Bachs about a connected account, signed the way the platform's
- * connect endpoint verifies one.
+ * A delivery from Bachs, signed the way the platform's endpoint verifies one.
  *
  * @return array{0: string, 1: array<string, string>}
  */
@@ -222,12 +196,15 @@ function cw39Post(TestCase $test, string $body, array $headers): TestResponse
  * mis-ordered destructuring would read as a wrong assertion rather than an
  * error.
  *
+ * No account is created anywhere, and none is needed — the business is under
+ * custody because the column defaults to it, and the charge the platform makes
+ * names nothing of the business's. That is the change stated as a fixture.
+ *
  * @return array{business: Business, store: Store, order: Order, transaction: Transaction}
  */
-function cw39Charge(TestCase $test, string $accountId = 'acct_cw39'): array
+function cw39Charge(TestCase $test): array
 {
     [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
-    cw39Managed($business, $accountId);
 
     $store = cw39Store($owner);
     $order = cw39Order($store);
@@ -246,11 +223,62 @@ function cw39Charge(TestCase $test, string $accountId = 'acct_cw39'): array
 }
 
 /**
+ * A sale already on the books, with no provider traffic behind it.
+ *
+ * For the deliveries that are not settlements — a chargeback, a refund outcome —
+ * the only thing that matters is that a transaction exists whose charge id
+ * matches, so building the row directly keeps those tests about the routing
+ * rather than about the charge. It also makes `assertNothingSent()` a statement
+ * about the webhook instead of about the fixture.
+ */
+function cw39Sale(Business $business, Store $store, string $chargeId = 'chg_cw39'): Transaction
+{
+    return Transaction::create([
+        'reference' => 'CW39-'.fake()->unique()->numerify('########'),
+        'business_id' => $business->id,
+        'store_id' => $store->id,
+        'amount' => 2500,
+        'fee_kobo' => 5000,
+        'net_kobo' => 238750,
+        'platform_fee_kobo' => 6250,
+        'currency' => 'NGN',
+        'status' => TransactionStatus::CONFIRMED->value,
+        'gateway_reference' => $chargeId,
+        'paid_at' => now(),
+        'settle_at' => now()->addDay(),
+    ]);
+}
+
+/**
+ * A payout Storify reserved and sent, sitting in the state the provider's
+ * delivery will move it out of.
+ */
+function cw39Payout(Business $business, string $providerPayoutId, int $amountKobo = 238750, string $status = Payout::STATUS_PROCESSING): Payout
+{
+    $payout = Payout::reserve(
+        (int) $business->id,
+        null,
+        'bachs',
+        '0123456789',
+        '058',
+        'ADA TRADING LTD',
+        $amountKobo,
+    );
+
+    $payout->forceFill([
+        'status' => $status,
+        'provider_payout_id' => $providerPayoutId,
+    ])->save();
+
+    return $payout->fresh();
+}
+
+/**
  * What a ledger account was debited or credited, on a given entry.
  *
  * Read through the mapping rather than by account code: the codes are the
- * template's, and the point of the assertion is which *key* the money landed
- * on, which is what the posting service chose.
+ * template's, and the point of the assertion is which *key* the money landed on,
+ * which is what the posting service chose.
  */
 function cw39Ledger(?int $businessId, string $idempotencyKey, string $accountKey, string $column = 'debit'): int
 {
@@ -274,92 +302,6 @@ function cw39Ledger(?int $businessId, string $idempotencyKey, string $accountKey
         ->sum($column.'_kobo');
 }
 
-beforeEach(function () {
-    $this->seed(PaymentMethodSeeder::class);
-});
-
-/**
- * The business's connection row `config`, decoded.
- *
- * Read for every assertion about operational state — capabilities, requirements,
- * payouts, disputes — because all of it lives in that one JSON column and a test
- * that reached into it by hand would drift from the shape the services write.
- *
- * @return array<string, mixed>
- */
-function cw39Config(Business $business): array
-{
-    $config = DB::table('business_payment_method')
-        ->where('business_id', $business->id)
-        ->where('payment_method_id', PaymentMethod::where('code', 'bachs')->value('id'))
-        ->value('config');
-
-    return is_string($config) ? (json_decode($config, true) ?? []) : [];
-}
-
-/**
- * The account state as stored, without the keys that do not belong to it.
- *
- * @return array<string, mixed>
- */
-function cw39ManagedConfig(Business $business): array
-{
-    $managed = cw39Config($business)['managed'] ?? [];
-
-    return is_array($managed) ? $managed : [];
-}
-
-/**
- * Record a withdrawal on the connection, as the payout service does when it
- * asks the provider for one.
- *
- * A delivery names a payout and expects to find it; without a row to fold into,
- * every payout assertion below would be testing the "not found" branch.
- *
- * @param  array<string, mixed>  $payout
- */
-function cw39SeedPayout(Business $business, array $payout): void
-{
-    $config = cw39Config($business);
-    $config['payouts'] = [$payout];
-
-    DB::table('business_payment_method')
-        ->where('business_id', $business->id)
-        ->where('payment_method_id', PaymentMethod::where('code', 'bachs')->value('id'))
-        ->update(['config' => json_encode($config)]);
-}
-
-function cw39PayoutStatus(Business $business, string $payoutId): ?string
-{
-    foreach ((array) (cw39Config($business)['payouts'] ?? []) as $entry) {
-        if (is_array($entry) && ($entry['id'] ?? null) === $payoutId) {
-            return is_string($entry['status'] ?? null) ? $entry['status'] : null;
-        }
-    }
-
-    return null;
-}
-
-/**
- * @return array<int, array<string, mixed>>
- */
-function cw39Disputes(Business $business): array
-{
-    $disputes = cw39Config($business)['disputes'] ?? [];
-
-    return is_array($disputes) ? array_values($disputes) : [];
-}
-
-/**
- * @return array<int, array<string, mixed>>
- */
-function cw39Refunds(Business $business): array
-{
-    $refunds = cw39Config($business)['refunds'] ?? [];
-
-    return is_array($refunds) ? array_values($refunds) : [];
-}
-
 /**
  * Every action recorded in this business's activity trail.
  *
@@ -373,22 +315,32 @@ function cw39Actions(Business $business): array
         ->all();
 }
 
-test('a connected-account delivery settles the sale and posts the business\'s books', function () {
+beforeEach(function () {
+    $this->seed(PaymentMethodSeeder::class);
+});
+
+/*
+|--------------------------------------------------------------------------
+| The charge: Storify made it, so Storify holds the money
+|--------------------------------------------------------------------------
+*/
+
+test('a delivery settles the sale into a wallet Storify holds, and into both sets of books', function () {
     cw39Platform();
-    cw39Commission();
     cw39FakeBachs();
 
     ['business' => $business, 'store' => $store, 'order' => $order, 'transaction' => $transaction] = cw39Charge($this);
 
+    // Recorded at initialize, not looked up at settlement: how the charge was
+    // made is a fact about the request, and an account id would be a fact about
+    // a thing that no longer exists on either side.
     expect($transaction->metadata['payment_mode'])->toBe('platform_managed')
-        ->and($transaction->metadata['gateway_account_id'])->toBe('acct_cw39')
-        // Recorded at initialize, not looked up at settlement: the rate in force
-        // when the customer paid is the one that applies.
+        ->and($transaction->metadata)->not->toHaveKey('gateway_account_id')
         ->and($transaction->metadata['platform_fee_kobo'])->toBe(6250);
 
     [$body, $headers] = cw39Signed([
         'type' => 'checkout.completed',
-        'account' => 'acct_cw39',
+        'account' => 'acct_platform',
         'data' => [
             'checkout_id' => 'chk_cw39',
             'payment_status' => 'paid',
@@ -404,80 +356,96 @@ test('a connected-account delivery settles the sale and posts the business\'s bo
         ->and($transaction->paid_at)->not->toBeNull()
         ->and((float) $order->fresh()->amount_paid)->toBe(2500.0);
 
-    // The single most important assertion in this file: no balance of ours was
-    // credited. The money is in the business's account at Bachs, and holding a
-    // copy of it here is exactly what this model exists to avoid.
+    // No store balance was credited, and this assertion is unchanged from the
+    // old model for the opposite reason: the money used to be in the business's
+    // own account at the provider, and now it is in ours. Either way it is not
+    // money a store of theirs is holding.
     expect((int) $store->fresh()->balance)->toBe(0)
         ->and($transaction->balance_updated_at)->toBeNull();
 
+    $businessId = (int) $business->id;
     $key = 'payment:txn:'.$transaction->id;
-    $businessId = (int) $store->business_id;
 
-    // ₦2,500 gross, less Bachs' ₦50 and our ₦62.50 — the net is what the
-    // business has at the provider.
-    expect(cw39Ledger($businessId, $key, 'gateway_clearing'))->toBe(238750)
+    // ₦2,500 gross, less Bachs' ₦50 and our ₦62.50. What the business is owed is
+    // an asset against Storify rather than a clearing balance at a provider —
+    // which is the whole point of the account, and why it is a key of its own.
+    expect(cw39Ledger($businessId, $key, 'held_by_platform'))->toBe(238750)
         ->and(cw39Ledger($businessId, $key, 'accounts_receivable', 'credit'))->toBe(250000)
-        // Both fees land on 5500, which had never been posted to before this:
-        // to the business they are the same kind of thing, the cost of taking
-        // this payment.
-        ->and(cw39Ledger($businessId, $key, 'gateway_fees'))->toBe(11250);
+        // Both fees land on 5500: to the business they are the same kind of
+        // thing, the cost of taking this payment.
+        ->and(cw39Ledger($businessId, $key, 'gateway_fees'))->toBe(11250)
+        ->and(cw39Ledger($businessId, $key, 'gateway_clearing'))->toBe(0);
 
-    // And our side of the commission, on our own books.
-    $platformKey = 'commission:txn:'.$transaction->id;
+    // Our side, and the entry that did not exist before this change: the gross
+    // is in our provider balance, we earned the commission, we owe the provider
+    // its fee and we owe the business its share.
+    $platformKey = 'managed:collect:txn:'.$transaction->id;
 
-    expect(cw39Ledger(null, $platformKey, 'gateway_clearing'))->toBe(6250)
-        ->and(cw39Ledger(null, $platformKey, 'service_charge_income', 'credit'))->toBe(6250);
+    expect(cw39Ledger(null, $platformKey, 'gateway_clearing'))->toBe(250000)
+        ->and(cw39Ledger(null, $platformKey, 'business_funds_held', 'credit'))->toBe(238750)
+        ->and(cw39Ledger(null, $platformKey, 'service_charge_income', 'credit'))->toBe(6250)
+        ->and(cw39Ledger(null, $platformKey, 'provider_fees_payable', 'credit'))->toBe(5000)
+        // The commission is *inside* that entry, so posting it separately would
+        // be counting our own income twice.
+        ->and(JournalEntry::where('idempotency_key', 'commission:txn:'.$transaction->id)->exists())->toBeFalse();
 
-    $entry = JournalEntry::where('business_id', $businessId)->where('idempotency_key', $key)->sole();
+    // And the wallet: owed, but not yet payable — the provider has not settled
+    // the charge to us, so paying it out would have Storify funding the gap.
+    $fresh = $business->fresh();
 
-    expect($entry->isBalanced())->toBeTrue();
+    expect((int) $fresh->pending_balance)->toBe(238750)
+        ->and((int) $fresh->available_balance)->toBe(0)
+        ->and($transaction->settle_at)->not->toBeNull();
+
+    expect(JournalEntry::where('business_id', $businessId)->where('idempotency_key', $key)->sole()->isBalanced())->toBeTrue();
 });
 
-test('a replayed delivery settles nothing a second time', function () {
+test('a redelivered settlement is answered, and settles nothing twice', function () {
     cw39Platform();
-    cw39Commission();
     cw39FakeBachs();
 
-    ['business' => $business, 'store' => $store, 'order' => $order, 'transaction' => $transaction] = cw39Charge($this);
+    ['business' => $business, 'order' => $order, 'transaction' => $transaction] = cw39Charge($this);
 
-    [$body, $headers] = cw39Signed([
-        'type' => 'checkout.completed',
-        'account' => 'acct_cw39',
-        'data' => [
-            'checkout_id' => 'chk_cw39',
-            'payment_status' => 'paid',
-            'charge' => ['id' => 'chg_cw39', 'status' => 'succeeded', 'amount' => '2500.00', 'currency' => 'NGN'],
-        ],
-    ]);
+    $charge = ['id' => 'chg_cw39', 'status' => 'succeeded', 'amount' => '2500.00', 'currency' => 'NGN'];
 
-    cw39Post($this, $body, $headers)->assertOk()->assertJsonPath('status', 'success');
-    cw39Post($this, $body, $headers)->assertOk()->assertJsonPath('status', 'already processed');
+    foreach (['evt_cw39_first', 'evt_cw39_second'] as $eventId) {
+        [$body, $headers] = cw39Signed([
+            'id' => $eventId,
+            'type' => 'checkout.completed',
+            'account' => 'acct_platform',
+            'data' => ['checkout_id' => 'chk_cw39', 'payment_status' => 'paid', 'charge' => $charge],
+        ]);
 
+        cw39Post($this, $body, $headers)->assertOk();
+    }
+
+    // A second delivery is *not* a duplicate — it is a different event about the
+    // same charge — so it is not refused. What stops it settling twice is the
+    // transaction's own status, which both paths consult.
     expect((float) $order->fresh()->amount_paid)->toBe(2500.0)
         ->and(JournalEntry::where('idempotency_key', 'payment:txn:'.$transaction->id)->count())->toBe(1)
-        ->and(JournalEntry::where('idempotency_key', 'commission:txn:'.$transaction->id)->count())->toBe(1);
+        ->and(JournalEntry::where('idempotency_key', 'managed:collect:txn:'.$transaction->id)->count())->toBe(1)
+        ->and((int) $business->fresh()->pending_balance)->toBe(238750);
 });
 
 test('the browser verify and the delivery cannot both settle one sale', function () {
     // Bachs fires `checkout.completed` while the customer's browser is still on
-    // its way back, so the two race. Whichever arrives first must be the only
-    // one that counts, and the second must not post a second set of entries.
+    // its way back, so the two race. Whichever arrives first must be the only one
+    // that counts, and the second must not post a second set of entries.
     cw39Platform();
-    cw39Commission();
     cw39FakeBachs();
 
-    ['business' => $business, 'store' => $store, 'order' => $order, 'transaction' => $transaction] = cw39Charge($this);
+    ['store' => $store, 'order' => $order, 'transaction' => $transaction] = cw39Charge($this);
 
     $this->postJson('/api/v1/storefront/'.$store->slug.'/payments/bachs/verify', [
         'reference' => $transaction->reference,
     ])->assertOk();
 
-    expect($transaction->fresh()->status)->toBe(TransactionStatus::CONFIRMED)
-        ->and((int) $store->fresh()->balance)->toBe(0);
+    expect($transaction->fresh()->status)->toBe(TransactionStatus::CONFIRMED);
 
     [$body, $headers] = cw39Signed([
         'type' => 'checkout.completed',
-        'account' => 'acct_cw39',
+        'account' => 'acct_platform',
         'data' => [
             'checkout_id' => 'chk_cw39',
             'payment_status' => 'paid',
@@ -488,22 +456,83 @@ test('the browser verify and the delivery cannot both settle one sale', function
     cw39Post($this, $body, $headers)->assertOk();
 
     expect((float) $order->fresh()->amount_paid)->toBe(2500.0)
-        ->and(JournalEntry::where('idempotency_key', 'payment:txn:'.$transaction->id)->count())->toBe(1);
+        ->and(JournalEntry::where('idempotency_key', 'payment:txn:'.$transaction->id)->count())->toBe(1)
+        ->and(JournalEntry::where('idempotency_key', 'managed:collect:txn:'.$transaction->id)->count())->toBe(1);
 });
 
-test('a delivery signed with anything but the platform\'s connect secret is a 400', function () {
+test('a delivery that names no account at all is settled anyway', function () {
+    // The account field is not what the endpoint works from any more, so its
+    // absence changes nothing: the delivery is identified by its charge and the
+    // charge is all a settlement needs. A rewrite that re-introduced a guard on
+    // this field would pass every other test in this file and fail this one.
+    cw39Platform();
+    cw39FakeBachs();
+
+    ['business' => $business, 'transaction' => $transaction] = cw39Charge($this);
+
+    [$body, $headers] = cw39Signed([
+        'id' => 'evt_cw39_anonymous',
+        'type' => 'checkout.completed',
+        'data' => [
+            'checkout_id' => 'chk_cw39',
+            'payment_status' => 'paid',
+            'charge' => ['id' => 'chg_cw39', 'status' => 'succeeded', 'amount' => '2500.00', 'currency' => 'NGN'],
+        ],
+    ]);
+
+    cw39Post($this, $body, $headers)->assertOk()->assertJsonPath('status', 'success');
+
+    expect($transaction->fresh()->status)->toBe(TransactionStatus::CONFIRMED)
+        ->and((int) $business->fresh()->pending_balance)->toBe(238750)
+        // Nothing was named, so nothing was written down as having been.
+        ->and(ConnectWebhookEvent::query()->where('event_id', 'evt_cw39_anonymous')->sole()->account_id)->toBeNull();
+});
+
+test('a delivery naming an account we have never seen is recorded, not turned away', function () {
+    // This returned "unknown account" and did nothing, which was right when the
+    // account decided whose sale it was. It no longer does: the name identifies
+    // nothing, the charge does, and a delivery refused over an unknown account
+    // would be a settlement dropped for a field we do not read. The log line is
+    // what keeps the name visible for somebody reading a delivery back.
+    cw39Platform();
+    cw39FakeBachs();
+
+    ['transaction' => $transaction] = cw39Charge($this);
+
+    Log::spy();
+
+    [$body, $headers] = cw39Signed([
+        'type' => 'checkout.completed',
+        'account' => 'acct_someone_else',
+        'data' => [
+            'checkout_id' => 'chk_cw39',
+            'payment_status' => 'paid',
+            'charge' => ['id' => 'chg_cw39', 'status' => 'succeeded', 'amount' => '2500.00', 'currency' => 'NGN'],
+        ],
+    ]);
+
+    cw39Post($this, $body, $headers)->assertOk()->assertJsonPath('status', 'success');
+
+    expect($transaction->fresh()->status)->toBe(TransactionStatus::CONFIRMED);
+
+    Log::shouldHaveReceived('info')
+        ->withArgs(fn (string $message, array $context = []) => $message === 'bachs.connect.account_named'
+            && $context['account_id'] === 'acct_someone_else')
+        ->atLeast()->once();
+});
+
+test('a delivery signed with anything but the platform\'s secret is a 400', function () {
     // 400 rather than 401 because the same body with the same secret fails
     // again — a 4xx is how the provider is told not to spend its retry budget on
     // it. Nothing about the payment changes.
     cw39Platform();
-    cw39Commission();
     cw39FakeBachs();
 
-    ['business' => $business, 'store' => $store, 'order' => $order, 'transaction' => $transaction] = cw39Charge($this);
+    ['transaction' => $transaction, 'order' => $order] = cw39Charge($this);
 
     [$body, $headers] = cw39Signed([
         'type' => 'checkout.completed',
-        'account' => 'acct_cw39',
+        'account' => 'acct_platform',
         'data' => ['checkout_id' => 'chk_cw39', 'payment_status' => 'paid'],
     ], 'not-the-platform-secret');
 
@@ -513,304 +542,57 @@ test('a delivery signed with anything but the platform\'s connect secret is a 40
         ->and((float) $order->fresh()->amount_paid)->toBe(0.0);
 });
 
-test('a delivery about an account we do not know is acknowledged and logged', function () {
-    // Answering anything else makes the provider retry a delivery there is
-    // nothing wrong with, and nothing about our state would change if it did.
-    // The log line is what makes it visible.
-    cw39Platform();
-    cw39Commission();
-    cw39FakeBachs();
-
-    Log::spy();
-
-    [$body, $headers] = cw39Signed([
-        'type' => 'checkout.completed',
-        'account' => 'acct_someone_else',
-        'data' => ['checkout_id' => 'chk_other', 'payment_status' => 'paid'],
-    ]);
-
-    cw39Post($this, $body, $headers)->assertOk()->assertJsonPath('status', 'unknown account');
-
-    Log::shouldHaveReceived('warning')
-        ->withArgs(fn (string $message, array $context = []) => $message === 'bachs.connect.unknown_account'
-            && $context['account_id'] === 'acct_someone_else')
-        ->atLeast()->once();
-});
-
-test('a delivery with no account is not a connected-account event', function () {
-    // It verified, so it is ours to receive — it is simply about the platform's
-    // own account, which this endpoint settles nothing for.
-    cw39Platform();
-    cw39Commission();
-    cw39FakeBachs();
-
-    [$body, $headers] = cw39Signed([
-        'type' => 'checkout.completed',
-        'data' => ['checkout_id' => 'chk_platform', 'payment_status' => 'paid'],
-    ]);
-
-    cw39Post($this, $body, $headers)->assertOk()->assertJsonPath('status', 'not a connected account');
-});
-
-test('an unconfigured connect secret is a 503, not a rejected delivery', function () {
-    // Our misconfiguration, not a bad delivery — so the provider should retry
-    // it, and once someone sets the value the same delivery verifies.
+test('an unconfigured signing secret is a 503, not a rejected delivery', function () {
+    // Our misconfiguration, not a bad delivery — so the provider should retry it,
+    // and once someone sets the value the same delivery verifies.
     cw39Platform();
     config(['services.bachs.webhook_secret' => null, 'services.bachs.connect_webhook_secret' => null]);
-    cw39Commission();
     cw39FakeBachs();
 
     [$body, $headers] = cw39Signed([
         'type' => 'checkout.completed',
-        'account' => 'acct_cw39',
+        'account' => 'acct_platform',
         'data' => ['checkout_id' => 'chk_cw39', 'payment_status' => 'paid'],
     ]);
 
     cw39Post($this, $body, $headers)->assertStatus(503);
 });
 
-test('an event this integration does not act on is accepted and dropped', function () {
-    // A recognised delivery about a recognised account that is nothing to do
-    // with settlement. Acknowledged so the provider stops, and nothing posted.
+test('the same delivery twice is claimed by its event id, and the second is not worked', function () {
+    // Deduplicated on the provider's own event id, and claimed *before* any work
+    // rather than recorded after it — this is the difference between paying a
+    // business once and paying it twice.
     cw39Platform();
-    cw39Commission();
     cw39FakeBachs();
 
-    ['transaction' => $transaction] = cw39Charge($this);
+    ['business' => $business, 'transaction' => $transaction] = cw39Charge($this);
 
     [$body, $headers] = cw39Signed([
-        'type' => 'account.updated',
-        'account' => 'acct_cw39',
-        'data' => ['id' => 'acct_cw39', 'status' => 'active'],
-    ]);
-
-    cw39Post($this, $body, $headers)->assertOk();
-
-    expect($transaction->fresh()->status)->toBe(TransactionStatus::PENDING)
-        ->and(JournalEntry::where('idempotency_key', 'payment:txn:'.$transaction->id)->exists())->toBeFalse();
-});
-
-test('a payout that Bachs reports paid posts the withdrawal, and a failed one posts nothing', function () {
-    // The second half of the managed model. 1030 holds what the business has at
-    // the provider and the payout is what empties it — posted when the provider
-    // says the money arrived, not when the payout was requested, because the
-    // debit at creation is provisional and a payout can still fail. A failure is
-    // therefore nothing to unwind: the entry that would have needed reversing
-    // was never written.
-    cw39Platform();
-    cw39Commission();
-    cw39FakeBachs();
-
-    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
-    cw39Managed($business, 'acct_cw39');
-
-    $method = PaymentMethod::where('code', 'bachs')->firstOrFail();
-    $config = json_decode((string) DB::table('business_payment_method')
-        ->where('business_id', $business->id)
-        ->where('payment_method_id', $method->id)
-        ->value('config'), true);
-
-    $config['payouts'] = [
-        ['id' => 'po_cw39_failed', 'reference' => 'STF-FAIL', 'amount_kobo' => 100000, 'status' => 'processing'],
-        ['id' => 'po_cw39_paid', 'reference' => 'STF-PAID', 'amount_kobo' => 238750, 'status' => 'pending'],
-    ];
-
-    DB::table('business_payment_method')
-        ->where('business_id', $business->id)
-        ->where('payment_method_id', $method->id)
-        ->update(['config' => json_encode($config)]);
-
-    [$failedBody, $failedHeaders] = cw39Signed([
-        'type' => 'payout.failed',
-        'account' => 'acct_cw39',
-        'data' => ['id' => 'po_cw39_failed', 'status' => 'failed', 'amount' => '1000.00', 'failure_reason' => 'Bank rejected the account.'],
-    ]);
-
-    cw39Post($this, $failedBody, $failedHeaders)->assertOk()->assertJsonPath('status', 'payout recorded');
-
-    [$paidBody, $paidHeaders] = cw39Signed([
-        'type' => 'payout.paid',
-        'account' => 'acct_cw39',
-        'data' => ['id' => 'po_cw39_paid', 'status' => 'completed', 'amount' => '2387.50'],
-    ]);
-
-    cw39Post($this, $paidBody, $paidHeaders)->assertOk()->assertJsonPath('status', 'payout recorded');
-
-    $history = collect(
-        json_decode((string) DB::table('business_payment_method')
-            ->where('business_id', $business->id)
-            ->where('payment_method_id', $method->id)
-            ->value('config'), true)['payouts'] ?? []
-    )->keyBy('id');
-
-    expect($history['po_cw39_failed']['status'])->toBe('failed')
-        ->and($history['po_cw39_failed']['failure_reason'])->toBe('Bank rejected the account.')
-        ->and($history['po_cw39_paid']['status'])->toBe('completed');
-
-    // Only the paid one wrote to the books, and only once.
-    expect(cw39Ledger((int) $business->id, 'payout:po_cw39_failed', 'bank'))->toBe(0)
-        ->and(cw39Ledger((int) $business->id, 'payout:po_cw39_paid', 'bank'))->toBe(238750)
-        ->and(cw39Ledger((int) $business->id, 'payout:po_cw39_paid', 'gateway_clearing', 'credit'))->toBe(238750);
-});
-
-test('a payout delivery about an account we do not hold is dropped', function () {
-    cw39Platform();
-    cw39FakeBachs();
-
-    [$body, $headers] = cw39Signed([
-        'type' => 'payout.paid',
-        'account' => 'acct_stranger',
-        'data' => ['id' => 'po_stranger', 'status' => 'completed', 'amount' => '100.00'],
-    ]);
-
-    cw39Post($this, $body, $headers)->assertOk()->assertJsonPath('status', 'unknown account');
-});
-
-test('the endpoint is keyed by provider: managed ones are parsed, the rest are refused', function () {
-    // The endpoint used to answer to Bachs and nothing else, because Bachs was
-    // the only provider the platform could charge a business's customers
-    // through. Paystack now can too, so the gate is the registry's *managed*
-    // set rather than one hardcoded name — a provider with no on-behalf path
-    // has no account for a delivery to be about, and quietly parsing one with a
-    // driver that cannot settle against it would be worse than refusing.
-    //
-    // Both halves are asserted, because "accepts Paystack" and "refuses
-    // Monnify" are the same fact seen from either side: a rewrite that opened
-    // it to every provider would pass the first and fail the second.
-    $this->call('POST', '/webhooks/connect/monnify', [], [], [], [
-        'CONTENT_TYPE' => 'application/json',
-        'HTTP_ACCEPT' => 'application/json',
-    ], '{}')->assertStatus(404);
-
-    // Accepted as a provider, then refused as a delivery: the empty body cannot
-    // carry a signature that verifies, which is a 400 rather than the 404 an
-    // unknown provider gets.
-    $this->call('POST', '/webhooks/connect/paystack', [], [], [], [
-        'CONTENT_TYPE' => 'application/json',
-        'HTTP_ACCEPT' => 'application/json',
-    ], '{}')->assertStatus(400);
-});
-
-test('a settled sale tries to withdraw at once, and neither that nor its failure is fatal', function () {
-    // The charge settling and the money becoming movable are different facts,
-    // and the ordinary state right after a sale is the first without the second.
-    // Asking anyway costs one call and shortens the wait when the provider has
-    // already made the funds available.
-    cw39Platform();
-    cw39Commission();
-    cw39FakeBachs();
-
-    ['transaction' => $transaction] = cw39Charge($this);
-
-    [$body, $headers] = cw39Signed([
-        'type' => 'checkout.completed',
-        'account' => 'acct_cw39',
-        'data' => [
-            'checkout_id' => 'chk_cw39',
-            'payment_status' => 'paid',
-            'charge' => ['id' => 'chg_cw39', 'status' => 'succeeded', 'amount' => '2500.00', 'currency' => 'NGN'],
-        ],
-    ]);
-
-    cw39Post($this, $body, $headers)->assertOk()->assertJsonPath('status', 'success');
-
-    // The balance was read, and nothing was paid because nothing has settled.
-    Http::assertSent(fn (Request $request) => str_contains($request->url(), '/balances'));
-    Http::assertNotSent(fn (Request $request) => str_contains($request->url(), '/payouts'));
-
-    expect($transaction->fresh()->status)->toBe(TransactionStatus::CONFIRMED);
-});
-
-test('a refused withdrawal does not unsettle the sale', function () {
-    // The delivery has already been answered by the time the withdrawal is
-    // attempted, so a payout the provider refuses is the sweep's problem and
-    // never a 500 that makes the provider send the same delivery again. The
-    // customer's payment is settled either way.
-    cw39Platform();
-    cw39Commission();
-    // Funds are available, and the provider still refuses the payout — the
-    // refusal a business with a rejected destination or a debt would get.
-    cw39FakeBachs(balance: '2500.00', payoutRefusal: ['code' => 'INSUFFICIENT_BALANCE', 'message' => 'Insufficient balance.']);
-
-    ['store' => $store, 'order' => $order, 'transaction' => $transaction] = cw39Charge($this);
-
-    [$body, $headers] = cw39Signed([
-        'type' => 'checkout.completed',
-        'account' => 'acct_cw39',
-        'data' => [
-            'checkout_id' => 'chk_cw39',
-            'payment_status' => 'paid',
-            'charge' => ['id' => 'chg_cw39', 'status' => 'succeeded', 'amount' => '2500.00', 'currency' => 'NGN'],
-        ],
-    ]);
-
-    cw39Post($this, $body, $headers)->assertOk()->assertJsonPath('status', 'success');
-
-    expect($transaction->fresh()->status)->toBe(TransactionStatus::CONFIRMED)
-        ->and((float) $order->fresh()->amount_paid)->toBe(2500.0)
-        ->and((int) $store->fresh()->balance)->toBe(0);
-
-    // The attempt was made, refused, and recorded — not silently dropped.
-    Http::assertSent(fn (Request $request) => str_contains($request->url(), '/payouts'));
-
-    expect(JournalEntry::where('idempotency_key', 'like', 'payout:%')->exists())->toBeFalse();
-});
-
-/*
-|--------------------------------------------------------------------------
-| At-least-once delivery, and deliveries that arrive out of order
-|--------------------------------------------------------------------------
-|
-| Bachs states both plainly: the same event is delivered more than once until it
-| is acknowledged, and events are **not** guaranteed to arrive in the order they
-| happened. Neither is a fault, and both were live holes — a repeated
-| `payout.paid` posts a second withdrawal, and a late `payout.created` walks a
-| completed withdrawal back to "in flight" while its ledger entry stays exactly
-| where it is.
-|
-| Everything below is one of those two shapes.
-*/
-
-test('the same event is worked once, however many times it is delivered', function () {
-    // Deduplicated on the provider's own event id. This is the difference
-    // between paying a business once and paying it twice, so it is claimed
-    // *before* any work rather than recorded after it.
-    cw39Platform();
-    cw39Commission();
-    cw39FakeBachs();
-
-    ['transaction' => $transaction] = cw39Charge($this);
-
-    $payload = [
         'id' => 'evt_cw39_repeat',
         'type' => 'checkout.completed',
-        'account' => 'acct_cw39',
+        'account' => 'acct_platform',
         'data' => [
             'checkout_id' => 'chk_cw39',
             'payment_status' => 'paid',
             'charge' => ['id' => 'chg_cw39', 'status' => 'succeeded', 'amount' => '2500.00', 'currency' => 'NGN'],
         ],
-    ];
-
-    [$body, $headers] = cw39Signed($payload);
+    ]);
 
     cw39Post($this, $body, $headers)->assertOk()->assertJsonPath('status', 'success');
 
-    // The identical delivery again, byte for byte. Answered, and answered
-    // without doing the work a second time.
+    // Byte for byte the same delivery, so it is the same event and not a second
+    // one about the same charge.
     cw39Post($this, $body, $headers)->assertOk()->assertJsonPath('status', 'duplicate');
 
-    $key = 'payment:txn:'.$transaction->id;
-
-    expect(JournalEntry::where('idempotency_key', $key)->count())->toBe(1)
-        ->and(cw39Ledger((int) $transaction->business_id, $key, 'accounts_receivable', 'credit'))->toBe(250000);
+    expect(JournalEntry::where('idempotency_key', 'managed:collect:txn:'.$transaction->id)->count())->toBe(1)
+        ->and((int) $business->fresh()->pending_balance)->toBe(238750);
 
     // And the event is on record as handled, which is what makes the second
     // delivery cheap rather than merely harmless.
     $claim = ConnectWebhookEvent::query()->where('event_id', 'evt_cw39_repeat')->sole();
 
     expect($claim->status)->toBe('success')
-        ->and($claim->account_id)->toBe('acct_cw39')
+        ->and($claim->account_id)->toBe('acct_platform')
         ->and($claim->note)->not->toBeNull();
 });
 
@@ -820,7 +602,6 @@ test('a delivery the provider names no id for is still processed', function () {
     // themselves tolerate a repeat, and dropping a settlement over a missing
     // field would lose the sale.
     cw39Platform();
-    cw39Commission();
     cw39FakeBachs();
 
     ['transaction' => $transaction] = cw39Charge($this);
@@ -829,7 +610,7 @@ test('a delivery the provider names no id for is still processed', function () {
 
     [$body, $headers] = cw39Signed([
         'type' => 'checkout.completed',
-        'account' => 'acct_cw39',
+        'account' => 'acct_platform',
         'data' => [
             'checkout_id' => 'chk_cw39',
             'payment_status' => 'paid',
@@ -847,297 +628,119 @@ test('a delivery the provider names no id for is still processed', function () {
         ->atLeast()->once();
 });
 
-test('a completed payout is not walked back by a delivery that arrives late', function () {
-    // `payout.paid` then a redelivered `payout.created`. Without the guard the
-    // history would read "in flight" for money the bank already has, and the
-    // ledger entry — posted on the way *into* paid — would stay where it is,
-    // leaving the two disagreeing with nothing to say which is right.
-    cw39Platform();
-    cw39Commission();
-    cw39FakeBachs();
-
-    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
-    cw39Managed($business, 'acct_cw39');
-    cw39SeedPayout($business, ['id' => 'po_cw39_late', 'reference' => 'STF-LATE', 'amount_kobo' => 238750, 'status' => 'pending']);
-
-    [$paidBody, $paidHeaders] = cw39Signed([
-        'id' => 'evt_cw39_paid',
-        'type' => 'payout.paid',
-        'account' => 'acct_cw39',
-        'data' => ['id' => 'po_cw39_late', 'status' => 'completed', 'amount' => '2387.50'],
-    ]);
-
-    cw39Post($this, $paidBody, $paidHeaders)->assertOk()->assertJsonPath('status', 'payout recorded');
-
-    expect(cw39PayoutStatus($business, 'po_cw39_late'))->toBe('completed')
-        ->and(cw39Ledger((int) $business->id, 'payout:po_cw39_late', 'bank'))->toBe(238750);
-
-    // The late one. A different event id, so it is genuinely a second delivery
-    // rather than a retry being deduplicated.
-    [$lateBody, $lateHeaders] = cw39Signed([
-        'id' => 'evt_cw39_created',
-        'type' => 'payout.created',
-        'account' => 'acct_cw39',
-        'data' => ['id' => 'po_cw39_late', 'status' => 'processing', 'amount' => '2387.50'],
-    ]);
-
-    cw39Post($this, $lateBody, $lateHeaders)->assertOk()->assertJsonPath('status', 'payout recorded');
-
-    expect(cw39PayoutStatus($business, 'po_cw39_late'))->toBe('completed')
-        // Still one entry, not two: the guard returns before the posting.
-        ->and(JournalEntry::where('idempotency_key', 'payout:po_cw39_late')->count())->toBe(1);
-});
-
-test('a payout delivery that names no account is matched by its id', function () {
-    // The delivery pays a withdrawal by naming `withdrawal_id` — the name
-    // `GET /v1/payouts/{withdrawal_id}` uses — and nothing else. Dropping it for
-    // want of an account would leave our records saying money left when it did
-    // not.
-    cw39Platform();
-    cw39Commission();
-    cw39FakeBachs();
-
-    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
-    cw39Managed($business, 'acct_cw39');
-    cw39SeedPayout($business, ['id' => 'po_cw39_alias', 'reference' => 'STF-ALIAS', 'amount_kobo' => 238750, 'status' => 'pending']);
-
-    [$body, $headers] = cw39Signed([
-        'id' => 'evt_cw39_alias',
-        'type' => 'payout.paid',
-        'data' => ['withdrawal_id' => 'po_cw39_alias', 'status' => 'completed', 'amount' => '2387.50'],
-    ]);
-
-    cw39Post($this, $body, $headers)->assertOk()->assertJsonPath('status', 'payout recorded');
-
-    expect(cw39PayoutStatus($business, 'po_cw39_alias'))->toBe('completed');
-});
-
 /*
 |--------------------------------------------------------------------------
-| The account's own state
+| What the catalogue says about everything else
 |--------------------------------------------------------------------------
-|
-| `account.updated` and `capability.updated` only say *something* changed. What
-| changed is answered by re-reading the account, which is also the only read that
-| populates `capabilities` and `requirements` at all — so a storefront offering
-| a capability the provider has since restricted would keep offering it until the
-| next hourly sweep.
 */
 
-test('an account-state delivery re-reads the account and stores what the provider now says', function () {
+test('an account event is acknowledged and read by nobody', function () {
+    // `account.updated` used to send us to the provider for the account's
+    // capabilities, because a restricted one had to stop the storefront offering
+    // that method. The account is gone and nothing depends on the answer, so the
+    // assertion is the absence of that call — a rewrite that kept refreshing
+    // would pass a status check and fail here.
     cw39Platform();
-    cw39Commission();
+    cw39FakeBachs();
 
-    // `is_active` rather than a `status` word: the provider reports the account's
-    // standing as a boolean and has no status field at all. Read literally from
-    // the document, every managed store would be refused a charge with a screen
-    // insisting the account was still under review.
-    Http::swap(new Factory);
-    Http::fake(fn (Request $request) => str_contains($request->url(), '/accounts/')
-        ? Http::response([
-            'id' => 'acct_cw39',
-            'is_active' => true,
-            'capabilities' => [
-                'card_collection' => ['status' => 'restricted', 'requested' => true],
-                'bank_transfer' => ['status' => 'active'],
-            ],
-            // `entries` is the per-field view, and the only one that says whether
-            // a requirement is ours to fill in. The four buckets beside it are a
-            // bare list of field keys and carry no `resolution` at all.
-            'requirements' => [
-                'currently_due' => ['company.registration_number'],
-                'entries' => [[
-                    'field' => 'company.registration_number',
-                    'status' => 'currently_due',
-                    'resolution' => 'api',
-                    'restricts_capabilities' => ['card_collection'],
-                    'errors' => [['code' => 'missing', 'reason' => 'We could not find a registration number for this company.']],
-                ]],
-            ],
-        ])
-        : Http::response(['status' => 'ok']));
+    ['transaction' => $transaction] = cw39Charge($this);
 
-    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
-    cw39Managed($business, 'acct_cw39');
+    // Re-faked after the charge, so the recorder the assertion below reads holds
+    // the delivery and not the two calls that opened the checkout.
+    cw39FakeBachs();
+
+    Log::spy();
 
     [$body, $headers] = cw39Signed([
         'id' => 'evt_cw39_account',
-        'type' => 'capability.updated',
-        'account' => 'acct_cw39',
-        'data' => ['id' => 'acct_cw39', 'capability' => ['name' => 'card_collection', 'status' => 'restricted']],
+        'type' => 'account.updated',
+        'account' => 'acct_platform',
+        'data' => ['id' => 'acct_platform', 'is_active' => true],
     ]);
 
-    cw39Post($this, $body, $headers)->assertOk()->assertJsonPath('status', 'account state refreshed');
+    cw39Post($this, $body, $headers)->assertOk()->assertJsonPath('status', 'noted');
 
-    $managed = cw39ManagedConfig($business);
+    Http::assertNothingSent();
 
-    expect($managed['status'])->toBe('active')
-        ->and($managed['capabilities']['card_collection'])->toBe('restricted')
-        ->and($managed['capabilities']['bank_transfer'])->toBe('active')
-        ->and($managed['requirements'])->toHaveCount(1)
-        ->and($managed['requirements'][0]['field'])->toBe('company.registration_number')
-        ->and($managed['requirements'][0]['resolution'])->toBe('api')
-        // The destination is written by a different endpoint entirely, so a
-        // refresh that dropped it would make a payable business look unpayable.
-        ->and($managed['payout_destination']['id'])->toBe('pd_cw39');
+    expect($transaction->fresh()->status)->toBe(TransactionStatus::PENDING)
+        ->and(JournalEntry::where('idempotency_key', 'payment:txn:'.$transaction->id)->exists())->toBeFalse();
 
-    // And the change is in the trail, so "the capability went away on Tuesday"
-    // is answerable afterwards.
-    $this->assertDatabaseHas('activity_logs', [
-        'business_id' => $business->id,
-        'action' => 'payment_gateway.account_state_changed',
-    ]);
+    Log::shouldHaveReceived('info')
+        ->withArgs(fn (string $message, array $context = []) => $message === 'bachs.connect.noted'
+            && $context['type'] === 'account.updated')
+        ->once();
 });
 
-/*
-|--------------------------------------------------------------------------
-| Disputes and refunds
-|--------------------------------------------------------------------------
-*/
-
-test('a dispute is recorded and raised, and never answered on the business\'s behalf', function () {
-    // Money has already gone — the provider debits a flat fee the moment a
-    // dispute is opened — and there is a deadline to answer. What this does is
-    // record it faithfully and raise it. Submitting evidence is a human decision
-    // about a real customer, so nothing here sends anything anywhere.
+test('a capability event is acknowledged and read by nobody', function () {
+    // The other half of the same absence, kept separate because they arrive from
+    // different parts of the provider and a rewrite could plausibly restore one
+    // without the other.
     cw39Platform();
-    cw39Commission();
     cw39FakeBachs();
 
-    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
-    cw39Managed($business, 'acct_cw39');
-
     [$body, $headers] = cw39Signed([
-        'id' => 'evt_cw39_dispute',
-        'type' => 'dispute.created',
-        'account' => 'acct_cw39',
-        'data' => [
-            'id' => 'dp_cw39',
-            'charge_id' => 'chg_cw39',
-            'amount' => '2500.00',
-            'currency' => 'NGN',
-            'status' => 'needs_response',
-            'reason' => 'product_not_received',
-            'is_response_editable' => true,
-            'response_deadline_at' => '2026-11-01T00:00:00Z',
-            'created_at' => '2026-10-11T09:00:00Z',
-        ],
+        'id' => 'evt_cw39_capability',
+        'type' => 'capability.updated',
+        'account' => 'acct_platform',
+        'data' => ['id' => 'acct_platform', 'capability' => ['name' => 'card_collection', 'status' => 'restricted']],
     ]);
 
-    cw39Post($this, $body, $headers)->assertOk()->assertJsonPath('status', 'dispute recorded');
+    cw39Post($this, $body, $headers)->assertOk()->assertJsonPath('status', 'noted');
 
-    $disputes = cw39Disputes($business);
-
-    expect($disputes)->toHaveCount(1)
-        ->and($disputes[0]['id'])->toBe('dp_cw39')
-        ->and($disputes[0]['amount_kobo'])->toBe(250000)
-        ->and($disputes[0]['reason'])->toBe('product_not_received')
-        // The window is the actionable part, and it is kept.
-        ->and($disputes[0]['response_deadline_at'])->toBe('2026-11-01T00:00:00Z');
-
-    $this->assertDatabaseHas('activity_logs', [
-        'business_id' => $business->id,
-        'action' => 'payment_gateway.dispute_needs_response',
-    ]);
-
-    // Nothing was submitted. There is no code path from here that answers a
-    // dispute, which is the assertion: no provider call at all.
     Http::assertNothingSent();
 });
 
-test('a dispute update replaces the entry rather than adding a second copy', function () {
-    // Keyed on the provider's own object id, so a redelivery or an out-of-order
-    // update is the latest state of one dispute rather than a growing list.
+test('an event about a Bachs product we never call is dropped without a warning', function () {
+    // Understood, and nothing to do. It is not an unknown slug — the catalogue
+    // names it — so it must not announce itself as a surprise, and it must not be
+    // acted on either.
     cw39Platform();
     cw39FakeBachs();
 
-    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
-    cw39Managed($business, 'acct_cw39');
+    [$body, $headers] = cw39Signed([
+        'id' => 'evt_cw39_invoice',
+        'type' => 'invoice.paid',
+        'account' => 'acct_platform',
+        'data' => ['id' => 'inv_cw39'],
+    ]);
 
-    foreach ([['needs_response', 'evt_cw39_dp1'], ['under_review', 'evt_cw39_dp2']] as [$status, $eventId]) {
-        [$body, $headers] = cw39Signed([
-            'id' => $eventId,
-            'type' => 'dispute.updated',
-            'account' => 'acct_cw39',
-            'data' => ['id' => 'dp_cw39', 'amount' => '2500.00', 'currency' => 'NGN', 'status' => $status],
-        ]);
-
-        cw39Post($this, $body, $headers)->assertOk();
-    }
-
-    $disputes = cw39Disputes($business);
-
-    expect($disputes)->toHaveCount(1)
-        ->and($disputes[0]['status'])->toBe('under_review');
+    cw39Post($this, $body, $headers)->assertOk()->assertJsonPath('status', 'ignored');
 });
 
-test('a refund that did not reach the customer is recorded and raised; one that did is recorded quietly', function () {
-    // Our refund call returns as soon as the provider accepts it, which is not
-    // the same as the customer being paid. Without this a failed refund looks
-    // exactly like a successful one.
+test('an event Bachs does not document is logged as a surprise, not absorbed', function () {
+    // This is how a newly published slug announces itself. Treating it as one of
+    // the quietly-unused events would hide it for a year.
     cw39Platform();
     cw39FakeBachs();
 
-    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
-    cw39Managed($business, 'acct_cw39');
+    Log::spy();
 
-    [$paidBody, $paidHeaders] = cw39Signed([
-        'id' => 'evt_cw39_rf_paid',
-        'type' => 'refund.paid',
-        'account' => 'acct_cw39',
-        'data' => ['id' => 'rf_cw39_ok', 'charge_id' => 'chg_cw39', 'status' => 'paid', 'refunded_amount' => '500.00', 'currency' => 'NGN'],
+    [$body, $headers] = cw39Signed([
+        'id' => 'evt_cw39_new',
+        'type' => 'something.never.documented',
+        'account' => 'acct_platform',
+        'data' => ['id' => 'obj_cw39_new'],
     ]);
 
-    cw39Post($this, $paidBody, $paidHeaders)->assertOk()->assertJsonPath('status', 'refund recorded');
+    cw39Post($this, $body, $headers)->assertOk()->assertJsonPath('status', 'unhandled event');
 
-    [$failedBody, $failedHeaders] = cw39Signed([
-        'id' => 'evt_cw39_rf_failed',
-        'type' => 'refund.failed',
-        'account' => 'acct_cw39',
-        'data' => ['id' => 'rf_cw39_bad', 'charge_id' => 'chg_cw39', 'status' => 'failed', 'requested_amount' => '500.00', 'currency' => 'NGN', 'failure_reason' => 'card_declined'],
-    ]);
-
-    cw39Post($this, $failedBody, $failedHeaders)->assertOk()->assertJsonPath('status', 'refund recorded');
-
-    $refunds = collect(cw39Refunds($business))->keyBy('id');
-
-    expect($refunds)->toHaveCount(2)
-        ->and($refunds['rf_cw39_ok']['status'])->toBe('paid')
-        ->and($refunds['rf_cw39_bad']['status'])->toBe('failed')
-        ->and($refunds['rf_cw39_bad']['failure_reason'])->toBe('card_declined');
-
-    // Only the failure is raised: a refund that worked is the expected end of a
-    // refund somebody already made, and logging every one would bury the one
-    // that matters.
-    $this->assertDatabaseHas('activity_logs', [
-        'business_id' => $business->id,
-        'action' => 'payment_gateway.refund_failed',
-    ]);
-
-    expect(cw39Actions($business))->not->toContain('payment_gateway.refund_paid');
+    Log::shouldHaveReceived('warning')
+        ->withArgs(fn (string $message, array $context = []) => $message === 'bachs.connect.unhandled_event'
+            && $context['type'] === 'something.never.documented')
+        ->once();
 });
-
-/*
-|--------------------------------------------------------------------------
-| Every documented event
-|--------------------------------------------------------------------------
-*/
 
 test('every event Bachs documents is answered without an error', function () {
     // The completeness assertion, walked rather than described: each slug in the
-    // catalogue is delivered to a real connected account and must be answered
-    // 2xx. A `4xx` would stop the provider retrying a delivery that may matter,
-    // and a `5xx` would make it retry one that never will.
+    // catalogue is delivered and must be answered 2xx. A `4xx` would stop the
+    // provider retrying a delivery that may matter, and a `5xx` would make it
+    // retry one that never will.
     cw39Platform();
-    cw39Commission();
     cw39FakeBachs();
-
-    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
-    cw39Managed($business, 'acct_cw39');
 
     $catalogue = BachsEventCatalogue::all();
 
-    expect($catalogue)->toHaveCount(27);
+    expect($catalogue)->toHaveCount(28);
 
     foreach ($catalogue as $row) {
         [$body, $headers] = cw39Signed([
@@ -1145,7 +748,7 @@ test('every event Bachs documents is answered without an error', function () {
             // first as a duplicate and the walk would assert nothing.
             'id' => 'evt_cw39_walk_'.$row['type'],
             'type' => $row['type'],
-            'account' => 'acct_cw39',
+            'account' => 'acct_platform',
             'data' => [
                 'id' => 'obj_cw39_walk',
                 'charge_id' => 'chg_cw39',
@@ -1162,32 +765,500 @@ test('every event Bachs documents is answered without an error', function () {
 
     // Counted against the table rather than the log, so the assertion is that
     // each one was worked, not merely that it was received.
-    expect(ConnectWebhookEvent::query()->count())->toBe(27);
+    expect(ConnectWebhookEvent::query()->count())->toBe(28);
 });
 
-test('an event Bachs does not document is logged as a surprise, not absorbed', function () {
-    // This is how a newly published slug announces itself. Treating it as one of
-    // the quietly-unused events would hide it for a year.
+test('the endpoint is keyed by the platform\'s own credentials', function () {
+    // The key is the credential map and nothing else: holding a key for a
+    // provider is exactly what declares the platform can charge through it, and
+    // these deliveries are about charges the platform made. A provider we hold
+    // no key for has nothing for a delivery here to be about, so it is refused
+    // rather than quietly parsed by a driver that cannot settle against it.
+    //
+    // Both halves are asserted, because "accepts Paystack" and "refuses Monnify"
+    // are the same fact seen from either side: a rewrite that opened the endpoint
+    // to every provider would pass the first and fail the second.
+    $this->call('POST', '/webhooks/connect/monnify', [], [], [], [
+        'CONTENT_TYPE' => 'application/json',
+        'HTTP_ACCEPT' => 'application/json',
+    ], '{}')->assertStatus(404);
+
+    // Accepted as a provider, then refused as a delivery: the empty body cannot
+    // carry a signature that verifies, which is a 400 rather than the 404 an
+    // unknown provider gets.
+    $this->call('POST', '/webhooks/connect/paystack', [], [], [], [
+        'CONTENT_TYPE' => 'application/json',
+        'HTTP_ACCEPT' => 'application/json',
+    ], '{}')->assertStatus(400);
+});
+
+/*
+|--------------------------------------------------------------------------
+| Money leaving: our balance, our payouts
+|--------------------------------------------------------------------------
+|
+| A payout is no longer a line in a JSON array on a connection. It is a row in
+| `payouts`, reserved before anything is sent, and these deliveries move it.
+*/
+
+test('a payout the provider reports paid posts the withdrawal on both sets of books', function () {
     cw39Platform();
-    cw39Commission();
     cw39FakeBachs();
 
     [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
-    cw39Managed($business, 'acct_cw39');
+    $payout = cw39Payout($business, 'po_cw39_paid');
+
+    [$body, $headers] = cw39Signed([
+        'id' => 'evt_cw39_payout_paid',
+        'type' => 'payout.paid',
+        'account' => 'acct_platform',
+        'data' => ['id' => 'po_cw39_paid', 'status' => 'completed', 'amount' => '2387.50'],
+    ]);
+
+    cw39Post($this, $body, $headers)->assertOk()->assertJsonPath('status', 'payout recorded');
+
+    $fresh = $payout->fresh();
+
+    expect($fresh->status)->toBe(Payout::STATUS_PAID)
+        ->and($fresh->paid_at)->not->toBeNull();
+
+    // The business's money left our hands for its bank…
+    expect(cw39Ledger((int) $business->id, 'payout:'.$payout->reference, 'bank'))->toBe(238750)
+        ->and(cw39Ledger((int) $business->id, 'payout:'.$payout->reference, 'held_by_platform', 'credit'))->toBe(238750);
+
+    // …and we are no longer holding it.
+    expect(cw39Ledger(null, 'custody_payout:'.$payout->reference, 'business_funds_held'))->toBe(238750)
+        ->and(cw39Ledger(null, 'custody_payout:'.$payout->reference, 'gateway_clearing', 'credit'))->toBe(238750);
+});
+
+test('a payout the provider reports failed gives the reservation back and posts nothing', function () {
+    // The send never moved the money, so the wallet is owed it again. No entry is
+    // written, and none needs unwinding: the posting happens on the way *into*
+    // paid, and a payout that never got there has nothing to reverse.
+    cw39Platform();
+    cw39FakeBachs();
+
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    $payout = cw39Payout($business, 'po_cw39_failed');
+
+    [$body, $headers] = cw39Signed([
+        'id' => 'evt_cw39_payout_failed',
+        'type' => 'payout.failed',
+        'account' => 'acct_platform',
+        'data' => [
+            'id' => 'po_cw39_failed',
+            'status' => 'failed',
+            'amount' => '2387.50',
+            'failure_reason' => 'Bank rejected the account.',
+        ],
+    ]);
+
+    cw39Post($this, $body, $headers)->assertOk()->assertJsonPath('status', 'payout recorded');
+
+    $fresh = $payout->fresh();
+
+    expect($fresh->status)->toBe(Payout::STATUS_FAILED)
+        ->and($fresh->failure_reason)->toBe('Bank rejected the account.')
+        // The reservation is back, and it is *available*: nothing is in flight
+        // for it any more, so the next sweep may send it again.
+        ->and((int) $business->fresh()->available_balance)->toBe(238750);
+
+    expect(JournalEntry::where('idempotency_key', 'payout:'.$payout->reference)->exists())->toBeFalse()
+        ->and(JournalEntry::where('idempotency_key', 'custody_payout:'.$payout->reference)->exists())->toBeFalse();
+});
+
+test('a payout delivery we have no row for is answered, not errored', function () {
+    // Either another environment's payout or one from before the table existed,
+    // and neither is fixed by a retry. The log line inside the sweep is what
+    // makes it visible; an error status would make the provider send it forever.
+    cw39Platform();
+    cw39FakeBachs();
+
+    [$body, $headers] = cw39Signed([
+        'id' => 'evt_cw39_payout_stranger',
+        'type' => 'payout.paid',
+        'account' => 'acct_platform',
+        'data' => ['id' => 'po_stranger', 'status' => 'completed', 'amount' => '100.00'],
+    ]);
+
+    cw39Post($this, $body, $headers)->assertOk()->assertJsonPath('status', 'payout not found');
+});
+
+test('a completed payout is not walked back by a delivery that arrives late', function () {
+    // `payout.paid` then a redelivered `payout.created`. The row has left the
+    // states a send can be confirmed from, so the late one is recorded and
+    // changes nothing — without that, the row would read "in flight" for money
+    // the bank already has, while the entries posted on the way into paid stayed
+    // exactly where they were.
+    cw39Platform();
+    cw39FakeBachs();
+
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    $payout = cw39Payout($business, 'po_cw39_late');
+
+    [$paidBody, $paidHeaders] = cw39Signed([
+        'id' => 'evt_cw39_paid',
+        'type' => 'payout.paid',
+        'account' => 'acct_platform',
+        'data' => ['id' => 'po_cw39_late', 'status' => 'completed', 'amount' => '2387.50'],
+    ]);
+
+    cw39Post($this, $paidBody, $paidHeaders)->assertOk()->assertJsonPath('status', 'payout recorded');
+
+    expect($payout->fresh()->status)->toBe(Payout::STATUS_PAID);
+
+    // The late one. A different event id, so it is genuinely a second delivery
+    // rather than a retry being deduplicated.
+    [$lateBody, $lateHeaders] = cw39Signed([
+        'id' => 'evt_cw39_created',
+        'type' => 'payout.created',
+        'account' => 'acct_platform',
+        'data' => ['id' => 'po_cw39_late', 'status' => 'processing', 'amount' => '2387.50'],
+    ]);
+
+    cw39Post($this, $lateBody, $lateHeaders)->assertOk()->assertJsonPath('status', 'payout recorded');
+
+    expect($payout->fresh()->status)->toBe(Payout::STATUS_PAID)
+        // Still one entry, not two.
+        ->and(JournalEntry::where('idempotency_key', 'payout:'.$payout->reference)->count())->toBe(1);
+});
+
+test('a payout the provider reverses after it landed gives the money back and unwinds both entries', function () {
+    // A recall is the one delivery that undoes something the provider has
+    // already told us: `payout.paid` arrived, the row became `paid`, the entries
+    // were posted — and then the bank sent the money back. So the row this
+    // arrives about is `paid`, and claiming a reversal only from `processing`
+    // matched nothing: the update changed no rows, the method returned at its
+    // guard, and the endpoint still answered "payout recorded" while the wallet
+    // showed the money gone and both sets of books showed it paid out.
+    //
+    // Both halves are asserted, because either one alone is a pass on a broken
+    // system: the row has to move, and the money has to come back.
+    cw39Platform();
+    cw39FakeBachs();
+
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    $payout = cw39Payout($business, 'po_cw39_returned');
+
+    [$paidBody, $paidHeaders] = cw39Signed([
+        'id' => 'evt_cw39_returned_paid',
+        'type' => 'payout.paid',
+        'account' => 'acct_platform',
+        'data' => ['id' => 'po_cw39_returned', 'status' => 'completed', 'amount' => '2387.50'],
+    ]);
+
+    cw39Post($this, $paidBody, $paidHeaders)->assertOk()->assertJsonPath('status', 'payout recorded');
+
+    expect($payout->fresh()->status)->toBe(Payout::STATUS_PAID);
+
+    [$body, $headers] = cw39Signed([
+        'id' => 'evt_cw39_returned_reversed',
+        'type' => 'payout.reversed',
+        'account' => 'acct_platform',
+        'data' => [
+            'id' => 'po_cw39_returned',
+            'status' => 'reversed',
+            'amount' => '2387.50',
+            'failure_reason' => 'Recalled by the beneficiary bank.',
+        ],
+    ]);
+
+    cw39Post($this, $body, $headers)->assertOk()->assertJsonPath('status', 'payout recorded');
+
+    $fresh = $payout->fresh();
+
+    expect($fresh->status)->toBe(Payout::STATUS_REVERSED)
+        ->and($fresh->reversed_at)->not->toBeNull()
+        // The business does not have the money and we do, so what we owe it goes
+        // back up by exactly what we took out. Without this the payout is a
+        // subtraction nothing records.
+        ->and((int) $business->fresh()->available_balance)->toBe(238750);
+
+    // Both entries that said "paid out" are voided…
+    expect(JournalEntry::where('idempotency_key', 'payout:'.$payout->reference)->sole()->status)
+        ->toBe(JournalEntry::STATUS_VOID)
+        ->and(JournalEntry::where('idempotency_key', 'custody_payout:'.$payout->reference)->sole()->status)
+        ->toBe(JournalEntry::STATUS_VOID);
+
+    // …and the mirror of each is posted under a key of its own, so the books say
+    // the money came back rather than merely that something was undone.
+    expect(cw39Ledger((int) $business->id, 'payout_returned:'.$payout->reference, 'bank', 'credit'))->toBe(238750)
+        ->and(cw39Ledger((int) $business->id, 'payout_returned:'.$payout->reference, 'held_by_platform'))->toBe(238750)
+        ->and(cw39Ledger(null, 'custody_payout_returned:'.$payout->reference, 'business_funds_held', 'credit'))->toBe(238750)
+        ->and(cw39Ledger(null, 'custody_payout_returned:'.$payout->reference, 'gateway_clearing'))->toBe(238750);
+});
+
+test('a refusal arriving after the transfer landed does not pay the business twice', function () {
+    // Deliveries are not ordered, and `payout.paid` is not necessarily the last
+    // one a provider sends: a `failed` for the same withdrawal can be delivered
+    // after the completion was already handled. Acting on it would flip a `paid`
+    // row back and credit the wallet for money the business has been sent — the
+    // transfer *and* the credit, for one debt, with both sets of books agreeing
+    // that neither happened.
+    //
+    // So the refusal is claimed by condition like every other transition, and a
+    // row that has already reached a final status is left where it is.
+    cw39Platform();
+    cw39FakeBachs();
+
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    $payout = cw39Payout($business, 'po_cw39_twice');
+
+    [$paidBody, $paidHeaders] = cw39Signed([
+        'id' => 'evt_cw39_twice_paid',
+        'type' => 'payout.paid',
+        'account' => 'acct_platform',
+        'data' => ['id' => 'po_cw39_twice', 'status' => 'completed', 'amount' => '2387.50'],
+    ]);
+
+    cw39Post($this, $paidBody, $paidHeaders)->assertOk();
+
+    [$body, $headers] = cw39Signed([
+        'id' => 'evt_cw39_twice_failed',
+        'type' => 'payout.failed',
+        'account' => 'acct_platform',
+        'data' => [
+            'id' => 'po_cw39_twice',
+            'status' => 'failed',
+            'amount' => '2387.50',
+            'failure_reason' => 'Bank rejected the account.',
+        ],
+    ]);
+
+    cw39Post($this, $body, $headers)->assertOk()->assertJsonPath('status', 'payout recorded');
+
+    // Still paid, still nothing owed back, and the entry that says the money left
+    // is still standing.
+    expect($payout->fresh()->status)->toBe(Payout::STATUS_PAID)
+        ->and($payout->fresh()->failed_at)->toBeNull()
+        ->and((int) $business->fresh()->available_balance)->toBe(0)
+        ->and(JournalEntry::where('idempotency_key', 'payout:'.$payout->reference)->sole()->status)
+        ->toBe(JournalEntry::STATUS_POSTED);
+});
+
+test('a payout delivered by Paystack is routed to the payout row, not to the charge handler', function () {
+    // Paystack calls these `transfer.*`, and its driver is where that vocabulary
+    // belongs — the same place `charge.success` is translated. Before it was
+    // translated, a `transfer.reversed` parsed as an event nothing acts on, so
+    // the reversal reached no handler at all on this rail, and the sweep would
+    // not find it either: it only re-reads rows it still believes are moving,
+    // and this one is `paid`.
+    cw39Platform();
+
+    // Paystack signs with the secret key itself, so this one value is both the
+    // signing secret and the credential the endpoint would charge on.
+    config(['services.paystack.secret_key' => 'sk_test_platform_paystack']);
+
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    $payout = cw39Payout($business, 'TRF_cw39_paystack');
+    $payout->forceFill(['provider' => 'paystack', 'status' => Payout::STATUS_PAID, 'paid_at' => now()])->save();
+
+    // The entries a settlement would have posted, so the reversal has something
+    // to unwind.
+    app(LedgerPostingService::class)->postGatewayWithdrawal(
+        (int) $business->id,
+        null,
+        238750,
+        (string) $payout->reference,
+        custody: true,
+    );
+
+    $body = json_encode([
+        'event' => 'transfer.reversed',
+        'data' => [
+            'id' => 99887766,
+            'transfer_code' => 'TRF_cw39_paystack',
+            'reference' => $payout->reference,
+            'status' => 'reversed',
+            'amount' => 238750,
+        ],
+    ]);
+
+    $this->call('POST', '/webhooks/connect/paystack', [], [], [], [
+        'CONTENT_TYPE' => 'application/json',
+        'HTTP_ACCEPT' => 'application/json',
+        'HTTP_X_PAYSTACK_SIGNATURE' => hash_hmac('sha512', $body, 'sk_test_platform_paystack'),
+    ], $body)->assertOk()->assertJsonPath('status', 'payout recorded');
+
+    expect($payout->fresh()->status)->toBe(Payout::STATUS_REVERSED)
+        ->and((int) $business->fresh()->available_balance)->toBe(238750);
+});
+
+test('a payout delivery that names no account is matched by its id', function () {
+    // The delivery pays a withdrawal by naming `withdrawal_id` — the name
+    // `GET /v1/payouts/{withdrawal_id}` uses — and nothing else. Dropping it for
+    // want of an account would leave our records saying money left when it did
+    // not, and there is no account for it to name now in any case.
+    cw39Platform();
+    cw39FakeBachs();
+
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    $payout = cw39Payout($business, 'po_cw39_alias');
+
+    [$body, $headers] = cw39Signed([
+        'id' => 'evt_cw39_alias',
+        'type' => 'payout.paid',
+        'data' => ['withdrawal_id' => 'po_cw39_alias', 'status' => 'completed', 'amount' => '2387.50'],
+    ]);
+
+    cw39Post($this, $body, $headers)->assertOk()->assertJsonPath('status', 'payout recorded');
+
+    expect($payout->fresh()->status)->toBe(Payout::STATUS_PAID);
+});
+
+/*
+|--------------------------------------------------------------------------
+| Disputes and refunds
+|--------------------------------------------------------------------------
+|
+| Both arrive against **Storify's** merchant account now, so both are placed by
+| the charge rather than by an account. A chargeback is money leaving our balance
+| with a business's share going with it; a refund outcome says whether money that
+| was already refunded reached the customer.
+*/
+
+test('a dispute is recorded by its charge, and never answered on the business\'s behalf', function () {
+    // Money has already gone — the provider debits a flat fee the moment a
+    // dispute is opened — and there is a deadline to answer. What this does is
+    // record it faithfully and raise it. Submitting evidence is a human decision
+    // about a real customer, so nothing here sends anything anywhere.
+    cw39Platform();
+    cw39FakeBachs();
+
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    $store = cw39Store($owner);
+    $sale = cw39Sale($business, $store);
+
+    [$body, $headers] = cw39Signed([
+        'id' => 'evt_cw39_dispute',
+        'type' => 'dispute.created',
+        'account' => 'acct_platform',
+        'data' => [
+            'id' => 'dp_cw39',
+            'charge_id' => 'chg_cw39',
+            'amount' => '2500.00',
+            'currency' => 'NGN',
+            'status' => 'needs_response',
+            'reason' => 'product_not_received',
+            'is_response_editable' => true,
+            'response_deadline_at' => '2026-11-01T00:00:00Z',
+            'created_at' => '2026-10-11T09:00:00Z',
+        ],
+    ]);
+
+    cw39Post($this, $body, $headers)->assertOk()->assertJsonPath('status', 'dispute recorded');
+
+    // Filed against the charge, and the charge is what somebody answering it
+    // will be looking for — there is no connection row to hang it on and none is
+    // wanted.
+    $log = DB::table('activity_logs')
+        ->where('business_id', $business->id)
+        ->where('action', 'payment_gateway.dispute_needs_response')
+        ->sole();
+
+    $payload = json_decode((string) $log->new_values, true);
+
+    expect($payload['dispute_id'])->toBe('dp_cw39')
+        ->and($payload['charge_id'])->toBe('chg_cw39')
+        ->and($payload['reason'])->toBe('product_not_received')
+        // The window is the actionable part, and it is kept.
+        ->and($payload['response_deadline_at'])->toBe('2026-11-01T00:00:00Z');
+
+    expect(json_decode((string) $log->metadata, true)['charge'])->toBe($sale->reference);
+
+    // A dispute that is only *asked* moves nothing: the money is gone from our
+    // provider balance while it is being answered, which is a cash-flow fact,
+    // not yet a debt for the business.
+    expect($sale->fresh()->unwound_at)->toBeNull()
+        ->and((int) $business->fresh()->available_balance)->toBe(0);
+
+    // Nothing was submitted.
+    Http::assertNothingSent();
+});
+
+test('a dispute we cannot attach to a charge is reported rather than guessed at', function () {
+    // Money has left Storify's balance and there is nobody recorded as owing it.
+    // Answered 200 all the same — a retry walks into the same dead end — and the
+    // service logs it as an error rather than a warning, which is the difference
+    // between a delivery somebody reads and one that scrolls past.
+    cw39Platform();
+    cw39FakeBachs();
 
     Log::spy();
 
     [$body, $headers] = cw39Signed([
-        'id' => 'evt_cw39_new',
-        'type' => 'something.never.documented',
-        'account' => 'acct_cw39',
-        'data' => ['id' => 'obj_cw39_new'],
+        'id' => 'evt_cw39_dispute_orphan',
+        'type' => 'dispute.created',
+        'account' => 'acct_platform',
+        'data' => ['id' => 'dp_cw39_orphan', 'charge_id' => 'chg_nobody_knows', 'status' => 'needs_response'],
     ]);
 
-    cw39Post($this, $body, $headers)->assertOk()->assertJsonPath('status', 'unhandled event');
+    cw39Post($this, $body, $headers)->assertOk()->assertJsonPath('status', 'dispute not recorded');
 
     Log::shouldHaveReceived('warning')
-        ->withArgs(fn (string $message, array $context = []) => $message === 'bachs.connect.unhandled_event'
-            && $context['type'] === 'something.never.documented')
+        ->withArgs(fn (string $message) => $message === 'bachs.dispute.unknown_charge')
+        ->once();
+});
+
+test('a refund that did not reach the customer is recorded and raised; one that did is recorded quietly', function () {
+    // Our refund call returns as soon as the provider accepts it, which is not
+    // the same as the customer being paid. Without this a failed refund looks
+    // exactly like a successful one.
+    cw39Platform();
+    cw39FakeBachs();
+
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    $store = cw39Store($owner);
+    cw39Sale($business, $store);
+
+    [$paidBody, $paidHeaders] = cw39Signed([
+        'id' => 'evt_cw39_rf_paid',
+        'type' => 'refund.paid',
+        'account' => 'acct_platform',
+        'data' => ['id' => 'rf_cw39_ok', 'charge_id' => 'chg_cw39', 'status' => 'paid', 'refunded_amount' => '500.00', 'currency' => 'NGN'],
+    ]);
+
+    cw39Post($this, $paidBody, $paidHeaders)->assertOk()->assertJsonPath('status', 'refund recorded');
+
+    [$failedBody, $failedHeaders] = cw39Signed([
+        'id' => 'evt_cw39_rf_failed',
+        'type' => 'refund.failed',
+        'account' => 'acct_platform',
+        'data' => ['id' => 'rf_cw39_bad', 'charge_id' => 'chg_cw39', 'status' => 'failed', 'requested_amount' => '500.00', 'currency' => 'NGN', 'failure_reason' => 'card_declined'],
+    ]);
+
+    cw39Post($this, $failedBody, $failedHeaders)->assertOk()->assertJsonPath('status', 'refund recorded');
+
+    // Only the failure is raised: a refund that worked is the expected end of a
+    // refund somebody already made, and logging every one would bury the one
+    // that matters.
+    $this->assertDatabaseHas('activity_logs', [
+        'business_id' => $business->id,
+        'action' => 'payment_gateway.refund_failed',
+    ]);
+
+    expect(cw39Actions($business))->not->toContain('payment_gateway.refund_paid');
+});
+
+test('a refund outcome for a charge we cannot place is reported, not recorded', function () {
+    // The refund was posted by whoever made it; this delivery only says whether
+    // it arrived. One that names a charge we cannot find is money that did not
+    // reach a customer with nothing on our side to attach it to.
+    cw39Platform();
+    cw39FakeBachs();
+
+    Log::spy();
+
+    [$body, $headers] = cw39Signed([
+        'id' => 'evt_cw39_rf_orphan',
+        'type' => 'refund.failed',
+        'account' => 'acct_platform',
+        'data' => ['id' => 'rf_cw39_orphan', 'charge_id' => 'chg_nobody_knows', 'status' => 'failed'],
+    ]);
+
+    cw39Post($this, $body, $headers)->assertOk()->assertJsonPath('status', 'refund not recorded');
+
+    Log::shouldHaveReceived('warning')
+        ->withArgs(fn (string $message) => $message === 'bachs.refund.unknown_charge')
         ->once();
 });

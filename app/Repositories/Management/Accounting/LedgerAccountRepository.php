@@ -45,7 +45,7 @@ final class LedgerAccountRepository
         return JournalLine::query()
             ->join('journal_entries', 'journal_entries.id', '=', 'journal_lines.journal_entry_id')
             ->where('journal_entries.business_id', $businessId)
-            ->where('journal_entries.status', JournalEntry::STATUS_POSTED)
+            ->whereIn('journal_entries.status', JournalEntry::IN_BOOKS)
             ->groupBy('journal_lines.ledger_account_id')
             ->selectRaw('journal_lines.ledger_account_id, SUM(journal_lines.debit_kobo) as debit, SUM(journal_lines.credit_kobo) as credit')
             ->get()

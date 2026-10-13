@@ -27,6 +27,13 @@ use Illuminate\Support\Collection;
  * stored amount — the exact expression the controller carried. It is not a
  * kobo conversion: routing it through `Naira::floatFromKobo()` would divide by
  * 100 and change a consumed payload, so the raw cast stays.
+ *
+ * The inherited `balance` column carries the same caveat it does everywhere: a
+ * store whose business Storify collects for never has it credited. This payload
+ * is for one store, so it also carries the wallet line (`balance_source` plus
+ * the block), which is where that store's money actually is — and the operator
+ * opening a store from the directory needs to see the hold, if one is on it,
+ * rather than a zero that looks like a quiet store.
  */
 final class StoreDetailResource extends StoreResource
 {
@@ -40,10 +47,15 @@ final class StoreDetailResource extends StoreResource
      *     packs: Collection<int, Pack>,
      *     packs_count: int
      * }  $blocks
+     * @param  array<string, mixed>|null  $walletBlock  from WalletSummaryService
      */
-    public function __construct(Store $store, ?int $mainStoreId, private readonly array $blocks)
-    {
-        parent::__construct($store, $mainStoreId);
+    public function __construct(
+        Store $store,
+        ?int $mainStoreId,
+        private readonly array $blocks,
+        ?array $walletBlock = null,
+    ) {
+        parent::__construct($store, $mainStoreId, $walletBlock);
     }
 
     /**

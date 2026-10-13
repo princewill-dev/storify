@@ -216,6 +216,45 @@ final class PosPaymentService
         ?string $providerReference = null,
         ?int $chargeAmountMinor = null,
     ): array {
+        $leg = $this->verifyLeg($store, $method, $reference, $amount, $providerReference, $chargeAmountMinor);
+
+        // The provider's own charge is dropped here on purpose. The till is the
+        // business's client, not its accountant: on a leg the platform processed,
+        // the provider's fee is taken off the money before it reaches us, and it
+        // belongs on the transaction row rather than in a cashier's screen. It is
+        // read by `assertPaid()`, which is the call that is about to write it.
+        return [
+            'paid' => $leg['paid'],
+            'pending' => $leg['pending'],
+            'message' => $leg['message'],
+        ];
+    }
+
+    /**
+     * Ask the provider about one leg, and keep what it said about its own charge.
+     *
+     * The single place a till leg is verified. `status()` and `assertPaid()` differ
+     * only in what they do with the answer, and both need the same three-way
+     * reading of it — so the reading lives once, here, and the fee comes back
+     * with it rather than being fetched a second time by whoever wants it.
+     *
+     * `fees` is the provider's own charge in its own minor units, and null
+     * whenever the provider did not report one: unpaid, unpriceable, the wrong
+     * amount, or simply silent. Null means "not known", never zero — a zero here
+     * would be a claim that the charge was free.
+     *
+     * @return array{paid: bool, pending: bool, message: ?string, fees: ?int}
+     *
+     * @throws DomainException when the method is not one this store can charge
+     */
+    private function verifyLeg(
+        Store $store,
+        string $method,
+        string $reference,
+        float $amount,
+        ?string $providerReference = null,
+        ?int $chargeAmountMinor = null,
+    ): array {
         $connection = $this->gateways->forStore($store)[$method] ?? null;
         $driver = $this->manager->driver($method);
 
@@ -230,6 +269,7 @@ final class PosPaymentService
                 'paid' => false,
                 'pending' => $verification->status === VerificationStatus::PENDING,
                 'message' => $verification->message,
+                'fees' => null,
             ];
         }
 
@@ -246,6 +286,7 @@ final class PosPaymentService
                 'paid' => false,
                 'pending' => false,
                 'message' => "Update the POS app to take this payment method — {$method} charges in {$driver->currency()}.",
+                'fees' => null,
             ];
         }
 
@@ -259,10 +300,20 @@ final class PosPaymentService
                 'paid' => false,
                 'pending' => false,
                 'message' => 'The provider recorded a different amount for this payment.',
+                'fees' => null,
             ];
         }
 
-        return ['paid' => true, 'pending' => false, 'message' => null];
+        return [
+            'paid' => true,
+            'pending' => false,
+            'message' => null,
+            // Whatever the provider said it charged, which is null for the ones
+            // that do not say. Passed through untouched: it is the provider's
+            // figure in the provider's units, and converting it here would put a
+            // rate between the fee and the column it is written into.
+            'fees' => $verification->feesMinor !== null ? (int) $verification->feesMinor : null,
+        ];
     }
 
     /**
@@ -300,11 +351,19 @@ final class PosPaymentService
      * but the retry.
      *
      * @param  array<int, array<string, mixed>>  $payments  the validated legs
+     * @return array<string, int> the provider's own charge for each leg it
+     *                            reported one for, keyed by the reference the
+     *                            leg carries — the same key `ProcessPosSale`
+     *                            will look the leg up by. Legs the provider
+     *                            priced at nothing, and methods that never had a
+     *                            provider at all, are simply absent.
      *
      * @throws DomainException on the first unpaid gateway leg
      */
-    public function assertPaid(Store $store, array $payments): void
+    public function assertPaid(Store $store, array $payments): array
     {
+        $fees = [];
+
         foreach ($payments as $payment) {
             $method = (string) $payment['method'];
 
@@ -318,7 +377,7 @@ final class PosPaymentService
                 throw new DomainException('A card payment on this sale has not been completed.');
             }
 
-            $status = $this->status(
+            $leg = $this->verifyLeg(
                 $store,
                 $method,
                 (string) $reference,
@@ -333,10 +392,22 @@ final class PosPaymentService
                 isset($payment['charge_amount']) ? (int) $payment['charge_amount'] : null,
             );
 
-            if (! $status['paid']) {
-                throw new DomainException($status['message'] ?? 'A card payment on this sale has not been completed.');
+            if (! $leg['paid']) {
+                throw new DomainException($leg['message'] ?? 'A card payment on this sale has not been completed.');
+            }
+
+            // The provider was asked a question it will not be asked again — the
+            // charge has already happened by the time the till settles up — so
+            // what it said about its own fee is carried out of here rather than
+            // re-fetched. Only a reported fee is kept: an absent one has to stay
+            // absent all the way to the row, because `fee_kobo` null is what
+            // tells the custody wallet the sale cannot be priced yet.
+            if ($leg['fees'] !== null) {
+                $fees[(string) $reference] = $leg['fees'];
             }
         }
+
+        return $fees;
     }
 
     /**

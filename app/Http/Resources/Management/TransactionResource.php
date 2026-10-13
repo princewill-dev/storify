@@ -70,6 +70,55 @@ class TransactionResource extends JsonResource
             'has_payment_slip' => (bool) $transaction->payment_slip,
             'paid_at' => $transaction->paid_at?->toISOString(),
             'created_at' => $transaction->created_at?->toISOString(),
+
+            // Where this sale's money is. Null for a sale the business charged on
+            // its own account, which has no wallet leg at all — see
+            // {@see Transaction::settlementState()} for the full vocabulary.
+            'settlement_state' => $transaction->settlementState(),
+            // Named on the list row because it is the answer to the question the
+            // business opens the list to ask: which transfer carried this sale. Null
+            // until a payout claims it.
+            'payout_reference' => $transaction->claimingAllocation()?->payout?->reference,
+
+            // The list inherits the detail payload's block, so the same figures are
+            // available without a second request.
+            'settlement' => $this->settlementBlock($transaction),
+        ];
+    }
+
+    /**
+     * The settlement block shared by the list and the detail payload.
+     *
+     * @return array<string, mixed>|null
+     */
+    protected function settlementBlock(Transaction $transaction): ?array
+    {
+        if (! $transaction->isPlatformManaged()) {
+            return null;
+        }
+
+        $allocation = $transaction->claimingAllocation();
+        $payout = $allocation?->payout;
+
+        return [
+            'state' => $transaction->settlementState(),
+            // When the provider released the money to Storify. Null while the sale is
+            // still settling, and the reason a wallet shows money it will not pay yet.
+            'settled_at' => $transaction->settle_at?->toISOString(),
+            'payable_since' => $transaction->promoted_at?->toISOString(),
+            // When it was refunded or charged back. A sale can be both paid out and
+            // later unwound — the wallet is debited back and this records that it
+            // happened, rather than erasing the payout that delivered it.
+            'unwound_at' => $transaction->unwound_at?->toISOString(),
+            'allocated_kobo' => $allocation !== null ? (int) $allocation->amount_kobo : 0,
+            'payout' => $payout ? [
+                'id' => (int) $payout->id,
+                'reference' => $payout->reference,
+                'status' => $payout->status,
+                'amount_kobo' => (int) $payout->amount_kobo,
+                'paid_at' => $payout->paid_at?->toISOString(),
+                'failure_reason' => $payout->failure_reason,
+            ] : null,
         ];
     }
 

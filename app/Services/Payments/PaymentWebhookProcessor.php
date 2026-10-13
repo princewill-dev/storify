@@ -8,6 +8,7 @@ use App\Models\Transaction;
 use App\Services\Accounting\LedgerPostingService;
 use App\Services\Digital\DigitalDeliveryService;
 use App\Services\Payments\Contracts\PaymentGateway;
+use App\Services\Payments\Custody\CustodyService;
 use App\Services\Payments\Data\GatewayCredentials;
 use App\Services\Payments\Data\VerificationResult;
 use App\Services\Payments\Data\WebhookEvent;
@@ -38,6 +39,7 @@ final class PaymentWebhookProcessor
     public function __construct(
         private readonly LedgerPostingService $ledger,
         private readonly DigitalDeliveryService $digital,
+        private readonly CustodyService $custody,
     ) {}
 
     /**
@@ -105,6 +107,25 @@ final class PaymentWebhookProcessor
             $managed = $transaction->isPlatformManaged();
             $commissionKobo = $transaction->platformFeeKobo();
 
+            // And whether Storify collected it, or the business's own account at
+            // the provider did. Decided once, here, and handed to both the books
+            // and the wallet below — the two must act on the same reading, and
+            // re-deriving it after this point would let a flip in between put
+            // money in a wallet whose asset account never received it.
+            //
+            // **Which is why it is the row's own `payment_mode` and not the
+            // business's switch.** Those two used to be and-ed together, and the
+            // second one is the wrong fact: `custody_enabled` says how a business
+            // is *charged* from now on, while this runs when a charge made up to
+            // two days ago settles. A business rolled back inside that window — the
+            // one moment `custody:disable` is most likely to be run — had its sale
+            // treated as a sale on its own keys, so it was mirrored into
+            // `stores.balance` and never credited to a wallet, while the money was
+            // sitting in Storify's balance. The transaction already records which
+            // arrangement was in force when the customer paid, which is the only
+            // question being asked here.
+            $custody = $managed;
+
             DB::transaction(function () use ($transaction, $verification, $feesMinor, $managed, $commissionKobo) {
                 $amountMinor = Naira::koboFromRounded($transaction->amount);
 
@@ -170,11 +191,30 @@ final class PaymentWebhookProcessor
                     $transaction,
                     (int) ($feesMinor ?? 0),
                     $commissionKobo,
+                    custody: $custody,
                 ));
 
-                $this->ledger->safe(fn () => $this->ledger->postPlatformCommissionEarned($transaction, $commissionKobo));
+                // Under custody the commission is already inside the collection
+                // entry, credited to 4020 against the same clearing balance, so
+                // posting it here as well would double our own income. The
+                // split-at-source entry exists because the provider took the
+                // commission off before the money reached us and it had to be
+                // recognised separately; when we collect the whole charge, the
+                // one entry already says everything.
+                if (! $custody) {
+                    $this->ledger->safe(fn () => $this->ledger->postPlatformCommissionEarned($transaction, $commissionKobo));
+                }
             } else {
                 $this->ledger->safe(fn () => $this->ledger->postPaymentReceived($transaction));
+            }
+
+            if ($custody) {
+                // Owed to the business, but not necessarily settled to us yet —
+                // the wallet puts it in `pending` with a settlement date, and
+                // the promote job is what makes it payable. The ledger's own
+                // account for the same money is 2300 on our books and 1040 on
+                // theirs, both posted above.
+                $this->custody->recordCollectedSale($transaction, $driver->code());
             }
 
             $order = $transaction->order;

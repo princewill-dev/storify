@@ -89,6 +89,29 @@ final class PlatformBillingGateway
     }
 
     /**
+     * Whether the platform can take a charge through this provider at all.
+     *
+     * The one question that decides which providers an admin may name as the
+     * system processor ({@see SystemProcessor}), which connect deliveries are
+     * ours to receive, and whether a business is offered a platform-processed
+     * payment method. It is asked of the credential map and nothing else,
+     * because that is what the answer actually turns on: charging on the
+     * platform's own account needs the platform's own key, and this is the only
+     * place one is declared.
+     *
+     * Deliberately *not* "are the credentials filled in" — that is
+     * {@see self::credentialsFor()} returning an empty set and the drivers
+     * refusing the call. This is the weaker, structural question: could this
+     * provider ever be the platform's processor? An admin may therefore select
+     * Bachs here while its key is missing, and every screen will say so, rather
+     * than the selection being silently rejected as an unknown provider.
+     */
+    public static function canChargeThrough(string $code): bool
+    {
+        return isset(self::CREDENTIALS[$code]);
+    }
+
+    /**
      * Read from the column on every call, deliberately un-memoised.
      *
      * The value is admin-mutable state: an admin switching the billing gateway

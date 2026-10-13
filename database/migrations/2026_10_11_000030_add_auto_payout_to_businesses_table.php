@@ -8,10 +8,10 @@ use Illuminate\Support\Facades\Schema;
 /**
  * Whether a business's settled money is withdrawn to its bank automatically.
  *
- * A business taking payments through Storify has its sales settle into its own
- * connected account at the provider. From there the money has to reach the bank
- * account it registered, and that withdrawal runs on a schedule — see
- * `PlatformPayoutService::sweep()`.
+ * A business taking payments through Storify has its sales settle into Storify's
+ * own balance. From there the money has to reach the bank account the business
+ * registered, and that withdrawal runs on a schedule — see the `custody:payouts`
+ * entry in `routes/console.php` and the service behind it.
  *
  * The column defaults to **true**, and that is the whole point: it is exactly
  * what the sweep does today, unconditionally, for every business. Adding the

@@ -21,6 +21,7 @@ final class StoreOnboardingFinalizeResource extends JsonResource
         private readonly Store $store,
         private readonly int $customersCount,
         private readonly bool $subscriptionActive,
+        private readonly ?array $walletBlock = null,
     ) {
         parent::__construct($store);
     }
@@ -31,7 +32,7 @@ final class StoreOnboardingFinalizeResource extends JsonResource
     public function toArray(Request $request): array
     {
         return [
-            'store' => (new StoreOnboardingResource($this->store, $this->customersCount))->toArray($request),
+            'store' => (new StoreOnboardingResource($this->store, $this->customersCount, $this->walletBlock))->toArray($request),
             'storefront_url' => StoreOnboardingResource::storefrontUrl($this->store),
             'subscription_active' => $this->subscriptionActive,
             'next_step' => $this->subscriptionActive ? 'dashboard' : 'settings',

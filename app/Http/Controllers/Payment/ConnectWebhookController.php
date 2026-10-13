@@ -2,40 +2,38 @@
 
 namespace App\Http\Controllers\Payment;
 
+use App\Enums\WebhookEventType;
 use App\Http\Controllers\Controller;
-use App\Jobs\PayOutSettledFunds;
 use App\Models\ConnectWebhookEvent;
 use App\Services\Payments\Connect\BachsEventCatalogue;
 use App\Services\Payments\Connect\ConnectAccountEventService;
-use App\Services\Payments\Connect\PlatformPayoutService;
 use App\Services\Payments\Contracts\PaymentGateway;
+use App\Services\Payments\Custody\PayoutSweepService;
 use App\Services\Payments\Data\GatewayCredentials;
 use App\Services\Payments\Data\WebhookEvent;
 use App\Services\Payments\Data\WebhookRequest;
-use App\Services\Payments\Data\WebhookScope;
 use App\Services\Payments\Gateways\PaystackGateway;
 use App\Services\Payments\PaymentGatewayManager;
 use App\Services\Payments\PaymentWebhookProcessor;
 use App\Services\Subscription\PlatformBillingGateway;
-use App\Support\Payments\PaymentGatewayRegistry;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * Where the provider tells Storify about a business's connected account.
+ * Where the provider tells Storify about a charge Storify itself made.
  *
  * ## Why this is not a scope of the merchant endpoint
  *
  * `POST /webhooks/payments/{provider}/{scope}` is the URL a business pastes into
  * its own dashboard, and it resolves `{scope}` by searching connections for one
- * whose *stored secret* verifies the signature. Connected-account deliveries are
- * addressed to none of those: they are signed with the platform's connect secret,
- * they are only sent to an endpoint whose `event_source` is `connect`, and the
- * body names the account rather than any connection of ours. Under the merchant
- * endpoint they would fail to verify against every candidate and be answered
- * 401 forever.
+ * whose *stored secret* verifies the signature. These deliveries are addressed to
+ * none of those: they are signed with the platform's own secret, they are only
+ * sent to an endpoint whose `event_source` is `connect`, and the body names the
+ * platform's account rather than any connection of a business's. Under the
+ * merchant endpoint they would fail to verify against every candidate and be
+ * answered 401 forever.
  *
  * It is also not a scope of that route's *path*, which is what the earlier draft
  * of this feature assumed: `{scope}` is a single `[A-Za-z0-9_]+` segment, so
@@ -45,27 +43,45 @@ use Symfony\Component\HttpFoundation\Response;
  * ## What it does with a delivery
  *
  * Four things, in this order: prove the signature is the platform's, claim the
- * event by its own id so a retry cannot do the work twice, work out which
- * business the delivery concerns, and then hand it to whatever the provider
- * says it means — {@see BachsEventCatalogue} for an account event, the
- * provider's own driver for a charge. Settlement is not reimplemented here —
- * the browser verify and this endpoint call the same processor, guarded on the
- * transaction's own status, so a sale cannot be settled twice by arriving on
- * both.
+ * event by its own id so a retry cannot do the work twice, have a look at the
+ * account the payload names, and then hand it to whatever the provider says it
+ * means — {@see BachsEventCatalogue} for Bachs' vocabulary, the provider's own
+ * driver for a charge. Settlement is not reimplemented here — the browser verify
+ * and this endpoint call the same processor, guarded on the transaction's own
+ * status, so a sale cannot be settled twice by arriving on both.
+ *
+ * The account named, when the payload names one, is now the **platform's own**:
+ * see the section below.
  *
  * **Two providers arrive here now, and only two.** `{provider}` is narrowed to
- * the registry's managed specs, which is the set of providers the platform can
+ * the providers the platform holds credentials for, which is the set it can
  * charge a business's customers through: those are the only ones these
  * deliveries can be about. The merchant endpoint
  * (`/webhooks/payments/{provider}/{scope}`) is a different thing and stays
  * exactly as it was — see {@see PaymentWebhookController} for why it must not
  * follow this.
  *
+ * ## It used to work out *whose* account a delivery was about, and cannot any more
+ *
+ * That step is gone, and its absence is the shape of the change rather than a
+ * simplification. Every delivery that arrives here is now about **Storify's own**
+ * account at the provider: the charge named nothing of the business's, so a
+ * chargeback is filed against our merchant account, a refund's outcome comes back
+ * against our charge, and a payout is our balance sending money out. A business is
+ * reached, when it is reached at all, by looking up the *charge* — the
+ * transaction carries whose sale it was and how much they were owed — and the
+ * services that do that take the platform's payload directly.
+ *
+ * `account.*` and `capability.*` are the deliveries that fall out of this. They
+ * are about the account a business used to have, there is no longer one, and
+ * nothing in the system depends on the answer — so they arrive, verify, are
+ * answered 200, and are logged. See {@see BachsEventCatalogue}.
+ *
  * ## The status codes are deliberate
  *
  * `400` for a signature that will never verify: the same body with the same
  * secret fails again, and a 4xx is how the provider is told not to spend its
- * retry budget. `200` for an account we do not know, for an event we have
+ * retry budget. `200` for a payout we have no row for, for an event we have
  * already handled, and for one that is understood but needs nothing done: none
  * is a failure, and an error status would make the provider retry a delivery
  * there is nothing wrong with. `500` only when a retry could actually help —
@@ -78,27 +94,27 @@ final class ConnectWebhookController extends Controller
         private readonly PlatformBillingGateway $billing,
         private readonly PaymentGatewayManager $manager,
         private readonly PaymentWebhookProcessor $processor,
-        private readonly PlatformPayoutService $payouts,
+        private readonly PayoutSweepService $payouts,
         private readonly ConnectAccountEventService $events,
     ) {}
 
     /**
-     * Provider-keyed, and the key is the registry's: the endpoint exists for
-     * deliveries about a business's account *the platform charges through*, and
-     * a managed spec is exactly what declares that. A provider with no on-behalf
-     * path has no such account for a delivery to be about, so it is refused
-     * rather than quietly parsed by a driver that cannot settle against it.
+     * Provider-keyed, and the key is the platform's credentials: the endpoint
+     * exists for deliveries about charges the platform makes, and holding a key
+     * for a provider is exactly what declares it can make them. A provider the
+     * platform cannot charge through has nothing for a delivery here to be about,
+     * so it is refused rather than quietly parsed by a driver that cannot settle
+     * against it.
      *
      * Bachs and Paystack arrive here for the same reason and are then handled
-     * differently, because their deliveries are different things: Bachs' connect
-     * events are about an *account* (its state, its payouts, its disputes) and
-     * Paystack's are about a *charge*, with no account in the payload at all —
-     * its subaccount event has nothing we act on, since a subaccount needs no
-     * ongoing attention from us to be paid.
+     * slightly differently, because their payloads are different things: Bachs
+     * documents a vocabulary of its own ({@see BachsEventCatalogue}), while
+     * Paystack's deliveries are all about a charge and are already translated by
+     * its driver.
      */
     public function handle(Request $request, string $provider): JsonResponse
     {
-        if (! PaymentGatewayRegistry::supportsManaged($provider)) {
+        if (! PlatformBillingGateway::canChargeThrough($provider)) {
             return response()->json(['status' => 'unknown provider'], Response::HTTP_NOT_FOUND);
         }
 
@@ -216,14 +232,18 @@ final class ConnectWebhookController extends Controller
      * Hand the delivery to whatever the provider says it means.
      *
      * Two shapes, chosen by the provider rather than by the payload, because
-     * they answer different questions. Bachs' deliveries are about an account,
-     * so they go through {@see BachsEventCatalogue} and the services that act on
-     * account state. Paystack's are about a charge, and the provider's own
-     * vocabulary for those is already translated by its driver in
-     * {@see PaystackGateway::parseWebhook()} — `charge.success` to
-     * `PAYMENT_SUCCESS`, and so on — so there is no second catalogue to keep in
-     * step with the first, and the dispatch below reads the driver's answer
-     * instead of inventing a parallel one.
+     * they answer different questions. Bachs documents a vocabulary of its own,
+     * so its deliveries go through {@see BachsEventCatalogue}. Paystack's are all
+     * about a charge, and the provider's own vocabulary for those is already
+     * translated by its driver in {@see PaystackGateway::parseWebhook()} —
+     * `charge.success` to `PAYMENT_SUCCESS`, and so on — so there is no second
+     * catalogue to keep in step with the first, and the dispatch below reads the
+     * driver's answer instead of inventing a parallel one.
+     *
+     * Every branch is now about the **platform's** account: settlement is a
+     * charge we made, a payout is our balance leaving, a dispute is filed against
+     * our merchant account. Nothing here resolves a tenant, and nothing here
+     * needs to — see the class docblock for why that step is gone.
      *
      * @param  array<string, mixed>  $data
      * @return array{0: string, 1: int}
@@ -238,51 +258,38 @@ final class ConnectWebhookController extends Controller
         ?string $accountId,
     ): array {
         if ($provider !== 'bachs') {
+            // A provider that has named its own vocabulary for money leaving —
+            // Paystack calls them `transfer.*` — is routed by that name rather
+            // than by the disposition table below, which is Bachs'. Everything
+            // else on this path is a charge, and `dispatchCharge` says so.
+            if ($event?->type === WebhookEventType::PAYOUT) {
+                return $this->payout($data, $type);
+            }
+
             return $this->dispatchCharge($driver, $credentials, $event, $type, $accountId);
         }
 
         $disposition = BachsEventCatalogue::dispositionFor($type);
 
-        // Some events concern the platform's account or name one at all only by
-        // a reference, and those are handled before the tenant lookup — a
-        // `payout.failed` that names no account would otherwise be dropped here
-        // as "not a connected account", which is exactly the delivery whose loss
-        // leaves our records claiming money left when it did not.
-        if ($accountId === null) {
-            if ($disposition === BachsEventCatalogue::PAYOUT) {
-                $recorded = $this->payouts->applyPayoutWebhookWithoutAccount($data, $type);
-
-                return [$recorded ? 'payout recorded' : 'payout not found', Response::HTTP_OK];
-            }
-
-            // A delivery about the platform's own account rather than a
-            // business's. It verified, so it is ours to receive — it is simply
-            // not about anything this endpoint acts on.
-            Log::info('bachs.connect.no_account', ['type' => $type]);
-
-            return ['not a connected account', Response::HTTP_OK];
-        }
-
-        $tenant = $this->payouts->tenantForAccount($accountId);
-
-        if ($tenant === null) {
-            // Answering 200 on purpose. An account we have no connection for is
-            // either one we have just created and not yet stored, or one that is
-            // not ours at all; neither is fixed by a retry, and the log line is
-            // what makes it visible.
-            Log::warning('bachs.connect.unknown_account', ['account_id' => $accountId, 'type' => $type]);
-
-            return ['unknown account', Response::HTTP_OK];
+        if ($accountId !== null) {
+            // Recorded, not acted on. The account a payload names is now the
+            // platform's own — a business's no longer exists — so the fact is
+            // worth a log line when somebody is reading a delivery back, and it
+            // is not worth a branch.
+            Log::info('bachs.connect.account_named', ['account_id' => $accountId, 'type' => $type]);
         }
 
         return match ($disposition) {
-            BachsEventCatalogue::PAYOUT => $this->payout($accountId, $data, $type),
-            BachsEventCatalogue::ACCOUNT => $this->accountState($accountId, $type),
-            BachsEventCatalogue::DISPUTE => $this->dispute($accountId, $data, $type),
-            BachsEventCatalogue::REFUND => $this->refund($accountId, $data, $type),
-            BachsEventCatalogue::NOTE => $this->noted($type),
+            BachsEventCatalogue::SETTLE => $this->dispatchCharge($driver, $credentials, $event, $type, $accountId),
+            BachsEventCatalogue::PAYOUT => $this->payout($data, $type),
+            BachsEventCatalogue::DISPUTE => $this->dispute($data, $type),
+            BachsEventCatalogue::REFUND => $this->refund($data, $type),
+            // Understood, and nothing to do. A single answer for both because
+            // the *reason* is the same for both: the account these are about was
+            // deleted, so there is no state to keep. The catalogue still tells
+            // them apart, and its own comments say what each one used to mean.
+            BachsEventCatalogue::ACCOUNT, BachsEventCatalogue::NOTE => $this->noted($type),
             BachsEventCatalogue::UNUSED => ['ignored', Response::HTTP_OK],
-            BachsEventCatalogue::SETTLE => $this->settle($event, $driver, $credentials, $tenant, $type, $accountId),
             default => $this->unknown($type),
         };
     }
@@ -336,50 +343,61 @@ final class ConnectWebhookController extends Controller
     }
 
     /**
+     * An outcome for money leaving Storify's balance.
+     *
+     * Answered 200 whether or not a row was found, and deliberately: a payout
+     * delivery we cannot place is one another environment sent, or one from
+     * before the `payouts` table existed, and neither is fixed by a retry. The
+     * log line inside the sweep is what makes it visible.
+     *
      * @param  array<string, mixed>  $data
      * @return array{0: string, 1: int}
      */
-    private function payout(string $accountId, array $data, string $type): array
+    private function payout(array $data, string $type): array
     {
-        $recorded = $this->payouts->applyPayoutWebhook($accountId, $data, $type);
+        $recorded = $this->payouts->applyPayoutWebhook($data, $type);
 
         return [$recorded ? 'payout recorded' : 'payout not found', Response::HTTP_OK];
     }
 
     /**
-     * @return array{0: string, 1: int}
-     */
-    private function accountState(string $accountId, string $type): array
-    {
-        $refreshed = $this->events->refreshAccountState($accountId);
-
-        Log::info('bachs.connect.account_state', [
-            'account_id' => $accountId,
-            'type' => $type,
-            'refreshed' => $refreshed,
-        ]);
-
-        return ['account state refreshed', Response::HTTP_OK];
-    }
-
-    /**
+     * A chargeback.
+     *
+     * Identified by the **charge**, not by an account, because the account the
+     * delivery names is Storify's own and identifies nothing. See
+     * {@see ConnectAccountEventService::recordPlatformDispute()}.
+     *
+     * Answered 200 when the charge cannot be found, and the service logs it as an
+     * error rather than a warning when that happens: a dispute we cannot attach
+     * to a sale is money leaving Storify's balance with nobody recorded as owing
+     * it, which is worth more than a 500 the provider would retry into the same
+     * dead end.
+     *
      * @param  array<string, mixed>  $data
      * @return array{0: string, 1: int}
      */
-    private function dispute(string $accountId, array $data, string $type): array
+    private function dispute(array $data, string $type): array
     {
-        $recorded = $this->events->recordDispute($accountId, $data, $type);
+        $recorded = $this->events->recordPlatformDispute($data, $type);
 
         return [$recorded ? 'dispute recorded' : 'dispute not recorded', Response::HTTP_OK];
     }
 
     /**
+     * A refund's outcome.
+     *
+     * Answered 200 whether or not the charge was identified: the refund itself
+     * was posted by whoever made it, and this delivery only says whether it
+     * arrived. A `refund.failed` that cannot be attached is logged as an error by
+     * the service for the same reason a dispute's is — it is money that did not
+     * reach a customer.
+     *
      * @param  array<string, mixed>  $data
      * @return array{0: string, 1: int}
      */
-    private function refund(string $accountId, array $data, string $type): array
+    private function refund(array $data, string $type): array
     {
-        $recorded = $this->events->recordRefund($accountId, $data, $type);
+        $recorded = $this->events->recordPlatformRefund($data, $type);
 
         return [$recorded ? 'refund recorded' : 'refund not recorded', Response::HTTP_OK];
     }
@@ -415,72 +433,6 @@ final class ConnectWebhookController extends Controller
         Log::warning('bachs.connect.unhandled_event', ['type' => $type]);
 
         return ['unhandled event', Response::HTTP_OK];
-    }
-
-    /**
-     * Settle a customer's payment.
-     *
-     * The driver is the authority on *whether* a settlement event really is one
-     * — a `checkout.completed` for a cart that cost nothing is not money — so a
-     * catalogue entry of `settle` that the driver maps to `IGNORED` is answered
-     * as noted rather than settled.
-     *
-     * @param  array{business_id: int, store_id: int|null}  $tenant
-     * @return array{0: string, 1: int}
-     */
-    private function settle(
-        ?WebhookEvent $event,
-        PaymentGateway $driver,
-        GatewayCredentials $credentials,
-        array $tenant,
-        string $type,
-        string $accountId,
-    ): array {
-        if ($event === null || ! $event->isSettlement()) {
-            Log::info('bachs.connect.not_a_settlement', ['type' => $type]);
-
-            return ['noted', Response::HTTP_OK];
-        }
-
-        // The account goes onto the credentials, which is what addresses the
-        // re-verification to the business's account rather than to ours — the
-        // same header the charge was made under, without which the provider
-        // would answer about the platform's own balance.
-        $result = $this->processor->settle(
-            $event,
-            $driver,
-            $credentials->withAccountId($accountId),
-            new WebhookScope($tenant['business_id'], $tenant['store_id'], false),
-        );
-
-        if ($result['status'] === 'success') {
-            $this->payoutAfterSettlement($tenant);
-        }
-
-        return [$result['status'], $result['http']];
-    }
-
-    /**
-     * Try to withdraw a settled sale's money at once.
-     *
-     * **Queued after the response, not done inside it.** The provider allows ten
-     * seconds for a 2xx and counts anything else as a failure worth retrying;
-     * this path makes three provider calls of its own — a refresh, a balance
-     * read and the payout — and a delivery that spent its budget on them would
-     * be retried, arrive again as a settled sale, and waste the retry on work
-     * that is already done. Queued, the delivery is acknowledged immediately and
-     * the withdrawal happens a moment later.
-     *
-     * Best effort either way. A charge settles into `pending_balance` and only
-     * becomes movable on the provider's own schedule, so the usual answer is
-     * "nothing has settled yet" — the hourly sweep is what catches the funds
-     * when they land, and this only shortens the wait.
-     *
-     * @param  array{business_id: int, store_id: int|null}  $tenant
-     */
-    private function payoutAfterSettlement(array $tenant): void
-    {
-        PayOutSettledFunds::dispatchAfterResponse($tenant['business_id'], $tenant['store_id']);
     }
 
     /**

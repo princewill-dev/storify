@@ -7,7 +7,6 @@ use App\Models\JournalLine;
 use App\Models\LedgerAccount;
 use App\Models\LedgerMapping;
 use App\Models\Order;
-use App\Models\PaymentMethod;
 use App\Models\Setting;
 use App\Models\Store;
 use App\Models\Transaction;
@@ -16,7 +15,6 @@ use App\Services\Accounting\LedgerSetupService;
 use Database\Seeders\PaymentMethodSeeder;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Http\Client\Request;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Testing\TestResponse;
 use Tests\TestCase;
@@ -24,19 +22,20 @@ use Tests\TestCase;
 /*
 | WS-41 — the transaction says what the business was paid.
 |
-| Under split-at-source the money is divided by the provider before anyone reads
-| a row: the customer's ₦2,500 lands in the business's own Bachs account already
-| reduced by Bachs' fee and by our commission. The transaction used to report
-| only part of that. `net_kobo` was written as `amount - fee_kobo`, with no
-| commission anywhere in the expression, so ₦2,450 was presented as what reached
-| the bank when ₦2,387.50 did — and the commission itself lived only in a
-| metadata key no endpoint returned.
+| Storify collects the sale, so the money is divided here rather than at the
+| provider: the customer's ₦2,500 is charged on Storify's account, Bachs takes
+| its fee, our commission is kept, and ₦2,387.50 is owed to the business and paid
+| out of its wallet. The transaction used to report only part of that.
+| `net_kobo` was written as `amount - fee_kobo`, with no commission anywhere in
+| the expression, so ₦2,450 was presented as what reached the bank when ₦2,387.50
+| did — and the commission itself lived only in a metadata key no endpoint
+| returned.
 |
 | These tests pin the replacement contract at every surface a business reads:
 |
 |     amount         = what the customer paid          (2500.00)
 |     processing_fee = Bachs' fee + Storify's cut      ( 112.50)
-|     net            = what reached the bank           (2387.50)
+|     net            = what the business is owed       (2387.50)
 |
 | and the one case where no honest net exists at all — a till sale the provider
 | has not settled yet, which must report nothing rather than something wrong.
@@ -55,51 +54,52 @@ function pf41Platform(): void
     ]);
 }
 
+/**
+ * Write the singleton settings row the platform reads.
+ *
+ * `first()`-then-`update` rather than `updateOrCreate(['id' => 1])`, and the
+ * difference is not stylistic: `id` is not fillable on `Setting`, so the lookup
+ * constraint is applied to the query but dropped from the insert. A row is
+ * therefore never created *with* id 1, the update branch never matches, and
+ * every call inserts another row — while `SystemProcessor`, which reads the
+ * first one, keeps seeing the empty row that landed lowest. InnoDB does not
+ * reset `AUTO_INCREMENT` on rollback, so this only bites from the second test in
+ * the file onwards: the first call happens to get id 1 and works.
+ */
+function pf41Settings(array $attributes): void
+{
+    $settings = Setting::query()->first();
+
+    if ($settings === null) {
+        $settings = Setting::query()->create(['company_name' => 'Storify']);
+    }
+
+    $settings->update($attributes);
+}
+
 function pf41Commission(float $percent = 2.5): void
 {
-    Setting::query()->updateOrCreate(['id' => 1], [
-        'company_name' => 'Storify',
+    pf41Settings([
         'platform_commission_percent' => $percent,
         'platform_commission_fixed_kobo' => 0,
     ]);
 }
 
 /**
- * The platform's connection for a business, in the state Bachs leaves it in
- * once a payout bank is registered — the shape `PaymentGatewayResolver` reads
- * `managed` out of.
+ * A business Storify collects for through Bachs.
+ *
+ * That is the whole of it now. This used to seed an account at the provider and
+ * the `managed` blob the resolver read out of a payment-method row; both are
+ * gone, and the fact lives on the business itself. No payment-method row is
+ * written, and that is deliberate rather than convenient — a collected business
+ * needs none to be charged, so seeding one would hide the regression where a
+ * business that never opened the screen stops being chargeable.
  */
-function pf41Managed(Business $business, string $accountId = 'acct_pf41'): void
+function pf41Managed(Business $business): void
 {
-    $method = PaymentMethod::where('code', 'bachs')->firstOrFail();
+    pf41Settings(['system_payment_processor' => 'bachs']);
 
-    DB::table('business_payment_method')->updateOrInsert(
-        ['business_id' => $business->id, 'payment_method_id' => $method->id],
-        [
-            'is_active' => true,
-            'gateway_account_id' => $accountId,
-            'config' => json_encode(['managed' => [
-                'status' => 'active',
-                'capabilities' => [
-                    'card_collection' => 'active',
-                    'ngn_card_collection' => 'active',
-                    'bank_transfer' => 'active',
-                    'payouts' => 'active',
-                ],
-                'requirements' => [],
-                'payout_destination' => [
-                    'id' => 'pd_pf41',
-                    'is_usable' => true,
-                    'currency' => 'NGN',
-                    'bank_name' => 'Guaranty Trust Bank',
-                    'account_name' => 'ADA TRADING LTD',
-                    'last4' => '6789',
-                ],
-            ]]),
-            'created_at' => now(),
-            'updated_at' => now(),
-        ],
-    );
+    $business->forceFill(['custody_enabled' => true, 'custody_enabled_at' => now()])->save();
 }
 
 function pf41Store(User $owner, array $attributes = []): Store
@@ -295,9 +295,9 @@ beforeEach(function () {
 });
 
 test('a managed sale reports the combined fee and the money that reached the bank', function () {
-    // The header case. ₦2,500 paid; Bachs takes ₦50 and splits our ₦62.50 off at
-    // source; ₦2,387.50 is what lands in the business's account. Before this
-    // change the row said ₦2,450 — the commission simply absent from the sum.
+    // The header case. ₦2,500 paid; Bachs takes ₦50, we keep ₦62.50, and
+    // ₦2,387.50 is what the business is owed. Before this change the row said
+    // ₦2,450 — the commission simply absent from the sum.
     pf41Platform();
     pf41Commission();
     pf41FakeBachs();
@@ -369,7 +369,11 @@ test('the two fees post as one processing fee line', function () {
 
     $key = 'payment:txn:'.$transaction->id;
 
-    expect(pf41Ledger($business->id, $key, 'gateway_clearing'))->toBe(238750)
+    // The business holds a claim on Storify rather than a balance at the
+    // provider, so the debit is 1040 — not 1030, which is what a sale charged
+    // through the business's *own* keys lands on. The two are kept apart on
+    // purpose: only one of them is money Storify is holding for somebody.
+    expect(pf41Ledger($business->id, $key, 'held_by_platform'))->toBe(238750)
         ->and(pf41Ledger($business->id, $key, 'accounts_receivable', 'credit'))->toBe(250000);
 
     // One line, carrying both fees. Summed through the same mapping helper the
@@ -379,12 +383,18 @@ test('the two fees post as one processing fee line', function () {
         ->and(pf41ProcessingFeeLines($business->id, $key))->toBe(1)
         ->and(pf41ProcessingFeeDescription($business->id, $key))->toBe('Processing fee '.$transaction->reference);
 
-    // Our own side is still our income, on our own books, under its own name:
-    // that entry is not a fee a business paid and is not renamed.
-    $platformKey = 'commission:txn:'.$transaction->id;
+    // Ours, on our own books: the whole charge lands in our clearing account and
+    // is split across what we owe the business, our commission, and the fee the
+    // provider will take. There is no second commission entry — the provider no
+    // longer takes our cut off before the money reaches us, so recognising it
+    // here *and* there would count the same income twice.
+    $platformKey = 'managed:collect:txn:'.$transaction->id;
 
-    expect(pf41Ledger(null, $platformKey, 'gateway_clearing'))->toBe(6250)
-        ->and(pf41Ledger(null, $platformKey, 'service_charge_income', 'credit'))->toBe(6250);
+    expect(pf41Ledger(null, $platformKey, 'gateway_clearing'))->toBe(250000)
+        ->and(pf41Ledger(null, $platformKey, 'business_funds_held', 'credit'))->toBe(238750)
+        ->and(pf41Ledger(null, $platformKey, 'service_charge_income', 'credit'))->toBe(6250)
+        ->and(pf41Ledger(null, $platformKey, 'provider_fees_payable', 'credit'))->toBe(5000)
+        ->and(pf41Ledger(null, 'commission:txn:'.$transaction->id, 'gateway_clearing'))->toBe(0);
 });
 
 test('a till sale records the commission but claims no net until the provider settles', function () {

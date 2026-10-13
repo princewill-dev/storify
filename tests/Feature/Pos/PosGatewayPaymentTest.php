@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\TransactionStatus;
+use App\Models\Business;
 use App\Models\ExchangeRate;
 use App\Models\JournalEntry;
 use App\Models\LedgerAccount;
@@ -8,8 +9,10 @@ use App\Models\Order;
 use App\Models\PaymentMethod;
 use App\Models\PosSession;
 use App\Models\Product;
+use App\Models\Setting;
 use App\Models\StockLocation;
 use App\Models\Store;
+use App\Models\StoreBank;
 use App\Models\Transaction;
 use App\Models\User;
 use App\Services\Payments\PaymentGatewayResolver;
@@ -136,6 +139,83 @@ function pgPaystackKeys(): array
 }
 
 /**
+ * Admin-set platform values, on the single settings row.
+ *
+ * Created when absent, because nothing seeds one and a `null` row would mean
+ * every test's switch and commission rate silently read as defaults.
+ */
+function pgSettings(array $attributes): void
+{
+    $settings = Setting::query()->first();
+
+    if ($settings === null) {
+        $settings = Setting::query()->create(['company_name' => 'Storify']);
+    }
+
+    $settings->update($attributes);
+}
+
+/**
+ * The platform charging a business's cards itself — the processor switch on,
+ * with the platform's own Paystack key behind it.
+ */
+function pgPlatformProcessor(float $commissionPercent = 2.5): void
+{
+    pgSettings([
+        'system_payment_processor' => 'paystack',
+        'platform_commission_percent' => $commissionPercent,
+        'platform_commission_fixed_kobo' => 0,
+    ]);
+
+    config([
+        'services.paystack.secret_key' => 'sk_live_platform1234567890',
+        'services.paystack.public_key' => 'pk_live_platform1234567890',
+    ]);
+}
+
+/**
+ * A journal entry's lines, keyed `code:dr` / `code:cr`.
+ *
+ * An array of plain integers rather than a chain of assertions on the entry,
+ * because the thing worth stating about a collection is the whole shape of it:
+ * which account each side landed on, and for how much.
+ */
+function pgLines(JournalEntry $entry): array
+{
+    return $entry->lines()->get()->mapWithKeys(fn ($line) => [
+        $line->account->code.($line->debit_kobo > 0 ? ':dr' : ':cr') => $line->debit_kobo > 0
+            ? (int) $line->debit_kobo
+            : (int) $line->credit_kobo,
+    ])->all();
+}
+
+/**
+ * Put a business under custody with a bank to be paid into.
+ *
+ * Custody is what makes a managed till sale a debt Storify owes rather than a
+ * charge it merely processed, and the two buckets start where the test says.
+ */
+function pgCustody(Business $business, ?StoreBank $bank = null): Business
+{
+    $bank ??= StoreBank::create([
+        'business_id' => $business->id,
+        'bank_name' => 'Guaranty Trust Bank',
+        'bank_code' => '058',
+        'account_number' => '0123456789',
+        'account_name' => 'Ada Trading Ltd',
+        'is_primary' => true,
+    ]);
+
+    $business->forceFill([
+        'custody_enabled' => true,
+        'custody_enabled_at' => now(),
+        'payout_bank_id' => $bank->id,
+    ])->save();
+
+    return $business->fresh();
+}
+
+/**
  * Store a USD-based rate for the till to convert through.
  *
  * The service caches the table, so a test that seeds one would otherwise be
@@ -185,10 +265,15 @@ function pgFakeBitfra(float $amountUsd = 1000.00): void
  * The body Paystack returns for one transaction. Echoed back by both reads
  * `doubleVerifyPayment()` makes, because it refuses a payment whose two
  * answers disagree.
+ *
+ * `$feesKobo` is left out of the body entirely when it is not given, which is
+ * the case the pipeline has to survive: a provider that says nothing about what
+ * it charged. Omitting the key rather than sending null keeps that distinct from
+ * a provider that genuinely reports zero.
  */
-function pgPaystackData(string $status, int $amountKobo, string $reference): array
+function pgPaystackData(string $status, int $amountKobo, string $reference, ?int $feesKobo = null): array
 {
-    return [
+    $data = [
         'id' => 778899,
         'status' => $status,
         'amount' => $amountKobo,
@@ -196,6 +281,12 @@ function pgPaystackData(string $status, int $amountKobo, string $reference): arr
         'reference' => $reference,
         'paid_at' => $status === 'success' ? now()->toIso8601String() : null,
     ];
+
+    if ($feesKobo !== null) {
+        $data['fees'] = $feesKobo;
+    }
+
+    return $data;
 }
 
 /**
@@ -205,11 +296,11 @@ function pgPaystackData(string $status, int $amountKobo, string $reference): arr
  * already installed and the earliest stub wins, so without a fresh factory a
  * previous test's fake would answer for this one.
  */
-function pgFakePaystack(string $status = 'success', int $amountKobo = 100000): void
+function pgFakePaystack(string $status = 'success', int $amountKobo = 100000, ?int $feesKobo = null): void
 {
     Http::swap(new Factory);
 
-    Http::fake(function (Request $request) use ($status, $amountKobo) {
+    Http::fake(function (Request $request) use ($status, $amountKobo, $feesKobo) {
         $url = $request->url();
 
         if (str_contains($url, 'transaction/initialize')) {
@@ -234,7 +325,7 @@ function pgFakePaystack(string $status = 'success', int $amountKobo = 100000): v
             return Http::response([
                 'status' => true,
                 'message' => 'Verification successful',
-                'data' => pgPaystackData($status, $amountKobo, $reference),
+                'data' => pgPaystackData($status, $amountKobo, $reference, $feesKobo),
             ]);
         }
 
@@ -244,7 +335,7 @@ function pgFakePaystack(string $status = 'success', int $amountKobo = 100000): v
         return Http::response([
             'status' => true,
             'message' => 'Transactions retrieved',
-            'data' => [pgPaystackData($status, $amountKobo, (string) ($query['reference'] ?? ''))],
+            'data' => [pgPaystackData($status, $amountKobo, (string) ($query['reference'] ?? ''), $feesKobo)],
         ]);
     });
 }
@@ -892,4 +983,98 @@ test('a charge that converts to nothing is refused before the provider is asked'
 
     // Nothing reached Bitfra: the refusal happens before the driver is called.
     Http::assertNothingSent();
+});
+
+/*
+|--------------------------------------------------------------------------
+| A managed till leg, and the fee the wallet needs to price it
+|--------------------------------------------------------------------------
+|
+| The till is the third way a sale gets paid and the only one that never passes
+| through a webhook or a return leg — the verification in `assertPaid()` is the
+| last time anyone asks the provider about this charge. It is also the only
+| moment the provider states what it charged, and a business under custody
+| cannot be paid out of a sale that has no provider fee on it: the wallet's
+| share is `gross - fee - commission`, and crediting it without the middle term
+| would either understate the debt or invent one.
+|
+| So the figure the checkout already fetched has to reach the transaction row,
+| or a custody business selling at the till is never owed its money at all.
+*/
+
+test('a managed till leg records the provider charge and credits the custody wallet', function () {
+    [, $business, , $store, $product] = pgContext();
+    pgPlatformProcessor(2.5);
+    $business = pgCustody($business);
+    // ₦1,000 charged, ₦15 kept by Paystack, ₦25 commission at 2.5%.
+    pgFakePaystack('success', 100000, 1500);
+    $reference = $this->postJson("/api/v1/pos/stores/{$store->store_id}/payments/initialize", [
+        'items' => [['product_id' => $product->id, 'quantity' => 1]],
+        'method' => 'paystack',
+        'amount' => 1000,
+    ])->assertCreated()->json('data.reference');
+
+    $this->postJson("/api/v1/pos/stores/{$store->store_id}/checkout", [
+        'idempotency_key' => 'pg-custody-priced-leg',
+        'items' => [['product_id' => $product->id, 'quantity' => 1]],
+        'payments' => [['method' => 'paystack', 'amount' => 1000, 'reference' => $reference]],
+    ])->assertCreated();
+
+    $transaction = Transaction::where('reference', $reference)->sole();
+
+    expect($transaction->fee_kobo)->toBe(1500)
+        ->and($transaction->platform_fee_kobo)->toBe(2500)
+        ->and($transaction->net_kobo)->toBe(96000)
+        // The store's own balance is untouched: this money is not in the
+        // business's provider account, it is in Storify's.
+        ->and((int) $store->fresh()->balance)->toBe(0)
+        // And it is owed — in `pending`, because the provider has not settled
+        // it to us yet, which is the whole reason the bucket exists.
+        ->and((int) $business->fresh()->pending_balance)->toBe(96000)
+        ->and((int) $business->fresh()->available_balance)->toBe(0)
+        ->and($transaction->settle_at)->not->toBeNull();
+
+    // The ledger moved with the wallet, and it says what we are holding.
+    $entry = JournalEntry::where('idempotency_key', 'managed:collect:txn:'.$transaction->id)->sole();
+
+    expect(pgLines($entry))->toBe([
+        '1030:dr' => 100000,
+        '2300:cr' => 96000,
+        '4020:cr' => 2500,
+        '2210:cr' => 1500,
+    ]);
+});
+
+test('a managed till leg the provider did not price waits rather than guessing', function () {
+    [, $business, , $store, $product] = pgContext();
+    pgPlatformProcessor(2.5);
+    $business = pgCustody($business);
+    pgFakePaystack('success', 100000);
+
+    $reference = $this->postJson("/api/v1/pos/stores/{$store->store_id}/payments/initialize", [
+        'items' => [['product_id' => $product->id, 'quantity' => 1]],
+        'method' => 'paystack',
+        'amount' => 1000,
+    ])->assertCreated()->json('data.reference');
+
+    // The sale itself still goes through — the customer paid, and the shop has
+    // goods out of the door. What is withheld is the number we would owe.
+    $this->postJson("/api/v1/pos/stores/{$store->store_id}/checkout", [
+        'idempotency_key' => 'pg-custody-unpriced-leg',
+        'items' => [['product_id' => $product->id, 'quantity' => 1]],
+        'payments' => [['method' => 'paystack', 'amount' => 1000, 'reference' => $reference]],
+    ])->assertCreated();
+
+    $transaction = Transaction::where('reference', $reference)->sole();
+
+    expect($transaction->status)->toBe(TransactionStatus::CONFIRMED)
+        // Both null, not zero: null is "not known", and a zero would be a claim
+        // that Paystack charged nothing.
+        ->and($transaction->fee_kobo)->toBeNull()
+        ->and($transaction->net_kobo)->toBeNull()
+        ->and($transaction->settle_at)->toBeNull()
+        ->and((int) $business->fresh()->pending_balance)->toBe(0)
+        // Which is the state `creditAwaitingSales()` comes back for, and the
+        // reason the sale is not quietly credited at gross minus commission.
+        ->and(JournalEntry::where('idempotency_key', 'managed:collect:txn:'.$transaction->id)->exists())->toBeFalse();
 });

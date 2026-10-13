@@ -15,7 +15,6 @@ use App\Services\Payments\Data\WebhookEvent;
 use App\Services\Payments\Data\WebhookRequest;
 use App\Services\PaystackService;
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Log;
 
 /**
  * Paystack, expressed through the driver contract.
@@ -45,55 +44,30 @@ final class PaystackGateway implements PaymentGateway
     }
 
     /**
-     * Start a charge, splitting it when the caller asked for a subaccount.
+     * Start a charge.
      *
-     * ## The guard is the point
+     * ## There is no split any more, and that is the point
      *
-     * The three split fields are only written when a subaccount was declared,
-     * and a declared subaccount that is missing, malformed, or not the one these
-     * credentials name is **refused before the request leaves**. Paystack answers
-     * a `transaction/initialize` with no `subaccount` perfectly happily: it
-     * charges the platform's own account, pays the business nothing, and reports
-     * success. Nothing in the response says a split was dropped, so the failure
-     * is discovered by a business that never got paid — which is why this is the
-     * one place in the driver that refuses rather than best-efforts.
+     * This used to send `subaccount`, `transaction_charge` and `bearer`, and to
+     * refuse before the request left whenever a declared subaccount did not match
+     * the one the credentials carried. The guard existed because Paystack answers
+     * a `transaction/initialize` carrying a dropped split perfectly happily: it
+     * charges the platform's own account, pays the business nothing, reports
+     * success, and says nothing — so the failure surfaced as a business that was
+     * never paid.
      *
-     * It mirrors {@see BachsGateway::directChargeProblem()}: only ever refuses a
-     * charge the caller *asked* to be direct, so an ordinary charge — the
-     * platform's own billing, or a business's own keys — declares no account and
-     * is untouched.
+     * The whole arrangement is gone. Every charge this driver makes now *is* the
+     * platform's own account, the gross lands in Storify's balance, and the
+     * business is paid from its wallet. A split is not merely unnecessary; naming
+     * a subaccount here would settle the business directly while the wallet
+     * credited it as though Storify held the money — paying it twice, once by the
+     * provider and once by the payout sweep.
      *
-     * ## What each field means
-     *
-     * `subaccount` is the split: Paystack credits that subaccount's settlement
-     * bank and the remainder to this account, at settlement.
-     *
-     * `transaction_charge` is the platform's cut in kobo and it *overrides* the
-     * subaccount's `percentage_charge` for this charge — which is why the
-     * authoritative number is sent per transaction rather than left to the
-     * subaccount's default. It is the same figure the Bachs path sends as
-     * `platform_fee`, from the same `PlatformCommission::on()`.
-     *
-     * `bearer: subaccount` makes the business bear Paystack's own processing fee,
-     * so the platform's cut is what it says it is rather than depending on how
-     * the fee was apportioned. It is set only alongside a split, because `bearer`
-     * without a `subaccount` asks for something that does not exist.
+     * So the parameters are not written at all rather than written as null, and
+     * the class of bug the guard covered cannot be constructed.
      */
     public function initialize(PaymentIntent $intent, GatewayCredentials $credentials): InitializationResult
     {
-        if (($problem = $this->subaccountProblem($intent, $credentials)) !== null) {
-            Log::error('paystack.split_charge.refused', [
-                'reference' => $intent->reference,
-                'reason' => $problem,
-                'declared_subaccount' => $intent->directChargeAccountId,
-                'credential_account' => $credentials->accountId(),
-            ]);
-
-            return InitializationResult::failed($problem);
-        }
-
-        $subaccount = $intent->directChargeAccountId;
-
         $result = $this->client($credentials)->initializePayment(array_filter([
             'email' => $intent->email,
             'amount' => $intent->amountMinor,
@@ -101,12 +75,6 @@ final class PaystackGateway implements PaymentGateway
             'reference' => $intent->reference,
             'callback_url' => $intent->callbackUrl,
             'metadata' => $intent->metadata,
-            'subaccount' => $subaccount,
-            // Kobo, as Paystack documents it, and omitted rather than zeroed when
-            // the platform takes no cut: a `0` would be a split instruction, and
-            // the subaccount's percentage_charge is the better fallback then.
-            'transaction_charge' => $this->platformChargeMinor($intent),
-            'bearer' => $subaccount === null ? null : 'subaccount',
         ], fn ($value) => $value !== null && $value !== ''));
 
         if (! ($result['success'] ?? false)) {
@@ -202,6 +170,17 @@ final class PaystackGateway implements PaymentGateway
             'charge.success' => WebhookEventType::PAYMENT_SUCCESS,
             'charge.failed' => WebhookEventType::PAYMENT_FAILED,
             'refund.processed' => WebhookEventType::REFUND,
+            // `transfer.*` is a payout, not a charge: the reference in its data is
+            // the payout's, and its status is the transfer's own (`success`,
+            // `failed`, `reversed`, `otp`). Without these three the most important
+            // one — a transfer reversed after it landed — was parsed as an event
+            // nothing acts on, and the payout sweep would never look at the row
+            // again, because it only ever re-reads rows it thinks are still moving.
+            //
+            // `transferrecipient.create` deliberately is not matched: it is about
+            // a destination being registered, which is a step of a send rather than
+            // an outcome of one.
+            'transfer.success', 'transfer.failed', 'transfer.reversed', 'transfer.reversal' => WebhookEventType::PAYOUT,
             default => WebhookEventType::IGNORED,
         };
 
@@ -237,59 +216,6 @@ final class PaystackGateway implements PaymentGateway
     public function supportsPartialPayment(): bool
     {
         return true;
-    }
-
-    /**
-     * Why this split charge must not be posted, or null when it may be.
-     *
-     * Only ever refuses a charge that declared a subaccount. The two ids are
-     * compared rather than trusted, exactly as they are on the Bachs path: a
-     * mismatch means the resolver answered for one subaccount and the credentials
-     * name another, and the only safe response is to stop rather than to send
-     * money to whichever account happens to be on the credentials.
-     *
-     * The prefix check is Paystack's own naming — a subaccount code starts
-     * `ACCT_` — and it is here for the same reason Bachs' `acct_` check is: a
-     * value that is obviously not a subaccount code is a caller bug, and letting
-     * Paystack answer it turns a bug into a charge on the platform's account.
-     */
-    private function subaccountProblem(PaymentIntent $intent, GatewayCredentials $credentials): ?string
-    {
-        $declared = $intent->directChargeAccountId;
-
-        if ($declared === null || $declared === '') {
-            return null;
-        }
-
-        if (! str_starts_with(strtoupper($declared), 'ACCT_')) {
-            return 'This payment could not be started: the settlement account it needs is not a valid subaccount code.';
-        }
-
-        if ($credentials->accountId() !== $declared) {
-            return 'This payment could not be started: the payment account does not match the account being charged.';
-        }
-
-        if ((string) $credentials->get('secret_key') === '') {
-            return 'This payment could not be started: no gateway credentials are configured for it.';
-        }
-
-        return null;
-    }
-
-    /**
-     * The platform's cut of this charge, in kobo — or null when it takes none.
-     *
-     * Null rather than zero on purpose: no cut configured is not an instruction
-     * to take nothing, it is the absence of a split override, and Paystack then
-     * falls back to the subaccount's `percentage_charge`. Sending `0` would be a
-     * real instruction that the platform takes nothing, which is a different
-     * arrangement from having no commission at all.
-     */
-    private function platformChargeMinor(PaymentIntent $intent): ?int
-    {
-        $fee = $intent->platformFeeMinor;
-
-        return $fee === null || $fee < 1 ? null : $fee;
     }
 
     /**

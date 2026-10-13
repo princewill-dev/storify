@@ -6,14 +6,11 @@ use App\Models\Business;
 use App\Models\Store;
 use App\Models\User;
 use App\Services\ActivityRecorder;
-use App\Services\Payments\Connect\ConnectResult;
-use App\Services\Payments\Connect\PayoutResult;
-use App\Services\Payments\Connect\PlatformPayoutService;
-use App\Services\Payments\Data\ManagedAccount;
-use App\Services\Payments\OnBehalf\OnBehalfProcessors;
+use App\Services\Subscription\PlatformBillingGateway;
 use App\Support\Payments\CredentialCipher;
 use App\Support\Payments\GatewayGrant;
 use App\Support\Payments\PaymentGatewayRegistry;
+use App\Support\Payments\SystemProcessor;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -35,20 +32,20 @@ use Illuminate\Validation\ValidationException;
  * show a secret back to the business, so it submits a placeholder or an empty
  * string; overwriting the stored value with that would lock them out of their
  * own gateway on the next deploy. Empty means "keep what is stored".
+ *
+ * ## It no longer creates anything at a provider
+ *
+ * This service used to provision — a connected account at Bachs, a subaccount at
+ * Paystack, a payout destination, a terms acceptance, a settlement schedule. All
+ * of that is gone with the rail that needed it: under collect-and-pay-out there
+ * is nothing per business at the provider to create, because the charge is
+ * Storify's own and the money is paid out from the wallet to a bank account
+ * named here. What is left is what the words always said: this service writes
+ * the business's own rows, and one column on the business saying where its money
+ * goes.
  */
 final class PaymentGatewayService
 {
-    public function __construct(
-        // The provider-neutral seam. This service used to hold
-        // `BachsConnectAccountService` and `ConnectRequirementService` directly,
-        // which was the same thing while Bachs was the only provider that could
-        // be provisioned for a business — and stopped being the same thing the
-        // moment a second one existed. The two classes are unchanged; they are
-        // simply reached through the provider's own processor now.
-        private readonly OnBehalfProcessors $processors,
-        private readonly PlatformPayoutService $payouts,
-    ) {}
-
     /**
      * @param  array<string, mixed>  $config
      */
@@ -113,129 +110,223 @@ final class PaymentGatewayService
     }
 
     /**
-     * Register the bank account a business is paid into, and the connected
-     * account the platform will charge through on its behalf.
+     * Name the bank account this business's sales are paid into.
      *
-     * The other half of the connect flow, and reachable by every business rather
-     * than only granted ones — this is the path for the business that has **no**
-     * gateway of its own. It writes the same rows `connect()` does, so scope
-     * precedence, the admin gate and the resolver need to know nothing new: a
-     * store-scoped registration is the store's own payouts, a business-scoped one
-     * is everyone's default.
+     * Which is now the whole of what "registering a payout account" means. There
+     * is no account to open at a provider and no destination to submit: the
+     * money is collected into Storify's balance and the sweep pays it out from
+     * the business's wallet to whichever of the business's own bank accounts is
+     * named here — `PayoutSweepService` reads `businesses.payout_bank_id` and
+     * nothing else.
      *
-     * **An existing account is reused, never replaced.** A business changing its
-     * bank lands on the account it already has, because the provider cannot
-     * delete an account and its fee arrangement is fixed at creation — a second
-     * one would be a second real account in the provider's books holding the
-     * same business's identity.
+     * Reachable by every business rather than only granted ones, and that is the
+     * point of the change rather than a detail of it: a business with no gateway
+     * of its own names a bank and starts selling. It is also **not** a
+     * pre-condition of selling — a business that has not named one can trade all
+     * day, and the money waits in its wallet — so this failing is never the
+     * reason a customer cannot pay.
      *
-     * @param  array<string, mixed>  $input  validated: `store_bank_id`, or account fields plus `entity_type`
+     * The account is read from `store_banks` through the actor's business scope
+     * rather than from the request, so the number that reaches a payout is the
+     * stored one.
+     *
+     * @param  array<string, mixed>  $input  validated: `store_bank_id`, or the account fields
      */
-    public function registerPayoutAccount(
+    public function setPayoutBank(
         string $provider,
         array $input,
         User $actor,
         ?Store $store = null,
-    ): ConnectResult {
+    ): void {
         $definition = PaymentGatewayRegistry::get($provider);
 
-        // Refused in words when the platform has no way to process for a
-        // business on this provider. The message names the provider from the
-        // registry, so a second managed provider needed no change here.
-        $processor = $this->processors->forOrFail($provider);
+        // A store scope has nowhere to land any more. The destination is a single
+        // column on the business, because the wallet and the payout are the
+        // business's and a payout is one transfer from one balance; a second
+        // destination per store would name money that is not separated anywhere
+        // else. Refused in words rather than silently writing the business's
+        // column from a store's screen, which would quietly redirect every other
+        // store's money.
+        if ($store !== null) {
+            throw ValidationException::withMessages([
+                'store_id' => 'Bank accounts for payouts are set for the whole business. Remove the store and try again.',
+            ]);
+        }
 
         $business = Business::query()->findOrFail((int) $actor->business_id);
         $bank = $this->resolveBank($input, $actor);
 
-        $existing = $this->existingRow($provider, $actor, $store);
-        $accountId = $existing->gateway_account_id ?? null;
+        // Only a stored row can be pointed at. The typed-detail path is kept
+        // working — a client that has just added an account may submit its
+        // details rather than coming back for the id — by matching it back to the
+        // row holding them, so a pointer exists afterwards either way.
+        $bankId = $this->bankIdFor($bank, (int) $actor->business_id, $input);
 
-        $result = is_string($accountId) && $accountId !== ''
-            ? $processor->registerDestination($accountId, $bank)
-            : $processor->provision($business, $store, $bank, (string) $input['entity_type']);
-
-        if (! $result->success) {
-            // The row is still written when the account exists but its bank was
-            // refused: without it, the next attempt would create a second
-            // account rather than retrying this one's destination.
-            if ($result->accountId !== null) {
-                $this->persistManagedConnection($provider, $actor, $store, $result->accountId, $result->account, null, $input);
-            }
-
-            return $result;
+        // Refused rather than written as null. Writing null would clear a
+        // destination the business already had, on a submission that named one,
+        // and answer `200` — so a business with a working bank would silently
+        // stop being paid, and the reply would say it had just told us where to
+        // send the money. The sweep reads this column and nothing else, so a
+        // silent null here is a business that never gets paid again and has no
+        // way to find out why.
+        if ($bankId === null) {
+            throw ValidationException::withMessages([
+                'account_number' => 'We could not match those details to an account on your business. Add the bank account first, then choose it from your list.',
+            ]);
         }
 
-        // The connection row and the business's naming of its payout bank are
-        // written together or not at all. They are two halves of one act — the
-        // provider now knows where to send the money, and the business has told
-        // us which of its accounts that is — and a half-applied version would
-        // leave a registered account at the provider with no record of which
-        // bank the owner chose.
-        DB::transaction(function () use ($provider, $actor, $store, $business, $result, $input): void {
-            $this->persistManagedConnection($provider, $actor, $store, (string) $result->accountId, $result->account, $result->destination, $input);
-            $this->recordPayoutBank($business, $store, $result->destination, $input);
-        });
-
-        // Everything the provider is asking for that we already hold, submitted
-        // in the same breath as the registration. Doing it here rather than only
-        // on the next sweep is what makes the difference between a business that
-        // can take payments in a minute and one that waits an hour for a cron —
-        // and the pass is idempotent, so the sweep repeating it costs a read.
-        //
-        // The terms acceptance is written to the row *before* this runs, because
-        // this is what submits `tos_acceptance` from it.
-        $requirements = $processor->submitRequirements((string) $result->accountId, $business, $store, account: $result->account);
-
-        if ($requirements->account !== null) {
-            $this->persistManagedConnection($provider, $actor, $store, (string) $result->accountId, $requirements->account, $result->destination, $input);
-        }
-
-        // The provider now pays this business itself, rather than holding the
-        // balance until our sweep comes for it. Asked for at registration rather
-        // than on the next sweep for the same reason the requirements pass is:
-        // it is the difference between a business whose money arrives on its own
-        // and one that waits for a cron that must also be alive.
-        //
-        // A refusal is *not* a failed registration. The account exists, it can be
-        // charged, and the money is direct either way — what failed is the
-        // schedule, which is a reason stated to the business rather than a reason
-        // to unwind a real account at the provider. So the connection stays and
-        // the message travels back on the result.
-        $settlementProblem = $processor->ensureDirectSettlement(
-            (string) $result->accountId,
-            (bool) ($business->auto_payout ?? true),
-        );
-
-        if ($settlementProblem !== null) {
-            return ConnectResult::failed($settlementProblem, [], (string) $result->accountId);
-        }
+        $business->forceFill(['payout_bank_id' => $bankId])->save();
 
         ActivityRecorder::record(
             action: 'payment_gateway.payout_account_registered',
-            description: ($definition['name'] ?? $provider).' payout account registered'.($store ? " for store {$store->name}" : ''),
+            description: ($definition['name'] ?? $provider).' payout bank named',
             old: [],
             // Never the account number: what is recorded is that a bank was
-            // registered, and enough of it to recognise which one.
-            new: ['account_id' => $result->accountId, 'bank' => $result->destination['bank_name'] ?? null, 'last4' => $result->destination['last4'] ?? null],
-            metadata: ['provider' => $provider, 'scope' => $store ? 'store' : 'business', 'store_id' => $store?->id],
+            // named, and enough of it to recognise which one.
+            new: ['bank' => $bank['bank_name'] ?? null, 'last4' => substr($bank['account_number'], -4)],
+            metadata: ['provider' => $provider, 'scope' => 'business'],
             actor: $actor,
             businessId: (int) $actor->business_id,
         );
-
-        return $result;
     }
 
     /**
-     * Withdraw a business's settled money to its bank, on demand.
+     * Switch Storify's collection for this business on or off without losing the
+     * state.
      *
-     * The admin-console counterpart to the scheduled sweep, for a business that
-     * has asked or a sweep that has not run since the funds settled. Every guard
-     * against paying twice or paying unsettled money lives in
-     * {@see PlatformPayoutService} — this only decides *whose* account.
+     * The answer to a question the screen could not previously answer: a business
+     * being collected for had no way to stop, because `connect()` is grant-gated
+     * and there are no keys of its own to switch off. Switching off stops new
+     * charges and nothing else — money already collected keeps being paid out,
+     * because it is the business's and holding it hostage over a decision about
+     * new sales would be the wrong trade.
+     *
+     * ## Why this is written to a row that carries nothing else
+     *
+     * Under collect-and-pay-out a business needs no row at all to be charged: the
+     * credentials are Storify's and the settlement is the wallet's. The row here
+     * exists for this switch and only for this switch, which is why one is
+     * created when there is none and only when switching *off* — the default is
+     * on, so "on" needs no row to say so. The resolver reads it in exactly that
+     * spirit: no row means nobody objected.
+     *
+     * **Refused unless Storify is actually collecting for this business.** The
+     * switch means "stop charging on my behalf", so there has to be something to
+     * stop; and a stray row saying off would otherwise lie in wait for the day an
+     * admin flips the business, blocking its sales over a decision taken about a
+     * rail it was not on. A keyed connection is paused through `connect()`
+     * instead, which is a different statement ("stop using my keys") and owns
+     * that meaning.
      */
-    public function payOutNow(int $businessId, ?int $storeId = null): PayoutResult
+    public function setManagedActive(
+        string $provider,
+        bool $isActive,
+        User $actor,
+        ?Store $store = null,
+    ): void {
+        $definition = PaymentGatewayRegistry::get($provider);
+
+        $business = Business::query()->findOrFail((int) $actor->business_id);
+
+        if (! $business->isUnderCustody()
+            || SystemProcessor::stored() !== $provider
+            || ! PlatformBillingGateway::canChargeThrough($provider)) {
+            throw ValidationException::withMessages([
+                'provider' => 'Storify is not collecting payments for you on this provider, so there is nothing to switch off.',
+            ]);
+        }
+
+        $model = $store ? 'store_payment_method' : 'business_payment_method';
+
+        $query = $store
+            ? DB::table($model)->where('store_id', $store->id)
+            : DB::table($model)->where('business_id', (int) $actor->business_id);
+
+        $existing = $query->where('payment_method_id', $this->methodId($provider))->first();
+
+        // Switched back on with nothing recorded: the default is already what
+        // was asked for, so there is no row to write and nothing to log. Doing
+        // nothing quietly is right here — the screen reports the state it reads
+        // back, and a trail entry for a no-op would be a lie about what changed.
+        if ($existing === null && $isActive) {
+            return;
+        }
+
+        DB::transaction(function () use ($model, $existing, $isActive, $provider, $actor, $store, $definition): void {
+            $attributes = $store
+                ? ['store_id' => $store->id, 'payment_method_id' => $this->methodId($provider)]
+                : ['business_id' => (int) $actor->business_id, 'payment_method_id' => $this->methodId($provider)];
+
+            DB::table($model)->updateOrInsert($attributes, [
+                // Null, not an empty JSON object: this row is a switch, and a
+                // `config` that looked like a connection would be read as one —
+                // by `carriesConnection()`, which decides whether a store row
+                // overrides its business's details.
+                'business_id' => (int) $actor->business_id,
+                'is_active' => $isActive,
+                'config' => $existing?->config ?? null,
+                'updated_at' => now(),
+                'created_at' => $existing?->created_at ?? now(),
+            ]);
+
+            ActivityRecorder::record(
+                action: $isActive ? 'payment_gateway.resumed' : 'payment_gateway.paused',
+                description: $definition['name'].($isActive ? ' switched back on' : ' switched off').($store ? " for store {$store->name}" : ''),
+                old: ['is_enabled' => (bool) ($existing->is_active ?? true)],
+                new: ['is_enabled' => $isActive],
+                metadata: ['provider' => $provider, 'scope' => $store ? 'store' : 'business', 'store_id' => $store?->id],
+                actor: $actor,
+                businessId: (int) $actor->business_id,
+            );
+        });
+    }
+
+    /**
+     * Remove a connection entirely.
+     *
+     * For a store this deletes the override, so the store returns to the
+     * business default — which is a different outcome from switching it off,
+     * and the screen distinguishes them.
+     */
+    public function disconnect(string $provider, User $actor, ?Store $store = null): void
     {
-        return $this->payouts->payOut($businessId, $storeId);
+        $definition = PaymentGatewayRegistry::get($provider);
+
+        DB::transaction(function () use ($provider, $actor, $store, $definition): void {
+            $model = $store ? 'store_payment_method' : 'business_payment_method';
+
+            $query = $store
+                ? DB::table($model)->where('store_id', $store->id)
+                : DB::table($model)->where('business_id', (int) $actor->business_id);
+
+            $existing = $query->where('payment_method_id', $this->methodId($provider))->first();
+
+            if ($existing === null) {
+                return;
+            }
+
+            // The provider Storify is collecting through cannot be removed, and
+            // the reason is now about the *record* rather than about an account
+            // holding money: removing the row would delete the only place the
+            // business's switch-off is written, silently resuming its sales.
+            // Switching it off is the way to stop, and it is reversible.
+            if (SystemProcessor::stored() === $provider) {
+                throw ValidationException::withMessages([
+                    'provider' => 'Storify is processing payments through this provider. Switch it off instead of removing it.',
+                ]);
+            }
+
+            DB::table($model)->where('id', $existing->id)->delete();
+
+            ActivityRecorder::record(
+                action: 'payment_gateway.disconnected',
+                description: $definition['name'].' disconnected'.($store ? " for store {$store->name}" : ''),
+                new: [],
+                metadata: ['provider' => $provider, 'scope' => $store ? 'store' : 'business', 'store_id' => $store?->id],
+                actor: $actor,
+                businessId: (int) $actor->business_id,
+            );
+        });
     }
 
     /**
@@ -291,287 +382,45 @@ final class PaymentGatewayService
     }
 
     /**
-     * Record which of the business's bank accounts its sales are paid into.
+     * The `store_banks` row the pointer should name.
      *
-     * The provider's own idea of a destination is a subaccount or a connected
-     * account, and it is on the far side of an API we do not control. This is the
-     * business's answer kept in our own terms: one row it owns, named on the
-     * business, which is what the business is asked for and the only thing the
-     * admin's view of "who cannot be paid" speaks about.
+     * A chosen account names itself. Typed details are matched back to the row
+     * holding them, scoped to the business, because the pointer is a foreign key
+     * and there has to be a row for it to point at — and because "I typed my
+     * account number in" and "I picked it from my list" are the same act from the
+     * owner's side.
      *
-     * **Only for a business-scoped registration.** A store may bank separately,
-     * and a store's registration says where *that store's* money goes. Writing it
-     * here as well would name a store's bank as the whole business's destination
-     * and quietly redirect every other store's settlements.
+     * When nothing matches, this returns `null` and no row is written — see
+     * `ws40payoutbankTest`, which pins that. A bank the platform is going to send
+     * money to has to be one the business already holds; inventing a row from
+     * posted arguments would mean writing down an account number nobody verified
+     * and then trusting it with somebody's money.
      *
-     * **Only when the owner named one of the accounts on file.** Today's screen
-     * saves the account and then points at it, so the typed-detail payload is the
-     * exception rather than the rule; when it is used, no pointer is written
-     * rather than inventing a `store_banks` row from arguments this service is
-     * otherwise not responsible for. That leaves the pointer missing, which costs
-     * one extra confirmation on the business's next visit — and because the
-     * account at the provider already exists, confirming re-registers that same
-     * account rather than opening a second one.
+     * Returning `null` is not the same as answering `200`, and the caller is
+     * where that is settled: `setPayoutBank()` refuses the submission outright
+     * rather than writing a null pointer over a destination the business already
+     * had. The two halves are the same rule seen from either end — nothing is
+     * invented, and nothing is silently taken away.
      *
-     * @param  array<string, mixed>|null  $destination  what the provider reported back
-     * @param  array<string, mixed>  $input  the validated registration payload
+     * @param  array{account_number: string, bank_code: string}  $bank
+     * @param  array<string, mixed>  $input
      */
-    private function recordPayoutBank(Business $business, ?Store $store, ?array $destination, array $input): void
+    private function bankIdFor(array $bank, int $businessId, array $input): ?int
     {
-        // A registration the provider accepted the account for but not the
-        // destination: nothing was registered to point at.
-        if ($store !== null || $destination === null || $destination === []) {
-            return;
-        }
-
         $bankId = $input['store_bank_id'] ?? null;
 
-        if ($bankId === null || $bankId === '') {
-            return;
+        if ($bankId !== null && $bankId !== '') {
+            return (int) $bankId;
         }
 
-        $business->forceFill([
-            'payout_bank_id' => (int) $bankId,
-            // Immutable at the provider once the account exists, so the answer
-            // given now is the one every later processor will be handed.
-            'payout_entity_type' => $input['entity_type'] ?? $business->payout_entity_type,
-        ])->save();
-    }
+        $id = DB::table('store_banks')
+            ->where('business_id', $businessId)
+            ->where('account_number', $bank['account_number'])
+            ->where('bank_code', $bank['bank_code'])
+            ->orderByDesc('id')
+            ->value('id');
 
-    /**
-     * The row for this provider at this scope, or a blank object when there is
-     * none — so a first registration and a re-registration take the same path.
-     */
-    private function existingRow(string $provider, User $actor, ?Store $store): object
-    {
-        $row = ($store
-            ? DB::table('store_payment_method')->where('store_id', $store->id)
-            : DB::table('business_payment_method')->where('business_id', (int) $actor->business_id))
-            ->where('payment_method_id', $this->methodId($provider))
-            ->first(['id', 'gateway_account_id']);
-
-        return $row ?? (object) ['id' => null, 'gateway_account_id' => null];
-    }
-
-    /**
-     * Write the account id and its last-known state onto the connection row.
-     *
-     * The id goes in its own indexed column, not into the JSON: an incoming
-     * webhook has to reverse-map `acct_…` back to a tenant, and a JSON
-     * functional index is a fragile thing to hang that on. The state goes beside
-     * it under `managed`, where it can grow without a migration.
-     *
-     * Merged into any config already there — a granted business may hold its own
-     * encrypted keys, and this must not take them away.
-     *
-     * The owner's acceptance of Bachs' terms is written here too, under the same
-     * `managed` block, because it is a fact about this connection rather than
-     * about the request that created it: the requirement service reads it back
-     * — possibly hours later, from a sweep — to submit `tos_acceptance`, and an
-     * acceptance held only in the request would be an acceptance we could never
-     * send. Only ever written from a truthy submission, never cleared by one.
-     *
-     * @param  array<string, mixed>  $input  the validated registration payload
-     */
-    private function persistManagedConnection(
-        string $provider,
-        User $actor,
-        ?Store $store,
-        string $accountId,
-        ?ManagedAccount $account,
-        ?array $destination,
-        array $input = [],
-    ): void {
-        $attributes = $store
-            ? ['store_id' => $store->id, 'payment_method_id' => $this->methodId($provider)]
-            : ['business_id' => (int) $actor->business_id, 'payment_method_id' => $this->methodId($provider)];
-
-        $model = $store ? 'store_payment_method' : 'business_payment_method';
-        $existing = DB::table($model)->where($attributes)->first();
-        $config = $existing ? json_decode((string) $existing->config, true) : null;
-        $config = is_array($config) ? $config : [];
-
-        $state = ($account ?? new ManagedAccount)
-            ->withDestination($destination)
-            ->toConfig();
-
-        // The id is written even when the state could not be read: the account
-        // exists at the provider and is the only one this business will ever
-        // have, so losing the reference to it would be the worst outcome here.
-        $config['managed'] = $state + $this->termsAcceptance($config, $input);
-
-        DB::table($model)->updateOrInsert(
-            $attributes,
-            [
-                'business_id' => (int) $actor->business_id,
-                'gateway_account_id' => $accountId,
-                // Switched on when the row is created, and left exactly as it
-                // was when one already exists. Registering a bank says where the
-                // money should go, not that a business which had deliberately
-                // stopped taking payments wants to start again — and quietly
-                // resuming one would take money from customers on the strength
-                // of a form about bank details. The switch is `activation`.
-                'is_active' => $existing?->is_active ?? true,
-                'config' => json_encode($config),
-                'updated_at' => now(),
-                'created_at' => $existing?->created_at ?? now(),
-            ],
-        );
-    }
-
-    /**
-     * The terms acceptance to keep on the connection.
-     *
-     * A registration that carried an acceptance writes a fresh one; a later
-     * write that carried none — a refresh, a requirement pass — keeps whatever
-     * was already recorded. The alternative, dropping it, would erase the only
-     * evidence of a contractual act the first time a webhook touched the row.
-     *
-     * The date is stamped now rather than taken from the request, and the IP and
-     * user agent are what the submission actually arrived with: an acceptance is
-     * worth exactly as much as the record of who gave it, when, and from where.
-     * They are stored here as we captured them and translated into the
-     * provider's shapes at submission time, so that a wire format we get wrong
-     * is a change in one method rather than a reason to re-ask a business for
-     * something it already agreed to.
-     *
-     * @param  array<string, mixed>  $config  the config as stored, before this write
-     * @param  array<string, mixed>  $input
-     * @return array<string, string>
-     */
-    private function termsAcceptance(array $config, array $input): array
-    {
-        $keys = ['tos_accepted_at', 'tos_accepted_ip', 'tos_accepted_user_agent'];
-
-        $existing = $config['managed'] ?? [];
-        $existing = is_array($existing) ? $existing : [];
-
-        if (! ($input['terms_accepted'] ?? false)) {
-            $kept = [];
-
-            foreach ($keys as $key) {
-                if (is_string($existing[$key] ?? null)) {
-                    $kept[$key] = $existing[$key];
-                }
-            }
-
-            return $kept;
-        }
-
-        $ip = request()->ip();
-        $agent = request()->userAgent();
-
-        return array_filter([
-            'tos_accepted_at' => now()->toIso8601String(),
-            'tos_accepted_ip' => is_string($ip) && $ip !== '' ? $ip : null,
-            // Truncated, not validated: it is evidence about the request that
-            // carried the acceptance, and a header long enough to be a problem
-            // is one we would rather keep a prefix of than refuse the
-            // registration over.
-            'tos_accepted_user_agent' => is_string($agent) && $agent !== '' ? mb_substr($agent, 0, 255) : null,
-        ]);
-    }
-
-    /**
-     * Switch a platform-processed connection on or off without removing it.
-     *
-     * The answer to a question the screen could not previously answer: a
-     * business taking payments through Storify had no way to stop, because
-     * {@see disconnect()} refuses anything with a real account behind it and
-     * `connect()` is grant-gated. Switching off is what they can do — the
-     * account stays, payouts keep running, and no new charges are taken.
-     *
-     * Refused outright when there is no account: a row with no subaccount is a
-     * keyed connection, and pausing one of those is a different feature with a
-     * different meaning ("stop using my keys"), which this must not quietly
-     * become. `connect()` already owns that.
-     */
-    public function setManagedActive(
-        string $provider,
-        bool $isActive,
-        User $actor,
-        ?Store $store = null,
-    ): void {
-        $definition = PaymentGatewayRegistry::get($provider);
-        $model = $store ? 'store_payment_method' : 'business_payment_method';
-
-        $query = $store
-            ? DB::table($model)->where('store_id', $store->id)
-            : DB::table($model)->where('business_id', (int) $actor->business_id);
-
-        $existing = $query->where('payment_method_id', $this->methodId($provider))->first();
-
-        if ($existing === null || ($existing->gateway_account_id ?? null) === null) {
-            throw ValidationException::withMessages([
-                'provider' => 'This provider is not processing payments for you, so there is nothing to switch off.',
-            ]);
-        }
-
-        DB::transaction(function () use ($model, $existing, $isActive, $provider, $actor, $store, $definition): void {
-            DB::table($model)->where('id', $existing->id)->update([
-                'is_active' => $isActive,
-                'updated_at' => now(),
-            ]);
-
-            ActivityRecorder::record(
-                action: $isActive ? 'payment_gateway.resumed' : 'payment_gateway.paused',
-                description: $definition['name'].($isActive ? ' switched back on' : ' switched off').($store ? " for store {$store->name}" : ''),
-                old: ['is_enabled' => (bool) $existing->is_active],
-                new: ['is_enabled' => $isActive],
-                metadata: ['provider' => $provider, 'scope' => $store ? 'store' : 'business', 'store_id' => $store?->id],
-                actor: $actor,
-                businessId: (int) $actor->business_id,
-            );
-        });
-    }
-
-    /**
-     * Remove a connection entirely.
-     *
-     * For a store this deletes the override, so the store returns to the
-     * business default — which is a different outcome from switching it off,
-     * and the screen distinguishes them.
-     */
-    public function disconnect(string $provider, User $actor, ?Store $store = null): void
-    {
-        $definition = PaymentGatewayRegistry::get($provider);
-
-        DB::transaction(function () use ($provider, $actor, $store, $definition): void {
-            $model = $store ? 'store_payment_method' : 'business_payment_method';
-
-            $query = $store
-                ? DB::table($model)->where('store_id', $store->id)
-                : DB::table($model)->where('business_id', (int) $actor->business_id);
-
-            $existing = $query->where('payment_method_id', $this->methodId($provider))->first();
-
-            if ($existing === null) {
-                return;
-            }
-
-            // A platform-processed connection has a real account at the provider
-            // behind it, which cannot be deleted and which is where this
-            // business's money lives. Deleting the row would lose the only
-            // reference to it and strand everything it holds, so the connection
-            // is switched off instead — the account stays, payouts keep working,
-            // and no new charges are taken.
-            if (($existing->gateway_account_id ?? null) !== null) {
-                throw ValidationException::withMessages([
-                    'provider' => 'This provider is processing payments for you. Switch it off instead of removing it — your payout account has to stay connected for you to be paid.',
-                ]);
-            }
-
-            DB::table($model)->where('id', $existing->id)->delete();
-
-            ActivityRecorder::record(
-                action: 'payment_gateway.disconnected',
-                description: $definition['name'].' disconnected'.($store ? " for store {$store->name}" : ''),
-                new: [],
-                metadata: ['provider' => $provider, 'scope' => $store ? 'store' : 'business', 'store_id' => $store?->id],
-                actor: $actor,
-                businessId: (int) $actor->business_id,
-            );
-        });
+        return $id === null ? null : (int) $id;
     }
 
     /**

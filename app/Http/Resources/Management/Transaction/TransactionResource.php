@@ -54,6 +54,42 @@ class TransactionResource extends JsonResource
             'payment_method' => $transaction->paymentMethod?->name,
             'paid_at' => $transaction->paid_at?->toISOString(),
             'created_at' => $transaction->created_at?->toISOString(),
+            // Kept in step with the WS-18 slice on purpose: whichever of the two a
+            // future change reconnects, a settlement column that reads null for a
+            // sale that was in fact paid out is the kind of wrong answer that gets
+            // believed. See that resource for what the block means.
+            'settlement_state' => $transaction->settlementState(),
+            'payout_reference' => $transaction->claimingAllocation()?->payout?->reference,
+            'settlement' => $this->settlementBlock($transaction),
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    protected function settlementBlock(Transaction $transaction): ?array
+    {
+        if (! $transaction->isPlatformManaged()) {
+            return null;
+        }
+
+        $allocation = $transaction->claimingAllocation();
+        $payout = $allocation?->payout;
+
+        return [
+            'state' => $transaction->settlementState(),
+            'settled_at' => $transaction->settle_at?->toISOString(),
+            'payable_since' => $transaction->promoted_at?->toISOString(),
+            'unwound_at' => $transaction->unwound_at?->toISOString(),
+            'allocated_kobo' => $allocation !== null ? (int) $allocation->amount_kobo : 0,
+            'payout' => $payout ? [
+                'id' => (int) $payout->id,
+                'reference' => $payout->reference,
+                'status' => $payout->status,
+                'amount_kobo' => (int) $payout->amount_kobo,
+                'paid_at' => $payout->paid_at?->toISOString(),
+                'failure_reason' => $payout->failure_reason,
+            ] : null,
         ];
     }
 }

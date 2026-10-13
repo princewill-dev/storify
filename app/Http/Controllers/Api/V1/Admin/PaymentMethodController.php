@@ -76,10 +76,15 @@ class PaymentMethodController extends ApiController
                 'percent' => $commission->percentBasisPoints() / 100,
                 'fixed_kobo' => $commission->fixedKobo(),
                 'is_zero' => $commission->isZero(),
-                // Which providers can currently run a platform-managed
-                // connection, so the screen can say what the commission applies
-                // to instead of implying it applies to everything.
-                'managed_providers' => PaymentGatewayRegistry::managedCodes(),
+                // Which providers Storify can charge through on its own
+                // credentials, so the screen can say what the commission applies
+                // to instead of implying it applies to everything. Read from the
+                // billing gateway rather than the registry because it is the
+                // same declaration the charge path consults — a list built from
+                // anywhere else could name a provider the platform holds no keys
+                // for, and the screen would be promising a commission on a rail
+                // that cannot run.
+                'platform_providers' => PlatformBillingGateway::selectableCodes(),
             ],
             'options' => collect(PlatformBillingGateway::selectableCodes())
                 ->map(function (string $code) use ($gateway, $selected): array {

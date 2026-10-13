@@ -44,7 +44,12 @@ final class StoreModerationRepository
         $query = Store::query()
             ->with([
                 'user:id,name,email,phone',
-                'business:id,name,business_code,user_id',
+                // `custody_enabled` is the whole of the payload's `balance_source`:
+                // a partial select that omits it leaves the attribute unset, the
+                // resource reads it as null, and every row of the directory reports
+                // the legacy store balance as the real one — for custody businesses
+                // too, which is the lie the flag exists to prevent.
+                'business:id,name,business_code,user_id,custody_enabled',
                 'ownershipType:id,name',
                 'businessType:id,name',
             ])

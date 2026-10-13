@@ -3,6 +3,7 @@
 namespace App\Http\Resources\Admin;
 
 use App\Models\Store;
+use App\Services\Payments\Custody\WalletSummaryService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -22,8 +23,14 @@ use Illuminate\Http\Resources\Json\JsonResource;
  */
 class StoreResource extends JsonResource
 {
-    public function __construct(Store $store, private readonly ?int $mainStoreId = null)
-    {
+    /**
+     * @param  array<string, mixed>|null  $walletBlock  from WalletSummaryService
+     */
+    public function __construct(
+        Store $store,
+        private readonly ?int $mainStoreId = null,
+        private readonly ?array $walletBlock = null,
+    ) {
         parent::__construct($store);
     }
 
@@ -45,6 +52,17 @@ class StoreResource extends JsonResource
             'has_website' => (bool) $store->has_website,
             'pos_enabled' => (bool) $store->pos_enabled,
             'balance' => (int) $store->balance,
+            // Which of `balance` and `wallet` is this store's real money. A store
+            // on a custody business leaves `stores.balance` at zero forever — the
+            // sale is credited to the wallet instead — so the admin directory drew
+            // ₦0.00 for the store of a business whose money was piling up
+            // elsewhere. The flag is the business's, not the row's, and is sent
+            // even when `wallet` is null (the directory's cross-tenant page does
+            // not run the walk), so the column can say "in wallet" rather than a
+            // number that is not money.
+            'balance_source' => $this->walletBlock['balance_source']
+                ?? WalletSummaryService::sourceFor($store->business),
+            'wallet' => $this->walletBlock,
             'business' => $store->business?->name,
             'business_id' => $store->business_id,
             'business_code' => $store->business?->business_code,

@@ -13,6 +13,7 @@ use App\Repositories\Storefront\CheckoutRepository;
 use App\Services\Accounting\LedgerPostingService;
 use App\Services\Digital\DigitalDeliveryService;
 use App\Services\Payments\Connect\PlatformCommission;
+use App\Services\Payments\Custody\CustodyService;
 use App\Services\Payments\Data\PaymentIntent;
 use App\Services\Payments\Data\VerificationResult;
 use App\Services\Payments\PaymentGatewayManager;
@@ -48,6 +49,7 @@ final class CheckoutPaymentService
         private readonly PaymentGatewayResolver $gateways,
         private readonly PaymentGatewayManager $manager,
         private readonly ExchangeRateService $rates,
+        private readonly CustodyService $custody,
     ) {}
 
     /**
@@ -129,18 +131,19 @@ final class CheckoutPaymentService
 
         // The platform's own arrangement, when it has one with this business.
         //
-        // Both facts are recorded on the transaction, and both have to be: the
-        // charge is made on the business's connected account, so the sale must
-        // land in *their* provider balance rather than ours, and the commission
-        // is taken at the rate in force today rather than at whatever rate is
-        // configured when the payment settles days later.
+        // Recorded on the transaction because it is the one fact the settlement
+        // path cannot re-derive later: the charge is made on Storify's
+        // credentials, so whether the business is owed a wallet credit is decided
+        // by the arrangement in force *when the customer paid*, not by whatever
+        // the custody column happens to say days later when the webhook lands.
+        // The commission is fixed here for the same reason — at the rate in force
+        // today, not at whatever rate is configured when the payment settles.
         //
-        // The account id is written down rather than looked up again at
-        // settlement because the connection can change in between — the business
-        // may be granted its own keys, or switch the subaccount off — and a
-        // refund has to go back to the account the money came from.
+        // Nothing per-account is written down any more, because there is nothing
+        // per-account to write: the charge names no business account at the
+        // provider at all, so the platform's own credentials are the whole story
+        // of where the money went and where a refund returns to.
         $managed = $connection->isManaged();
-        $accountId = $connection->credentials->accountId();
         $commissionKobo = $managed ? PlatformCommission::fromSettings()->on($chargeMinor) : null;
 
         DB::beginTransaction();
@@ -169,7 +172,6 @@ final class CheckoutPaymentService
                     'source' => 'storefront_api',
                     'provider' => $provider,
                     'payment_mode' => $connection->paymentMode(),
-                    'gateway_account_id' => $accountId,
                     'platform_fee_kobo' => $commissionKobo,
                 ], $this->pricingMetadata($block)),
             ]);
@@ -208,14 +210,6 @@ final class CheckoutPaymentService
                     // the alert destination would hand a stranger control of
                     // where payment notifications are posted.
                     webhookUrl: PaymentWebhookUrl::forStore($provider, $store),
-                    // Both are declared as well as carried on the credentials,
-                    // deliberately: a provider that takes a direct charge from a
-                    // header does not reject the header's absence, so the
-                    // driver must be able to tell "this was meant to charge the
-                    // business's account" from a request that quietly names
-                    // none — and refuse before posting rather than after.
-                    directChargeAccountId: $managed ? $accountId : null,
-                    platformFeeMinor: $commissionKobo,
                 ),
                 $connection->credentials,
             );
@@ -335,6 +329,22 @@ final class CheckoutPaymentService
             $managed = $transaction->isPlatformManaged();
             $commissionKobo = $transaction->platformFeeKobo();
 
+            // And whether Storify collected it, read once here for the same
+            // reason: the books and the wallet have to agree about which
+            // arrangement was in force when the customer paid, and this method
+            // can be reached by a browser refresh minutes after the webhook
+            // settled the same sale — the wallet's own claim is what makes the
+            // second arrival a no-op rather than a second credit.
+            //
+            // Read from the row rather than from the business's switch, for the
+            // reason spelled out at the same line in
+            // {@see PaymentWebhookProcessor::settle()}: `custody_enabled` decides
+            // how a business is charged from now on, and this decides where money
+            // charged up to two days ago belongs. The two paths must agree, and
+            // this is the one fact they can agree on — the row's own record of how
+            // it was charged.
+            $custody = $managed;
+
             DB::transaction(function () use ($transaction, $order, $verification, $managed, $commissionKobo) {
                 $transaction->update([
                     'status' => TransactionStatus::CONFIRMED->value,
@@ -388,11 +398,23 @@ final class CheckoutPaymentService
                     $transaction,
                     (int) ($verification->feesMinor ?? 0),
                     $commissionKobo,
+                    custody: $custody,
                 ));
 
-                $this->ledger->safe(fn () => $this->ledger->postPlatformCommissionEarned($transaction, $commissionKobo));
+                // Under custody the commission is already credited to 4020 by
+                // the collection entry that `recordCollectedSale()` posts, so
+                // recognising it a second time here would report income twice.
+                if (! $custody) {
+                    $this->ledger->safe(fn () => $this->ledger->postPlatformCommissionEarned($transaction, $commissionKobo));
+                }
             } else {
                 $this->ledger->safe(fn () => $this->ledger->postPaymentReceived($transaction, null));
+            }
+
+            if ($custody) {
+                // The driver that verified the payment is the provider that
+                // collected it, which is what its settlement window is keyed on.
+                $this->custody->recordCollectedSale($transaction, $driver->code());
             }
 
             if ($order->isFullyPaid()) {

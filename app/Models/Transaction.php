@@ -4,8 +4,11 @@ namespace App\Models;
 
 use App\Enums\TransactionStatus;
 use App\Support\Money\Naira;
+use App\Support\Payments\PaymentGatewayRegistry;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
 
 class Transaction extends Model
@@ -34,12 +37,22 @@ class Transaction extends Model
         'fee_kobo',
         'net_kobo',
         'platform_fee_kobo',
+        // When a collected sale's share becomes payable, when it was actually
+        // moved from pending to available, and when it was given back to the
+        // customer. Written by the custody wallet, and only for sales Storify
+        // collected for.
+        'settle_at',
+        'promoted_at',
+        'unwound_at',
     ];
 
     protected $casts = [
         'amount' => 'decimal:2',
         'paid_at' => 'datetime',
         'balance_updated_at' => 'datetime',
+        'settle_at' => 'datetime',
+        'promoted_at' => 'datetime',
+        'unwound_at' => 'datetime',
         'status' => TransactionStatus::class,
         'metadata' => 'array',
         'fee_kobo' => 'integer',
@@ -84,6 +97,90 @@ class Transaction extends Model
     }
 
     /**
+     * This sale's share of the payouts that have paid it.
+     *
+     * Usually one row, sometimes two: a sale is taken FIFO and may be **split**
+     * across a payout boundary, so "which payout paid me" has an answer that can be
+     * a list. See {@see PayoutAllocation} — `amount_kobo` on the join is what makes
+     * the split representable, and this relation is the reading end of it.
+     *
+     * @return HasMany<PayoutAllocation, $this>
+     */
+    public function payoutAllocations(): HasMany
+    {
+        return $this->hasMany(PayoutAllocation::class);
+    }
+
+    /**
+     * The allocation that currently speaks for this sale's money, or null.
+     *
+     * `CLAIMING` and not "the latest row": a released or reversed allocation is the
+     * record of a payout that did *not* pay this sale, and reporting one of those as
+     * the answer to "where did the money go" would name a payout whose money came
+     * back. Latest by id, because the ordinary case is one row.
+     */
+    public function claimingAllocation(): ?PayoutAllocation
+    {
+        return $this->payoutAllocations
+            ->filter(fn (PayoutAllocation $allocation) => in_array($allocation->status, PayoutAllocation::CLAIMING, true))
+            ->sortByDesc('id')
+            ->first();
+    }
+
+    /**
+     * What has happened to the money from this sale, in one word — or null.
+     *
+     * Null is the important case and it is not an error: this is a sale Storify did
+     * not collect, so there is no wallet, no payout and nothing to say. A client
+     * reading null must show no settlement information rather than "pending".
+     *
+     * | State | Means |
+     * |---|---|
+     * | `not_collected` | collected into the wallet is not yet claimed — see below |
+     * | `settling` | charged, the provider has not released it to Storify yet |
+     * | `payable` | released and waiting for the next payout run |
+     * | `payout_in_flight` | a payout carrying it is with the provider |
+     * | `paid` | the payout carrying it landed |
+     * | `refunded` | refunded or charged back; it was never paid, or it was and the wallet was debited back |
+     *
+     * `not_collected` is the hook the wallet's own write happens through: the credit
+     * claims on `settle_at`, so a row that is platform-managed with a null
+     * `settle_at` is one the settlement webhook has not been seen for. It reads
+     * distinctly rather than as "settling" because it is a different situation — the
+     * money is not in the wallet at all, so it is not part of any balance.
+     */
+    public function settlementState(): ?string
+    {
+        if (! $this->isPlatformManaged()) {
+            return null;
+        }
+
+        // Refunded or charged back. Checked first: a refund can land before a payout
+        // ever carried the sale, and after one — and in both cases the sale's own
+        // record of it outranks whatever an allocation says, because the allocation
+        // describes the payout, not the sale.
+        if ($this->unwound_at !== null) {
+            return 'refunded';
+        }
+
+        if ($this->settle_at === null) {
+            return 'not_collected';
+        }
+
+        if ($this->promoted_at === null) {
+            return 'settling';
+        }
+
+        $allocation = $this->claimingAllocation();
+
+        if ($allocation === null) {
+            return 'payable';
+        }
+
+        return $allocation->status === PayoutAllocation::STATUS_SETTLED ? 'paid' : 'payout_in_flight';
+    }
+
+    /**
      * What the provider was actually asked to charge, in its own minor units.
      *
      * Null when no conversion was involved — which is every naira transaction,
@@ -121,6 +218,79 @@ class Transaction extends Model
     public function isPlatformManaged(): bool
     {
         return ($this->metadata['payment_mode'] ?? null) === 'platform_managed';
+    }
+
+    /**
+     * Whether this sale's figures are all in the currency the wallet holds.
+     *
+     * The wallet, the platform's custody accounts and the payout rail are all
+     * denominated in one currency (`config('custody.currency')`), so a collected
+     * sale is only representable when its own currency is that one.
+     *
+     * What goes wrong otherwise is arithmetic rather than policy. The business's
+     * share is `netKoboFor(koboFromRounded($this->amount), fee, commission)`:
+     * `amount` is the *store's* figure, while `fee_kobo` and `platform_fee_kobo`
+     * are the naira figures the provider and we actually charged for the
+     * converted charge. On a USD store that reads $25.00 as ₦25.00, which is not
+     * a rounding error but a different sum entirely — short by the rate on a
+     * currency stronger than the naira (clamped to zero, so the sale is silently
+     * never credited at all) and enormous on a weaker one (the store's number
+     * credited as naira, so Storify pays out far more than it ever collected).
+     *
+     * Nothing in this class can fix that. It says only whether the figures are in
+     * the one currency they were computed in, and the two callers that move money
+     * — `CustodyService::recordCollectedSale()` and
+     * `LedgerPostingService::postCustodyCollection()` — refuse on a false rather
+     * than converting, because a converted credit would need a rate, and a rate is
+     * a number somebody has to be right about.
+     */
+    public function isInCustodyCurrency(): bool
+    {
+        return strtoupper((string) $this->currency) === strtoupper((string) config('custody.currency', 'NGN'));
+    }
+
+    /**
+     * The provider whose settlement window governs this sale.
+     *
+     * Resolved from the payment method, which for a managed sale is the provider
+     * itself (`bachs`, `paystack`) — the same field the ledger reads to decide
+     * whether a gateway leg clears through clearing or through a bank.
+     *
+     * Empty when nothing identifies one. The caller must treat that as "use the
+     * longest window", never as "settles instantly": a sale we cannot attribute to
+     * a provider is exactly the one not to pay out early on.
+     */
+    public function settlementProviderCode(): string
+    {
+        $code = (string) ($this->paymentMethod?->code ?? '');
+
+        return $code !== '' && PaymentGatewayRegistry::has($code) ? $code : '';
+    }
+
+    /**
+     * When this sale's share stops being merely owed and becomes payable.
+     *
+     * `paid_at` plus the provider's window — null until the sale is paid, because
+     * there is nothing to settle before there is money. A conservative window is
+     * the optimistic half of the guard; the provider refusing a transfer the
+     * platform balance cannot cover is the authoritative half.
+     *
+     * `$providerCode` is for callers that know the provider better than the row
+     * does — the settlement path has the connection in hand, and a POS leg has no
+     * provider in its payment method at all. Unknown providers get the longest
+     * configured window rather than the shortest.
+     */
+    public function settlementDueAt(?string $providerCode = null): ?Carbon
+    {
+        if ($this->paid_at === null) {
+            return null;
+        }
+
+        $provider = $providerCode ?? $this->settlementProviderCode();
+        $hours = config('custody.settlement_hours')[$provider] ?? null;
+        $hours = is_numeric($hours) ? (int) $hours : (int) config('custody.default_hours', 72);
+
+        return $this->paid_at->copy()->addHours($hours);
     }
 
     /**
@@ -209,23 +379,6 @@ class Transaction extends Model
         // would otherwise produce a negative net and a ledger that does not
         // balance. Only reachable on bad data.
         return max(0, $grossKobo - max(0, $providerFeeKobo) - max(0, $platformFeeKobo));
-    }
-
-    /**
-     * The connected account this sale was charged on, when the platform took it
-     * on the business's behalf.
-     *
-     * Recorded at charge time and read back afterwards, for the same reason the
-     * mode is: a refund has to be addressed to the account the money came from,
-     * and by the time it is asked for the business may have connected keys of its
-     * own, or switched its payout account off. Null for a sale charged on the
-     * business's own credentials, which is why the caller checks the mode first.
-     */
-    public function gatewayAccountId(): ?string
-    {
-        $accountId = $this->metadata['gateway_account_id'] ?? null;
-
-        return is_string($accountId) && $accountId !== '' ? $accountId : null;
     }
 
     /**

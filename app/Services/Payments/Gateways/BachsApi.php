@@ -9,16 +9,16 @@ use Illuminate\Support\Facades\Http;
 /**
  * How a request to Bachs is addressed and authenticated — in one place.
  *
- * Two things here decide whose money a call moves, and both are easy to get
- * wrong in a way nothing reports: which host the key belongs to (a sandbox key
- * against the live host is a 401, but a live key against the sandbox host is a
- * payment that never happens), and the `X-Account-Id` header without which a
- * direct charge silently becomes the platform's own.
+ * One thing here decides whose money a call moves, and it is easy to get wrong
+ * in a way nothing reports: which host the key belongs to. A sandbox key against
+ * the live host is a 401, but a live key against the sandbox host is a payment
+ * that never happens.
  *
- * {@see BachsGateway} charges merchants; the Connect services create accounts and
- * pay them out. They are separate classes with separate jobs, and both must agree
- * on these two facts, so the facts live here rather than in whichever of them
- * was written first.
+ * The `X-Account-Id` header used to be the second such fact — the thing that made
+ * a charge land in a business's own account rather than the platform's. Every
+ * call this makes now addresses the platform's account, because that is where
+ * the money is supposed to land, so the header is gone rather than passed as
+ * null. A caller that needs it back is a caller that needs the deleted rail.
  */
 final class BachsApi
 {
@@ -28,23 +28,12 @@ final class BachsApi
 
     /**
      * A client authenticated with this credential set's key.
-     *
-     * `$accountId` is for callers acting as an account that the credentials do
-     * not themselves name — the Connect services hold the platform's credentials
-     * and address a business's account per call. Passing null falls back to the
-     * credentials' own account, which is how the merchant path attaches it.
      */
-    public static function client(GatewayCredentials $credentials, ?string $accountId = null): PendingRequest
+    public static function client(GatewayCredentials $credentials): PendingRequest
     {
-        $client = Http::withToken((string) $credentials->get('api_key'))
+        return Http::withToken((string) $credentials->get('api_key'))
             ->timeout(30)
             ->acceptJson();
-
-        $accountId ??= $credentials->accountId();
-
-        return $accountId === null || $accountId === ''
-            ? $client
-            : $client->withHeaders(['X-Account-Id' => $accountId]);
     }
 
     /** Test keys are not interchangeable with live ones, and the hosts differ. */

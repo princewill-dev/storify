@@ -12,6 +12,7 @@ use App\Models\PosSession;
 use App\Models\Product;
 use App\Models\Store;
 use App\Models\Transaction;
+use App\Services\Payments\Custody\WalletSummaryService;
 use App\Support\SpaUrls;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -20,6 +21,10 @@ use Illuminate\Support\Carbon;
 class StoreDashboardController extends ApiController
 {
     use ResolvesManagementContext;
+
+    public function __construct(
+        private readonly WalletSummaryService $wallet,
+    ) {}
 
     /**
      * Physical products at or below this quantity surface as low stock.
@@ -251,6 +256,8 @@ class StoreDashboardController extends ApiController
     {
         $store->loadCount(['products', 'orders', 'categories', 'assignedStaff']);
 
+        $business = $store->business;
+
         return [
             'id' => $store->id,
             'store_id' => $store->store_id,
@@ -262,6 +269,17 @@ class StoreDashboardController extends ApiController
             'has_website' => (bool) $store->has_website,
             'pos_enabled' => (bool) $store->pos_enabled,
             'balance' => (int) $store->balance,
+            // Which of the two figures is this business's real money, and the other
+            // one's numbers. `stores.balance` is never credited for a sale Storify
+            // collected, so this header read ₦0.00 on the very screen where the
+            // business most expects its money. Kept in step with `StoreController`
+            // so the list row and the store shell cannot disagree.
+            'balance_source' => $business !== null
+                ? $this->wallet->balanceSource($business)
+                : WalletSummaryService::SOURCE_STORE,
+            'wallet' => $business !== null
+                ? $this->wallet->storeWalletBlock($business, $store)
+                : null,
             'payment_mode' => $store->payment_mode,
             'logo_url' => $store->logo_path ? asset('storage/'.$store->logo_path) : null,
             // The legacy screens rendered contacts, address and socials; the

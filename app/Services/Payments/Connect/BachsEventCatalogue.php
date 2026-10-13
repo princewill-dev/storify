@@ -24,14 +24,19 @@ namespace App\Services\Payments\Connect;
  *
  * - {@see SETTLE} — this is a customer's payment; hand it to the settlement
  *   processor, which re-verifies with the provider and is idempotent.
- * - {@see ACCOUNT} — the account's own state changed. Re-read it and store what
- *   we find, because a capability the provider has withdrawn must stop the
- *   storefront offering it.
- * - {@see PAYOUT} — an outcome for money leaving. Recorded against the
- *   connection's payout history.
+ * - {@see ACCOUNT} — the account's own state changed, and there is nothing left
+ *   to do about it. This used to re-read the account and store its capabilities,
+ *   because a capability the provider had withdrawn had to stop the storefront
+ *   offering it; the per-business account was deleted with the rail that needed
+ *   it, so a delivery about one is now answered and read by nobody. Kept as its
+ *   own disposition rather than folded into {@see UNUSED}, because these *are*
+ *   about us — they are about a thing we deliberately stopped keeping.
+ * - {@see PAYOUT} — an outcome for money leaving. Recorded against the payout
+ *   row it is about.
  * - {@see REFUND} — an outcome for money going back to a customer.
- * - {@see DISPUTE} — a chargeback. Recorded and raised; evidence submission is
- *   a human decision and deliberately not automated.
+ * - {@see DISPUTE} — a chargeback. Recorded and raised, and a lost one takes the
+ *   business's share back out of its wallet; evidence submission is a human
+ *   decision and deliberately not automated.
  * - {@see NOTE} — understood, logged, and nothing to do. Each of these is
  *   explained below rather than left to look like an oversight.
  * - {@see UNUSED} — about a Bachs feature this platform does not use, so no
@@ -73,7 +78,7 @@ final class BachsEventCatalogue
      */
     private const EVENTS = [
         // ---- A customer paid, or did not --------------------------------
-        'checkout.completed' => [self::SETTLE, 'The order was paid through a Storify-processed account.'],
+        'checkout.completed' => [self::SETTLE, 'The order was paid, on Storify\'s own credentials, on the business\'s behalf.'],
         'collection.succeeded' => [self::SETTLE, 'The charge on a checkout cleared.'],
 
         // `collection.failed` deliberately does not cancel anything: the
@@ -89,15 +94,27 @@ final class BachsEventCatalogue
         'collection.underpaid' => [self::NOTE, 'Less than the asking price arrived; the settlement floor decides, not this.'],
 
         // ---- The account itself -----------------------------------------
-        'account.updated' => [self::ACCOUNT, 'The account\'s details or standing changed; re-read and store it.'],
-        // A repeat of the same status is a real change, not a duplicate: the
-        // provider re-sends it when the reason behind a restriction changes.
-        'capability.updated' => [self::ACCOUNT, 'A capability was granted, restricted or withdrawn.'],
+        //
+        // Nothing to re-read: the account these are about was the per-business
+        // account at the provider, which no longer exists. Ours still arrives
+        // here — the platform has an account at Bachs — so these are received,
+        // verified, and answered 200 without being acted on.
+        'account.updated' => [self::ACCOUNT, 'The account\'s details or standing changed; nothing depends on it any more.'],
+        'capability.updated' => [self::ACCOUNT, 'A capability was granted, restricted or withdrawn; nothing depends on it any more.'],
 
         // ---- Money leaving ----------------------------------------------
+        // Ours as well as a business's: under collect-and-pay-out every payout
+        // is Storify's own balance paying a business out.
         'payout.created' => [self::PAYOUT, 'A withdrawal was accepted and queued.'],
         'payout.paid' => [self::PAYOUT, 'A withdrawal reached the bank.'],
-        'payout.failed' => [self::PAYOUT, 'A withdrawal was refused; the balance stays put for a retry.'],
+        'payout.failed' => [self::PAYOUT, 'A withdrawal was refused; the wallet reservation goes back for a retry.'],
+        // The one that arrives *after* `paid`, and the only event that undoes
+        // something the provider has already told us: the bank sent the money
+        // back, so what was recorded as paid out has to stop being recorded that
+        // way. Unlisted, it would be logged as an unknown type and acted on by
+        // nobody — and the row it is about is already `paid`, which means the
+        // sweep will never look at it again either.
+        'payout.reversed' => [self::PAYOUT, 'A withdrawal was returned by the bank; the wallet is credited back and the books unwound.'],
 
         // ---- Money going back -------------------------------------------
         // Our refund call is synchronous but the provider's answer is only

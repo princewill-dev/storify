@@ -13,6 +13,7 @@ use App\Http\Resources\Management\StoreOnboardingOptionsResource;
 use App\Http\Resources\Management\StoreOnboardingResource;
 use App\Models\Store;
 use App\Repositories\Management\StoreOnboardingRepository;
+use App\Services\Payments\Custody\WalletSummaryService;
 use DomainException;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
@@ -57,6 +58,7 @@ class StoreOnboardingController extends ApiController
 
     public function __construct(
         private readonly StoreOnboardingRepository $repository,
+        private readonly WalletSummaryService $wallet,
     ) {}
 
     public function index(StoreOnboardingIndexRequest $request): JsonResponse
@@ -75,10 +77,18 @@ class StoreOnboardingController extends ApiController
             $stores->getCollection()->pluck('id'),
         );
 
+        // One wallet walk for the page, not one per row — see the resource.
+        $walletBlocks = $user->business !== null
+            ? $this->wallet->storeBlocks($user->business)
+            : [];
+
         return $this->ok(
             ['stores' => $stores->getCollection()
-                ->map(fn (Store $store) => (new StoreOnboardingResource($store, (int) $customerCounts->get($store->id, 0)))
-                    ->resolve($request))
+                ->map(fn (Store $store) => (new StoreOnboardingResource(
+                    $store,
+                    (int) $customerCounts->get($store->id, 0),
+                    $walletBlocks[(int) $store->id] ?? null,
+                ))->resolve($request))
                 ->values()
                 ->all()],
             null,
@@ -180,7 +190,7 @@ class StoreOnboardingController extends ApiController
         $store = $this->repository->loadCounts($store);
 
         return $this->ok([
-            'store' => (new StoreOnboardingResource($store, 0))->resolve($request),
+            'store' => (new StoreOnboardingResource($store, 0, $this->walletBlockFor($store)))->resolve($request),
         ], 'Store created successfully!', 201);
     }
 
@@ -201,7 +211,25 @@ class StoreOnboardingController extends ApiController
                 $store,
                 $this->repository->customerCount($store),
                 $subscriptionActive,
+                $this->walletBlockFor($store),
             ))->resolve($request),
         );
+    }
+
+    /**
+     * This store's wallet line, for the one-store screens.
+     *
+     * The list computes the page's blocks once and passes them down; a screen
+     * showing a single store asks for its own, and a store whose business row
+     * cannot be loaded gets null — the payload's own fallback — rather than a
+     * second walk.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function walletBlockFor(Store $store): ?array
+    {
+        $business = $store->business;
+
+        return $business !== null ? $this->wallet->storeWalletBlock($business, $store) : null;
     }
 }

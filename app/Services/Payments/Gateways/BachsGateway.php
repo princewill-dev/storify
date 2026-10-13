@@ -100,22 +100,23 @@ final class BachsGateway implements PaymentGateway
         return 'NGN';
     }
 
+    /**
+     * Start a charge on the platform's own account.
+     *
+     * No `platform_fee`, and no `X-Account-Id` header, because there is no longer
+     * an account to split to. The cut that used to ride out here was a share of
+     * *the business's* settlement as Bachs made it; the settlement is now
+     * Storify's whole, and the business's share is a wallet credit paid out by
+     * our own sweep. A fee line here would ask Bachs to hand the business a share
+     * of money that never became theirs — and, on a charge Storify also credits
+     * to the wallet, would pay them twice.
+     *
+     * The refusal this used to make — a direct charge leaving without its
+     * account, which succeeds silently and pays the wrong party — cannot be
+     * constructed any more, because there is no field left to omit.
+     */
     public function initialize(PaymentIntent $intent, GatewayCredentials $credentials): InitializationResult
     {
-        // Before the request, not after the response. A direct charge that goes
-        // out without its account is not a failed payment — it is a *successful*
-        // payment to the wrong party, and nothing in the response says so.
-        if (($problem = $this->directChargeProblem($intent, $credentials)) !== null) {
-            Log::error('bachs.direct_charge.refused', [
-                'reference' => $intent->reference,
-                'reason' => $problem,
-                'declared_account' => $intent->directChargeAccountId,
-                'credential_account' => $credentials->accountId(),
-            ]);
-
-            return InitializationResult::failed($problem);
-        }
-
         $response = $this->client($credentials)->post($this->baseUrl($credentials).'/checkout-sessions', array_filter([
             // `pricing` rather than `product_cart`: the amount is whatever the
             // customer is paying on this order, and it exists in no catalogue.
@@ -125,13 +126,6 @@ final class BachsGateway implements PaymentGateway
                 // charge a hundred times the amount.
                 'amount' => Naira::decimalFromKobo($intent->amountMinor),
             ],
-            // Our cut, on a direct charge only, and "taken from the account's
-            // proceeds" — it never passes through our balance and we never pay
-            // Bachs' processing fee. Omitted entirely when there is no cut to
-            // take: Bachs refuses `platform_fee >= gross` with
-            // `400 INVALID_PLATFORM_FEE`, and a `0.00` line is not the same
-            // request as no line at all.
-            'platform_fee' => $this->platformFee($intent),
             // Ours to choose and unique per organisation for good — expired
             // checkouts included. `generateReference()` issues one per attempt.
             'reference' => $intent->reference,
@@ -389,56 +383,6 @@ final class BachsGateway implements PaymentGateway
     public function supportsPartialPayment(): bool
     {
         return true;
-    }
-
-    /**
-     * Why this charge must not be posted, or null when it may be.
-     *
-     * Only ever refuses a charge the caller *asked* to be direct. An ordinary
-     * charge — the platform's own subscription billing, or a business's own keys
-     * — declares no account and is unaffected, which is what keeps the platform's
-     * billing key from being mistaken for a managed connection here.
-     *
-     * The two ids are compared rather than trusted: a mismatch means the
-     * resolver answered for one account and something else is about to be
-     * charged, and the only safe response to that is to stop.
-     */
-    private function directChargeProblem(PaymentIntent $intent, GatewayCredentials $credentials): ?string
-    {
-        $declared = $intent->directChargeAccountId;
-
-        if ($declared === null || $declared === '') {
-            return null;
-        }
-
-        if (! str_starts_with($declared, 'acct_')) {
-            return 'This payment could not be started: the connected account it needs is not a valid account id.';
-        }
-
-        if ($credentials->accountId() !== $declared) {
-            return 'This payment could not be started: the payment account does not match the account being charged.';
-        }
-
-        if ((string) $credentials->get('api_key') === '') {
-            return 'This payment could not be started: no gateway credentials are configured for it.';
-        }
-
-        return null;
-    }
-
-    /**
-     * The platform fee as Bachs takes it — a decimal string, like every other
-     * amount over this boundary — or null when no cut is configured.
-     *
-     * Zero is reported as null rather than `"0.00"`: a platform with no
-     * commission is not asking for a zero-fee deduction, and sending one would
-     * put a record on every settlement that says nothing.
-     */
-    private function platformFee(PaymentIntent $intent): ?string
-    {
-        $fee = $intent->platformFeeMinor;
-
-        return $fee === null || $fee < 1 ? null : Naira::decimalFromKobo($fee);
     }
 
     /**

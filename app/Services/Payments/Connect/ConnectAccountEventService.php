@@ -2,124 +2,207 @@
 
 namespace App\Services\Payments\Connect;
 
+use App\Models\Transaction;
 use App\Services\ActivityRecorder;
+use App\Services\Payments\Custody\CustodyService;
 use App\Support\Money\Naira;
 use Illuminate\Support\Facades\Log;
 
 /**
- * The connected-account events that are not a payment and not a payout.
+ * The provider deliveries that are not a payment and not a payout.
  *
- * Three kinds land here, and they have one thing in common: none of them is
- * about an order, so none of them can be settled, and all three are still
- * things somebody has to be able to see afterwards.
+ * Two kinds land here, and they have one thing in common: neither is about an
+ * order, so neither can be settled, and both are still things somebody has to be
+ * able to see afterwards.
  *
- * - **The account's own state** (`account.updated`, `capability.updated`). A
- *   capability the provider has restricted stops the storefront offering that
- *   payment method, and waiting for the next hourly sweep to notice would mean
- *   offering customers a method that fails at the provider's checkout. The
- *   handler re-reads the account and stores what it finds; a refresh is
- *   self-correcting, so an out-of-order or redelivered one is harmless by
- *   construction.
- * - **A chargeback** (`dispute.*`). Money is already gone — the provider debits
- *   a flat dispute fee the moment one is recorded — and there is a deadline to
- *   answer. What this does is record it faithfully and raise it in the activity
- *   log, which is what lets somebody notice. Submitting evidence is a human
- *   decision about a real customer and is deliberately **not** automated.
+ * - **A chargeback** (`dispute.*`). Money has already moved or is about to — the
+ *   provider debits a flat dispute fee the moment one is recorded — and there is
+ *   a deadline to answer. What this does is record it faithfully, raise it in the
+ *   activity log, and, **once it is lost**, take the business's share back out of
+ *   its wallet: the dispute is filed against Storify's merchant account, so a
+ *   lost one is Storify's money going out, and the business's share goes with it.
+ *   Submitting evidence is a human decision about a real customer and is
+ *   deliberately **not** automated.
  * - **A refund's outcome** (`refund.*`). Our refund call returns as soon as the
  *   provider accepts it, which is not the same as the customer being paid: the
- *   amount is only *reserved* at that point. `refund.failed` is the delivery
- *   that says the money did not arrive, and without it a failed refund looks
- *   exactly like a successful one.
+ *   amount is only *reserved* at that point. `refund.failed` is the delivery that
+ *   says the money did not arrive, and without it a failed refund looks exactly
+ *   like a successful one.
  *
- * Everything is keyed by the provider's own object id and kept as the latest
- * state of that object, so a redelivery or an out-of-order update overwrites
- * rather than appending a second copy.
+ * ## Both are the platform's, and the third kind is gone
+ *
+ * There used to be a third: the business's own account at the provider, whose
+ * state arrived as `account.updated` and `capability.updated` and was stored on
+ * the connection so a restricted capability could stop the storefront offering
+ * that method. There is no such account — see the resolver — so there is no state
+ * to keep and no connection to keep it on. Those deliveries now arrive, verify,
+ * and do nothing, which is exactly right: they are about a thing that no longer
+ * exists and nothing depends on.
+ *
+ * Every lookup below is therefore by the **charge**, and every fact it needs —
+ * whose sale it was, whether Storify collected it, how much the business was
+ * credited — comes off the transaction. A transaction is unique to one charge and
+ * carries all of it, which is why nothing here needs to know about an account.
  */
 final class ConnectAccountEventService
 {
-    /** How many of each a connection row keeps. */
-    private const HISTORY_LIMIT = 20;
+    /**
+     * The dispute outcomes that mean the money is gone for good.
+     *
+     * The provider's vocabulary, lowercased, and only the terminal one. A
+     * dispute passes through `needs_response` and `under_review` first, and in
+     * neither of those states is the money certainly lost — a dispute that is
+     * answered and won costs the business nothing. Taking the business's share
+     * at `needs_response` and giving it back at `won` would be two movements for
+     * one outcome, and the second would be a *credit* to a business that had
+     * already been paid out in between.
+     *
+     * `won` is deliberately absent rather than listed as a no-op: it is the
+     * status that says the money stayed with us, and there is nothing to do.
+     */
+    private const DISPUTE_LOST = ['lost'];
 
     public function __construct(
-        private readonly ConnectConnections $connections,
-        private readonly BachsConnectAccountService $accounts,
+        private readonly CustodyService $custody,
     ) {}
 
     /**
-     * Re-read the account and store what the provider now says about it.
+     * Record a chargeback against a charge the platform itself made.
      *
-     * The refresh is the whole point: the delivery itself only says *something*
-     * changed, and the account's own state is the answer to what. A payload
-     * cannot be trusted to be the newest one anyway — deliveries are not
-     * ordered — so nothing is read off it.
+     * ## Why this exists at all
+     *
+     * Under split-at-source a chargeback was always about a business's own
+     * account, so it arrived with an account id and there was a connection to
+     * file it against. Under collect-and-pay-out the charge is Storify's own: the
+     * dispute is filed against **Storify's** merchant account, it debits
+     * **Storify's** balance, and the delivery names either the platform's account
+     * — which has no connection row, because it is not a business — or no
+     * account at all. Both used to fall through as "not ours", which for a
+     * chargeback is the one delivery whose loss leaves money moving with nothing
+     * recorded against it anywhere.
+     *
+     * ## What identifies it
+     *
+     * The charge, not the account. A transaction is unique to one charge and
+     * carries both its business and its money, so finding it answers every
+     * question this needs: whose sale it was, whether Storify collected it, and
+     * how much the business was credited.
+     *
+     * There is no connection to store the payload on and none is wanted — a
+     * per-business dispute list was the *business's* own screen, and that screen
+     * listed the business's own account's disputes, which no longer exist. It is
+     * kept where it can be acted on: the activity trail, and the transaction
+     * itself. Submitting evidence happens at the provider's dashboard, against
+     * the charge, which is why the reference is what the trail carries.
+     *
+     * @param  array<string, mixed>  $data
+     * @return bool whether a charge was identified
      */
-    public function refreshAccountState(string $accountId): bool
+    public function recordPlatformDispute(array $data, string $type): bool
     {
-        $connection = $this->connections->forAccount($accountId);
+        $entry = $this->disputeEntry($data);
 
-        if ($connection === null) {
-            Log::info('bachs.account.unknown_account', ['account_id' => $accountId]);
-
-            return false;
-        }
-
-        $account = $this->accounts->refresh($accountId);
-
-        if ($account === null) {
-            // Unreadable is not "nothing changed": leaving the stored state
-            // alone is what keeps a business that can currently be charged from
-            // being taken offline by the provider having a bad minute.
-            Log::warning('bachs.account.state_unreadable', ['account_id' => $accountId]);
+        if ($entry === null) {
+            Log::warning('bachs.dispute.without_id', ['type' => $type, 'scope' => 'platform']);
 
             return false;
         }
 
-        $config = $this->connections->config($connection);
-        $previous = is_array($config['managed'] ?? null) ? $config['managed'] : [];
+        $transaction = $this->transactionForCharge($entry['charge_id'] ?? null);
 
-        $config['managed'] = $account
-            ->withDestination($this->destinationFrom($config))
-            ->toConfig();
-        $config['account_state_at'] = now()->toIso8601String();
+        if ($transaction === null) {
+            Log::warning('bachs.dispute.unknown_charge', [
+                'dispute_id' => $entry['id'],
+                'charge_id' => $entry['charge_id'] ?? null,
+                'type' => $type,
+            ]);
 
-        $this->connections->writeConfig($connection, $config);
+            return false;
+        }
 
-        $this->noteStateChange($connection, $previous, $config['managed']);
+        $this->noteDispute($entry, $type, (string) $transaction->reference, $transaction->business_id, $transaction);
 
         return true;
     }
 
     /**
-     * Record a chargeback, and say so in the trail.
+     * Record a refund's outcome against a charge the platform itself made.
      *
-     * The provider's payload is stored almost whole — a dispute is a real
-     * financial event with a deadline attached, and re-deriving it later from a
-     * narrower copy would lose the `reason` and the response window that decide
-     * what happens next.
+     * The mirror of {@see recordPlatformDispute()} and needed for the same
+     * reason — a custody refund's outcome is delivered against the platform's
+     * own account. Nothing is stored on a connection, and nothing moves: the
+     * refund itself was posted by whoever made it, and this delivery only says
+     * whether it arrived.
      *
      * @param  array<string, mixed>  $data
+     * @return bool whether a charge was identified
      */
-    public function recordDispute(string $accountId, array $data, string $type): bool
+    public function recordPlatformRefund(array $data, string $type): bool
     {
-        $connection = $this->connections->forAccount($accountId);
+        $refundId = $this->stringValue($data, 'refund_id', 'id');
 
-        if ($connection === null) {
-            Log::warning('bachs.dispute.unknown_account', ['account_id' => $accountId]);
+        if ($refundId === null) {
+            Log::warning('bachs.refund.without_id', ['type' => $type, 'scope' => 'platform']);
 
             return false;
         }
 
+        $transaction = $this->transactionForCharge($this->stringValue($data, 'charge_id', 'checkout_id'));
+
+        if ($transaction === null) {
+            Log::warning('bachs.refund.unknown_charge', [
+                'refund_id' => $refundId,
+                'charge_id' => $this->stringValue($data, 'charge_id'),
+                'type' => $type,
+            ]);
+
+            return false;
+        }
+
+        $status = strtolower($this->stringValue($data, 'status') ?? '');
+
+        if ($status !== 'failed') {
+            return true;
+        }
+
+        ActivityRecorder::record(
+            action: 'payment_gateway.refund_failed',
+            description: 'Bachs could not complete refund '.$refundId.' on '.$transaction->reference,
+            new: [
+                'refund_id' => $refundId,
+                'reference' => $transaction->reference,
+                'requested_amount' => $this->stringValue($data, 'requested_amount'),
+                'reason' => $this->stringValue($data, 'failure_reason', 'reason'),
+            ],
+            metadata: ['provider' => 'bachs', 'event' => $type],
+            businessId: $transaction->business_id,
+        );
+
+        Log::error('bachs.refund.failed', [
+            'refund_id' => $refundId,
+            'reference' => $transaction->reference,
+        ]);
+
+        return true;
+    }
+
+    /**
+     * The dispute as it is stored and acted on, or null when it names no id.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>|null
+     */
+    private function disputeEntry(array $data): ?array
+    {
         $disputeId = $this->stringValue($data, 'dispute_id', 'id');
 
         if ($disputeId === null) {
-            Log::warning('bachs.dispute.without_id', ['account_id' => $accountId, 'type' => $type]);
-
-            return false;
+            return null;
         }
 
-        $entry = array_filter([
+        return array_filter([
             'id' => $disputeId,
-            'charge_id' => $this->stringValue($data, 'charge_id'),
+            'charge_id' => $this->stringValue($data, 'charge_id', 'checkout_id'),
             'amount' => $this->stringValue($data, 'amount'),
             'amount_kobo' => ($amount = $this->stringValue($data, 'amount')) === null
                 ? null
@@ -132,17 +215,33 @@ final class ConnectAccountEventService
             'opened_at' => $this->stringValue($data, 'created_at'),
             'updated_at' => now()->toIso8601String(),
         ], fn ($value) => $value !== null);
+    }
 
-        $config = $this->connections->config($connection);
-        $config['disputes'] = $this->upsert($config['disputes'] ?? [], $disputeId, $entry, 'opened_at');
-        $this->connections->writeConfig($connection, $config);
-
-        $scope = $this->connections->scopeOf($connection);
+    /**
+     * The trail entry, and the money — the part that is the same either way.
+     *
+     * `$subject` is what the dispute is filed against, and under collect-and-pay-out
+     * that is always a **charge** rather than an account: it is our merchant
+     * account's charge, and the reference is what somebody answering the dispute
+     * will actually be looking for.
+     *
+     * @param  array<string, mixed>  $entry
+     */
+    private function noteDispute(
+        array $entry,
+        string $type,
+        string $subject,
+        ?int $businessId,
+        ?Transaction $transaction = null,
+    ): void {
+        $disputeId = (string) $entry['id'];
         $disputeStatus = (string) ($entry['status'] ?? 'unknown');
+
+        $this->recoverLostDispute($entry, $transaction, $disputeId);
 
         ActivityRecorder::record(
             action: 'payment_gateway.dispute_'.$disputeStatus,
-            description: 'Bachs dispute '.$disputeStatus.' on account '.$accountId,
+            description: 'Bachs dispute '.$disputeStatus.' on charge '.$subject,
             // Never `$data` wholesale: a dispute payload carries the customer's
             // card and billing detail, and the audit log is readable.
             new: [
@@ -153,203 +252,86 @@ final class ConnectAccountEventService
                 'reason' => $entry['reason'] ?? null,
                 'response_deadline_at' => $entry['response_deadline_at'] ?? null,
             ],
-            metadata: ['provider' => 'bachs', 'event' => $type, 'account_id' => $accountId],
-            businessId: $scope['business_id'],
+            metadata: ['provider' => 'bachs', 'event' => $type, 'charge' => $subject],
+            businessId: $businessId,
         );
 
         Log::warning('bachs.dispute.recorded', [
-            'account_id' => $accountId,
+            'charge' => $subject,
             'dispute_id' => $disputeId,
             'status' => $disputeStatus,
             'type' => $type,
         ]);
-
-        return true;
     }
 
     /**
-     * Record a refund's outcome.
+     * Take a lost chargeback back out of the business's wallet.
      *
-     * Raised in the activity trail only when it *failed*: a successful refund is
-     * the expected end of a refund somebody already made, and logging every one
-     * of them would bury the failures. A failure is money that did not reach a
-     * customer, and it needs a person.
+     * A chargeback the customer's bank has decided against us is Storify paying
+     * the money back, so the business's share goes with it — the same movement a
+     * refund makes, and through the same method, because on both books it is one
+     * fact. See {@see CustodyService::unwindCollectedSale()}.
      *
-     * @param  array<string, mixed>  $data
-     */
-    public function recordRefund(string $accountId, array $data, string $type): bool
-    {
-        $connection = $this->connections->forAccount($accountId);
-
-        if ($connection === null) {
-            Log::info('bachs.refund.unknown_account', ['account_id' => $accountId]);
-
-            return false;
-        }
-
-        $refundId = $this->stringValue($data, 'refund_id', 'id');
-
-        if ($refundId === null) {
-            Log::warning('bachs.refund.without_id', ['account_id' => $accountId, 'type' => $type]);
-
-            return false;
-        }
-
-        $entry = array_filter([
-            'id' => $refundId,
-            'charge_id' => $this->stringValue($data, 'charge_id'),
-            'reference' => $this->stringValue($data, 'reference'),
-            'status' => $this->stringValue($data, 'status'),
-            'requested_amount' => $this->stringValue($data, 'requested_amount'),
-            'refunded_amount' => $this->stringValue($data, 'refunded_amount'),
-            'currency' => $this->stringValue($data, 'currency'),
-            'reason' => $this->stringValue($data, 'reason'),
-            'failure_reason' => $this->stringValue($data, 'failure_reason'),
-            'updated_at' => now()->toIso8601String(),
-        ], fn ($value) => $value !== null);
-
-        $config = $this->connections->config($connection);
-        $config['refunds'] = $this->upsert($config['refunds'] ?? [], $refundId, $entry, 'updated_at');
-        $this->connections->writeConfig($connection, $config);
-
-        if (strtolower((string) ($entry['status'] ?? '')) === 'failed') {
-            $scope = $this->connections->scopeOf($connection);
-
-            ActivityRecorder::record(
-                action: 'payment_gateway.refund_failed',
-                description: 'Bachs could not complete a refund on account '.$accountId,
-                new: [
-                    'refund_id' => $refundId,
-                    'charge_id' => $entry['charge_id'] ?? null,
-                    'reference' => $entry['reference'] ?? null,
-                    'requested_amount' => $entry['requested_amount'] ?? null,
-                    'reason' => $entry['failure_reason'] ?? $entry['reason'] ?? null,
-                ],
-                metadata: ['provider' => 'bachs', 'event' => $type, 'account_id' => $accountId],
-                businessId: $scope['business_id'],
-            );
-
-            Log::error('bachs.refund.failed', [
-                'account_id' => $accountId,
-                'refund_id' => $refundId,
-                'reference' => $entry['reference'] ?? null,
-            ]);
-        }
-
-        return true;
-    }
-
-    /**
-     * The chargebacks recorded against a scope, most recently opened first.
+     * **Only on a lost dispute.** Everything earlier in a dispute's life is a
+     * question, not an answer, and the provider may well have already moved the
+     * money out of our balance while it is being asked — which is a cash-flow
+     * fact for Storify and not yet a debt for the business. Moving early and
+     * moving back would be two movements for one outcome, and the second is a
+     * credit to a business that may have been paid out in between.
      *
-     * @return array<int, array<string, mixed>>
-     */
-    public function disputes(int $businessId, ?int $storeId = null): array
-    {
-        return $this->recorded($businessId, $storeId, 'disputes');
-    }
-
-    /**
-     * The refund outcomes recorded against a scope.
+     * The claim inside `unwindCollectedSale()` is what makes a redelivered
+     * `dispute.updated` — the provider re-sends one whenever anything about it
+     * changes — harmless. Nothing is recovered when the charge cannot be
+     * identified, and that is reported loudly rather than passed over: money has
+     * left Storify's balance and there is nobody recorded as owing it.
      *
-     * @return array<int, array<string, mixed>>
-     */
-    public function refunds(int $businessId, ?int $storeId = null): array
-    {
-        return $this->recorded($businessId, $storeId, 'refunds');
-    }
-
-    /**
-     * @return array<int, array<string, mixed>>
-     */
-    private function recorded(int $businessId, ?int $storeId, string $key): array
-    {
-        $connection = $this->connections->for($businessId, $storeId);
-
-        if ($connection === null) {
-            return [];
-        }
-
-        $entries = $this->connections->config($connection)[$key] ?? null;
-
-        return is_array($entries) ? array_values(array_filter($entries, 'is_array')) : [];
-    }
-
-    /**
-     * Replace the entry with this id, or add it — never a second copy.
-     *
-     * Keyed on the provider's id because that is what a redelivery repeats, and
-     * capped so a connection that has taken thousands of refunds does not carry
-     * all of them in a JSON column forever.
-     *
-     * @param  array<int, array<string, mixed>>  $entries
      * @param  array<string, mixed>  $entry
-     * @return array<int, array<string, mixed>>
      */
-    private function upsert(array $entries, string $id, array $entry, string $openedKey): array
+    private function recoverLostDispute(array $entry, ?Transaction $transaction, string $disputeId): void
     {
-        $kept = [];
-
-        foreach ($entries as $existing) {
-            if (! is_array($existing) || ($existing['id'] ?? null) === $id) {
-                continue;
-            }
-
-            $kept[] = $existing;
-        }
-
-        array_unshift($kept, $entry);
-
-        usort($kept, fn (array $a, array $b): int => strcmp(
-            (string) ($b[$openedKey] ?? $b['updated_at'] ?? ''),
-            (string) ($a[$openedKey] ?? $a['updated_at'] ?? ''),
-        ));
-
-        return array_slice($kept, 0, self::HISTORY_LIMIT);
-    }
-
-    /**
-     * A one-line trail entry when a capability or the account's standing changed.
-     *
-     * Not recorded for every delivery: the provider re-sends `capability.updated`
-     * whenever the reason behind a restriction changes, and an audit row per
-     * redelivery would be noise that hides the one that mattered. Only an actual
-     * difference between what we had and what we now read is written.
-     *
-     * @param  array<string, mixed>  $previous
-     * @param  array<string, mixed>  $current
-     */
-    private function noteStateChange(object $connection, array $previous, array $current): void
-    {
-        $before = is_array($previous['capabilities'] ?? null) ? $previous['capabilities'] : [];
-        $after = is_array($current['capabilities'] ?? null) ? $current['capabilities'] : [];
-        $standingChanged = ($previous['status'] ?? null) !== ($current['status'] ?? null);
-
-        if (! $standingChanged && $before == $after) {
+        if (! in_array(strtolower((string) ($entry['status'] ?? '')), self::DISPUTE_LOST, true)) {
             return;
         }
 
-        $scope = $this->connections->scopeOf($connection);
+        $transaction ??= $this->transactionForCharge($entry['charge_id'] ?? null);
 
-        ActivityRecorder::record(
-            action: 'payment_gateway.account_state_changed',
-            description: 'Bachs account '.$connection->gateway_account_id.' reported a new state',
-            old: ['status' => $previous['status'] ?? null, 'capabilities' => $before],
-            new: ['status' => $current['status'] ?? null, 'capabilities' => $after],
-            metadata: ['provider' => 'bachs', 'account_id' => $connection->gateway_account_id],
-            businessId: $scope['business_id'],
-        );
+        if ($transaction === null) {
+            Log::error('bachs.dispute.unrecoverable', [
+                'dispute_id' => $disputeId,
+                'charge_id' => $entry['charge_id'] ?? null,
+                'amount_kobo' => $entry['amount_kobo'] ?? null,
+            ]);
+
+            return;
+        }
+
+        $this->custody->unwindCollectedSale($transaction, 'Dispute '.$disputeId);
     }
 
     /**
-     * @param  array<string, mixed>  $config
-     * @return array<string, mixed>|null
+     * The transaction a provider charge id belongs to, if we have one.
+     *
+     * Three columns are asked because the id a provider quotes in a dispute is
+     * not always the one we recorded: a charge has both a checkout and a charge
+     * id, providers name either depending on the event, and Bachs' own deliveries
+     * use the checkout id for settlement and the charge id here. `gateway_reference`
+     * holds whichever the provider gave us at initialize; `gateway_response` holds
+     * whatever its verify returned. Asking all three is cheaper than being wrong,
+     * and the lookup is what decides whether Storify can recover the money.
      */
-    private function destinationFrom(array $config): ?array
+    private function transactionForCharge(?string $chargeId): ?Transaction
     {
-        $destination = $config['managed']['payout_destination'] ?? null;
+        if ($chargeId === null || $chargeId === '') {
+            return null;
+        }
 
-        return is_array($destination) ? $destination : null;
+        return Transaction::query()
+            ->where(fn ($query) => $query
+                ->where('gateway_reference', $chargeId)
+                ->orWhere('gateway_response->id', $chargeId)
+                ->orWhere('gateway_response->checkout_id', $chargeId))
+            ->latest('id')
+            ->first();
     }
 
     /**

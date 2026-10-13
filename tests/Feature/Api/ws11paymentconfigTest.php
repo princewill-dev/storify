@@ -393,7 +393,7 @@ test('the bank account a business is paid into cannot be deleted', function () {
     $payout = ws11Bank($owner, ['account_number' => '0333333333']);
     $other = ws11Bank($owner, ['account_number' => '0444444444', 'is_primary' => false]);
 
-    $business->forceFill(['payout_bank_id' => $payout->id, 'payout_entity_type' => 'company'])->save();
+    $business->forceFill(['payout_bank_id' => $payout->id])->save();
 
     $this->withToken(ws11Token($owner))
         ->deleteJson("/api/v1/management/payment-settings/bank-accounts/{$payout->id}")

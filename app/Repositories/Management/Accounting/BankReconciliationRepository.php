@@ -205,7 +205,7 @@ final class BankReconciliationRepository
         return JournalLine::query()
             ->join('journal_entries', 'journal_entries.id', '=', 'journal_lines.journal_entry_id')
             ->where('journal_entries.business_id', $businessId)
-            ->where('journal_entries.status', JournalEntry::STATUS_POSTED)
+            ->whereIn('journal_entries.status', JournalEntry::IN_BOOKS)
             ->where('journal_lines.ledger_account_id', $ledgerAccountId)
             ->select([
                 'journal_lines.id',
@@ -225,7 +225,7 @@ final class BankReconciliationRepository
         return JournalLine::query()
             ->join('journal_entries', 'journal_entries.id', '=', 'journal_lines.journal_entry_id')
             ->where('journal_entries.business_id', $businessId)
-            ->where('journal_entries.status', JournalEntry::STATUS_POSTED)
+            ->whereIn('journal_entries.status', JournalEntry::IN_BOOKS)
             ->where('journal_lines.id', $journalLineId)
             ->select('journal_lines.id', 'journal_lines.ledger_account_id')
             ->first();
@@ -244,14 +244,19 @@ final class BankReconciliationRepository
     }
 
     /**
-     * Ledger balance for one account (debits - credits on posted entries).
+     * Ledger balance for one account (debits − credits on entries in the books).
+     *
+     * Includes void originals, because a void here is paired with a posted
+     * reversal and the two only cancel when both are read — see
+     * {@see JournalEntry::IN_BOOKS}. The candidate lines this balance is
+     * reconciled against are read the same way, so the two agree.
      */
     public function ledgerBalanceKobo(?int $businessId, int $ledgerAccountId, ?string $asOf = null): int
     {
         return (int) JournalLine::query()
             ->join('journal_entries', 'journal_entries.id', '=', 'journal_lines.journal_entry_id')
             ->where('journal_entries.business_id', $businessId)
-            ->where('journal_entries.status', JournalEntry::STATUS_POSTED)
+            ->whereIn('journal_entries.status', JournalEntry::IN_BOOKS)
             ->where('journal_lines.ledger_account_id', $ledgerAccountId)
             ->when($asOf, fn ($q) => $q->whereDate('journal_entries.entry_date', '<=', $asOf))
             ->selectRaw('COALESCE(SUM(debit_kobo), 0) - COALESCE(SUM(credit_kobo), 0) as balance')

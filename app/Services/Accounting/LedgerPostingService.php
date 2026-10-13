@@ -12,6 +12,7 @@ use App\Models\JournalLine;
 use App\Models\Order;
 use App\Models\Payment;
 use App\Models\Transaction;
+use App\Support\Money\Naira;
 use App\Support\Payments\PaymentGatewayRegistry;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
@@ -358,6 +359,13 @@ class LedgerPostingService
      *     Dr 5500 Processing Fee             fee   (both fees, combined)
      *     Cr 1100 Accounts Receivable      gross
      *
+     * Under custody the shape is identical and only the asset moves — `1040 Funds
+     * Held by Storify` in place of `1030` — because the business is still owed the
+     * same net, still pays the same combined fee, and still had the same receivable
+     * when it sold. The one thing that changed is who is holding the money while it
+     * waits, and that is the one line that differs. The platform's own side of a
+     * collected sale is a separate entry: {@see postCustodyCollection()}.
+     *
      * Both fees land on 5500 as one line, because to the business they are the
      * same kind of thing — the cost of taking this payment — and that is how it
      * is presented to them everywhere else. Splitting them would need a
@@ -374,6 +382,7 @@ class LedgerPostingService
         int $providerFeeKobo,
         int $commissionKobo,
         ?int $userId = null,
+        bool $custody = false,
     ): ?JournalEntry {
         $grossKobo = (int) round((float) $transaction->amount * 100);
 
@@ -398,7 +407,7 @@ class LedgerPostingService
         $contactId = $transaction->order?->customer_id;
 
         $lines = [[
-            'account_key' => 'gateway_clearing',
+            'account_key' => $this->managedAssetKey($custody),
             'debit' => $netKobo,
             'store_id' => $storeId,
             'description' => 'Payment '.$transaction->reference,
@@ -461,6 +470,9 @@ class LedgerPostingService
      *     Dr 5500 Processing Fee             commission
      *     Cr 1030 Payment Gateway Clearing   commission
      *
+     * (`1040 Funds Held by Storify` in place of `1030` under custody — the same
+     * commission off the same asset, on whichever account is holding it.)
+     *
      * The platform's side of the same commission is
      * {@see postPlatformCommissionEarned()}, on the platform's own books. Neither
      * is a reversal of the other; they are two parties' views of one deduction.
@@ -483,6 +495,7 @@ class LedgerPostingService
         Transaction $transaction,
         int $commissionKobo,
         ?int $userId = null,
+        bool $custody = false,
     ): ?JournalEntry {
         if ($commissionKobo <= 0) {
             return null;
@@ -504,7 +517,7 @@ class LedgerPostingService
                 'description' => 'Processing fee '.$transaction->reference,
             ],
             [
-                'account_key' => 'gateway_clearing',
+                'account_key' => $this->managedAssetKey($custody),
                 'credit' => $commissionKobo,
                 'store_id' => $storeId,
                 'description' => 'Processing fee '.$transaction->reference,
@@ -588,6 +601,7 @@ class LedgerPostingService
         int $amountKobo,
         string $reference,
         ?int $userId = null,
+        bool $custody = false,
     ): ?JournalEntry {
         if ($amountKobo <= 0) {
             return null;
@@ -601,7 +615,7 @@ class LedgerPostingService
                 'description' => 'Payout '.$reference,
             ],
             [
-                'account_key' => 'gateway_clearing',
+                'account_key' => $this->managedAssetKey($custody),
                 'credit' => $amountKobo,
                 'store_id' => $storeId,
                 'description' => 'Payout '.$reference,
@@ -616,6 +630,283 @@ class LedgerPostingService
             'idempotency_key' => 'payout:'.$reference,
             'user_id' => $userId,
         ]);
+    }
+
+    /**
+     * Storify's side of a collected sale, on the platform's own books.
+     *
+     * The entry that did not exist before this change, because the arrangement it
+     * describes did not exist: money that is in our provider balance, that we did
+     * not earn, and that we owe to somebody:
+     *
+     *     Dr 1030 Payment Gateway Clearing      gross
+     *       Cr 2300 Funds Held for Businesses     net
+     *       Cr 4020 Service Charge Income         commission
+     *       Cr 2210 Provider Fees Payable         provider fee
+     *
+     * Three credits because there are three different claims on the one charge and
+     * they leave at three different times. The commission is ours the moment the
+     * sale happens and stays on 4020. The provider's fee has already been deducted
+     * from our balance by the provider itself — so it is a liability that is settled
+     * the instant it is recognised, posted by
+     * {@see postCustodyProviderFeeSettled()} and never left sitting. The business's
+     * share is the one that lingers, until the payout run debits 2300 back out.
+     *
+     * The identity `2300 = 1030 − 2210 − 4020` therefore holds on the platform's
+     * books at all times, and the check that the books close is simply that 1030
+     * ends each day at exactly the commission plus the unsettled fee. If it does
+     * not, the wallet and the journal have drifted apart.
+     *
+     * **`$netKobo` is checked, not trusted.** It arrives from the wallet, which is
+     * the thing that actually owes the business money, and the entry is built from
+     * the row's own gross and fees. If those two disagree, the sale is being posted
+     * with one number and credited with another — so this refuses rather than
+     * absorbing the difference into a balancing line that would hide it forever.
+     * The caller wraps this in {@see safe()}, so the refusal is logged and the
+     * wallet credit stands.
+     *
+     * **And the row has to be in the currency the accounts are in.** Every figure
+     * below comes off the row, and `Naira::koboFromRounded($transaction->amount)`
+     * reads the store's own amount as naira — so on a converted sale the entry
+     * would describe a collection that never happened, in a currency the platform's
+     * custody accounts do not have. It would also go through: the check below
+     * compares the wallet's number with the row's own arithmetic and the two agree
+     * because both were computed the same wrong way. Refused outright, and the
+     * caller logs it — the wallet refuses the same row for the same reason, so a
+     * sale reaching here in the wrong currency means the wallet was credited by
+     * something other than {@see CustodyService::recordCollectedSale()}, which is
+     * the thing worth hearing about.
+     *
+     * @throws \RuntimeException when the wallet's figure and the row's figures disagree.
+     */
+    public function postCustodyCollection(
+        Transaction $transaction,
+        int $netKobo,
+        ?int $userId = null,
+    ): ?JournalEntry {
+        if (! $transaction->isInCustodyCurrency()) {
+            Log::warning('ledger.custody_collection_wrong_currency', [
+                'transaction_id' => $transaction->id,
+                'currency' => $transaction->currency,
+                'wallet_currency' => config('custody.currency'),
+            ]);
+
+            return null;
+        }
+
+        // The same conversion `netKobo()` used to produce `$netKobo`. A different
+        // one could differ by a kobo on the same row and turn the check below into
+        // a false alarm on a sale that is perfectly fine.
+        $grossKobo = Naira::koboFromRounded($transaction->amount);
+
+        if ($grossKobo <= 0 || $netKobo <= 0) {
+            return null;
+        }
+
+        $providerFeeKobo = max(0, (int) ($transaction->fee_kobo ?? 0));
+        $commissionKobo = $transaction->platformFeeKobo();
+
+        $expectedNet = Transaction::netKoboFor($grossKobo, $providerFeeKobo, $commissionKobo);
+
+        if ($expectedNet !== $netKobo) {
+            throw new \RuntimeException(sprintf(
+                'Custody collection does not reconcile for transaction %d: wallet credited %d kobo, row yields %s kobo.',
+                $transaction->id,
+                $netKobo,
+                var_export($expectedNet, true),
+            ));
+        }
+
+        $storeId = $transaction->order?->store_id;
+        $description = 'Payment '.$transaction->reference;
+
+        $lines = [[
+            'account_key' => 'gateway_clearing',
+            'debit' => $grossKobo,
+            'store_id' => $storeId,
+            'description' => $description,
+        ], [
+            'account_key' => 'business_funds_held',
+            'credit' => $netKobo,
+            'store_id' => $storeId,
+            'description' => $description,
+        ]];
+
+        if ($commissionKobo > 0) {
+            $lines[] = [
+                'account_key' => 'service_charge_income',
+                'credit' => $commissionKobo,
+                'store_id' => $storeId,
+                'description' => 'Commission '.$transaction->reference,
+            ];
+        }
+
+        if ($providerFeeKobo > 0) {
+            $lines[] = [
+                'account_key' => 'provider_fees_payable',
+                'credit' => $providerFeeKobo,
+                'store_id' => $storeId,
+                'description' => 'Provider fee '.$transaction->reference,
+            ];
+        }
+
+        return $this->post(null, $lines, [
+            'memo' => 'Collected payment '.$transaction->reference,
+            'reference' => $transaction->reference,
+            'source' => $transaction,
+            'idempotency_key' => 'managed:collect:txn:'.$transaction->id,
+            'user_id' => $userId,
+            'date' => optional($transaction->paid_at ?? $transaction->created_at)->toDateString() ?? now()->toDateString(),
+        ]);
+    }
+
+    /**
+     * The provider has taken its fee out of Storify's balance.
+     *
+     *     Dr 2210 Provider Fees Payable   fee
+     *     Cr 1030 Payment Gateway Clearing fee
+     *
+     * Posted when the provider reports its charge, which for a card payment is at
+     * settlement days after the sale, and which is also the moment the fee stops
+     * being an accrual. Until this runs the sale's fee sits on 2210 as a known
+     * liability against a clearing balance that still appears to hold it — which
+     * is the honest picture, not an error.
+     *
+     * Keyed on the transaction rather than on a provider reference: a sale has
+     * exactly one provider fee, whatever the provider chooses to call it, and the
+     * row is the one identifier both sides share.
+     */
+    public function postCustodyProviderFeeSettled(
+        Transaction $transaction,
+        int $providerFeeKobo,
+        ?int $userId = null,
+    ): ?JournalEntry {
+        if ($providerFeeKobo <= 0) {
+            return null;
+        }
+
+        $storeId = $transaction->order?->store_id;
+        $description = 'Provider fee '.$transaction->reference;
+
+        $lines = [
+            [
+                'account_key' => 'provider_fees_payable',
+                'debit' => $providerFeeKobo,
+                'store_id' => $storeId,
+                'description' => $description,
+            ],
+            [
+                'account_key' => 'gateway_clearing',
+                'credit' => $providerFeeKobo,
+                'store_id' => $storeId,
+                'description' => $description,
+            ],
+        ];
+
+        return $this->post(null, $lines, [
+            'memo' => 'Provider fee settled '.$transaction->reference,
+            'reference' => $transaction->reference,
+            'source' => $transaction,
+            'idempotency_key' => 'managed:provider_fee:txn:'.$transaction->id,
+            'user_id' => $userId,
+            'date' => now()->toDateString(),
+        ]);
+    }
+
+    /**
+     * The platform's side of paying a custody business: the money leaves our hands.
+     *
+     *     Dr 2300 Funds Held for Businesses   amount
+     *     Cr 1030 Payment Gateway Clearing    amount
+     *
+     * A second entry for a payout that the business's own books also record, via
+     * {@see postGatewayWithdrawal()} with `$custody: true`. Both are needed and
+     * neither duplicates the other: the business is recording that money left its
+     * account at Storify, and we are recording that we are no longer holding it.
+     * Before this change there was only one entry, because there was only one party
+     * holding the money.
+     *
+     * A different idempotency key from the business-side entry on purpose. The keys
+     * are scoped per business and this one's scope is `null`, where the uniqueness
+     * index is not enforced by the database — so a shared key would be a claim
+     * nothing checks.
+     */
+    public function postCustodyPayoutOnPlatformBooks(
+        int $amountKobo,
+        string $reference,
+        ?int $storeId = null,
+        ?int $userId = null,
+    ): ?JournalEntry {
+        if ($amountKobo <= 0) {
+            return null;
+        }
+
+        $lines = [
+            [
+                'account_key' => 'business_funds_held',
+                'debit' => $amountKobo,
+                'store_id' => $storeId,
+                'description' => 'Payout '.$reference,
+            ],
+            [
+                'account_key' => 'gateway_clearing',
+                'credit' => $amountKobo,
+                'store_id' => $storeId,
+                'description' => 'Payout '.$reference,
+            ],
+        ];
+
+        return $this->post(null, $lines, [
+            'memo' => 'Payout to business '.$reference,
+            'reference' => $reference,
+            'idempotency_key' => 'custody_payout:'.$reference,
+            'user_id' => $userId,
+        ]);
+    }
+
+    /**
+     * A collected sale came back, so the platform's side of it is undone.
+     *
+     *     Dr 2300 Funds Held for Businesses   net
+     *     Dr 4020 Service Charge Income       commission
+     *     Dr 2210 Provider Fees Payable       fee
+     *     Cr 1030 Payment Gateway Clearing    gross
+     *
+     * — which is {@see postCustodyCollection()} backwards, and is written as a
+     * reversal of it rather than as a second hand-written set of lines so the two
+     * can never drift apart. A hand-written pair is how a fee line gets dropped
+     * from one direction only, and the resulting difference sits on the platform's
+     * clearing balance until somebody notices a business was paid too much.
+     *
+     * **Both a refund and a chargeback post this.** They are the same movement on
+     * our books: money we took in goes back out, we stop holding the business's
+     * share, and we give up the commission with it. What differs is who decided —
+     * us, or the customer's bank — and that difference is recorded on the
+     * transaction and in the activity trail rather than in the journal, because it
+     * makes no difference to a single figure.
+     *
+     * The business's own books are reversed separately, by {@see postRefund()},
+     * which finds `payment:txn:{id}` and voids it. Two entries, two books, neither
+     * duplicating the other.
+     *
+     * Idempotent by key, so a redelivered `dispute.updated` and a refund on the
+     * same sale cannot post the reversal twice. `$newKey` is passed in so the two
+     * callers can be distinguished in the journal, which is the only place that
+     * difference is ever legible.
+     */
+    public function postCustodyCollectionReturned(
+        Transaction $transaction,
+        string $reference,
+        ?string $newKey = null,
+        ?int $userId = null,
+    ): ?JournalEntry {
+        return $this->reverseByKey(
+            null,
+            'managed:collect:txn:'.$transaction->id,
+            'Collection returned '.$reference,
+            $newKey ?? ('custody_return:txn:'.$transaction->id),
+            $userId,
+        );
     }
 
     /**
@@ -899,6 +1190,35 @@ class LedgerPostingService
     }
 
     /**
+     * Reverse whatever was posted under a given idempotency key, if anything was.
+     *
+     * For the callers that know the key but not the entry: a payout that came back
+     * after landing knows its own reference and nothing else, and hunting the entry
+     * down by hand at each such call site is how one of them eventually hunts in
+     * the wrong scope. Null when there is nothing posted under that key, which is a
+     * legitimate answer — the original posting may have failed and been logged,
+     * and inventing a reversal for a non-existent entry would post money.
+     */
+    public function reverseByKey(
+        ?int $businessId,
+        string $idempotencyKey,
+        string $memo,
+        ?string $newKey = null,
+        ?int $userId = null,
+    ): ?JournalEntry {
+        $entry = JournalEntry::query()
+            ->where('business_id', $businessId)
+            ->where('idempotency_key', $idempotencyKey)
+            ->first();
+
+        if (! $entry) {
+            return null;
+        }
+
+        return $this->reverseEntry($entry, $memo, $userId, $newKey);
+    }
+
+    /**
      * Create a reversing entry for a posted entry.
      */
     public function reverseEntry(JournalEntry $entry, string $memo, ?int $userId = null, ?string $idempotencyKey = null): ?JournalEntry
@@ -954,6 +1274,27 @@ class LedgerPostingService
     }
 
     /**
+     * Which asset account holds a platform-managed sale's money.
+     *
+     * The whole of the custody distinction, in one line, because it is one
+     * question: does the money sit at the provider on the business's own account
+     * (`1030`, split-at-source), or did Storify collect it and now owe it
+     * (`1040`, custody)? Everything else about a managed sale — the fees, the
+     * receivable, the descriptions the business reads — is identical either way,
+     * which is why this is a key swap and not a second family of posting methods.
+     *
+     * `$custody` is passed in rather than read off the transaction: the caller
+     * settles a payment and decides custody once, and both the wallet and the
+     * journal must act on that one reading. Re-deriving it here would let the two
+     * halves of a single settlement disagree if the flag were flipped in between,
+     * and the disagreement would be money in the wallet that no account holds.
+     */
+    private function managedAssetKey(bool $custody): string
+    {
+        return $custody ? 'held_by_platform' : 'gateway_clearing';
+    }
+
+    /**
      * Which asset account a payment leg debited.
      *
      * Asked of the catalogue rather than matched against names. Paystack used
@@ -969,6 +1310,25 @@ class LedgerPostingService
      */
     private function paymentAssetKey(Transaction $transaction): string
     {
+        // A sale Storify collected for is held by Storify, whatever rail the
+        // money came over — a hosted checkout and a card at the till are the same
+        // arrangement, and 1030 would say the business's own gateway account is
+        // holding money that never went there. Checked first, so a custody sale
+        // cannot be routed by its leg method into the wrong asset.
+        //
+        // The one condition, and the second one it used to carry was the bug. A
+        // business under custody can still charge a till leg on its own keys, and
+        // that money really does land in its own provider account — but
+        // `isPlatformManaged()` is already false for that leg, because it was
+        // charged on the business's own keys and the row says so. Adding
+        // `custody_enabled` on top therefore excluded nothing real and instead
+        // misrouted every collected sale that was still in flight when the business
+        // was rolled back: money in Storify's balance booked against a gateway
+        // account of the business's that holds none of it.
+        if ($transaction->isPlatformManaged()) {
+            return 'held_by_platform';
+        }
+
         $legMethod = (string) ($transaction->metadata['leg_method'] ?? '');
         $code = $transaction->paymentMethod?->code;
 

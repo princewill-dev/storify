@@ -528,3 +528,59 @@ test('a save that does not name the billing gateway leaves the selected one alon
     expect(Setting::query()->first()->billing_gateway)->toBe('bachs')
         ->and($response->json('data.changed_keys'))->not->toContain('billing_gateway');
 });
+
+/*
+|--------------------------------------------------------------------------
+| The platform's commission
+|--------------------------------------------------------------------------
+|
+| Moved here from the WS-39 payout suite, which was about emptying a
+| per-business account at the provider. That rail is deleted; the commission is
+| not, and it is a platform setting like any other — it is simply money, so it
+| is bounded, and it is the one field a partial save must not reset.
+*/
+
+test('the platform commission is bounded so a fee can never swallow a sale', function () {
+    // An unbounded percentage would turn every small sale into a
+    // customer-facing failure caused entirely by our own configuration: a fee at
+    // or above the gross is refused outright, and the customer sees the refusal.
+    $admin = ad02SuperAdmin();
+    ad02Settings();
+
+    $this->putJson('/api/v1/admin/settings', ad02FullPayload(['platform_commission_percent' => 100]), ad02Headers($admin))
+        ->assertStatus(422);
+
+    $this->putJson('/api/v1/admin/settings', ad02FullPayload(['platform_commission_percent' => -1]), ad02Headers($admin))
+        ->assertStatus(422);
+
+    $this->putJson('/api/v1/admin/settings', ad02FullPayload(['platform_commission_fixed_kobo' => -500]), ad02Headers($admin))
+        ->assertStatus(422);
+
+    $this->putJson('/api/v1/admin/settings', ad02FullPayload(['platform_commission_percent' => 2.5]), ad02Headers($admin))
+        ->assertOk();
+
+    expect((float) Setting::query()->first()->platform_commission_percent)->toBe(2.5);
+});
+
+test('a save that does not mention the commission leaves it as it was', function () {
+    // The save takes a whole form, so every field it *does* carry is a statement
+    // about what that field should be. The commission is deliberately the
+    // exception, and has to be: this screen is not the only caller of the same
+    // save, and a partial save that reset the commission to zero would quietly
+    // stop the platform earning on every sale it processes from that moment on,
+    // with nothing on screen having said so.
+    $admin = ad02SuperAdmin();
+    ad02Settings([
+        'platform_commission_percent' => 2.5,
+        'platform_commission_fixed_kobo' => 10000,
+    ]);
+
+    $this->putJson('/api/v1/admin/settings', ad02FullPayload(['company_name' => 'Storify Ltd']), ad02Headers($admin))
+        ->assertOk();
+
+    $settings = Setting::query()->first();
+
+    expect($settings->company_name)->toBe('Storify Ltd')
+        ->and((float) $settings->platform_commission_percent)->toBe(2.5)
+        ->and((int) $settings->platform_commission_fixed_kobo)->toBe(10000);
+});

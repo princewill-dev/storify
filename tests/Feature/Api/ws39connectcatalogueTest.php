@@ -20,12 +20,25 @@ use App\Services\Payments\Connect\BachsEventCatalogue;
 | `account.updated` and `capability.updated` are the ones the whole Connect flow
 | depends on. All four are listed, because "not offered by the dashboard's
 | checkbox" is not the same as "cannot arrive".
+|
+| The catalogue holds **28**: the 27 above, plus `payout.reversed`. That one is
+| deliberately the exception to the rule at the top of this paragraph — it is in
+| neither the enum nor, as far as we have been able to confirm, a page of its
+| own. It is listed anyway, and the reason is the same one that put the other
+| four here: a withdrawal that is recalled after it landed is a status this
+| platform already knows how to handle (`PayoutSweepService` carries a
+| `reversed` vocabulary and unwinds the wallet and both sets of books for it),
+| and the only thing that could stop it being handled is the *name* the delivery
+| arrives under. Left out, the delivery is logged as an unknown type and acted on
+| by nobody, and the row it concerns is already `paid` — so the sweep will not
+| re-read it either. The cost of being wrong is one inert table row; the cost of
+| being right and absent is a business's money recorded as gone.
 */
 
 test('every documented event has a disposition and a written reason', function () {
     $catalogue = BachsEventCatalogue::all();
 
-    expect($catalogue)->toHaveCount(27);
+    expect($catalogue)->toHaveCount(28);
 
     $dispositions = [
         BachsEventCatalogue::SETTLE,
@@ -66,6 +79,9 @@ test('the events that move money are the ones wired to behaviour', function () {
         ->and(BachsEventCatalogue::dispositionFor('collection.succeeded'))->toBe(BachsEventCatalogue::SETTLE)
         ->and(BachsEventCatalogue::dispositionFor('payout.paid'))->toBe(BachsEventCatalogue::PAYOUT)
         ->and(BachsEventCatalogue::dispositionFor('payout.failed'))->toBe(BachsEventCatalogue::PAYOUT)
+        // The one that moves money back the other way, and the only one that
+        // arrives after the provider has already said the money landed.
+        ->and(BachsEventCatalogue::dispositionFor('payout.reversed'))->toBe(BachsEventCatalogue::PAYOUT)
         ->and(BachsEventCatalogue::dispositionFor('refund.failed'))->toBe(BachsEventCatalogue::REFUND)
         ->and(BachsEventCatalogue::dispositionFor('dispute.created'))->toBe(BachsEventCatalogue::DISPUTE);
 });
@@ -92,9 +108,9 @@ test('the events we deliberately do not act on are about features we do not use'
 
     expect($counts[BachsEventCatalogue::UNUSED])->toBe(12)
         ->and($counts[BachsEventCatalogue::SETTLE])->toBe(2)
-        ->and($counts[BachsEventCatalogue::PAYOUT])->toBe(3)
+        ->and($counts[BachsEventCatalogue::PAYOUT])->toBe(4)
         ->and($counts[BachsEventCatalogue::REFUND])->toBe(3)
         ->and($counts[BachsEventCatalogue::DISPUTE])->toBe(2)
         ->and($counts[BachsEventCatalogue::ACCOUNT])->toBe(2)
-        ->and(array_sum($counts))->toBe(27);
+        ->and(array_sum($counts))->toBe(28);
 });

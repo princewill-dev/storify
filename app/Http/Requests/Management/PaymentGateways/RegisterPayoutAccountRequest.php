@@ -6,8 +6,7 @@ use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
 /**
- * The payout-account form a business fills in when Storify processes its
- * payments.
+ * The form a business fills in to say which bank account its money is paid into.
  *
  * Two ways to name a bank, and exactly one of them is required. A business that
  * has already registered an account for manual bank transfers picks it by
@@ -16,23 +15,16 @@ use Illuminate\Validation\Rule;
  * details. Accepting both at once would leave the server guessing which one was
  * meant, and guessing wrong sends a stranger's money to the wrong bank.
  *
- * `entity_type` is required and has no default. It is **immutable** at the
- * provider and decides which documents will be demanded, so it is a decision the
- * business makes deliberately rather than a value we assume; assuming "company"
- * for a sole trader would put them through a registration-number requirement
- * they can never satisfy.
- *
- * `terms_accepted` is the owner's acceptance of the provider's terms, given here
- * and submitted by us as `tos_acceptance`. It is required rather than defaulted
- * because it is a contractual act: the provider holds the business to it, so it
- * has to be something the owner actually did, on a form that names what they
- * were accepting. The timestamp and the IP we submit are recorded from this
- * request at the moment the box was ticked, not invented at submission time.
+ * `entity_type` and `terms_accepted` used to be here, both required. They were
+ * inputs to opening an account at the provider — the entity type decided which
+ * documents would be demanded and was immutable once set, and the acceptance was
+ * submitted as the provider's `tos_acceptance`. No account is opened any more, so
+ * they were asking the owner to classify their business and agree to a contract
+ * for something that no longer happens.
  *
  * The messages name no provider, deliberately. Which one is in force is the
- * platform's decision and not the business's, so a business that is told to
- * accept "Bachs' terms" is being asked to agree to something it never chose —
- * and on a screen that otherwise never mentions the provider at all.
+ * platform's decision and not the business's, and this screen otherwise never
+ * mentions the provider at all.
  */
 final class RegisterPayoutAccountRequest extends FormRequest
 {
@@ -53,13 +45,6 @@ final class RegisterPayoutAccountRequest extends FormRequest
 
         return [
             'store_id' => ['nullable', 'integer', 'exists:stores,id'],
-            'entity_type' => ['required', Rule::in(['company', 'individual'])],
-
-            // The owner's own act, not ours. `accepted` rather than `boolean`
-            // so this cannot be satisfied by a form field that happens to be
-            // truthy, and it holds on a re-registration too — the acceptance is
-            // resubmitted with the destination, so the record stays current.
-            'terms_accepted' => ['required', 'accepted'],
 
             // An account the business already holds, verified through the
             // bank-transfer flow. Scoped to this business so one tenant's id
@@ -89,9 +74,6 @@ final class RegisterPayoutAccountRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'entity_type.required' => 'Tell us whether this business is registered as a company or owned by an individual.',
-            'terms_accepted.accepted' => 'Accept the payment terms to register the account your sales are paid into.',
-            'terms_accepted.required' => 'Accept the payment terms to register the account your sales are paid into.',
             'store_bank_id.exists' => 'That bank account is not one of this business\'s accounts.',
             'account_number.required_without' => 'Enter the account number, or choose a bank account already on file.',
             'account_number.digits' => 'A Nigerian account number is ten digits.',

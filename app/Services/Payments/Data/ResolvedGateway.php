@@ -32,12 +32,6 @@ final class ResolvedGateway
          */
         public readonly bool $hasActiveConnection = false,
         /**
-         * The connected account's state, when this connection is one the
-         * platform processes rather than the business's own keys. Null for an
-         * own-key connection and for a provider with no connection.
-         */
-        public readonly ?ManagedAccount $managed = null,
-        /**
          * Whether the business has deliberately switched this connection off.
          *
          * Read from the row that holds the account rather than from `isEnabled`,
@@ -48,6 +42,25 @@ final class ResolvedGateway
          * offer the switch back.
          */
         public readonly bool $paused = false,
+        /**
+         * Whether this business's money is collected and paid out by Storify,
+         * rather than settled to it by the provider.
+         *
+         * This is now the *only* way a platform-processed charge can be made.
+         * The rail that used to charge on the platform's key while *carrying the
+         * business's own account* — so the provider settled the business
+         * directly — has been deleted along with the account machinery it needed,
+         * and with it every per-business account id. What is left is one shape:
+         * the charge is the platform's own, the gross lands in Storify's balance,
+         * and a job pays each business from its wallet.
+         *
+         * It is still a flag rather than an assumption, because the wallet and
+         * the ledger have to agree with the *column* when the money arrives
+         * rather than with what the resolver believed at charge time — see
+         * `Transaction::isPlatformManaged()` and the custody postings in
+         * {@see LedgerPostingService}.
+         */
+        public readonly bool $custody = false,
     ) {}
 
     public function isUsable(): bool
@@ -58,13 +71,15 @@ final class ResolvedGateway
     /**
      * Whether the platform charges on this business's behalf here.
      *
-     * Read off the credentials rather than the account state, because the
-     * credentials are what a charge actually needs: an account id present and no
-     * usable keys is the definition of managed, and the two cannot disagree.
+     * True exactly when the business is one Storify collects for. There is no
+     * longer a second way to arrive at that — the account the credentials used to
+     * carry was deleted with the rest of the per-business rail — so this reads
+     * the flag rather than inferring it from the credentials, which is the
+     * opposite of how it was written when two managed shapes existed.
      */
     public function isManaged(): bool
     {
-        return $this->credentials->isManaged();
+        return $this->custody;
     }
 
     /**

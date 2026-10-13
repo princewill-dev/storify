@@ -4,6 +4,7 @@ namespace App\Services\Accounting;
 
 use App\Enums\TransactionStatus;
 use App\Models\Bill;
+use App\Models\Business;
 use App\Models\Expense;
 use App\Models\Invoice;
 use App\Models\JournalEntry;
@@ -414,7 +415,12 @@ class LedgerReportService
     }
 
     /**
-     * Posted lines with their account, which every sums query above starts from.
+     * Lines in the books with their account, which every sums query above starts
+     * from.
+     *
+     * In the books, not "posted": a reversed entry is marked void *and* left
+     * mirrored by its reversal, so both halves have to be read or the undoing
+     * lands twice. See {@see JournalEntry::IN_BOOKS}.
      */
     private function ledgerLineQuery(?int $businessId): Builder
     {
@@ -422,7 +428,7 @@ class LedgerReportService
             ->join('journal_entries', 'journal_entries.id', '=', 'journal_lines.journal_entry_id')
             ->join('ledger_accounts', 'ledger_accounts.id', '=', 'journal_lines.ledger_account_id')
             ->where('journal_entries.business_id', $businessId)
-            ->where('journal_entries.status', JournalEntry::STATUS_POSTED);
+            ->whereIn('journal_entries.status', JournalEntry::IN_BOOKS);
     }
 
     /**
@@ -433,7 +439,7 @@ class LedgerReportService
         return JournalLine::query()
             ->join('journal_entries', 'journal_entries.id', '=', 'journal_lines.journal_entry_id')
             ->where('journal_entries.business_id', $businessId)
-            ->where('journal_entries.status', JournalEntry::STATUS_POSTED)
+            ->whereIn('journal_entries.status', JournalEntry::IN_BOOKS)
             ->when($from, fn ($q) => $q->whereDate('journal_entries.entry_date', '>=', $from))
             ->whereDate('journal_entries.entry_date', '<=', $to)
             ->groupBy('journal_lines.ledger_account_id')
@@ -454,7 +460,7 @@ class LedgerReportService
         $opening = (int) JournalLine::query()
             ->join('journal_entries', 'journal_entries.id', '=', 'journal_lines.journal_entry_id')
             ->where('journal_entries.business_id', $businessId)
-            ->where('journal_entries.status', JournalEntry::STATUS_POSTED)
+            ->whereIn('journal_entries.status', JournalEntry::IN_BOOKS)
             ->where('journal_lines.ledger_account_id', $accountId)
             ->whereDate('journal_entries.entry_date', '<', $from)
             ->selectRaw('COALESCE(SUM(debit_kobo), 0) - COALESCE(SUM(credit_kobo), 0) as balance')
@@ -463,7 +469,7 @@ class LedgerReportService
         $lines = JournalLine::query()
             ->join('journal_entries', 'journal_entries.id', '=', 'journal_lines.journal_entry_id')
             ->where('journal_entries.business_id', $businessId)
-            ->where('journal_entries.status', JournalEntry::STATUS_POSTED)
+            ->whereIn('journal_entries.status', JournalEntry::IN_BOOKS)
             ->where('journal_lines.ledger_account_id', $accountId)
             ->whereDate('journal_entries.entry_date', '>=', $from)
             ->whereDate('journal_entries.entry_date', '<=', $to)
@@ -598,7 +604,7 @@ class LedgerReportService
         $row = JournalLine::query()
             ->join('journal_entries', 'journal_entries.id', '=', 'journal_lines.journal_entry_id')
             ->where('journal_entries.business_id', $businessId)
-            ->where('journal_entries.status', JournalEntry::STATUS_POSTED)
+            ->whereIn('journal_entries.status', JournalEntry::IN_BOOKS)
             ->where('journal_lines.tax_kobo', '>', 0)
             ->whereDate('journal_entries.entry_date', '>=', $from)
             ->whereDate('journal_entries.entry_date', '<=', $to)
@@ -653,7 +659,7 @@ class LedgerReportService
         $totals = JournalLine::query()
             ->join('journal_entries', 'journal_entries.id', '=', 'journal_lines.journal_entry_id')
             ->where('journal_entries.business_id', $businessId)
-            ->where('journal_entries.status', JournalEntry::STATUS_POSTED)
+            ->whereIn('journal_entries.status', JournalEntry::IN_BOOKS)
             ->selectRaw('COALESCE(SUM(journal_lines.debit_kobo), 0) as debit, COALESCE(SUM(journal_lines.credit_kobo), 0) as credit')
             ->first();
 
@@ -672,9 +678,19 @@ class LedgerReportService
                 ->join('journal_entries', 'journal_entries.id', '=', 'journal_lines.journal_entry_id')
                 ->join('ledger_accounts', 'ledger_accounts.id', '=', 'journal_lines.ledger_account_id')
                 ->where('journal_entries.business_id', $businessId)
-                ->where('journal_entries.status', JournalEntry::STATUS_POSTED)
+                ->whereIn('journal_entries.status', JournalEntry::IN_BOOKS)
                 ->where('journal_lines.store_id', $store->id)
                 ->whereIn('ledger_accounts.subtype', ['cash', 'bank', 'gateway_clearing'])
+                // ...and, since this walk was written, only the lines that are
+                // the *store's* money. `stores.balance` is credited by sales the
+                // business took on its own keys; a sale the platform processed
+                // moves the same clearing account without ever touching it, so
+                // counting those lines here compares the wallet against a figure
+                // that includes money the wallet was never meant to hold. That
+                // was a false difference on every managed sale before custody
+                // existed, and under custody it would be a false difference on
+                // every sale at all.
+                ->where(fn ($query) => $this->excludePlatformManaged($query))
                 ->selectRaw('COALESCE(SUM(journal_lines.debit_kobo), 0) - COALESCE(SUM(journal_lines.credit_kobo), 0) as balance')
                 ->value('balance');
 
@@ -707,7 +723,7 @@ class LedgerReportService
             ->join('journal_entries', 'journal_entries.id', '=', 'journal_lines.journal_entry_id')
             ->join('ledger_accounts', 'ledger_accounts.id', '=', 'journal_lines.ledger_account_id')
             ->where('journal_entries.business_id', $businessId)
-            ->where('journal_entries.status', JournalEntry::STATUS_POSTED)
+            ->whereIn('journal_entries.status', JournalEntry::IN_BOOKS)
             ->where('ledger_accounts.subtype', 'accounts_receivable')
             ->selectRaw('COALESCE(SUM(journal_lines.debit_kobo), 0) - COALESCE(SUM(journal_lines.credit_kobo), 0) as balance')
             ->value('balance');
@@ -737,6 +753,103 @@ class LedgerReportService
             'ledger_ar' => $ledgerAr,
             'documents_ar' => $orderAr + $invoiceAr,
             'ar_difference' => $ledgerAr - ($orderAr + $invoiceAr),
+            // The check the store walk above cannot make. `stores.balance` is the
+            // mirror of own-key money and nothing else; what Storify is holding
+            // for the business lives in the wallet, and the account that records
+            // it is `1040 Funds Held by Storify`. Those two are the same number
+            // seen twice, so a difference between them is the business owed an
+            // amount the books do not carry — which is only ever discovered by
+            // paying it out.
+            'custody' => $this->custodyReconciliation($businessId),
         ];
+    }
+
+    /**
+     * The wallet against the account that records it.
+     *
+     * Three figures and a difference, in the same shape as the store walk, so a
+     * screen that can render one can render the other. Every part of the wallet
+     * is counted, promoted or not: `1040` catches a sale the moment it is
+     * credited and only releases it on a payout or a return, so the pending
+     * bucket is as much a claim on it as the available one. Comparing only
+     * `available` would report a difference on every business mid-settlement.
+     *
+     * Read as a net **debit**, because `1040 Funds Held by Storify` is an asset
+     * on the business's books — what the business has, in Storify's hands — not
+     * a liability of the business. A sale debits it, a payout credits it out,
+     * and a refund or a chargeback takes the debit back. Reading it the other
+     * way round, as the platform's `2300` is read, produces a difference of
+     * exactly twice the wallet on every settled business, which looks like a
+     * catastrophic gap and is only a sign error.
+     *
+     * A negative answer is not wrong — it is a business that owes Storify, which
+     * is exactly what a refund after a payout produces.
+     *
+     * @return array{business_id: int|null, wallet: int, pending: int, available: int, ledger: int, difference: int}
+     */
+    private function custodyReconciliation(?int $businessId): array
+    {
+        $ledger = (int) JournalLine::query()
+            ->join('journal_entries', 'journal_entries.id', '=', 'journal_lines.journal_entry_id')
+            ->join('ledger_accounts', 'ledger_accounts.id', '=', 'journal_lines.ledger_account_id')
+            ->where('journal_entries.business_id', $businessId)
+            ->whereIn('journal_entries.status', JournalEntry::IN_BOOKS)
+            ->where('ledger_accounts.subtype', 'held_by_platform')
+            ->selectRaw('COALESCE(SUM(journal_lines.debit_kobo), 0) - COALESCE(SUM(journal_lines.credit_kobo), 0) as balance')
+            ->value('balance');
+
+        $row = Business::query()
+            ->whereKey($businessId)
+            ->first(['pending_balance', 'available_balance']);
+
+        $pending = (int) ($row->pending_balance ?? 0);
+        $available = (int) ($row->available_balance ?? 0);
+        $wallet = $pending + $available;
+
+        return [
+            'business_id' => $businessId,
+            'wallet' => $wallet,
+            'pending' => $pending,
+            'available' => $available,
+            'ledger' => $ledger,
+            'difference' => $wallet - $ledger,
+        ];
+    }
+
+    /**
+     * Exclude journal lines that belong to a sale the platform processed.
+     *
+     * The distinction cannot be read off the account: a managed sale and an
+     * own-key sale both move `1030 Payment Gateway Clearing`, and under custody
+     * the managed one moves `1040` instead — which is the point of the separate
+     * account, but it leaves the own-key case indistinguishable by subtype alone.
+     *
+     * So it is read off the transaction the line came from. Every posting tied to
+     * a sale carries it as `source_type`/`source_id`, reversals included, and
+     * `metadata.payment_mode` is what the resolver wrote when the charge was
+     * taken. Lines with no transaction behind them — opening balances, expenses,
+     * invoices, returns — are the store's own money and are always counted.
+     *
+     * `$query` is a query builder on `journal_entries`.
+     */
+    private function excludePlatformManaged(mixed $query): void
+    {
+        $query
+            ->where(function ($inner) {
+                $inner->whereNull('journal_entries.source_id')
+                    ->orWhere('journal_entries.source_type', '!=', Transaction::class);
+            })
+            ->orWhere(function ($inner) {
+                $inner->where('journal_entries.source_type', Transaction::class)
+                    ->whereExists(function ($sub) {
+                        $sub->select(DB::raw(1))
+                            ->from('transactions')
+                            ->whereColumn('transactions.id', 'journal_entries.source_id')
+                            ->where(function ($mode) {
+                                $mode->whereNull('transactions.metadata->payment_mode')
+                                    ->orWhere('transactions.metadata->payment_mode', '!=', 'platform_managed');
+                            });
+                    });
+            });
     }
 }

@@ -18,6 +18,22 @@ class JournalEntry extends Model
 
     public const STATUS_VOID = 'void';
 
+    /**
+     * The statuses whose lines are part of the books. `draft` is the only one that
+     * is not.
+     *
+     * **Void is in the books, and must be counted.** Voiding an entry here is not
+     * a deletion: `LedgerPostingService::reverseEntry()` marks the original void
+     * *and* posts a mirror of it, so the pair cancels. A balance query that reads
+     * `status = posted` therefore drops the original's half of the pair while
+     * still counting the reversal — the undoing is applied twice, and the account
+     * lands at twice the intended movement. On a refunded own-key sale that is a
+     * store wallet compared against a clearing balance that is short by the whole
+     * amount of the sale, which reads as a catastrophic gap and is only a counting
+     * error. Draft entries are the only ones genuinely absent from the books.
+     */
+    public const IN_BOOKS = [self::STATUS_POSTED, self::STATUS_VOID];
+
     protected $fillable = [
         'business_id', 'entry_number', 'entry_date', 'memo', 'reference',
         'source_type', 'source_id', 'status', 'fiscal_period_id',

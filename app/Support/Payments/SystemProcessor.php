@@ -14,14 +14,18 @@ use App\Services\Subscription\PlatformBillingGateway;
  *
  * `enforced()` is false when the column is empty, which is the platform's
  * behaviour since it had payment providers: each business charges through
- * whatever it has connected, and Storify only processes on its behalf where a
- * connected account exists. That is the state every deployment is in until an
- * admin deliberately changes it.
+ * whatever it has connected, and Storify is not in the money path at all. That
+ * is the state a deployment is in until an admin deliberately changes it — but
+ * it is **not** a state in which a business Storify collects for can sell, since
+ * the rail that used to serve those businesses from a per-business account was
+ * deleted. Custody and enforcement are two halves of one arrangement, and the
+ * end of the migration is a processor selected.
  *
  * When enforced, `code()` names the processor and every other provider — and
  * every offline rail — stops being offered. A business's own keys are ignored,
- * and a business with no usable settlement account on the selected processor
- * takes no payments at all.
+ * and a business that Storify does not collect for takes no payments at all:
+ * there is no longer a way to charge through the platform while the gross
+ * settles to the business, so the two must agree.
  *
  * The third state is a column holding a name that is not a processor this build
  * can run — a provider removed from the registry while selected, or a
@@ -69,16 +73,15 @@ final class SystemProcessor
     /**
      * The selected processor, when this build can run it — else null.
      *
-     * A name the platform cannot process on a business's behalf is not a
-     * processor we can charge through with a split at source, so it does not
-     * count as one, however it got into the column. {@see self::enforced()}
-     * is what says whether it is set at all.
+     * A name the platform holds no credentials for is not a processor it can
+     * charge through, so it does not count as one, however it got into the
+     * column. {@see self::enforced()} is what says whether it is set at all.
      */
     public static function code(): ?string
     {
         $stored = self::stored();
 
-        return $stored !== null && PaymentGatewayRegistry::supportsManaged($stored) ? $stored : null;
+        return $stored !== null && PlatformBillingGateway::canChargeThrough($stored) ? $stored : null;
     }
 
     /**
@@ -131,15 +134,15 @@ final class SystemProcessor
     /**
      * The processors an admin may choose between.
      *
-     * Derived from the registry's managed specs rather than listed here: a
-     * provider the platform can only charge through with a business's own keys
-     * has no meaning as the *platform's* processor, because there would be
-     * nothing to split.
+     * The providers the platform holds its own credentials for and nothing else:
+     * a provider the platform could only charge through with a *business's* keys
+     * has no meaning as the platform's processor, because there would be no
+     * Storify account for the money to land in.
      *
      * @return array<int, string>
      */
     public static function selectableCodes(): array
     {
-        return PaymentGatewayRegistry::managedCodes();
+        return PlatformBillingGateway::selectableCodes();
     }
 }

@@ -24,7 +24,6 @@ final class GatewayCredentials
         private readonly string $provider,
         private readonly array $values,
         private readonly array $secretKeys = [],
-        private readonly ?string $accountId = null,
     ) {}
 
     /**
@@ -47,37 +46,6 @@ final class GatewayCredentials
     public static function empty(string $provider): self
     {
         return new self($provider, []);
-    }
-
-    /**
-     * The same credentials, acting as a connected account.
-     *
-     * Deliberately a copy rather than a fourth constructor argument at every
-     * call site: only the managed path knows an account id, and the own-key path
-     * must not be able to pass one by accident.
-     *
-     * The id is not a secret — it names an account, it does not authorise
-     * anything on its own, and the platform's key is what signs the request. It
-     * is kept out of `$values` so it cannot be mistaken for a credential field
-     * and echoed into `masked()` as though it were one.
-     */
-    public function withAccountId(?string $accountId): self
-    {
-        return new self($this->provider, $this->values, $this->secretKeys, $accountId);
-    }
-
-    /**
-     * The connected account this charge is made on behalf of, or null when the
-     * connection is the business's own keys.
-     */
-    public function accountId(): ?string
-    {
-        return $this->accountId;
-    }
-
-    public function isManaged(): bool
-    {
-        return $this->accountId !== null && $this->accountId !== '';
     }
 
     public function provider(): string
@@ -143,7 +111,6 @@ final class GatewayCredentials
     {
         return [
             'provider' => $this->provider,
-            'account_id' => $this->accountId,
             'values' => $this->masked(),
         ];
     }

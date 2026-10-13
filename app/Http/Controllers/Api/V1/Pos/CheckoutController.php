@@ -43,14 +43,23 @@ final class CheckoutController extends Controller
         // `paystack` leg was written straight through as a confirmed
         // transaction, so the till could complete a sale nobody had paid for.
         // The refusal costs nothing: no order, no stock, no money has moved.
+        //
+        // The same call collects what the provider said it charged. That figure
+        // is only ever available here — the verify it comes from is the last
+        // time anyone asks about this charge — and it is the difference between a
+        // business under custody being owed the money from a till sale and that
+        // sale sitting unpriceable forever, because the wallet will not credit a
+        // sale whose provider fee is unknown. Handed on to the action rather than
+        // re-read there, which would be a second charge to the provider's API for
+        // an answer this one already has.
         try {
-            $this->payments->assertPaid($store, $data['payments'] ?? []);
+            $providerFees = $this->payments->assertPaid($store, $data['payments'] ?? []);
         } catch (DomainException $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
         }
 
         try {
-            $result = $this->processSale->execute($store, $user, $session, $data);
+            $result = $this->processSale->execute($store, $user, $session, $data, $providerFees);
         } catch (DomainException $e) {
             $this->logPaidButUnsold($store, $user, $data, $e);
 

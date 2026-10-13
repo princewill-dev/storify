@@ -3,6 +3,7 @@
 namespace App\Http\Resources\Management;
 
 use App\Models\Store;
+use App\Services\Payments\Custody\WalletSummaryService;
 use App\Support\SpaUrls;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
@@ -17,11 +18,25 @@ use Illuminate\Http\Resources\Json\JsonResource;
  * create passes 0 and finalize passes the store's count — and falls back to
  * the legacy `customers_count` attribute, which no store ever had, exactly as
  * payload() did.
+ *
+ * `$walletBlock` is the same optional, caller-computed argument, for the same
+ * reason: the block is a slice of the business's payable plan, and resolving it
+ * here would run that walk once per row. The list passes the page's blocks; a
+ * single-store screen passes its own. Its own `balance_source` is what names
+ * which of the two money figures the row should draw, so it is read out of the
+ * block rather than re-derived — the rule has one definition, in
+ * {@see WalletSummaryService::balanceSource()}.
  */
 final class StoreOnboardingResource extends JsonResource
 {
-    public function __construct(Store $store, private readonly ?int $customersCount = null)
-    {
+    /**
+     * @param  array<string, mixed>|null  $walletBlock  from WalletSummaryService
+     */
+    public function __construct(
+        Store $store,
+        private readonly ?int $customersCount = null,
+        private readonly ?array $walletBlock = null,
+    ) {
         parent::__construct($store);
     }
 
@@ -43,6 +58,13 @@ final class StoreOnboardingResource extends JsonResource
             'has_website' => (bool) $store->has_website,
             'pos_enabled' => (bool) $store->pos_enabled,
             'balance' => (int) $store->balance,
+            // Which figure is the business's real money, and the other one's
+            // numbers. `stores.balance` is never credited for a sale Storify
+            // collected, so without this the onboarding list showed a custody
+            // business ₦0.00 for a store it had just started selling on.
+            'balance_source' => $this->walletBlock['balance_source']
+                ?? WalletSummaryService::SOURCE_STORE,
+            'wallet' => $this->walletBlock,
             'payment_mode' => $store->payment_mode,
             'description' => $store->description,
             'location' => $store->physical_address ?: $store->address,
