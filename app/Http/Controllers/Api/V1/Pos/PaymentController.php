@@ -15,11 +15,17 @@ use Illuminate\Support\Facades\Log;
 /**
  * Opening a provider's checkout from the till, and asking it what happened.
  *
- * Two endpoints, neither of which writes a row. The till calls `initialize`
- * when the cashier completes a sale, sends the customer to the URL it returns,
- * polls `status` while they pay, and then posts the whole sale to
- * `/checkout` — where `PosPaymentService::assertPaid` asks the provider a
- * second time before anything is written down.
+ * Two endpoints, neither of which writes a row, and **neither of which the POS
+ * app calls any more**. The till takes cash and a transfer into the business's
+ * own bank account — see {@see PaymentMethodController} — so it never opens a
+ * provider and never has a reference to poll.
+ *
+ * They are kept because they are the till's card path and other clients use
+ * them: `initialize` starts a charge and returns a URL, `status` asks the
+ * provider what became of it. Anyone restoring card at the till gets the first
+ * half back for free; the half that matters is
+ * {@see PosCheckoutRequest}, whose accepted methods are what make a card leg
+ * unrepresentable rather than merely unverified.
  *
  * Both are gated the same way `/checkout` is: an authenticated terminal token
  * bound to this store, and an open drawer. A card charge is a sale in progress,

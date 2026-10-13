@@ -124,13 +124,22 @@ final class ProcessPosSale
                 );
             }
 
+            // Normalised before the comparison, not after: these checks used to
+            // match the literal `transfer`, the POS client's older name for what
+            // the catalogue calls `bank_transfer`, so a leg sent under the
+            // catalogue's own code skipped both of them — no bank account
+            // required, and one belonging to another business accepted. Latent
+            // while the till sent only the alias; live the moment the till sends
+            // the code the catalogue and `PaymentMethodController` both use.
+            $isBankTransfer = fn (array $payment): bool => $this->normalizeMethod((string) $payment['method']) === 'bank_transfer';
+
             $transferBankIds = collect($payments)
-                ->where('method', 'transfer')
+                ->filter($isBankTransfer)
                 ->pluck('bank_account_id')
                 ->filter()
                 ->unique();
 
-            if (collect($payments)->contains(fn (array $payment) => $payment['method'] === 'transfer' && empty($payment['bank_account_id']))) {
+            if (collect($payments)->contains(fn (array $payment): bool => $isBankTransfer($payment) && empty($payment['bank_account_id']))) {
                 throw new DomainException('A bank account is required for bank transfer payments.');
             }
 

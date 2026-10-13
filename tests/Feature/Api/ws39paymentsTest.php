@@ -4,6 +4,7 @@ use App\Models\Business;
 use App\Models\ExchangeRate;
 use App\Models\PaymentMethod;
 use App\Models\Store;
+use App\Models\StoreBank;
 use App\Models\User;
 use App\Services\Payments\PaymentGatewayManager;
 use App\Services\Payments\PaymentGatewayResolver;
@@ -625,7 +626,17 @@ test('the storefront is told each method\'s currency and how to display the conv
         ->and((int) round(2300000 / $methods['bitfra']['conversion']['divisor']))->toBe(1728);
 });
 
-test('the pos is offered cash plus whatever the store actually accepts', function () {
+test('the till is offered cash, and none of the providers the store accepts', function () {
+    // The till used to mirror the shopfront — it read `forStore()` and put every
+    // provider a store accepts on the counter. It does not any more, and this is
+    // the assertion that says so: Paystack is connected, the store is assigned
+    // to it, and the resolver agrees the storefront may use it. None of that
+    // reaches the till.
+    //
+    // A counter sale is money the business takes into its own account. Storify
+    // neither holds it nor takes a cut of it, so there is nothing here for a
+    // provider to collect, and offering one would be collecting into the wrong
+    // account. See Pos\PaymentMethodController.
     [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
     $store = ws39Store($owner);
 
@@ -633,47 +644,79 @@ test('the pos is offered cash plus whatever the store actually accepts', functio
 
     $token = $owner->createToken('pos-access', ['pos'], now()->addHour())->plainTextToken;
 
-    $methods = collect(
-        $this->withToken($token)
-            ->getJson('/api/v1/pos/stores/'.$store->store_id.'/payment-methods')
-            ->assertOk()
-            ->json('data.payment_methods')
-    )->keyBy('code');
-
-    // Cash is the till's own and always present.
-    expect($methods)->toHaveKey('cash')
-        ->and($methods)->toHaveKey('paystack')
-        // A provider this store never connected must not appear at the till —
-        // `bachs` now has a driver and a seeded row, and is still absent here for
-        // that reason alone. `bitfra` is USD-priced and has no rate seeded, so it
-        // is hidden for a reason of its own.
-        ->and($methods)->not->toHaveKey('bitfra')
-        ->and($methods)->not->toHaveKey('bachs');
-});
-
-test('the till is told the same conversion the shopfront is', function () {
-    // The two surfaces read the same resolver and must show the same figure for
-    // the same payment. They previously kept separate lists that disagreed.
-    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
-    $store = ws39Store($owner);
-
-    ws39Connect($business, 'bitfra', ['api_key' => 'bix-'.str_repeat('a', 28).'-'.str_repeat('b', 28), 'webhook_secret' => 'whsec_abcdefgh']);
-    ws39Rate('NGN', 1331.267014);
-
-    $token = $owner->createToken('pos-access', ['pos'], now()->addHour())->plainTextToken;
-
     $payload = $this->withToken($token)
         ->getJson('/api/v1/pos/stores/'.$store->store_id.'/payment-methods')
         ->assertOk();
 
-    $methods = collect($payload->json('data.payment_methods'))->keyBy('code');
+    // Cash only, because this business has no bank account yet — the transfer
+    // option appears with the account, not with a setting.
+    expect(collect($payload->json('data.payment_methods'))->pluck('code')->all())->toBe(['cash'])
+        ->and($payload->json('data.bank_transfer_unavailable_reason'))
+        ->toBe('Add a bank account to accept bank transfers at the till.');
 
-    expect($payload->json('data.store_currency'))->toBe('NGN')
-        // Cash is taken in the store's own currency and is never converted.
-        ->and($methods['cash']['currency'])->toBe('NGN')
-        ->and($methods['cash']['conversion'])->toBeNull()
-        ->and($methods['bitfra']['currency'])->toBe('USD')
-        ->and($methods['bitfra']['conversion']['divisor'])->toEqualWithDelta(1331.267014, 0.0001);
+    // Meanwhile the shopfront is untouched by any of it. The two surfaces now
+    // answer different questions, and the resolver is what still proves the
+    // difference is the rail rather than the configuration.
+    expect(ws39Resolver()->forStore($store))->toHaveKey('paystack');
+});
+
+test('a bank account the business never assigned to the store is still offered at the till', function () {
+    // The till used to read the store's assigned banks — the `store_bank` pivot
+    // the management "assign bank to store" screen writes — and only the
+    // verified ones. At a counter neither applies: the customer is transferring
+    // to the *business*, the money never enters Storify's custody, and there is
+    // nothing for us to verify before it does.
+    //
+    // So every account the business holds is offered, the pivot is ignored, and
+    // the account the business's payouts go to is marked — that being the one
+    // the money is meant to end up in.
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    $store = ws39Store($owner);
+
+    $payout = StoreBank::create([
+        'business_id' => $business->id,
+        'bank_name' => 'Guaranty Trust Bank',
+        'bank_code' => '058',
+        'account_number' => '0123456789',
+        'account_name' => 'WS39 Trading Ltd',
+        'is_primary' => true,
+        'is_verified' => true,
+    ]);
+
+    $unverified = StoreBank::create([
+        'business_id' => $business->id,
+        'bank_name' => 'Zenith Bank',
+        'bank_code' => '057',
+        'account_number' => '9876543210',
+        'account_name' => 'WS39 Trading Ltd',
+        'is_primary' => false,
+        'is_verified' => false,
+    ]);
+
+    $business->forceFill(['payout_bank_id' => $payout->id])->save();
+
+    // Neither is assigned to this store, which is exactly the point.
+    expect($store->assignedBanks()->count())->toBe(0);
+
+    $token = $owner->createToken('pos-access', ['pos'], now()->addHour())->plainTextToken;
+
+    $banks = collect(
+        $this->withToken($token)
+            ->getJson('/api/v1/pos/stores/'.$store->store_id.'/banks')
+            ->assertOk()
+            ->json('data.banks')
+    )->keyBy('id');
+
+    expect($banks->keys()->sort()->values()->all())
+        ->toBe(collect([$payout->id, $unverified->id])->sort()->values()->all())
+        ->and($banks[$payout->id]['is_payout'])->toBeTrue()
+        ->and($banks[$payout->id]['is_verified'])->toBeTrue()
+        ->and($banks[$unverified->id]['is_payout'])->toBeFalse()
+        // Offered all the same — an unverified account still receives money.
+        ->and($banks[$unverified->id]['is_verified'])->toBeFalse()
+        // Masked, because this list is read at a counter over a customer's
+        // shoulder.
+        ->and($banks[$payout->id]['masked_account_number'])->toBe('012*****89');
 });
 
 /* ------------------------------------------------------ the admin switch */

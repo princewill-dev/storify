@@ -1,5 +1,7 @@
 <?php
 
+use App\Actions\Pos\PosSaleResult;
+use App\Actions\Pos\ProcessPosSale;
 use App\Enums\TransactionStatus;
 use App\Models\Business;
 use App\Models\ExchangeRate;
@@ -28,7 +30,7 @@ use Illuminate\Support\Str;
 use Laravel\Sanctum\Sanctum;
 
 /*
-| WS-39 follow-up — the till actually charges the card.
+| WS-39 follow-up — the till settles a sale without asking anyone.
 |
 | Selecting Paystack on the POS used to do two wrong things at once: it asked
 | the cashier to retype an amount the till already knew, and it never opened
@@ -37,10 +39,24 @@ use Laravel\Sanctum\Sanctum;
 | reference and a credited store balance. The till printed a receipt for money
 | nobody had taken.
 |
-| These tests pin the three replacements: `initialize` opens the provider and
-| writes nothing, `status` asks the provider what happened, and `/checkout`
-| re-asks before any row exists. The last one is the whole point — it is what
-| makes "checkout successful" mean the customer actually paid.
+| That was fixed by asking the provider twice: `initialize` opened the charge,
+| `status` reported on it, and `/checkout` re-asked before any row existed.
+|
+| The till takes neither now. Its list is cash and a transfer into the
+| business's own bank account — money Storify never holds and cannot split — so
+| there is nothing on Storify's side to confirm, and `/checkout` calls no
+| provider at all. **A sale the till reports as paid is recorded as paid.**
+|
+| What keeps that safe is not a verification. It is that `/checkout` accepts
+| only those two methods, so a card leg is unrepresentable rather than merely
+| unverified — and a stale or edited client is refused before any row exists.
+| That rule is the load-bearing one in this file, and it is asserted at the
+| endpoint rather than at the list for exactly that reason.
+|
+| The gateway branches of `ProcessPosSale` are unreachable through the route
+| now. They are not deleted — restoring card at the till should not mean
+| rewriting them — so the last section drives the action directly and keeps
+| them pinned.
 |
 | The Korapay case is here on purpose. Paystack is the gateway the bug was
 | reported with, but it is also the one the old code named literally, so a
@@ -197,14 +213,7 @@ function pgLines(JournalEntry $entry): array
  */
 function pgCustody(Business $business, ?StoreBank $bank = null): Business
 {
-    $bank ??= StoreBank::create([
-        'business_id' => $business->id,
-        'bank_name' => 'Guaranty Trust Bank',
-        'bank_code' => '058',
-        'account_number' => '0123456789',
-        'account_name' => 'Ada Trading Ltd',
-        'is_primary' => true,
-    ]);
+    $bank ??= pgBusinessBank($business);
 
     $business->forceFill([
         'custody_enabled' => true,
@@ -408,19 +417,66 @@ function pgFakeBachs(string $chargeStatus = 'succeeded'): void
     });
 }
 
-function pgVerifiedBank($business): void
+/**
+ * A bank account the business holds, optionally the one its payouts go to.
+ *
+ * A row on the business, not a `store_bank` pivot row: the till reads the
+ * business's own accounts — see {@see BankController} — and an account becomes
+ * the business's payout destination by being named on the business.
+ *
+ * `is_verified` defaults to true because most tests are about something else,
+ * and an account the business has added and had confirmed is the ordinary case.
+ * The unverified case has a test of its own.
+ */
+function pgBusinessBank(Business $business, string $number = '0123456789', bool $payout = false, bool $verified = true): StoreBank
 {
-    DB::table('store_banks')->insert([
+    $bank = StoreBank::create([
         'business_id' => $business->id,
-        'bank_name' => 'GTBank',
+        'bank_name' => 'Guaranty Trust Bank',
         'bank_code' => '058',
-        'account_number' => '0123456789',
-        'account_name' => 'GATEWAY TEST LTD',
+        'account_number' => $number,
+        'account_name' => 'Ada Trading Ltd',
         'is_primary' => true,
-        'is_verified' => true,
-        'created_at' => now(),
-        'updated_at' => now(),
+        'is_verified' => $verified,
     ]);
+
+    if ($payout) {
+        $business->forceFill(['payout_bank_id' => $bank->id])->save();
+    }
+
+    return $bank;
+}
+
+/**
+ * Drive a sale through the action the checkout controller calls.
+ *
+ * Used by the last section only. `/checkout` accepts no card method, so the
+ * gateway branches of `ProcessPosSale` cannot be reached through the route, and
+ * a test that wants them has to skip the validation that now stands in front of
+ * them.
+ *
+ * @param  array<int, array<string, mixed>>  $payments
+ * @param  array<string, int>  $providerFees
+ */
+function pgExecuteSale(
+    Store $store,
+    User $staff,
+    Product $product,
+    array $payments,
+    array $providerFees = [],
+    string $key = 'pg-action-sale',
+): PosSaleResult {
+    return app(ProcessPosSale::class)->execute(
+        $store,
+        $staff,
+        PosSession::where('store_id', $store->id)->sole(),
+        [
+            'idempotency_key' => $key,
+            'items' => [['product_id' => $product->id, 'quantity' => 1]],
+            'payments' => $payments,
+        ],
+        $providerFees,
+    );
 }
 
 beforeEach(function () {
@@ -483,7 +539,7 @@ test('a charge cannot be started for a method this store cannot charge', functio
         ->assertJsonPath('message', 'That payment method is not available for this store.');
 
     // A provider the store does accept, but with no checkout to open.
-    pgVerifiedBank($business);
+    pgBusinessBank($business);
     pgAssign($business, $store, 'bank_transfer');
 
     $this->postJson("/api/v1/pos/stores/{$store->store_id}/payments/initialize", $payload('bank_transfer'))
@@ -585,87 +641,123 @@ test('the provider is not asked about a method the store cannot charge', functio
 
 /* --------------------------------------------------------- settling the sale */
 
-test('a card leg that never went to the provider is refused', function () {
+test('a card leg cannot be posted to the till at all', function () {
+    // The load-bearing rule this file exists to protect, and the one that
+    // replaced the second provider verification.
+    //
+    // Both of the old build's failures are here. A `paystack` leg with no
+    // reference used to come back "checkout successful" with the money recorded;
+    // one with a reference used to be handed to the provider to confirm. Neither
+    // is refused by `PosPaymentService` any more — it no longer looks at a card
+    // leg — so both are refused one step earlier, by the request, as a method
+    // this route does not accept.
+    //
+    // The reference in the second case is a real one that a provider did settle,
+    // which is the point: nothing about the leg makes it writable.
     [, $business, , $store, $product, $stock] = pgContext();
     pgConnect($business, 'paystack', pgPaystackKeys());
-    pgFakePaystack();
+    pgFakePaystack('success');
 
-    // The old build's exact behaviour: a `paystack` leg with no reference. It
-    // used to come back "checkout successful" with the money recorded.
-    $this->postJson("/api/v1/pos/stores/{$store->store_id}/checkout", [
-        'idempotency_key' => 'pg-unpaid-leg',
-        'items' => [['product_id' => $product->id, 'quantity' => 1]],
-        'payments' => [['method' => 'paystack', 'amount' => 1000]],
-    ])->assertStatus(422)
-        ->assertJsonPath('message', 'A card payment on this sale has not been completed.');
+    foreach ([
+        ['method' => 'paystack', 'amount' => 1000],
+        ['method' => 'paystack', 'amount' => 1000, 'reference' => 'POS_SETTLED'],
+    ] as $leg) {
+        $this->postJson("/api/v1/pos/stores/{$store->store_id}/checkout", [
+            'idempotency_key' => 'pg-card-leg',
+            'items' => [['product_id' => $product->id, 'quantity' => 1]],
+            'payments' => [$leg],
+        ])->assertStatus(422)
+            ->assertJsonValidationErrors(['payments.0.method']);
+    }
 
     expect(Order::count())->toBe(0)
         ->and(Transaction::count())->toBe(0)
         ->and($product->fresh()->quantity)->toBe(10)
         ->and($stock->fresh()->quantity)->toBe(10)
         ->and($store->fresh()->balance)->toBe(0);
+
+    // And no provider was asked about either of them.
+    Http::assertNothingSent();
 });
 
-test('a card leg the provider has not settled is refused', function () {
-    [, $business, , $store, $product] = pgContext();
-    pgConnect($business, 'paystack', pgPaystackKeys());
-    pgFakePaystack('ongoing');
-
-    $this->postJson("/api/v1/pos/stores/{$store->store_id}/checkout", [
-        'idempotency_key' => 'pg-pending-leg',
-        'items' => [['product_id' => $product->id, 'quantity' => 1]],
-        'payments' => [['method' => 'paystack', 'amount' => 1000, 'reference' => 'POS_ABANDONED']],
-    ])->assertStatus(422);
-
-    expect(Order::count())->toBe(0)
-        ->and(Transaction::count())->toBe(0)
-        ->and($store->fresh()->balance)->toBe(0);
-});
-
-test('a paid card leg creates the order carrying the provider reference', function () {
+test('a bank transfer leg writes the sale against the business\'s own account', function () {
+    // The till's real path, and the one that replaced the card: money the
+    // customer transferred into an account the business owns. Naira for naira
+    // with cash — it credits the store's own running balance, and it signs
+    // nothing over to Storify because Storify never held it.
     [, $business, , $store, $product, $stock] = pgContext();
-    pgConnect($business, 'paystack', pgPaystackKeys());
-    pgFakePaystack('success');
-
-    $reference = $this->postJson("/api/v1/pos/stores/{$store->store_id}/payments/initialize", [
-        'items' => [['product_id' => $product->id, 'quantity' => 1]],
-        'method' => 'paystack',
-        'amount' => 1000,
-    ])->assertCreated()->json('data.reference');
+    $bank = pgBusinessBank($business, payout: true);
+    pgFakePaystack();
 
     $this->postJson("/api/v1/pos/stores/{$store->store_id}/checkout", [
-        'idempotency_key' => 'pg-paid-leg',
+        'idempotency_key' => 'pg-transfer-leg',
         'items' => [['product_id' => $product->id, 'quantity' => 1]],
-        'payments' => [['method' => 'paystack', 'amount' => 1000, 'reference' => $reference]],
+        'payments' => [['method' => 'bank_transfer', 'amount' => 1000, 'bank_account_id' => $bank->id]],
     ])->assertCreated();
 
-    $order = Order::where('store_id', $store->id)->sole();
-    $transaction = $order->transactions->sole();
+    $transaction = Order::where('store_id', $store->id)->sole()->transactions->sole();
 
-    expect($transaction->reference)->toBe($reference)
+    expect($transaction->reference)->toStartWith('TXN-POS-')
         ->and($transaction->status)->toBe(TransactionStatus::CONFIRMED)
         ->and((float) $transaction->amount)->toBe(1000.0)
-        ->and($transaction->paymentMethod->code)->toBe('paystack')
+        ->and($transaction->currency)->toBe('NGN')
+        ->and($transaction->paymentMethod->code)->toBe('bank_transfer')
+        // Which account of the business's the money went into — the payout
+        // destination, in this sale's case.
+        ->and($transaction->store_bank_id)->toBe($bank->id)
         ->and($product->fresh()->quantity)->toBe(9)
         ->and($stock->fresh()->quantity)->toBe(9)
         ->and($store->fresh()->balance)->toBe(100000);
+
+    // The whole point of this change: the till's word is the record, and no
+    // provider was asked anything.
+    Http::assertNothingSent();
 });
 
-test('replaying a settled card sale does not credit the store twice', function () {
+test('a transfer leg with no bank account is refused', function () {
     [, $business, , $store, $product] = pgContext();
-    pgConnect($business, 'paystack', pgPaystackKeys());
-    pgFakePaystack('success');
+    pgBusinessBank($business);
 
-    $reference = $this->postJson("/api/v1/pos/stores/{$store->store_id}/payments/initialize", [
+    $this->postJson("/api/v1/pos/stores/{$store->store_id}/checkout", [
+        'idempotency_key' => 'pg-transfer-no-bank',
         'items' => [['product_id' => $product->id, 'quantity' => 1]],
-        'method' => 'paystack',
-        'amount' => 1000,
-    ])->assertCreated()->json('data.reference');
+        'payments' => [['method' => 'bank_transfer', 'amount' => 1000]],
+    ])->assertStatus(422)
+        ->assertJsonPath('message', 'A bank account is required for bank transfer payments.');
+
+    expect(Order::count())->toBe(0)->and(Transaction::count())->toBe(0);
+});
+
+test('a transfer leg naming another business\'s bank account is refused', function () {
+    // The request catches this one — `bank_account_id` is checked against the
+    // store's own business before anything else runs. The action's own copy of
+    // the check is pinned separately, in the last section, because a rule that
+    // exists in two places and is exercised in one is a rule that quietly stops
+    // existing in the other.
+    [, $business, , $store, $product] = pgContext();
+    pgBusinessBank($business);
+
+    [, $otherBusiness] = createBusinessOwner();
+    $foreign = pgBusinessBank($otherBusiness, '9876543210');
+
+    $this->postJson("/api/v1/pos/stores/{$store->store_id}/checkout", [
+        'idempotency_key' => 'pg-transfer-foreign-bank',
+        'items' => [['product_id' => $product->id, 'quantity' => 1]],
+        'payments' => [['method' => 'bank_transfer', 'amount' => 1000, 'bank_account_id' => $foreign->id]],
+    ])->assertStatus(422)
+        ->assertJsonValidationErrors(['payments.0.bank_account_id']);
+
+    expect(Order::count())->toBe(0)->and(Transaction::count())->toBe(0);
+});
+
+test('replaying a till sale does not credit the store twice', function () {
+    [, $business, , $store, $product] = pgContext();
+    $bank = pgBusinessBank($business);
 
     $payload = [
         'idempotency_key' => 'pg-replayed-leg',
         'items' => [['product_id' => $product->id, 'quantity' => 1]],
-        'payments' => [['method' => 'paystack', 'amount' => 1000, 'reference' => $reference]],
+        'payments' => [['method' => 'bank_transfer', 'amount' => 1000, 'bank_account_id' => $bank->id]],
     ];
 
     $this->postJson("/api/v1/pos/stores/{$store->store_id}/checkout", $payload)->assertCreated();
@@ -697,24 +789,17 @@ test('a second provider is charged through its own checkout, not paystack', func
     expect($response->json('data.authorization_url'))->toBe('https://checkout.korapay.com/pg-test');
 
     Http::assertNotSent(fn (Request $request): bool => str_contains($request->url(), 'paystack'));
-
-    $this->postJson("/api/v1/pos/stores/{$store->store_id}/checkout", [
-        'idempotency_key' => 'pg-korapay-leg',
-        'items' => [['product_id' => $product->id, 'quantity' => 1]],
-        'payments' => [['method' => 'korapay', 'amount' => 1000, 'reference' => $response->json('data.reference')]],
-    ])->assertCreated();
-
-    expect(Order::where('store_id', $store->id)->sole()->transactions->sole()->paymentMethod->code)
-        ->toBe('korapay');
 });
 
-test('a bachs leg is charged through its own checkout and settles under the checkout id', function () {
+test('a bachs leg settles under the checkout id, never our own reference', function () {
     // Bachs joins Bitfra in the group that has no lookup by the reference we
     // issue: it answers to the checkout id it returned, so the till has to
     // round-trip that or the leg can never be confirmed. Its amounts are decimal
     // strings rather than minor units, which is the other half of this test — a
-    // ₦1,000 sale must be asked for as "1000.00", and a settled "1000.00" must
-    // credit the store 100000 kobo.
+    // ₦1,000 sale must be asked for as "1000.00".
+    //
+    // The round trip is asserted through `status`, which is where it happens
+    // now. `/checkout` no longer asks anyone anything.
     [, $business, , $store, $product] = pgContext();
     pgConnect($business, 'bachs', ['api_key' => 'sk_sandbox_pgtest12345', 'webhook_secret' => 'whsec_pg']);
     pgFakeBachs();
@@ -735,58 +820,16 @@ test('a bachs leg is charged through its own checkout and settles under the chec
         && $request['pricing']['amount'] === '1000.00'
         && $request['pricing']['currency'] === 'NGN');
 
-    $this->postJson("/api/v1/pos/stores/{$store->store_id}/checkout", [
-        'idempotency_key' => 'pg-bachs-leg',
-        'items' => [['product_id' => $product->id, 'quantity' => 1]],
-        'payments' => [[
-            'method' => 'bachs',
-            'amount' => 1000,
-            'reference' => $started->json('data.reference'),
-            'provider_reference' => $started->json('data.provider_reference'),
-        ]],
-    ])->assertCreated();
-
-    $order = Order::where('store_id', $store->id)->sole();
-
-    expect($order->transactions->sole()->paymentMethod->code)->toBe('bachs')
-        ->and($store->fresh()->balance)->toBe(100000);
+    $this->postJson("/api/v1/pos/stores/{$store->store_id}/payments/status", [
+        'method' => 'bachs',
+        'reference' => $started->json('data.reference'),
+        'provider_reference' => $started->json('data.provider_reference'),
+        'amount' => 1000,
+    ])->assertOk()->assertJsonPath('data.paid', true);
 
     // Asked under the checkout id, never the POS reference — the checkout id is
     // the only name Bachs can answer about.
     Http::assertSent(fn (Request $request): bool => str_contains($request->url(), '/checkout-sessions/chk_pg_1'));
-});
-
-test('a gateway leg clears through the gateway account, not the drawer', function () {
-    // The defect this catches: `paymentAssetKey()` named Paystack literally, so
-    // every other provider's takings were posted to Cash on Hand — money the
-    // till never held, sitting in the drawer reconciliation as a surplus.
-    [, $business, , $store, $product] = pgContext();
-    pgConnect($business, 'korapay', ['public_key' => 'pk_test_korapay123', 'secret_key' => 'sk_test_korapay123']);
-    pgFakeKorapay();
-
-    $reference = $this->postJson("/api/v1/pos/stores/{$store->store_id}/payments/initialize", [
-        'items' => [['product_id' => $product->id, 'quantity' => 1]],
-        'method' => 'korapay',
-        'amount' => 1000,
-    ])->assertCreated()->json('data.reference');
-
-    $this->postJson("/api/v1/pos/stores/{$store->store_id}/checkout", [
-        'idempotency_key' => 'pg-clearing-leg',
-        'items' => [['product_id' => $product->id, 'quantity' => 1]],
-        'payments' => [['method' => 'korapay', 'amount' => 1000, 'reference' => $reference]],
-    ])->assertCreated();
-
-    $order = Order::where('store_id', $store->id)->sole();
-
-    $account = fn (string $code): int => LedgerAccount::where('business_id', $store->business_id)
-        ->where('code', $code)
-        ->sole()
-        ->id;
-
-    $lines = JournalEntry::where('idempotency_key', 'sale:order:'.$order->id)->sole()->lines;
-
-    expect((int) $lines->where('ledger_account_id', $account('1030'))->sum('debit_kobo'))->toBe(100000)
-        ->and((int) $lines->where('ledger_account_id', $account('1010'))->sum('debit_kobo'))->toBe(0);
 });
 
 test('a cash sale is untouched by any of this', function () {
@@ -808,23 +851,78 @@ test('a cash sale is untouched by any of this', function () {
     Http::assertNothingSent();
 });
 
-test('the payment-methods response tells the till how each method is paid', function () {
-    // The client branches on `mode` to decide whether a leg opens a provider.
-    // The POS endpoint used to drop it, which is why every gateway looked like
-    // a local payment.
-    [, $business, $staff, $store] = pgContext();
+test('the till is offered cash and a transfer into the business\'s own account', function () {
+    // Two entries, and a connected provider is not one of them. The till is not
+    // the shopfront: a counter sale is money the business takes, in an account
+    // the business owns, and Storify neither holds it nor takes a cut of it — so
+    // there is nothing here for a provider to collect.
+    //
+    // The client branches on `mode` to decide whether a leg opens a provider,
+    // which is why it is on the wire. It is `offline` for both.
+    [, $business, , $store] = pgContext();
     pgConnect($business, 'paystack', pgPaystackKeys());
+    pgBusinessBank($business, payout: true);
 
-    $methods = collect(
-        $this->getJson("/api/v1/pos/stores/{$store->store_id}/payment-methods")
-            ->assertOk()
-            ->json('data.payment_methods')
-    )->keyBy('code');
+    $payload = $this->getJson("/api/v1/pos/stores/{$store->store_id}/payment-methods")->assertOk();
 
-    expect($methods)->toHaveKey('paystack')
-        ->and($methods['paystack']['mode'])->toBe('redirect');
+    $methods = collect($payload->json('data.payment_methods'))->keyBy('code');
 
+    expect($methods->keys()->sort()->values()->all())->toBe(['bank_transfer', 'cash'])
+        ->and($methods['cash']['name'])->toBe('Cash')
+        ->and($methods['cash']['mode'])->toBe('offline')
+        ->and($methods['cash']['requires_bank_account'])->toBeFalse()
+        ->and($payload->json('data.store_currency'))->toBe('NGN')
+        ->and($methods['cash']['currency'])->toBe('NGN')
+        ->and($methods['cash']['conversion'])->toBeNull()
+        // Taken in the store's own currency and never converted: the account
+        // the customer transfers into is in the store's country.
+        ->and($methods['bank_transfer']['currency'])->toBe('NGN')
+        ->and($methods['bank_transfer']['conversion'])->toBeNull()
+        ->and($methods['bank_transfer']['name'])->toBe('Bank transfer')
+        ->and($methods['bank_transfer']['mode'])->toBe('offline')
+        ->and($methods['bank_transfer']['requires_bank_account'])->toBeTrue()
+        // Cash is on the list, so the till is not down and the storefront's
+        // reason has nothing to say.
+        ->and($payload->json('data.unavailable_reason'))->toBeNull()
+        ->and($payload->json('data.bank_transfer_unavailable_reason'))->toBeNull();
+
+    // The storefront still offers it. This is a difference in rail, not in
+    // configuration, and the two reading one resolver would hide which it is.
     expect(app(PaymentGatewayResolver::class)->forStore($store))->toHaveKey('paystack');
+});
+
+test('the till is not offered a bank transfer until the business has an account', function () {
+    // The gate is the account, not the storefront's switch: a business that
+    // turned bank transfer off online still takes transfers over the counter.
+    // Having nowhere to send the money is the one thing that stops it, and the
+    // reason says so rather than leaving the option silently missing.
+    [, $business, , $store] = pgContext();
+
+    $payload = $this->getJson("/api/v1/pos/stores/{$store->store_id}/payment-methods")->assertOk();
+
+    expect(collect($payload->json('data.payment_methods'))->pluck('code')->all())->toBe(['cash'])
+        ->and($payload->json('data.bank_transfer_unavailable_reason'))
+        ->toBe('Add a bank account to accept bank transfers at the till.');
+});
+
+test('the till is told which account the business\'s payouts go to', function () {
+    // Every account the business holds is offered, because the money is the
+    // business's and the customer is paying the business — not a store. The
+    // payout destination is flagged because that is where the money is meant to
+    // end up, and it is what the app preselects.
+    [, $business, , $store] = pgContext();
+    $payout = pgBusinessBank($business, '0123456789', payout: true);
+    $other = pgBusinessBank($business, '9876543210');
+
+    $banks = collect(
+        $this->getJson("/api/v1/pos/stores/{$store->store_id}/banks")->assertOk()->json('data.banks')
+    )->keyBy('id');
+
+    expect($banks->keys()->sort()->values()->all())->toBe(collect([$payout->id, $other->id])->sort()->values()->all())
+        ->and($banks[$payout->id]['is_payout'])->toBeTrue()
+        ->and($banks[$other->id]['is_payout'])->toBeFalse()
+        ->and($banks[$payout->id]['masked_account_number'])->toBe('012*****89')
+        ->and($banks[$payout->id]['bank_code'])->toBe('058');
 });
 
 test('a provider that names its own payments is asked about that name, not ours', function () {
@@ -922,48 +1020,6 @@ test('a provider that names its own payments is asked about that name, not ours'
     expect($paystackStart->json('data.provider_reference'))->toBeNull();
 });
 
-test('a bitfra leg on a naira store settles for the converted charge', function () {
-    // The whole path end to end: a naira sale charged in dollars, verified
-    // against the converted figure, and written down as the naira the store is
-    // owed rather than the dollars the customer sent.
-    [, $business, , $store, $product] = pgContext();
-    pgSeedRate('NGN', 1000.0);
-    pgConnect($business, 'bitfra', ['api_key' => 'test_sandbox_key', 'webhook_secret' => 'whsec_pg']);
-    pgFakeBitfra(1.00);
-
-    $started = $this->postJson("/api/v1/pos/stores/{$store->store_id}/payments/initialize", [
-        'items' => [['product_id' => $product->id, 'quantity' => 1]],
-        'method' => 'bitfra',
-        'amount' => 1000,
-    ])->assertCreated();
-
-    $reference = $started->json('data.reference');
-
-    $this->postJson("/api/v1/pos/stores/{$store->store_id}/checkout", [
-        'idempotency_key' => 'pg-btcf-leg',
-        'items' => [['product_id' => $product->id, 'quantity' => 1]],
-        'payments' => [[
-            'method' => 'bitfra',
-            'amount' => 1000,
-            'reference' => $reference,
-            'provider_reference' => $started->json('data.provider_reference'),
-            'charge_amount' => 100,
-            'charge_currency' => 'USD',
-        ]],
-    ])->assertCreated();
-
-    $transaction = Transaction::where('reference', $reference)->sole();
-
-    expect((float) $transaction->amount)->toBe(1000.0)
-        // The store's own currency, which is what `amount` has always been in.
-        ->and($transaction->currency)->toBe('NGN')
-        // What the provider actually saw, kept for the same reason the
-        // storefront keeps it: it is not recoverable afterwards.
-        ->and($transaction->metadata['charge']['amount_minor'])->toBe(100)
-        ->and($transaction->metadata['charge']['currency'])->toBe('USD')
-        ->and($store->fresh()->balance)->toBe(100000);
-});
-
 test('a charge that converts to nothing is refused before the provider is asked', function () {
     // ₦1 is a tenth of a cent at ₦1,000 to the dollar. Rounding it up to the
     // smallest unit would overcharge tenfold, and sending zero would charge
@@ -987,38 +1043,144 @@ test('a charge that converts to nothing is refused before the provider is asked'
 
 /*
 |--------------------------------------------------------------------------
-| A managed till leg, and the fee the wallet needs to price it
+| The gateway branches the till can no longer reach
 |--------------------------------------------------------------------------
 |
-| The till is the third way a sale gets paid and the only one that never passes
-| through a webhook or a return leg — the verification in `assertPaid()` is the
-| last time anyone asks the provider about this charge. It is also the only
-| moment the provider states what it charged, and a business under custody
-| cannot be paid out of a sale that has no provider fee on it: the wallet's
-| share is `gross - fee - commission`, and crediting it without the middle term
-| would either understate the debt or invent one.
+| `/checkout` accepts cash and `bank_transfer` and nothing else, so nothing in
+| this section is reachable through it — which is worth stating, because the
+| code is still there and still runs for anyone who restores card at the till.
 |
-| So the figure the checkout already fetched has to reach the transaction row,
-| or a custody business selling at the till is never owed its money at all.
+| Deleting it would be the tidy thing and the wrong one: it is the half of the
+| old design that still holds up. A managed leg's commission, the provider's own
+| fee on the row, and the wallet's refusal to credit a sale nobody priced are
+| all money rules that were fought for, and they are not about verification —
+| they are about what the platform is owed and owes once a card sale exists.
+|
+| So it is driven directly, through the action the controller calls, rather than
+| through a route that would refuse it. The tests skip validation on purpose;
+| that is the only thing being bypassed, and the section above proves the
+| validation is there.
 */
 
-test('a managed till leg records the provider charge and credits the custody wallet', function () {
-    [, $business, , $store, $product] = pgContext();
+test('the sale action refuses a bank account belonging to another business', function () {
+    // The bug this pins: these checks matched the literal `transfer`, the POS
+    // client's older name, while the catalogue's code is `bank_transfer` — so a
+    // leg sent under the code the till now uses skipped both of them, and
+    // another business's account was written onto the transaction.
+    [, $business, $staff, $store, $product] = pgContext();
+    pgBusinessBank($business);
+
+    [, $otherBusiness] = createBusinessOwner();
+    $foreign = pgBusinessBank($otherBusiness, '9876543210');
+
+    expect(fn () => pgExecuteSale($store, $staff, $product, [
+        ['method' => 'bank_transfer', 'amount' => 1000, 'bank_account_id' => $foreign->id],
+    ], key: 'pg-action-foreign-bank'))
+        ->toThrow(DomainException::class, 'A selected bank account does not belong to this business.');
+
+    expect(Order::count())->toBe(0)
+        ->and(Transaction::count())->toBe(0)
+        ->and($product->fresh()->quantity)->toBe(10);
+});
+
+test('the sale action refuses a bank transfer with no bank account', function () {
+    [, $business, $staff, $store, $product] = pgContext();
+    pgBusinessBank($business);
+
+    expect(fn () => pgExecuteSale($store, $staff, $product, [
+        ['method' => 'bank_transfer', 'amount' => 1000],
+    ], key: 'pg-action-no-bank'))
+        ->toThrow(DomainException::class, 'A bank account is required for bank transfer payments.');
+
+    expect(Order::count())->toBe(0);
+});
+
+test('a gateway leg clears through the gateway account, not the drawer', function () {
+    // The defect this catches: `paymentAssetKey()` named Paystack literally, so
+    // every other provider's takings were posted to Cash on Hand — money the
+    // till never held, sitting in the drawer reconciliation as a surplus.
+    [, $business, $staff, $store, $product] = pgContext();
+    pgConnect($business, 'korapay', ['public_key' => 'pk_test_korapay123', 'secret_key' => 'sk_test_korapay123']);
+    pgFakeKorapay();
+
+    pgExecuteSale($store, $staff, $product, [
+        ['method' => 'korapay', 'amount' => 1000, 'reference' => 'POS_KORAPAY_ACTION'],
+    ], key: 'pg-action-clearing');
+
+    $order = Order::where('store_id', $store->id)->sole();
+
+    $account = fn (string $code): int => LedgerAccount::where('business_id', $store->business_id)
+        ->where('code', $code)
+        ->sole()
+        ->id;
+
+    $lines = JournalEntry::where('idempotency_key', 'sale:order:'.$order->id)->sole()->lines;
+
+    expect((int) $lines->where('ledger_account_id', $account('1030'))->sum('debit_kobo'))->toBe(100000)
+        ->and((int) $lines->where('ledger_account_id', $account('1010'))->sum('debit_kobo'))->toBe(0);
+});
+
+test('a gateway leg records what the provider was asked to charge, in its own units', function () {
+    // A naira sale charged in dollars. The store is written down as the naira it
+    // is owed, and what the provider actually saw is kept beside it for the same
+    // reason the storefront keeps it: it is not recoverable afterwards.
+    [, $business, $staff, $store, $product] = pgContext();
+    pgSeedRate('NGN', 1000.0);
+    pgConnect($business, 'bitfra', ['api_key' => 'test_sandbox_key', 'webhook_secret' => 'whsec_pg']);
+    pgFakeBitfra(1.00);
+
+    $reference = 'POS_BITFRA_ACTION';
+
+    pgExecuteSale($store, $staff, $product, [[
+        'method' => 'bitfra',
+        'amount' => 1000,
+        'reference' => $reference,
+        'provider_reference' => 'pay_pg_1',
+        'charge_amount' => 100,
+        'charge_currency' => 'USD',
+    ]], key: 'pg-action-charge-record');
+
+    $transaction = Transaction::where('reference', $reference)->sole();
+
+    expect((float) $transaction->amount)->toBe(1000.0)
+        // The store's own currency, which is what `amount` has always been in.
+        ->and($transaction->currency)->toBe('NGN')
+        ->and($transaction->gateway_reference)->toBe('pay_pg_1')
+        ->and($transaction->metadata['charge']['amount_minor'])->toBe(100)
+        ->and($transaction->metadata['charge']['currency'])->toBe('USD')
+        ->and($store->fresh()->balance)->toBe(100000);
+});
+
+/*
+|--------------------------------------------------------------------------
+| A managed leg, and the fee the wallet needs to price it
+|--------------------------------------------------------------------------
+|
+| None of this is reachable from `/checkout` any more — see the section above
+| for why it is kept anyway — but the money rules it states are the reason the
+| section above has to hold. A business under custody cannot be paid out of a
+| sale that carries no provider fee: the wallet's share is
+| `gross - fee - commission`, and crediting it without the middle term would
+| either understate the debt or invent one.
+|
+| So the figure the checkout used to fetch has to reach the transaction row, or
+| a custody business selling at the till is never owed its money at all. It
+| arrives through `providerFees`, and these two tests are where that contract
+| is written down.
+*/
+
+test('a managed leg records the provider charge and credits the custody wallet', function () {
+    [, $business, $staff, $store, $product] = pgContext();
     pgPlatformProcessor(2.5);
     $business = pgCustody($business);
     // ₦1,000 charged, ₦15 kept by Paystack, ₦25 commission at 2.5%.
     pgFakePaystack('success', 100000, 1500);
-    $reference = $this->postJson("/api/v1/pos/stores/{$store->store_id}/payments/initialize", [
-        'items' => [['product_id' => $product->id, 'quantity' => 1]],
-        'method' => 'paystack',
-        'amount' => 1000,
-    ])->assertCreated()->json('data.reference');
 
-    $this->postJson("/api/v1/pos/stores/{$store->store_id}/checkout", [
-        'idempotency_key' => 'pg-custody-priced-leg',
-        'items' => [['product_id' => $product->id, 'quantity' => 1]],
-        'payments' => [['method' => 'paystack', 'amount' => 1000, 'reference' => $reference]],
-    ])->assertCreated();
+    $reference = 'POS_MANAGED_PRICED';
+
+    pgExecuteSale($store, $staff, $product, [
+        ['method' => 'paystack', 'amount' => 1000, 'reference' => $reference],
+    ], [$reference => 1500], key: 'pg-custody-priced-leg');
 
     $transaction = Transaction::where('reference', $reference)->sole();
 
@@ -1045,25 +1207,21 @@ test('a managed till leg records the provider charge and credits the custody wal
     ]);
 });
 
-test('a managed till leg the provider did not price waits rather than guessing', function () {
-    [, $business, , $store, $product] = pgContext();
+test('a managed leg the provider did not price waits rather than guessing', function () {
+    [, $business, $staff, $store, $product] = pgContext();
     pgPlatformProcessor(2.5);
     $business = pgCustody($business);
     pgFakePaystack('success', 100000);
 
-    $reference = $this->postJson("/api/v1/pos/stores/{$store->store_id}/payments/initialize", [
-        'items' => [['product_id' => $product->id, 'quantity' => 1]],
-        'method' => 'paystack',
-        'amount' => 1000,
-    ])->assertCreated()->json('data.reference');
+    $reference = 'POS_MANAGED_UNPRICED';
 
-    // The sale itself still goes through — the customer paid, and the shop has
-    // goods out of the door. What is withheld is the number we would owe.
-    $this->postJson("/api/v1/pos/stores/{$store->store_id}/checkout", [
-        'idempotency_key' => 'pg-custody-unpriced-leg',
-        'items' => [['product_id' => $product->id, 'quantity' => 1]],
-        'payments' => [['method' => 'paystack', 'amount' => 1000, 'reference' => $reference]],
-    ])->assertCreated();
+    // No fee is handed over, because the provider said nothing about what it
+    // charged. The sale itself still goes through — the customer paid, and the
+    // shop has goods out of the door. What is withheld is the number we would
+    // owe.
+    pgExecuteSale($store, $staff, $product, [
+        ['method' => 'paystack', 'amount' => 1000, 'reference' => $reference],
+    ], [], key: 'pg-custody-unpriced-leg');
 
     $transaction = Transaction::where('reference', $reference)->sole();
 

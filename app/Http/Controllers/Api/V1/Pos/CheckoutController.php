@@ -38,22 +38,19 @@ final class CheckoutController extends Controller
             return response()->json(['success' => false, 'message' => 'Invalid PIN.'], 422);
         }
 
-        // Anything settled by a provider's checkout has to have been paid, and
-        // the provider is asked here rather than trusted. Until this existed a
-        // `paystack` leg was written straight through as a confirmed
-        // transaction, so the till could complete a sale nobody had paid for.
-        // The refusal costs nothing: no order, no stock, no money has moved.
+        // The till's legs are checked for completeness, not with the provider.
+        // A counter sale is cash or a transfer into the business's own bank
+        // account — money Storify never holds and cannot split — so there is
+        // nothing to verify: the till's word is the record. What stops a leg
+        // that should not exist is {@see PosCheckoutRequest}, which accepts only
+        // those two methods and none at all while the platform is collecting.
         //
-        // The same call collects what the provider said it charged. That figure
-        // is only ever available here — the verify it comes from is the last
-        // time anyone asks about this charge — and it is the difference between a
-        // business under custody being owed the money from a till sale and that
-        // sale sitting unpriceable forever, because the wallet will not credit a
-        // sale whose provider fee is unknown. Handed on to the action rather than
-        // re-read there, which would be a second charge to the provider's API for
-        // an answer this one already has.
+        // The refusal costs nothing: no order, no stock, no money has moved.
+        // `$providerFees` comes back empty and is passed on because
+        // `ProcessPosSale` still takes it — a managed leg would have a provider
+        // charge to hand over, and no path produces one now.
         try {
-            $providerFees = $this->payments->assertPaid($store, $data['payments'] ?? []);
+            $providerFees = $this->payments->assertLegsComplete($data['payments'] ?? []);
         } catch (DomainException $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
         }
@@ -134,12 +131,17 @@ final class CheckoutController extends Controller
      *
      * This is the one genuinely bad outcome of charging a card before the order
      * exists: the provider has the cash and there is nothing here to attach it
-     * to, so the only way back is a refund from the provider's dashboard. The
-     * pre-flight check in `PosPaymentService::quote` removes the ordinary
-     * causes — a product this store does not stock, a quantity it does not have
-     * — so what is left is a concurrent sale on the last unit. Nothing can
-     * replay it automatically; a log line naming the references is what makes
-     * it findable, and it should be.
+     * to, so the only way back is a refund from the provider's dashboard.
+     *
+     * **It cannot fire from this route any more.** The filter below keys on
+     * `isGatewayMethod`, and `/checkout` accepts no method that is one — a card
+     * sale that could have been charged against a reference no longer reaches
+     * here. It is left in place, and left on the catch-all `\Throwable` branch,
+     * for the clients the card endpoints still serve and because deleting a
+     * log line that names money already taken is not a change to make in the
+     * same breath as simplifying the path that fed it. If a card method is ever
+     * restored to the till, this is the safety net it will need — restore that
+     * with it.
      */
     private function logPaidButUnsold(Store $store, ?object $user, array $data, \Throwable $e): void
     {

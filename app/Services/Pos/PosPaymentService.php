@@ -5,6 +5,7 @@ namespace App\Services\Pos;
 use App\Actions\Pos\PosSaleQuote;
 use App\Actions\Pos\PricePosSale;
 use App\Enums\VerificationStatus;
+use App\Http\Controllers\Api\V1\Pos\PaymentMethodController;
 use App\Models\Store;
 use App\Models\User;
 use App\Services\Payments\Data\PaymentIntent;
@@ -18,15 +19,31 @@ use DomainException;
 use Illuminate\Support\Str;
 
 /**
- * Taking card and wallet money at the till.
+ * Opening a provider's checkout from the till, and asking it what happened.
  *
  * The POS had no relationship with a payment provider at all: `ProcessPosSale`
  * wrote a confirmed transaction and credited the store for every leg, whatever
  * its method. Selecting Paystack therefore produced a receipt, an order and a
  * balance movement for a charge that was never made. This service is the
- * missing half — it asks the provider to start a payment, asks it whether that
- * payment happened, and gives `CheckoutController` the means to refuse a sale
- * whose gateway legs were not actually paid.
+ * missing half — it asks the provider to start a payment and asks it whether
+ * that payment happened.
+ *
+ * ## The till no longer takes card
+ *
+ * What is left of the first half is {@see PaymentController}'s two endpoints:
+ * a client that opens a provider's checkout still can, and can still poll it.
+ * But the till is no longer offered a card method at all — its list is cash and
+ * a transfer into the business's own bank account, see
+ * {@see PaymentMethodController} — and
+ * `/checkout` accepts nothing else, see
+ * {@see \App\Http\Requests\Pos\PosCheckoutRequest}. The money for a counter sale
+ * is the business's, held in the business's own account, so there is nothing on
+ * Storify's side to confirm and nothing to collect against.
+ *
+ * That is why `assertPaid` became {@see self::assertLegsComplete()}: it used to
+ * re-ask the provider at the moment of sale, and now only checks that a leg
+ * which needs a reference has one. **The till's word is the record.** The
+ * validation list is what keeps that safe — nothing else does.
  *
  * ## Why nothing is written here
  *
@@ -38,11 +55,10 @@ use Illuminate\Support\Str;
  * abandoned charge would inflate the superadmin dashboard permanently, and the
  * store-scoped dashboards (which do filter) would never show it.
  *
- * The provider is the record of truth instead. `initialize` returns a
- * reference, `status` asks the provider what became of it, and `assertPaid`
- * re-asks at the moment of sale, before any row exists. `recordPayments` then
- * writes the transaction exactly as it always did, with the provider's own
- * reference on it. No new state, nothing for a report to trip over.
+ * The provider is asked instead of recorded: `initialize` returns a reference,
+ * `status` asks the provider what became of it, and `recordPayments` writes the
+ * transaction with the provider's own reference on it. No new state, nothing
+ * for a report to trip over.
  *
  * Only providers with a hosted checkout are handled here. Manual bank transfer
  * is `offline` — a person confirms it — and keeps its existing behaviour.
@@ -222,7 +238,8 @@ final class PosPaymentService
         // business's client, not its accountant: on a leg the platform processed,
         // the provider's fee is taken off the money before it reaches us, and it
         // belongs on the transaction row rather than in a cashier's screen. It is
-        // read by `assertPaid()`, which is the call that is about to write it.
+        // read at initialize and written there, not carried through a cashier's
+        // status poll.
         return [
             'paid' => $leg['paid'],
             'pending' => $leg['pending'],
@@ -231,19 +248,20 @@ final class PosPaymentService
     }
 
     /**
-     * Ask the provider about one leg, and keep what it said about its own charge.
+     * Ask the provider about one leg.
      *
-     * The single place a till leg is verified. `status()` and `assertPaid()` differ
-     * only in what they do with the answer, and both need the same three-way
-     * reading of it — so the reading lives once, here, and the fee comes back
-     * with it rather than being fetched a second time by whoever wants it.
+     * The single place a till leg is verified, and now reached only by
+     * {@see self::status()} — the till's own settled-up path no longer asks,
+     * because the till no longer takes a method a provider settles. It answers
+     * a question and writes nothing, so the till can poll it while the customer
+     * works through the provider's pages.
      *
-     * `fees` is the provider's own charge in its own minor units, and null
-     * whenever the provider did not report one: unpaid, unpriceable, the wrong
-     * amount, or simply silent. Null means "not known", never zero — a zero here
-     * would be a claim that the charge was free.
+     * The amount is read strictly rather than as a boolean. A provider saying
+     * "paid" is not the same as it having been paid the amount asked for —
+     * underpayment is a real outcome, and reporting one as settled is a loss,
+     * not a rounding detail.
      *
-     * @return array{paid: bool, pending: bool, message: ?string, fees: ?int}
+     * @return array{paid: bool, pending: bool, message: ?string}
      *
      * @throws DomainException when the method is not one this store can charge
      */
@@ -269,7 +287,6 @@ final class PosPaymentService
                 'paid' => false,
                 'pending' => $verification->status === VerificationStatus::PENDING,
                 'message' => $verification->message,
-                'fees' => null,
             ];
         }
 
@@ -286,21 +303,17 @@ final class PosPaymentService
                 'paid' => false,
                 'pending' => false,
                 'message' => "Update the POS app to take this payment method — {$method} charges in {$driver->currency()}.",
-                'fees' => null,
             ];
         }
 
-        // A provider saying "paid" is not the same as it having been paid the
-        // amount asked for — underpayment is a real outcome, and a sale settled
-        // on one is a loss, not a rounding detail. Every driver's PAID result
-        // carries an amount; one that does not reads as 0 here and is refused,
-        // which is the right way round for money we cannot account for.
+        // Every driver's PAID result carries an amount; one that does not reads
+        // as 0 here and is refused, which is the right way round for money we
+        // cannot account for.
         if ((int) $verification->amountMinor !== $expected) {
             return [
                 'paid' => false,
                 'pending' => false,
                 'message' => 'The provider recorded a different amount for this payment.',
-                'fees' => null,
             ];
         }
 
@@ -308,11 +321,6 @@ final class PosPaymentService
             'paid' => true,
             'pending' => false,
             'message' => null,
-            // Whatever the provider said it charged, which is null for the ones
-            // that do not say. Passed through untouched: it is the provider's
-            // figure in the provider's units, and converting it here would put a
-            // rate between the fee and the column it is written into.
-            'fees' => $verification->feesMinor !== null ? (int) $verification->feesMinor : null,
         ];
     }
 
@@ -344,26 +352,34 @@ final class PosPaymentService
     }
 
     /**
-     * Refuse a sale whose gateway legs were not paid.
+     * Refuse a sale whose legs are not complete enough to be written.
      *
-     * This is the call that makes the till honest. It runs before any order,
-     * transaction or stock row exists, so a refusal costs the cashier nothing
-     * but the retry.
+     * This was `assertPaid()`, and it asked the provider about every gateway leg
+     * at the moment of sale. It does not any more. The till takes cash and a
+     * transfer into the business's own bank account: the money is the business's,
+     * it never passes through Storify, and there is nothing here to confirm or to
+     * collect against. **A sale the till reports as paid is recorded as paid.**
+     *
+     * What remains is structural — a leg the catalogue settles by a provider's
+     * checkout still has to carry a reference, and `ProcessPosSale` re-checks
+     * that itself. Nothing here touches the network, and nothing is written: the
+     * only place a row appears is still `ProcessPosSale`, inside its transaction.
+     *
+     * This method cannot refuse a card leg on its merits, because it no longer
+     * looks at any. What keeps a card leg from being written is that
+     * {@see PosCheckoutRequest} does not accept one — the guarantee moved out of
+     * this class and into validation, and it lives there now.
      *
      * @param  array<int, array<string, mixed>>  $payments  the validated legs
-     * @return array<string, int> the provider's own charge for each leg it
-     *                            reported one for, keyed by the reference the
-     *                            leg carries — the same key `ProcessPosSale`
-     *                            will look the leg up by. Legs the provider
-     *                            priced at nothing, and methods that never had a
-     *                            provider at all, are simply absent.
+     * @return array<string, int> empty. Kept as a return value, and kept in
+     *                            `ProcessPosSale`'s signature, because a leg the
+     *                            platform processed would have a provider fee to
+     *                            hand over and no path produces one today.
      *
-     * @throws DomainException on the first unpaid gateway leg
+     * @throws DomainException on the first gateway leg with no reference
      */
-    public function assertPaid(Store $store, array $payments): array
+    public function assertLegsComplete(array $payments): array
     {
-        $fees = [];
-
         foreach ($payments as $payment) {
             $method = (string) $payment['method'];
 
@@ -376,38 +392,9 @@ final class PosPaymentService
             if (empty($reference)) {
                 throw new DomainException('A card payment on this sale has not been completed.');
             }
-
-            $leg = $this->verifyLeg(
-                $store,
-                $method,
-                (string) $reference,
-                (float) $payment['amount'],
-                // Round-tripped from initialize, so a provider that names its
-                // own payments is asked by its name and the rest are unchanged.
-                isset($payment['provider_reference']) ? (string) $payment['provider_reference'] : null,
-                // Also round-tripped from initialize: what the provider was
-                // asked to charge, in its own minor units. Absent for a till
-                // older than this API and for the naira providers, where the
-                // comparison above falls back to the store amount.
-                isset($payment['charge_amount']) ? (int) $payment['charge_amount'] : null,
-            );
-
-            if (! $leg['paid']) {
-                throw new DomainException($leg['message'] ?? 'A card payment on this sale has not been completed.');
-            }
-
-            // The provider was asked a question it will not be asked again — the
-            // charge has already happened by the time the till settles up — so
-            // what it said about its own fee is carried out of here rather than
-            // re-fetched. Only a reported fee is kept: an absent one has to stay
-            // absent all the way to the row, because `fee_kobo` null is what
-            // tells the custody wallet the sale cannot be priced yet.
-            if ($leg['fees'] !== null) {
-                $fees[(string) $reference] = $leg['fees'];
-            }
         }
 
-        return $fees;
+        return [];
     }
 
     /**

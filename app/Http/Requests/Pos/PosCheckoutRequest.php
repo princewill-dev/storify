@@ -3,7 +3,6 @@
 namespace App\Http\Requests\Pos;
 
 use App\Models\Store;
-use App\Services\Payments\PaymentGatewayResolver;
 use App\Support\Payments\SystemProcessor;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -20,23 +19,27 @@ final class PosCheckoutRequest extends FormRequest
         /** @var Store $store */
         $store = $this->route('store');
 
-        // Whatever this store actually accepts, plus cash, rather than a fixed
-        // list. The old `['cash','paystack','transfer']` rejected every provider
-        // a business connected beyond the one built in — and `transfer` is not
-        // even a catalogue code, it is the POS's older name for `bank_transfer`.
+        // Cash and a transfer into the business's own bank account, and nothing
+        // else — see {@see \App\Http\Controllers\Api\V1\Pos\PaymentMethodController}
+        // for why the till takes no provider. `transfer` is not a catalogue code,
+        // it is the POS client's older name for `bank_transfer`, and tills in the
+        // field still send it.
         //
-        // Under a system processor there is no "plus": neither cash nor the
-        // legacy `transfer` alias is an option any more, because both are money
-        // the platform never sees and so cannot split. Dropping them from the
-        // list as well as from {@see PaymentMethodController} is the point —
-        // a till that never offers cash but still accepts a posted `cash` is a
-        // rule enforced only on the client.
-        $allowedMethods = array_values(array_unique(array_merge(
-            SystemProcessor::enforced() ? [] : ['cash'],
-            array_keys(app(PaymentGatewayResolver::class)->forStore($store)),
-            // Tills in the field still send this; they do not all update at once.
-            SystemProcessor::enforced() ? [] : ['transfer'],
-        )));
+        // This is the list's only server-side enforcement, and it is load-bearing
+        // rather than a courtesy. `/checkout` no longer asks a provider whether a
+        // leg was paid — the till's word is the record — so for a method the till
+        // was never offered, this rule is the one thing standing between a stale
+        // or edited client and a written, confirmed sale carrying a reference
+        // nobody checked. It is written as a constant rather than resolved from
+        // the storefront's catalogue for the same reason: the storefront's list
+        // would put card back on it. Widening this reopens that hole.
+        //
+        // Under an enforced system processor the list is empty, matching the till
+        // being shown nothing: neither cash nor a transfer into the business's own
+        // account is money the platform sees and can split. Refusing it here as
+        // well is the point — a till that is never offered a method but can still
+        // post one has the rule on the client.
+        $allowedMethods = SystemProcessor::enforced() ? [] : ['cash', 'bank_transfer', 'transfer'];
 
         return [
             'idempotency_key' => ['nullable', 'string', 'max:100'],
@@ -59,18 +62,21 @@ final class PosCheckoutRequest extends FormRequest
             'payments.*.method' => ['required', Rule::in($allowedMethods)],
             'payments.*.amount' => ['required', 'numeric', 'min:0.01'],
             'payments.*.amount_tendered' => ['nullable', 'integer', 'min:0'],
-            // The reference a hosted checkout issued for this leg, checked
-            // against the provider before the sale is written. `paystack_reference`
-            // is the older, provider-specific name and still accepted.
+            // The reference a hosted checkout issued for this leg. Required for a
+            // leg the catalogue settles by a provider's checkout and refused when
+            // absent — but no longer checked against the provider, because no
+            // method reaching here has one. `paystack_reference` is the older,
+            // provider-specific name and still accepted.
             'payments.*.reference' => ['nullable', 'string', 'max:255'],
             'payments.*.paystack_reference' => ['nullable', 'string'],
             // The provider's own id for the leg, when it did not take ours.
+            // Recorded on the transaction when a client sends it; nothing here
+            // resolves it against a provider any more.
             'payments.*.provider_reference' => ['nullable', 'string', 'max:255'],
             // The amount the provider was asked to charge for this leg, in its
-            // own minor units — echoed from `initialize`. Present only when the
-            // till knows it, and required for a leg whose provider charges in a
-            // different currency than the store, where nothing else can be
-            // compared against the provider's report.
+            // own minor units — echoed from `initialize`. Kept in the schema for
+            // tills and clients that still send it; recorded on the transaction
+            // and compared against nothing on this path.
             'payments.*.charge_amount' => ['nullable', 'integer', 'min:0'],
             // The currency that amount is in. Recorded with it so the figure is
             // not a bare integer whose units have to be guessed at.

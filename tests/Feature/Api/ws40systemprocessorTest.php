@@ -595,17 +595,31 @@ test('a business that switched Storify payments off is told so', function () {
 });
 
 test('the till loses cash and every provider while the platform is enforcing, and is told why', function () {
-    // `cash` is money in hand that Storify has no sight of and no split of, which
-    // is exactly what a system processor rules out, and the legacy transfer alias
-    // is not a gateway at all. Both are asserted at the endpoint rather than only
-    // at the list, because a till that never offers cash but still accepts a
-    // posted `cash` is a rule enforced only on the client.
+    // The till offers two things when this switch is off: cash, and a transfer
+    // into a bank account of the business's own. Neither is money the platform
+    // sees or can split, which is exactly what a system processor rules out — so
+    // under it the till offers nothing at all, and this is the assertion that
+    // says so rather than only the list.
+    //
+    // The account below is what makes the assertion mean anything: without it
+    // the list would be down to cash anyway, and "empty" would be true for a
+    // reason that has nothing to do with enforcement.
     ws40PlatformPaystack();
     ws40Switch('paystack');
 
     [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
     ws40NotCollected($business);
     $store = ws40Store($owner);
+
+    StoreBank::create([
+        'business_id' => $business->id,
+        'bank_name' => 'Guaranty Trust Bank',
+        'bank_code' => '058',
+        'account_number' => '0123456789',
+        'account_name' => 'WS40 Trading Ltd',
+        'is_primary' => true,
+        'is_verified' => true,
+    ]);
 
     $token = $owner->createToken('pos-access', ['pos'], now()->addHour())->plainTextToken;
 
@@ -618,7 +632,19 @@ test('the till loses cash and every provider while the platform is enforcing, an
         // a cashier can be told whether to send the customer to the bank or to
         // call support.
         ->and($payload->json('data.unavailable_reason'))
-        ->toBe('Storify is not collecting payments for this business yet, so it cannot take payments here.');
+        ->toBe('Storify is not collecting payments for this business yet, so it cannot take payments here.')
+        // And the per-method reason stays silent: there is nothing to say about
+        // one rail being withheld when the whole till is down.
+        ->and($payload->json('data.bank_transfer_unavailable_reason'))->toBeNull();
+
+    // Enforced and not collected for, which is the state this pins. A till that
+    // is offered nothing must not accept a posted transfer either.
+    $this->withToken($token)
+        ->postJson('/api/v1/pos/stores/'.$store->store_id.'/checkout', [
+            'items' => [['product_id' => 1, 'quantity' => 1]],
+            'payments' => [['method' => 'bank_transfer', 'amount' => 1000]],
+        ])->assertStatus(422)
+        ->assertJsonValidationErrors(['payments.0.method']);
 });
 
 /*
