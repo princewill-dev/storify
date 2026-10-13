@@ -9,6 +9,7 @@ use App\Services\Accounting\LedgerPostingService;
 use App\Services\Digital\DigitalDeliveryService;
 use App\Services\Payments\Contracts\PaymentGateway;
 use App\Services\Payments\Custody\CustodyService;
+use App\Services\Payments\Custody\InstantPayoutService;
 use App\Services\Payments\Data\GatewayCredentials;
 use App\Services\Payments\Data\VerificationResult;
 use App\Services\Payments\Data\WebhookEvent;
@@ -40,6 +41,7 @@ final class PaymentWebhookProcessor
         private readonly LedgerPostingService $ledger,
         private readonly DigitalDeliveryService $digital,
         private readonly CustodyService $custody,
+        private readonly InstantPayoutService $instant,
     ) {}
 
     /**
@@ -215,6 +217,31 @@ final class PaymentWebhookProcessor
                 // account for the same money is 2300 on our books and 1040 on
                 // theirs, both posted above.
                 $this->custody->recordCollectedSale($transaction, $driver->code());
+
+                // Then pay it out, now, rather than at the next tick of the run.
+                //
+                // **Which of the two settlement paths pays depends only on which
+                // heard about the payment first, and for one sale only one ever
+                // gets here.** A delivery that arrives after the browser's return
+                // leg finds the row already `CONFIRMED` and returns at the guard
+                // far above; when it arrives first, the return leg's own later
+                // visit finds the same thing and returns the same way. So the
+                // payout is made once, by whichever path was first, and the
+                // return leg makes this call in the same position for the same
+                // reason — see {@see CheckoutPaymentService::verify()}.
+                //
+                // Not gated on the return value of the line above: that asks
+                // whether *this call* did the crediting, while what decides
+                // whether there is money to send is whether the sale is credited
+                // at all. {@see InstantPayoutService::afterCollection()} reads
+                // that from `settle_at`, the stamp both paths write and only one
+                // can take.
+                //
+                // Never throws: a provider that cannot be reached here leaves the
+                // sale payable and the run pays it on its next pass, which is a
+                // better outcome than failing a delivery and having the payment
+                // redelivered for a business we can still pay.
+                $this->instant->afterCollection($transaction);
             }
 
             $order = $transaction->order;

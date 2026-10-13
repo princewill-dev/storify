@@ -4,6 +4,7 @@ namespace App\Services\Payments\Custody;
 
 use App\Models\Business;
 use App\Models\Payout;
+use App\Models\PayoutHold;
 use App\Services\Accounting\LedgerPostingService;
 use App\Services\Payments\Data\GatewayCredentials;
 use App\Services\Payments\Payouts\PayoutDestinationRef;
@@ -571,117 +572,182 @@ final class PayoutSweepService
         }
 
         foreach ($this->candidates() as $business) {
-            // A hold is checked first, and it is the one check here that is a
-            // *person's* decision rather than a fact about the business. An
-            // operator looking into something has to be able to see that their
-            // hold is what stopped the payment — "automatic payouts off" against
-            // a business whose owner never touched the setting is a log line that
-            // sends somebody looking for a bug.
-            //
-            // This is the only place a hold is read, which is what makes it safe:
-            // it cannot stop a charge (the charge path never calls this), it
-            // cannot clear or zero what a business is owed (no wallet mutator
-            // reads it), and it cannot strand a row already with the provider
-            // ({@see self::reconcile()} and {@see self::applyPayoutWebhook()}
-            // never read it, so an in-flight payout still resolves while held).
-            $hold = $this->holds->holdOn($business);
+            $outcome = $this->sweepBusiness($business, $context);
 
-            if ($hold !== null) {
-                $counts['on_hold']++;
-
-                Log::warning('custody.payout.on_hold', [
-                    'business_id' => $business->id,
-                    'hold_id' => $hold->id,
-                    'scope' => $hold->scope,
-                    'source' => $hold->source,
-                    'reason' => $hold->reason,
-                    'available_kobo' => (int) $business->available_balance,
-                ]);
-
-                continue;
+            // Null is "nothing was owed and nothing was withheld" — a business
+            // whose whole balance is accounted for by sales a store hold is
+            // withholding. Counted as nothing rather than as `skipped`, because
+            // `skipped` reads as "another run took the money".
+            if ($outcome !== null) {
+                $counts[$outcome]++;
             }
-
-            // Then `auto_payout` off, which stays exactly the meaning it has always
-            // had: the money rests in the wallet until the business asks for it.
-            // Beside a hold rather than replaced by it — one is a preference and
-            // the other is a decision made about the business by somebody else.
-            if (! $business->auto_payout) {
-                $counts['held']++;
-
-                Log::info('custody.payout.held', [
-                    'business_id' => $business->id,
-                    'available_kobo' => (int) $business->available_balance,
-                ]);
-
-                continue;
-            }
-
-            $bank = $business->payoutBank;
-
-            if (! $bank || blank($bank->account_number) || blank($bank->bank_code)) {
-                $counts['skipped']++;
-
-                Log::warning('custody.payout.no_destination', [
-                    'business_id' => $business->id,
-                    'available_kobo' => (int) $business->available_balance,
-                    'has_bank' => (bool) $bank,
-                ]);
-
-                continue;
-            }
-
-            // Counted apart from `held` and from `failed`, because it is neither:
-            // nothing was attempted and nothing is owed the business by a person,
-            // but the destination will not work until somebody changes it or lifts
-            // the ceiling. Its own number in the run's output is what stops this
-            // being a business that quietly never gets paid.
-            if ($this->destinationIsExhausted($business)) {
-                $counts['exhausted']++;
-
-                Log::warning('custody.payout.destination_exhausted', [
-                    'business_id' => $business->id,
-                    'available_kobo' => (int) $business->available_balance,
-                    'bank_code' => (string) $bank->bank_code,
-                    'ceiling' => $this->maxDestinationFailures(),
-                ]);
-
-                continue;
-            }
-
-            $payable = $this->payableFor($business);
-
-            $plan = $payable['plan'];
-            $amountKobo = $payable['payable_kobo'];
-            $capKobo = $payable['available_kobo'];
-            $heldStoreIds = $payable['held_store_ids'];
-
-            // Nothing to send, and there is only one way to get here with money
-            // still owed: the whole of the balance belongs to held stores. Counted
-            // as `on_hold` rather than skipped, because "skipped" reads as "another
-            // run took it", and this is a deliberate withholding that will not
-            // resolve until somebody lifts it.
-            if ($amountKobo <= 0) {
-                if ($heldStoreIds !== [] && $capKobo > 0) {
-                    $counts['on_hold']++;
-                }
-
-                continue;
-            }
-
-            $payout = $this->reserve($business, $amountKobo, $context['provider'], $plan);
-
-            // Not a failure. The overwhelmingly likely reason is that a concurrent
-            // run took the money first, which is the reservation doing its job.
-            if ($payout === null) {
-                $counts['skipped']++;
-
-                continue;
-            }
-
-            $counts[$this->dispatch($payout, $context)]++;
         }
 
         return $counts;
+    }
+
+    /**
+     * Why this business must not be paid right now, or null if it may be.
+     *
+     * {@see self::payoutBlocker()} is the list — the same one the wallet page and
+     * the run's `--dry-run` table show a business. This adds only what the *run*
+     * needs and they do not: which of its tallies each reason is counted under,
+     * and the hold itself so the log can name it. Re-deriving the reasons here
+     * instead is how a business gets told one thing on its own screen and stopped
+     * by another in the run.
+     *
+     * The translation is not cosmetic, because the two vocabularies answer
+     * different questions. `payoutBlocker()` explains a business to a person;
+     * the tally counts what a run *did*, and the distinctions that matter there
+     * are the ones the run's report is read for:
+     *
+     *   hold                  -> on_hold   a person stopped it
+     *   auto_payout_off       -> held      the business stopped it
+     *   no_bank/bank_incomplete -> skipped nothing to send to
+     *   destination_exhausted -> exhausted the ceiling, so nothing was attempted
+     *
+     * A **store** hold is deliberately absent from both. It withholds that store's
+     * share and pays the business for the rest — see {@see self::payableFor()} —
+     * so it narrows a payment rather than blocking one.
+     *
+     * @return array{code: string, count: string, label: string, hold: PayoutHold|null}|null
+     */
+    public function restrictionFor(Business $business): ?array
+    {
+        $blocker = $this->payoutBlocker($business);
+
+        if ($blocker === null) {
+            return null;
+        }
+
+        $count = match ($blocker['code']) {
+            'hold' => 'on_hold',
+            'auto_payout_off' => 'held',
+            'destination_exhausted' => 'exhausted',
+            default => 'skipped',
+        };
+
+        return [
+            'code' => $blocker['code'],
+            'count' => $count,
+            'label' => $blocker['label'],
+            // Re-read rather than threaded out of `payoutBlocker()`, which answers
+            // with a sentence for a person and not with the row. One extra query
+            // on the path where there is a hold — the rare one — buys the two
+            // answers being unable to disagree about *which* hold it is.
+            'hold' => $blocker['code'] === 'hold' ? $this->holds->holdOn($business) : null,
+        ];
+    }
+
+    /**
+     * Pay one business, if it may be paid.
+     *
+     * The whole of {@see self::sweep()} for a single row, so that a sale can be
+     * paid out the moment it is collected rather than at the next tick without
+     * becoming a second way to send money. Everything that makes a sweep safe is
+     * here unchanged: the restriction is read before the provider is called, the
+     * amount is the allocation walk's, and the reservation is written and the
+     * wallet debited in one transaction that refuses to overdraw.
+     *
+     * Called with no context by {@see InstantPayoutService}, which has already
+     * read the provider's balance for the promotion gate and would rather not ask
+     * twice.
+     *
+     * @param  array{provider: string, rail: PayoutRail, credentials: GatewayCredentials}|null  $context
+     * @return string|null one of `sweep()`'s tally keys, or null when there is nothing to count
+     */
+    public function sweepBusiness(Business $business, ?array $context = null): ?string
+    {
+        $context ??= $this->context();
+
+        if ($context === null) {
+            return null;
+        }
+
+        $restriction = $this->restrictionFor($business);
+
+        if ($restriction !== null) {
+            $this->reportRestriction($business, $restriction);
+
+            return $restriction['count'];
+        }
+
+        $payable = $this->payableFor($business);
+
+        $plan = $payable['plan'];
+        $amountKobo = $payable['payable_kobo'];
+        $capKobo = $payable['available_kobo'];
+        $heldStoreIds = $payable['held_store_ids'];
+
+        // Nothing to send, and there is only one way to get here with money still
+        // owed: the whole of the balance belongs to held stores. Counted as
+        // `on_hold` rather than skipped, because "skipped" reads as "another run
+        // took it", and this is a deliberate withholding that will not resolve
+        // until somebody lifts it.
+        if ($amountKobo <= 0) {
+            return $heldStoreIds !== [] && $capKobo > 0 ? 'on_hold' : null;
+        }
+
+        $payout = $this->reserve($business, $amountKobo, $context['provider'], $plan);
+
+        // Not a failure. The overwhelmingly likely reason is that a concurrent run
+        // took the money first, which is the reservation doing its job.
+        if ($payout === null) {
+            return 'skipped';
+        }
+
+        return $this->dispatch($payout, $context);
+    }
+
+    /**
+     * Say why a business was not paid, in the words the run's output uses.
+     *
+     * @param  array{code: string, count: string, label: string, hold: PayoutHold|null}  $restriction
+     */
+    private function reportRestriction(Business $business, array $restriction): void
+    {
+        $hold = $restriction['hold'];
+        $bank = $business->payoutBank;
+
+        if ($restriction['code'] === 'hold') {
+            Log::warning('custody.payout.on_hold', [
+                'business_id' => $business->id,
+                'hold_id' => $hold?->id,
+                'scope' => $hold?->scope,
+                'source' => $hold?->source,
+                'reason' => $hold?->reason,
+                'available_kobo' => (int) $business->available_balance,
+            ]);
+
+            return;
+        }
+
+        if ($restriction['code'] === 'auto_payout_off') {
+            Log::info('custody.payout.held', [
+                'business_id' => $business->id,
+                'available_kobo' => (int) $business->available_balance,
+            ]);
+
+            return;
+        }
+
+        if ($restriction['code'] === 'destination_exhausted') {
+            Log::warning('custody.payout.destination_exhausted', [
+                'business_id' => $business->id,
+                'available_kobo' => (int) $business->available_balance,
+                'bank_code' => (string) $bank?->bank_code,
+                'ceiling' => $this->maxDestinationFailures(),
+            ]);
+
+            return;
+        }
+
+        Log::warning('custody.payout.no_destination', [
+            'business_id' => $business->id,
+            'available_kobo' => (int) $business->available_balance,
+            'has_bank' => (bool) $bank,
+            'incomplete' => $restriction['code'] === 'bank_incomplete',
+        ]);
     }
 
     /**

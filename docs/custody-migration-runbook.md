@@ -152,6 +152,12 @@ can send. Laravel runs same-minute entries in registration order, so `custody:pr
 registered first. Both are `withoutOverlapping(3)` — a five-minute gap behind a longer lock
 would silently *skip* ticks rather than delay them.
 
+**Both are now a net rather than the ordinary path.** A sale is usually paid out in the
+request that settles it — see "Payouts are immediate" below — and the runs exist to catch
+what that missed: a provider that could not be reached, a sale that arrived with no fee
+reported, a balance that could not be read. A run that finds nothing to do is the normal
+state of a healthy platform, not a sign the schedule has stopped working.
+
 ### The promote run is gated on the provider's balance
 
 `custody:promote` no longer matures a sale because a clock decided it was old enough. It
@@ -321,6 +327,64 @@ account still exists at Bachs and still belongs to that business. Nothing in the
 reads or writes it any more; closing it is a conversation with the business and the
 provider, and is not part of this codebase's job.
 
+## Payouts are immediate
+
+A sale is paid out in the request that settles it. There is no sweep to wait for, and the
+five-minute runs are reconciliation and the net.
+
+Nothing about *how* the money moves changed. The same three steps the run performs happen
+inline, through the run's own code — mature the business's due sales, read the restrictions,
+send the payout — so a trigger and a run landing on the same business at the same instant
+cannot pay it twice: the claims (`settle_at`, `promoted_at`, the payout reservation) are the
+same, and the loser finds the claim gone.
+
+Two settlement paths reach it, and **whichever hears about the payment first is the one that
+pays**:
+
+| Path | Reaches the payout |
+|---|---|
+| The customer's browser returning to the confirmation page | `CheckoutPaymentService::verify()` |
+| The provider's `collection.succeeded` delivery | `ConnectWebhookController` → `PaymentWebhookProcessor::settle()` |
+
+For one sale only one of them gets there. A delivery that arrives after the customer's return
+trip finds the row already confirmed and stops at that guard, which is above every line that
+moves money; in the other order the return trip is the one that finds it confirmed. So the
+payout is made once. **The delivery must go to `/webhooks/connect/bachs`, not to a merchant
+webhook URL**: it is signed with the platform's own secret, and the merchant endpoint resolves
+its scope by finding a *business's* stored secret — which a business under custody does not
+have, so a platform delivery sent there is answered 401 forever.
+
+### The restrictions are read before any transfer, and only the transfer
+
+A **system** hold, a **business** hold or `auto_payout` off, and a destination that is missing
+or the provider keeps refusing — the same list the wallet page and `--dry-run` report, read in
+the same order. When one is set the payout is not attempted, and no transfer is asked for.
+
+Maturation happens **first and regardless**: a hold stops money being sent, it does not change
+what the wallet records as owed, and `custody:promote` reads no hold either. So a held
+business's wallet still matures and its screen still shows the money as owed — the hold is
+what stops the send, and lifting it pays on the next `custody:payouts` with nothing to repair.
+
+A **store** hold is not on that list: it withholds that store's share and pays the business for
+the rest, immediately.
+
+### When to turn it off
+
+`custody.instant_payout.enabled` (`CUSTODY_INSTANT_PAYOUT`). Off, the platform behaves exactly
+as it did before this existed: settled in the request, paid on the next five-minute run.
+
+Turn it off when the instant path is costing more than it is worth — a provider incident where
+the extra balance read and transfer on the settlement path are the thing making it worse. It
+is a worse experience and not a broken one, because the sale stays payable and the run sends
+it.
+
+It **never fails a request**. A provider that cannot be reached, a balance that cannot be read,
+a spendable balance that does not cover the sale, a transfer the provider refuses: each is
+logged, the reservation is released, and the sale stays payable for the run. That is
+deliberate — the settlement itself is already committed by the time the payout is attempted,
+and turning a slow provider into a failed webhook would have it redeliver a payment we have
+already recorded, to pay a business we can still pay.
+
 ## The numbers to watch
 
 | Where | What it means |
@@ -333,5 +397,8 @@ provider, and is not part of this codebase's job.
 | `custody:payouts` → `skipped` | Storify is holding money it cannot hand over: no payout bank, or another run took the balance. The first needs chasing. |
 | `custody:payouts` → `blocked` | The provider keeps refusing this business's bank, so the sweep has stopped asking. Fix the destination or run `custody:retry-payouts`; the money is safe in the wallet until then. |
 | `custody:payouts` → `unresolved` | Payouts the provider accepted but never confirmed. Normal briefly; their wallet reservations stay held. |
+| `custody.payout.instant_withheld` | A sale was paid for and the payout was not attempted, with the reason. Expected if a hold or `auto_payout` is off; a run of these for one business is that business's money not moving. |
+| `custody.payout.instant` with `outcome: null` | Nothing was sent for a sale that *was* settled. Read `matured` beside it: zero means the promotion gate held the money back — a provider balance that could not cover it, or one that could not be read — and the run will pick it up. |
+| `custody.promote.balance_unreadable` | Both the instant path and the run fell back to the clock. Money is still moving, on a window nobody verified. |
 | `ledger:reconcile` | Weekly scan. Under custody it also compares each business's wallet against its `1040 Funds Held by Storify` ledger lines. |
 | Enforcement pre-flight | Two lists an admin works through: `businesses_awaiting_custody` (not on the new rail — an operator's step) and `businesses_cannot_be_paid` (trading happily with no bank named, so the money is accumulating). |

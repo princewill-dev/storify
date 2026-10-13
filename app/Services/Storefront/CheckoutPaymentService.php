@@ -14,6 +14,7 @@ use App\Services\Accounting\LedgerPostingService;
 use App\Services\Digital\DigitalDeliveryService;
 use App\Services\Payments\Connect\PlatformCommission;
 use App\Services\Payments\Custody\CustodyService;
+use App\Services\Payments\Custody\InstantPayoutService;
 use App\Services\Payments\Data\PaymentIntent;
 use App\Services\Payments\Data\VerificationResult;
 use App\Services\Payments\PaymentGatewayManager;
@@ -50,6 +51,7 @@ final class CheckoutPaymentService
         private readonly PaymentGatewayManager $manager,
         private readonly ExchangeRateService $rates,
         private readonly CustodyService $custody,
+        private readonly InstantPayoutService $instant,
     ) {}
 
     /**
@@ -415,6 +417,20 @@ final class CheckoutPaymentService
                 // The driver that verified the payment is the provider that
                 // collected it, which is what its settlement window is keyed on.
                 $this->custody->recordCollectedSale($transaction, $driver->code());
+
+                // Then pay the business, in this request rather than at the next
+                // tick of the payout run. The return leg is usually the first of
+                // the two settlement paths to reach a sale — the customer is back
+                // at the confirmation page before the webhook is delivered — so
+                // without this the normal case would still be a five-minute wait.
+                //
+                // It reads the restrictions (a system, business or store hold,
+                // `auto_payout`, the destination) before it calls the provider,
+                // and it never throws: a provider that cannot be reached leaves
+                // the sale payable for the run to pick up, instead of failing the
+                // customer's confirmation for money the business will still
+                // receive.
+                $this->instant->afterCollection($transaction);
             }
 
             if ($order->isFullyPaid()) {

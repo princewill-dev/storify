@@ -18,6 +18,7 @@ use App\Services\Accounting\InventoryCostingService;
 use App\Services\Accounting\LedgerPostingService;
 use App\Services\Payments\Connect\PlatformCommission;
 use App\Services\Payments\Custody\CustodyService;
+use App\Services\Payments\Custody\InstantPayoutService;
 use App\Services\Payments\PaymentGatewayResolver;
 use App\Services\StockLedgerService;
 use App\Support\Money\Naira;
@@ -47,7 +48,14 @@ final class ProcessPosSale
      */
     public function execute(Store $store, User $staff, PosSession $session, array $data, array $providerFees = []): PosSaleResult
     {
-        return DB::transaction(function () use ($store, $staff, $session, $data, $providerFees): PosSaleResult {
+        // Collect on a till leg is recorded inside the transaction below, but the
+        // payout it should trigger cannot be: `sweepBusiness()` writes a payout
+        // row and debits a wallet, and it calls the provider. Doing that inside
+        // this transaction would hold its row locks across an HTTP round trip, so
+        // the legs are gathered here and offered for payout once it has committed.
+        $collected = [];
+
+        $result = DB::transaction(function () use ($store, $staff, $session, $data, $providerFees, &$collected): PosSaleResult {
             $lockedStore = Store::query()->lockForUpdate()->findOrFail($store->id);
 
             if (! empty($data['idempotency_key'])) {
@@ -220,13 +228,25 @@ final class ProcessPosSale
                 // promote pass, is what comes back for those, and crediting a fee
                 // we have not been told would understate the debt on a number no
                 // one would ever be able to correct.
-                if ($leg['custody']) {
-                    $custody->recordCollectedSale($leg['transaction'], $leg['provider']);
+                if ($leg['custody'] && $custody->recordCollectedSale($leg['transaction'], $leg['provider'])) {
+                    $collected[] = $leg['transaction'];
                 }
             }
 
             return new PosSaleResult($order->load(['items', 'transactions.paymentMethod']));
         });
+
+        // Paid out now, in the same request the sale was taken in, rather than at
+        // the next tick of the payout run. The restrictions, the balance gate and
+        // the reservation are the run's own — see
+        // {@see InstantPayoutService} — and it never throws, so a provider that
+        // cannot be reached leaves the sale payable for the run to pay instead of
+        // failing a sale the cashier has already completed.
+        foreach ($collected as $transaction) {
+            app(InstantPayoutService::class)->afterCollection($transaction);
+        }
+
+        return $result;
     }
 
     private function normalizePayments(array $data, float $total): array

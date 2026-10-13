@@ -265,7 +265,60 @@ final class CustodyService
             ->limit((int) config('custody.promote_batch', 500))
             ->get();
 
-        [$fitted, $counts['budget_limited']] = $this->fitToBudget($due, $promoteBudgetKobo);
+        [$counts['matured'], $counts['budget_limited']] = $this->mature($due, $promoteBudgetKobo);
+
+        $counts['pending'] = $this->promotableQuery()->count();
+
+        return $counts;
+    }
+
+    /**
+     * Mature one business's due sales, and only that business's.
+     *
+     * The same predicate, the same budget and the same claim as
+     * {@see self::promoteSettled()}, narrowed to a single business so that the
+     * moment a sale is collected its money can become payable without waiting for
+     * the promote run to come round. See {@see InstantPayoutService}.
+     *
+     * **The narrowing is the business, never the sale.** A single-sale version
+     * would let a just-collected sale overtake an older one on the same business
+     * that the provider has not funded yet, and the queue would starve from the
+     * front — the contract {@see self::fitToBudget()} exists to keep. Walking the
+     * business's own queue in order means the new sale matures after the backlog,
+     * which is the same answer the run would give, only sooner.
+     *
+     * Not a second way to move money: it goes through the same claim
+     * (`promoted_at` off null, taken by condition) and the same
+     * {@see Business::promoteToAvailable()}, so a trigger and a run landing at the
+     * same instant cannot both mature the same sale.
+     *
+     * @param  int|null  $promoteBudgetKobo  what may be matured, or null for no cap
+     * @param  CarbonInterface|null  $floor  applied only when the provider's balance could not be read
+     * @return int how many were matured
+     */
+    public function promoteForBusiness(Business $business, ?int $promoteBudgetKobo = null, ?CarbonInterface $floor = null): int
+    {
+        $due = $this->dueQuery($floor)
+            ->where('business_id', $business->id)
+            ->orderBy('id')
+            ->limit((int) config('custody.promote_batch', 500))
+            ->get();
+
+        [$matured] = $this->mature($due, $promoteBudgetKobo);
+
+        return $matured;
+    }
+
+    /**
+     * The one loop that moves a sale from `pending` to `available`.
+     *
+     * @param  Collection<int, Transaction>  $due  already ordered and already fitted
+     * @return array{0: int, 1: int} matured, and how many the budget left behind
+     */
+    private function mature(Collection $due, ?int $promoteBudgetKobo): array
+    {
+        [$fitted, $leftBehind] = $this->fitToBudget($due, $promoteBudgetKobo);
+        $matured = 0;
 
         foreach ($fitted as $transaction) {
             $netKobo = $transaction->netKobo();
@@ -293,12 +346,10 @@ final class CustodyService
             }
 
             $business->promoteToAvailable($netKobo);
-            $counts['matured']++;
+            $matured++;
         }
 
-        $counts['pending'] = $this->promotableQuery()->count();
-
-        return $counts;
+        return [$matured, $leftBehind];
     }
 
     /**

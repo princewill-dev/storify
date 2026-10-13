@@ -123,6 +123,35 @@ return [
     'payout_fee_headroom_kobo' => 10000,
 
     /*
+    | Whether a collected sale is paid out as it is collected, rather than at the
+    | next tick of the two runs.
+    |
+    | On by default. The runs are every five minutes, and that gap is the only
+    | delay left in the chain once the provider has released the money — Bachs
+    | reports a successful charge in `available_balance` immediately, and the
+    | settlement window above is already nothing for it. So a business that sells
+    | at 12:05:16 waits until 12:10 for no reason but our schedule.
+    |
+    | With this on, the settlement path offers the same three steps the run
+    | performs — mature the business's due sales, read the restrictions, send the
+    | payout — from `InstantPayoutService`, in the request that recorded the sale.
+    | Maturation comes first because a hold stops money being sent rather than
+    | changing what the wallet records as owed, which is also how the promote run
+    | already behaves. The runs keep their five-minute cadence and become what
+    | they should always have been: reconciliation, and the net for a provider
+    | that could not be reached while somebody was waiting.
+    |
+    | Off, the platform behaves exactly as it did before this existed. It is a
+    | switch rather than a deleted branch because this puts a provider call on the
+    | settlement path, and if that turns out to cost more than it is worth during a
+    | provider incident, paying on the next tick is a worse experience rather than
+    | a broken one.
+    */
+    'instant_payout' => [
+        'enabled' => env('CUSTODY_INSTANT_PAYOUT', true),
+    ],
+
+    /*
     | How many settled transactions one promote run will mature at a time.
     |
     | The promote job is idempotent and re-runnable, so this is a working-set
