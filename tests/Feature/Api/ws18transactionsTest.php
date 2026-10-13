@@ -8,11 +8,13 @@ use App\Models\Customer;
 use App\Models\Invoice;
 use App\Models\Order;
 use App\Models\OrderItem;
+use App\Models\Payment;
 use App\Models\PaymentMethod;
 use App\Models\Store;
 use App\Models\StoreBank;
 use App\Models\Transaction;
 use App\Models\User;
+use App\Repositories\Subscription\SubscriptionPaymentRepository;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
@@ -118,6 +120,23 @@ function ws18Transaction(array $attributes = []): Transaction
         'status' => TransactionStatus::PENDING,
         'paid_at' => now(),
     ], $attributes));
+}
+
+/**
+ * A `payments` row standing in for a platform charge — the business paying
+ * Storify for its plan, rather than a customer paying the store.
+ */
+function ws18PlatformPayment(User $owner, $business, string $reference, string $status): Payment
+{
+    return Payment::create([
+        'business_id' => $business->id,
+        'user_id' => $owner->id,
+        'reference' => $reference,
+        'amount' => 20000,
+        'currency' => 'NGN',
+        'status' => $status,
+        'payment_type' => Payment::TYPE_SUBSCRIPTION,
+    ]);
 }
 
 test('the transaction list carries the legacy store and customer columns and filters', function () {
@@ -726,4 +745,71 @@ test('an unknown reference is a 404 while the static siblings still resolve', fu
     $this->withToken(ws18Token($owner))
         ->get('/api/v1/management/transactions/export')
         ->assertOk();
+});
+
+test('the list is the business\'s sales, not the platform\'s bill for its subscription', function () {
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    $store = ws18Store($owner, $business);
+    $order = ws18Order($store);
+
+    $sale = ws18Transaction([
+        'order_id' => $order->id,
+        'business_id' => $business->id,
+        'reference' => 'WS18-SALE',
+        'amount' => 1000,
+        'status' => TransactionStatus::CONFIRMED,
+    ]);
+
+    // Written by the real writer, not hand-rolled: the shape this list has to
+    // recognise is whatever `createPendingTransaction()` produces, and a fixture
+    // that imitated it could drift from it without anybody noticing.
+    $payments = app(SubscriptionPaymentRepository::class);
+
+    $settled = $payments->createPendingTransaction(
+        ws18PlatformPayment($owner, $business, 'ref_ws18_plan_paid', Payment::STATUS_SUCCESS),
+        Payment::TYPE_SUBSCRIPTION,
+    );
+    $settled->update(['status' => TransactionStatus::CONFIRMED]);
+
+    $inFlight = $payments->createPendingTransaction(
+        ws18PlatformPayment($owner, $business, 'ref_ws18_plan_inflight', Payment::STATUS_PENDING),
+        Payment::TYPE_RENEWAL,
+    );
+
+    $token = ws18Token($owner);
+
+    $this->withToken($token)->getJson('/api/v1/management/transactions')
+        ->assertOk()
+        ->assertJsonCount(1, 'data.transactions')
+        ->assertJsonPath('data.transactions.0.reference', 'WS18-SALE');
+
+    // The bar describes the sales. A ₦20,000 plan charge counted into a figure
+    // labelled "Confirmed" would read as a ₦20,000 day at the till.
+    $totals = $this->withToken($token)->getJson('/api/v1/management/transactions')
+        ->assertOk()
+        ->json('data.totals');
+
+    expect($totals['amount'])->toEqual(1000.0);
+
+    // And the badge counts what the list would show: a checkout somebody opened
+    // and abandoned must not leave a pending payment behind that the list it
+    // links to has no row for.
+    $this->withToken($token)->getJson('/api/v1/management/transactions/pending/count')
+        ->assertOk()
+        ->assertJsonPath('data.count', 0);
+
+    // The same rows, in the export — it reads the list's query.
+    $csv = $this->withToken($token)->get('/api/v1/management/transactions/export')
+        ->assertOk()
+        ->streamedContent();
+
+    expect($csv)->toContain('WS18-SALE')
+        ->and($csv)->not->toContain($settled->reference)
+        ->and($csv)->not->toContain($inFlight->reference);
+
+    // Nothing is deleted or hidden from the business — the charge has its own
+    // screen, reading the `payments` row it was written from.
+    $this->withToken($token)->getJson('/api/v1/management/subscription/payments')
+        ->assertOk()
+        ->assertJsonFragment(['reference' => $settled->reference]);
 });

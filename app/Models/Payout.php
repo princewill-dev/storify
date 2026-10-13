@@ -167,4 +167,25 @@ class Payout extends Model
     {
         return 'po-'.$businessId.'-'.strtolower(Str::ulid()->toBase32());
     }
+
+    /**
+     * A payout is addressed by the reference, everywhere.
+     *
+     * The reference is the name this payout has in the world: it is what the
+     * provider was given, what is printed on the transfer, and what the business
+     * reads off it when it rings up about money that has not arrived — and, as
+     * {@see newReference()} makes sure, it is the only name that identifies the
+     * business it belongs to. The auto-increment `id` is an internal key that says
+     * none of that, so a URL built on it leaks how many payouts the platform has
+     * ever made and gives a support conversation nothing either side can check.
+     *
+     * Bound here rather than in the route so every binding — this one today, and
+     * any route added later — agrees on what a payout is called. There is exactly
+     * one route that binds a payout, so the blast radius of the change is that
+     * route plus the links to it.
+     */
+    public function getRouteKeyName(): string
+    {
+        return 'reference';
+    }
 }

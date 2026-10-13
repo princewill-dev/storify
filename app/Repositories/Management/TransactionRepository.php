@@ -78,14 +78,14 @@ class TransactionRepository
      * every row whose provider fee is not known yet, and summing it would quietly
      * drop those rows' entire amounts — turning an incomplete figure into a
      * smaller-looking one, which is the failure this whole change exists to
-     * remove. `fees_pending_count` states the incompleteness out loud instead.
+     * remove. Computing it from the sums instead keeps those rows counted.
      *
      * Reads the commission from its column, which the backfill fills. Until that
      * has run, totals understate by the commission on sales settled before the
      * column existed — see the deploy order in the backfill command.
      *
      * @param  array<string, mixed>  $filters
-     * @return array{amount: float, processing_fee: float, net: float, fees_pending_count: int}
+     * @return array{amount: float, processing_fee: float, net: float}
      */
     public function totals(User $user, array $filters): array
     {
@@ -106,28 +106,7 @@ class TransactionRepository
             'amount' => Naira::floatFromKobo($grossKobo),
             'processing_fee' => Naira::floatFromKobo($processingFeeKobo),
             'net' => Naira::floatFromKobo(max(0, $grossKobo - $processingFeeKobo)),
-            'fees_pending_count' => $this->feesPendingCount($query),
         ];
-    }
-
-    /**
-     * Settled rows whose provider fee has not been reported yet.
-     *
-     * Restricted to rows that went through a provider, because a cash sale has no
-     * fee to wait for and counting it would leave the number permanently non-zero
-     * — a warning that never clears is one nobody reads. The two markers are the
-     * provider's own id for the charge, and the managed flag, which is what a POS
-     * gateway leg carries before any webhook has found it.
-     */
-    private function feesPendingCount(Builder $query): int
-    {
-        return (clone $query)
-            ->whereNull('fee_kobo')
-            ->where(function (Builder $scope) {
-                $scope->whereNotNull('gateway_reference')
-                    ->orWhere('metadata->payment_mode', 'platform_managed');
-            })
-            ->count();
     }
 
     /**
@@ -198,9 +177,52 @@ class TransactionRepository
         return $transaction->load(self::DETAIL_RELATIONS);
     }
 
+    /**
+     * The rows this API is about: the business's own trade.
+     *
+     * Two narrowings, and the second is the one worth explaining.
+     *
+     * **The business**, because a transaction carries a `business_id` and nothing
+     * here may cross it.
+     *
+     * **Trade, not platform billing.** `transactions` holds two kinds of row and
+     * they are not the same money. A sale is one: a store charged a customer, and
+     * the business is owed the proceeds. A subscription charge is the other — the
+     * business paying *Storify* — and it is written by
+     * `App\Repositories\Subscription\SubscriptionPaymentRepository::createPendingTransaction()`,
+     * which copies the `payments` row's own reference into the transaction. Listing
+     * the two together put the platform's bill to the business in the middle of its
+     * sales, under a "Confirmed" figure that had quietly counted it, and it left a
+     * phantom pending payment in the sidebar badge every time somebody opened a
+     * checkout they did not finish.
+     *
+     * The marker is `metadata.payment_id`, the id of the `payments` row this
+     * transaction is the ledger echo of — set by that one writer, and set by
+     * nothing else in the codebase. Two alternatives were considered and both are
+     * worse:
+     *
+     * - *Has an order or an invoice.* Structural and tempting, and wrong: a
+     *   transaction without either is a shape the schema permits for reasons that
+     *   predate platform billing, so the test would hide real sales — silently,
+     *   and out of the totals with them.
+     * - *`metadata.payment_type` in the subscription types.* True today, but it
+     *   enumerates the billing kinds rather than the fact of being billed, so the
+     *   next kind added leaks into the sales list until somebody remembers this
+     *   line. `payment_id` needs no such list.
+     *
+     * Applied to the list, the totals, the CSV export and the pending badge alike,
+     * because they are one question asked four ways: a badge counting rows the
+     * list will not show is a badge that lies.
+     *
+     * Subscription charges are not hidden by any of this — they have a home of
+     * their own at `/subscription/payments`, which reads the `payments` table they
+     * were written from and can say more about them than a list of sales.
+     */
     private function scopedQuery(User $user): Builder
     {
-        $query = Transaction::query()->where('business_id', $user->business_id);
+        $query = Transaction::query()
+            ->where('business_id', $user->business_id)
+            ->whereNull('metadata->payment_id');
 
         if ($user->isStaff()) {
             $storeIds = $this->staffStoreIds($user);

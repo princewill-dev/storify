@@ -439,14 +439,13 @@ test('a till sale records the commission but claims no net until the provider se
         ->assertOk()
         ->json('data.totals');
 
-    // The bar says the net is incomplete rather than quietly reporting a smaller
-    // one, which is the whole reason this count exists.
+    // The bar reports the gross in full rather than dropping a row whose fee is
+    // still unknown, which is the property this asserts.
     //
     // `toEqual` rather than `toBe` on the money: PHP encodes a whole-naira float
     // as `2500` and it decodes back as an int, so an integral amount is never
     // identical to the float it was built from.
-    expect($totals['fees_pending_count'])->toBe(1)
-        ->and($totals['amount'])->toEqual(2500.0)
+    expect($totals['amount'])->toEqual(2500.0)
         ->and($totals['processing_fee'])->toEqual(62.5)
         ->and($totals['net'])->toEqual(2437.5);
 });
@@ -483,7 +482,7 @@ test('the list, the CSV and the totals agree on one processing fee', function ()
 
     $list = $this->withToken($token)->getJson('/api/v1/management/transactions')
         ->assertOk()
-        ->assertJsonStructure(['data' => ['transactions', 'totals' => ['amount', 'processing_fee', 'net', 'fees_pending_count']]]);
+        ->assertJsonStructure(['data' => ['transactions', 'totals' => ['amount', 'processing_fee', 'net']]]);
 
     $row = collect($list->json('data.transactions'))->firstWhere('reference', $transaction->reference);
 
@@ -498,7 +497,6 @@ test('the list, the CSV and the totals agree on one processing fee', function ()
         'amount' => 2500.0,
         'processing_fee' => 112.5,
         'net' => 2387.5,
-        'fees_pending_count' => 0,
     ]);
 
     // The detail read model inherits the same three fields from the list row.

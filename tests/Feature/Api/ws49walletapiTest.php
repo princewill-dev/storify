@@ -423,13 +423,21 @@ test('the payout list and detail name the sales the transfer was made of', funct
         ->and($list['account_number'])->toBe('0123456789')
         ->and($list['paid_at'])->toBeNull();
 
+    // Addressed by the reference, which is the name this payout has in the
+    // world — on the transfer, in the provider's dashboard, and in any link the
+    // business is sent.
     $detail = $this->withToken($token)
-        ->getJson('/api/v1/management/payouts/'.$payout->id)
+        ->getJson('/api/v1/management/payouts/'.$payout->reference)
         ->assertOk()
         ->json('data.payout');
 
     expect($detail['sales_count'])->toBe(2)
         ->and($detail['allocations'])->toHaveCount(2);
+
+    // And the id is no longer a way in, so the two names cannot disagree later.
+    $this->withToken($token)
+        ->getJson('/api/v1/management/payouts/'.$payout->id)
+        ->assertNotFound();
 
     // Oldest sale first, and each line is that sale's own net — the answer the
     // `payouts` row alone cannot give, because a payout sends a pooled balance.
@@ -460,7 +468,7 @@ test('a business cannot read another business\'s payout', function () {
     [$outsider] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
 
     $this->withToken(w49Token($outsider))
-        ->getJson('/api/v1/management/payouts/'.$payout->id)
+        ->getJson('/api/v1/management/payouts/'.$payout->reference)
         ->assertForbidden();
 
     // And the list is scoped, not merely the detail: the row is not in it.
