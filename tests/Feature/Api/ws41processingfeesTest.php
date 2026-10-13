@@ -130,10 +130,11 @@ function pf41Order(Store $store, array $attributes = []): Order
 /**
  * Bachs, answering every call a managed sale makes.
  *
- * ₦2,500 charged, Bachs' own ₦50 processing fee, split at source. The balance it
- * reports is zero on purpose: "the charge settled" and "the money is movable"
- * are different facts, and the state right after a sale is the first without the
- * second.
+ * ₦2,500 charged, collected by the platform on its own credentials, with Bachs'
+ * own ₦50 processing fee reported in the `fees` object a checkout-session charge
+ * carries. The balance it reports is zero on purpose: "the charge settled" and
+ * "the money is movable" are different facts, and the state right after a sale is
+ * the first without the second.
  */
 function pf41FakeBachs(array $chargeOverrides = []): void
 {
@@ -174,7 +175,11 @@ function pf41FakeBachs(array $chargeOverrides = []): void
                         'status' => 'succeeded',
                         'amount' => '2500.00',
                         'currency' => 'NGN',
-                        'processing_fee' => '50.00',
+                        'fees' => [
+                            'amount' => '50.00',
+                            'currency' => 'NGN',
+                            'breakdown' => [['type' => 'processing', 'amount' => '50.00']],
+                        ],
                     ], $chargeOverrides),
                 ]);
             }

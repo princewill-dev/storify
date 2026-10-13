@@ -469,6 +469,24 @@ final class CustodyService
     }
 
     /**
+     * The sales that settled with no provider fee on them — the half that
+     * {@see creditAwaitingSales()} cannot reach.
+     *
+     * `creditAwaitingSales()` selects `whereNotNull('fee_kobo')`, which is right:
+     * it credits and nothing else. This is the other half of the same predicate —
+     * `whereNull('fee_kobo')` — exposed so the one command that can close the gap
+     * asks the same question this service does rather than rebuilding it and
+     * drifting. A sale is here because a writer refused to price it, and it stays
+     * here until something reads the provider's charge and writes the fee.
+     *
+     * @return Builder<Transaction>
+     */
+    public function salesAwaitingFee(): Builder
+    {
+        return $this->awaitingFeeQuery()->whereNull('fee_kobo');
+    }
+
+    /**
      * @param  Collection<int, Transaction>  $transactions
      */
     private function sumNet(Collection $transactions): int

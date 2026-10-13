@@ -196,6 +196,56 @@ platform-wide payout outage, not one business's bookkeeping problem. The levers 
 `custody.settlement_hours` per provider (raise it; the platform then matures less than the
 provider would allow) and the payout holds below.
 
+### The fee has to be the sale's cost, and the sales that settled without one
+
+`net = amount − provider fee − commission` assumes the provider's fee came **out of the
+charge**. That is only true while the Bachs organisation is set to bear it. Check it before
+trusting any wallet figure:
+
+```bash
+curl -s -H "Authorization: Bearer $BACHS_API_KEY" \
+  https://sandbox-api.bachs.io/v1/accounts/{org_id} | jq .fee_handling
+# account_pays_fee  ← the platform bears it, and the formula above holds
+# customer_pays_fee ← the customer pays it on top; see below
+```
+
+Bachs reports the two in different fields — `fee_handling` when reading, `fee_preference`
+when writing, `org_pays` / `customer_pays`:
+
+```bash
+curl -s -X POST -H "Authorization: Bearer $BACHS_API_KEY" -H 'Content-Type: application/json' \
+  -d '{"fee_preference":"org_pays"}' https://sandbox-api.bachs.io/v1/accounts/{org_id}
+```
+
+**Under `customer_pays_fee` every managed sale under-credits its business by the provider's
+fee.** The charge is grossed up — a ₦24,725.00 order was collected as ₦25,095.88 with a
+₦370.88 fee and settled at ₦24,725.00 — so the platform received the whole order and the
+fee was never the sale's cost at all. Subtracting it hands the business ₦370.88 less than
+the platform is holding for it and keeps the difference. The tell is on the payment:
+`amount` above what was billed, with `settlement_amount` equal to it.
+
+A sale that settled with no fee on it — `fee_kobo IS NULL`, which is also what a writer
+that read the wrong field of the payload leaves behind — is credited by nothing. The wallet
+wait is deliberate, but `PaymentWebhookProcessor::settle()` short-circuits on the
+transaction's status, so the delivery that would have carried the fee is a no-op by the time
+it arrives, and `custody:promote` selects `whereNotNull('fee_kobo')` and can never reach it:
+
+```bash
+php artisan custody:repair-sale-fees                    # what it would price, and writes nothing
+php artisan custody:repair-sale-fees --apply
+php artisan custody:repair-sale-fees --apply --business={id} --limit=50
+```
+
+It re-reads the provider's charge and writes `fee_kobo` and `net_kobo`, which puts the sale
+back into the next `custody:promote` pass — **the repair moves no money itself**. It derives
+the fee the sale bore from the provider's own numbers rather than from the setting, so the
+grossed-up sales above are priced without it; it skips a sale the provider says is not paid,
+one it has still not priced, and one with no commission recorded (pricing that at today's
+rate would price an old sale at the wrong one), and names each rather than guessing. It
+reads each charge on its own terms, so it prices a grossed-up row the way it was charged
+whether or not the organisation's fee handling has been corrected yet; that correction only
+governs what is charged from then on.
+
 ### Holds: stopping a payout without moving one
 
 ```bash

@@ -342,7 +342,16 @@ test('bachs reads the settled amount from the session charge, not the session', 
             'status' => $status,
             'amount' => '2500.00',
             'currency' => 'NGN',
-            'processing_fee' => '50.00',
+            // The shape Bachs actually returns on a checkout-session charge:
+            // the fee is an object, not the flat `processing_fee` the webhook
+            // uses. This fixture once carried the flat name, which is how a
+            // driver that read only that name stayed green — see the regression
+            // test beside it for the two shapes side by side.
+            'fees' => [
+                'amount' => '50.00',
+                'currency' => 'NGN',
+                'breakdown' => [['type' => 'processing', 'amount' => '50.00']],
+            ],
         ]))]);
 
         $result = ws39Driver('bachs')->verify('chk_123', ws39BachsKeys());
@@ -361,6 +370,127 @@ test('bachs reads the settled amount from the session charge, not the session', 
                 ->and($result->feesMinor)->toBe(5000);
         }
     }
+});
+
+test('bachs prices the fee from whichever shape the payload uses', function () {
+    // Two shapes Bachs really sends for the same fact, both captured from a
+    // sandbox sale: the checkout-session charge nests the fee in a `fees` object,
+    // and the `collection.succeeded` delivery states it flat. A sale settled by
+    // the browser return leg is priced by the first and one settled by the
+    // webhook by the second. Reading only the flat name priced the second and
+    // left the first null — and a sale with no fee is a sale the wallet can
+    // never credit, so it sat in `pending_balance` for good.
+    $feesOf = function (array $charge): ?int {
+        Http::swap(new Factory);
+        Http::fake(['sandbox-api.bachs.io/*' => Http::response([
+            'checkout_id' => 'chk_cap01',
+            'status' => 'completed',
+            'charge' => $charge,
+        ])]);
+
+        return ws39Driver('bachs')->verify('chk_cap01', ws39BachsKeys())->feesMinor;
+    };
+
+    // The captured charge, as it was returned for a ₦24,725.00 sale while the
+    // Bachs org was still `customer_pays_fee`: the customer was debited
+    // ₦25,095.88 and the ₦370.88 fee was on top of the order, which is why the
+    // charge's `amount` exceeds the order. There is no `processing_fee` on it at
+    // all — this is the payload that settled the sale and reported no fee.
+    $captured = [
+        'id' => 'chg_cap01',
+        'status' => 'succeeded',
+        'amount' => '25095.88',
+        'currency' => 'NGN',
+        'fees' => [
+            'amount' => '370.88',
+            'currency' => 'NGN',
+            'breakdown' => [['type' => 'processing', 'amount' => '370.88']],
+        ],
+    ];
+
+    expect($feesOf($captured))->toBe(37088);
+
+    // A `fees` object that does not name a currency is reporting it in the
+    // charge's, which is what the absence says.
+    expect($feesOf(['id' => 'chg_1', 'status' => 'succeeded', 'amount' => '2500.00', 'currency' => 'NGN', 'fees' => ['amount' => '50.00']]))
+        ->toBe(5000);
+
+    // The flat pair, which is the webhook's shape and is still honoured — the
+    // second of the two ways a sale settles.
+    expect($feesOf([
+        'id' => 'chg_2', 'status' => 'succeeded', 'amount' => '2500.00', 'currency' => 'NGN',
+        'processing_fee' => '50.00', 'processing_fee_currency' => 'NGN',
+    ]))->toBe(5000);
+
+    // A payload carrying both is read as the object: it is the shape of the
+    // payload, not the shape of the field name, that says which one is current.
+    expect($feesOf([
+        'id' => 'chg_3', 'status' => 'succeeded', 'amount' => '2500.00', 'currency' => 'NGN',
+        'fees' => ['amount' => '50.00', 'currency' => 'NGN'],
+        'processing_fee' => '999.00',
+    ]))->toBe(5000);
+
+    // Bachs reports `fees.amount: null` while it is still working the settlement
+    // out. That is an absent fee and not a free sale: a zero would subtract
+    // nothing and credit the business with the provider's money.
+    expect($feesOf(['id' => 'chg_4', 'status' => 'succeeded', 'amount' => '2500.00', 'currency' => 'NGN', 'fees' => ['amount' => null, 'currency' => 'NGN']]))
+        ->toBeNull();
+
+    // No fee reported at all is the same statement.
+    expect($feesOf(['id' => 'chg_5', 'status' => 'succeeded', 'amount' => '2500.00', 'currency' => 'NGN']))
+        ->toBeNull();
+
+    // A fee the payload prices in another currency cannot be subtracted from a
+    // naira charge, and an unchecked subtraction is the thing this guard is for.
+    expect($feesOf(['id' => 'chg_6', 'status' => 'succeeded', 'amount' => '2500.00', 'currency' => 'NGN', 'fees' => ['amount' => '2.40', 'currency' => 'USD']]))
+        ->toBeNull();
+
+    // A charge with no currency of its own leaves the fee uncheckable, so it is
+    // reported as unread rather than assumed to be naira.
+    expect($feesOf(['id' => 'chg_7', 'status' => 'succeeded', 'amount' => '2500.00', 'fees' => ['amount' => '50.00']]))
+        ->toBeNull();
+});
+
+test('a bachs collection.succeeded delivery prices the flat fee it carries', function () {
+    // The other half of the same capture: the webhook states the fee flat,
+    // names its currency separately, and quotes `settlement_amount` as what
+    // landed in the platform's balance.
+    $body = json_encode([
+        'type' => 'collection.succeeded',
+        'data' => [
+            'checkout_id' => 'chk_cap01',
+            'charge_id' => 'chg_cap01',
+            'reference' => 'API_CAPTURED_0001',
+            'status' => 'SUCCESS',
+            'amount' => '25095.88',
+            'currency' => 'NGN',
+            'processing_fee' => '370.88',
+            'processing_fee_currency' => 'NGN',
+            'settlement_amount' => '24725.00',
+            'settlement_currency' => 'NGN',
+            'fee_bearer' => 'customer',
+        ],
+    ]);
+
+    $event = ws39Driver('bachs')->parseWebhook(ws39BachsWebhook($body, time()), ws39BachsKeys());
+
+    expect($event)->not->toBeNull()
+        ->and($event->type)->toBe(WebhookEventType::PAYMENT_SUCCESS)
+        ->and($event->amountMinor)->toBe(2509588)
+        ->and($event->feesMinor)->toBe(37088);
+
+    // A delivery with no fee on it settles the sale and prices nothing, which is
+    // the honest reading — the wallet then waits for a number rather than being
+    // credited against a zero nobody reported.
+    $bare = json_encode([
+        'type' => 'collection.succeeded',
+        'data' => ['checkout_id' => 'chk_cap01', 'status' => 'SUCCESS', 'amount' => '25095.88', 'currency' => 'NGN'],
+    ]);
+
+    $unpriced = ws39Driver('bachs')->parseWebhook(ws39BachsWebhook($bare, time()), ws39BachsKeys());
+
+    expect($unpriced->amountMinor)->toBe(2509588)
+        ->and($unpriced->feesMinor)->toBeNull();
 });
 
 test('a bachs session with no charge is read from the session status', function () {

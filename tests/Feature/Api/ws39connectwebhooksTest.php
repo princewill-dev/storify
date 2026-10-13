@@ -123,9 +123,12 @@ function cw39Platform(): void
  *
  * Routed by URL rather than by a single response, because they are different
  * questions: the initialize call opens a checkout, and the verify call reads the
- * charge back. The charge carries Bachs' own ₦50 processing fee, which is what
- * the business's share is computed against — a fixture without it would make the
- * net wrong in a way every ledger assertion below would inherit.
+ * charge back. The charge carries Bachs' own ₦50 processing fee inside a `fees`
+ * object — the shape a checkout-session charge actually uses — which is what the
+ * business's share is computed against. A fixture without it would make the net
+ * wrong in a way every ledger assertion below would inherit; a fixture carrying it
+ * under the webhook's flat `processing_fee` name would be a shape this endpoint
+ * never sends, and the assertions would pass over a fee that was read as absent.
  *
  * There is no `/balances` and no `/payouts` route any more, and their absence is
  * load-bearing: a charge that still tried to withdraw at settlement would reach
@@ -149,7 +152,11 @@ function cw39FakeBachs(array $chargeOverrides = []): void
                         'status' => 'succeeded',
                         'amount' => '2500.00',
                         'currency' => 'NGN',
-                        'processing_fee' => '50.00',
+                        'fees' => [
+                            'amount' => '50.00',
+                            'currency' => 'NGN',
+                            'breakdown' => [['type' => 'processing', 'amount' => '50.00']],
+                        ],
                     ], $chargeOverrides),
                 ]);
             }

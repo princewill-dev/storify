@@ -347,7 +347,11 @@ final class BachsGateway implements PaymentGateway
                 : (isset($charge['id']) ? (string) $charge['id'] : null),
             amountMinor: $this->minorFrom($charge['amount'] ?? null),
             currency: isset($charge['currency']) ? (string) $charge['currency'] : null,
-            feesMinor: $this->minorFrom($charge['processing_fee'] ?? null),
+            // Through the shared reader, not `processing_fee` directly:
+            // `collection.succeeded` reports the fee flat and `checkout.completed`
+            // nests a charge that reports it as an object, so a direct read here
+            // priced one of the two and left the other null. See {@see feesMinor()}.
+            feesMinor: $this->feesMinor($charge),
             raw: $data,
         );
     }
@@ -506,18 +510,76 @@ final class BachsGateway implements PaymentGateway
      * A fee in another currency is not a number that can be subtracted from this
      * one, so it is left out rather than converted at a rate nothing here knows.
      *
+     * ## Bachs reports the same fee in two different shapes, and this reads both
+     *
+     * The **payment and checkout-session charge objects** — what `verify()` gets
+     * back from `GET /v1/checkout-sessions/{id}` and `GET /v1/payments/{id}` —
+     * carry the fee as an object:
+     *
+     *     "fees": { "amount": "370.88", "currency": "NGN",
+     *               "breakdown": [{ "type": "processing", "amount": "370.88" }] }
+     *
+     * The **`collection.succeeded` webhook** reports the same number flat:
+     * `processing_fee` and `processing_fee_currency` alongside `amount`.
+     *
+     * Reading only the flat name was a live defect, not a hypothetical one: the
+     * browser return leg verifies through the checkout-session endpoint, so every
+     * sale it settled wrote `fee_kobo = null`. A null fee makes
+     * {@see Transaction::netKobo()} null, and {@see CustodyService::recordCollectedSale()}
+     * deliberately refuses to credit a wallet it cannot price — so the sale sat
+     * uncredited for good, with the business's money in Storify's balance and
+     * nothing on any screen saying why. The webhook path was the shape the
+     * original code was written against, which is why the fixtures never caught
+     * it; `checkout.completed` nests a charge in the *first* shape, so it was
+     * already reading null there too.
+     *
+     * `fees.amount` is the total and `fees.breakdown` its detail, so the total is
+     * what is read — summing the breakdown would be a second way to arrive at a
+     * number Bachs already totalled, and would silently disagree the day it adds
+     * a line item that is not a charge to the merchant.
+     *
      * @param  array<string, mixed>  $charge
      */
     private function feesMinor(array $charge): ?int
     {
-        if (! isset($charge['processing_fee'], $charge['currency'])) {
+        $amount = null;
+        $feeCurrency = null;
+
+        $fees = $charge['fees'] ?? null;
+
+        if (is_array($fees)) {
+            $amount = $fees['amount'] ?? null;
+            $feeCurrency = $fees['currency'] ?? null;
+        }
+
+        // The flat webhook shape, and the fallback for a payload that carries
+        // both. `processing_fee` is null when Bachs has not finished working the
+        // settlement out, which is a real statement and not a fee of zero.
+        if ($amount === null && isset($charge['processing_fee'])) {
+            $amount = $charge['processing_fee'];
+            $feeCurrency = $charge['processing_fee_currency'] ?? $feeCurrency;
+        }
+
+        if ($amount === null) {
             return null;
         }
 
-        $feeCurrency = (string) ($charge['processing_fee_currency'] ?? $charge['currency']);
+        // A fee with no charge currency to compare it against cannot be checked,
+        // and an unchecked subtraction from a naira charge is the thing this
+        // guard exists to prevent.
+        $chargeCurrency = $charge['currency'] ?? null;
 
-        return strtoupper($feeCurrency) === strtoupper((string) $charge['currency'])
-            ? $this->minorFrom($charge['processing_fee'])
+        if (! is_string($chargeCurrency) || $chargeCurrency === '') {
+            return null;
+        }
+
+        // The fee's own currency, defaulting to the charge's when it does not
+        // name one — which is what a payload reporting a fee in the charge's
+        // currency looks like whether or not it says so.
+        $feeCurrency = is_string($feeCurrency) && $feeCurrency !== '' ? $feeCurrency : $chargeCurrency;
+
+        return strtoupper($feeCurrency) === strtoupper($chargeCurrency)
+            ? $this->minorFrom($amount)
             : null;
     }
 
