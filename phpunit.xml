@@ -35,6 +35,11 @@
         <env name="DB_DATABASE" value="storify_test"/>
         <env name="DB_URL" value=""/>
         <env name="MAIL_MAILER" value="array"/>
+        <!-- The Bachs host is configuration rather than a property of the key,
+             and the suite fakes the sandbox host throughout. Pinned here so a
+             developer's own .env — which may well be pointed at sandbox too,
+             but need not be — cannot send a test at the live API. -->
+        <env name="BACHS_BASE_URL" value="https://sandbox-api.bachs.io/v1"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
         <env name="SESSION_DRIVER" value="array"/>
         <env name="PULSE_ENABLED" value="false"/>

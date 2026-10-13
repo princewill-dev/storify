@@ -117,7 +117,7 @@ final class BachsGateway implements PaymentGateway
      */
     public function initialize(PaymentIntent $intent, GatewayCredentials $credentials): InitializationResult
     {
-        $response = $this->client($credentials)->post($this->baseUrl($credentials).'/checkout-sessions', array_filter([
+        $response = $this->client($credentials)->post($this->baseUrl().'/checkout-sessions', array_filter([
             // `pricing` rather than `product_cart`: the amount is whatever the
             // customer is paying on this order, and it exists in no catalogue.
             'pricing' => [
@@ -182,7 +182,7 @@ final class BachsGateway implements PaymentGateway
     public function verify(string $reference, GatewayCredentials $credentials): VerificationResult
     {
         $response = $this->client($credentials)->get(
-            $this->baseUrl($credentials).'/checkout-sessions/'.rawurlencode($reference)
+            $this->baseUrl().'/checkout-sessions/'.rawurlencode($reference)
         );
 
         $body = $response->json() ?? [];
@@ -281,7 +281,7 @@ final class BachsGateway implements PaymentGateway
      */
     public function refund(RefundRequest $refund, GatewayCredentials $credentials): RefundResult
     {
-        $response = $this->client($credentials)->post($this->baseUrl($credentials).'/refunds', array_filter([
+        $response = $this->client($credentials)->post($this->baseUrl().'/refunds', array_filter([
             'charge_id' => $refund->providerId ?? $refund->reference,
             // Unique per organisation, like a charge reference, so one is minted
             // here rather than carried in.
@@ -359,7 +359,7 @@ final class BachsGateway implements PaymentGateway
     public function testConnection(GatewayCredentials $credentials): ConnectionResult
     {
         try {
-            $response = $this->client($credentials)->get($this->baseUrl($credentials).'/accounts/me');
+            $response = $this->client($credentials)->get($this->baseUrl().'/accounts/me');
 
             if ($response->status() === 401) {
                 return ConnectionResult::failed('Bachs rejected this API key.');
@@ -603,10 +603,10 @@ final class BachsGateway implements PaymentGateway
         );
     }
 
-    /** Test keys are not interchangeable with live ones, and the hosts differ. */
-    private function baseUrl(GatewayCredentials $credentials): string
+    /** One platform setting, not a property of the key — see {@see BachsApi}. */
+    private function baseUrl(): string
     {
-        return BachsApi::baseUrl($credentials);
+        return BachsApi::baseUrl();
     }
 
     private function refundReference(): string

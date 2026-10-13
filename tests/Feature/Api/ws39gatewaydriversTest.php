@@ -282,21 +282,55 @@ test('bachs is charged in decimal strings under pricing, not in kobo', function 
     });
 });
 
-test('bachs is called on sandbox or live according to the key prefix', function () {
+test('bachs is called on the host the configuration names, whatever the key looks like', function () {
+    // The environment is a setting, not a property of the key. Each half of
+    // this opposite-pairs the host with a key that would previously have
+    // overridden it, so a prefix creeping back into the routing fails here.
+    config(['services.bachs.base_url' => 'https://sandbox-api.bachs.io/v1']);
+
     Http::swap(new Factory);
     Http::fake(['bachs.io/*' => Http::response(['checkout_id' => 'chk_123', 'checkout_url' => 'https://checkout.bachs.io/chk_123'])]);
 
-    ws39Driver('bachs')->initialize(ws39Intent(), ws39BachsKeys('sk_sandbox_abcdefghij'));
+    ws39Driver('bachs')->initialize(ws39Intent(), ws39BachsKeys('sk_live_abcdefghij'));
 
     Http::assertSent(fn ($request) => str_starts_with($request->url(), 'https://sandbox-api.bachs.io/v1/')
-        && $request->hasHeader('Authorization', 'Bearer sk_sandbox_abcdefghij'));
+        && $request->hasHeader('Authorization', 'Bearer sk_live_abcdefghij'));
+
+    config(['services.bachs.base_url' => 'https://api.bachs.io/v1']);
 
     Http::swap(new Factory);
     Http::fake(['bachs.io/*' => Http::response(['checkout_id' => 'chk_456', 'checkout_url' => 'https://checkout.bachs.io/chk_456'])]);
 
-    $live = ws39Driver('bachs')->initialize(ws39Intent(), ws39BachsKeys('sk_live_abcdefghij'));
+    $live = ws39Driver('bachs')->initialize(ws39Intent(), ws39BachsKeys('sk_sandbox_abcdefghij'));
 
     expect($live->providerId)->toBe('chk_456');
+
+    Http::assertSent(fn ($request) => str_starts_with($request->url(), 'https://api.bachs.io/v1/'));
+});
+
+test('a trailing slash on the configured bachs host does not double up in the path', function () {
+    // The shape a URL is usually pasted in. `.../v1//checkout-sessions` is a 404
+    // that reads like the endpoint moved rather than like the variable is off by
+    // one character.
+    config(['services.bachs.base_url' => 'https://sandbox-api.bachs.io/v1/']);
+
+    Http::swap(new Factory);
+    Http::fake(['bachs.io/*' => Http::response(['checkout_id' => 'chk_789', 'checkout_url' => 'https://checkout.bachs.io/chk_789'])]);
+
+    ws39Driver('bachs')->initialize(ws39Intent(), ws39BachsKeys('sk_sandbox_abcdefghij'));
+
+    Http::assertSent(fn ($request) => $request->url() === 'https://sandbox-api.bachs.io/v1/checkout-sessions');
+});
+
+test('an empty bachs host falls back to live rather than to an empty host', function () {
+    // What a commented-out variable means. Addressed to '' the request would go
+    // to a hostless URL, which is not a failure anybody could read.
+    config(['services.bachs.base_url' => '']);
+
+    Http::swap(new Factory);
+    Http::fake(['bachs.io/*' => Http::response(['checkout_id' => 'chk_000', 'checkout_url' => 'https://checkout.bachs.io/chk_000'])]);
+
+    ws39Driver('bachs')->initialize(ws39Intent(), ws39BachsKeys('sk_sandbox_abcdefghij'));
 
     Http::assertSent(fn ($request) => str_starts_with($request->url(), 'https://api.bachs.io/v1/'));
 });

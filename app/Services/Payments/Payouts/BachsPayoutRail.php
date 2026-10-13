@@ -65,7 +65,7 @@ final class BachsPayoutRail implements PayoutRail
 
         try {
             $response = BachsApi::client($credentials)
-                ->post(BachsApi::baseUrl($credentials).'/payouts/destinations', $submitted);
+                ->post(BachsApi::baseUrl().'/payouts/destinations', $submitted);
         } catch (\Throwable $e) {
             Log::error('bachs.payout.destination_unreachable', ['error' => $e->getMessage()]);
 
@@ -133,7 +133,7 @@ final class BachsPayoutRail implements PayoutRail
         try {
             $response = BachsApi::client($credentials)
                 ->withHeaders(['Idempotency-Key' => $reference])
-                ->post(BachsApi::baseUrl($credentials).'/payouts', [
+                ->post(BachsApi::baseUrl().'/payouts', [
                     'destination' => $destinationId,
                     'amount' => Naira::decimalFromKobo($amountKobo),
                     'reference' => $reference,
@@ -221,7 +221,7 @@ final class BachsPayoutRail implements PayoutRail
     {
         try {
             $response = BachsApi::client($credentials)
-                ->get(BachsApi::baseUrl($credentials).'/balances');
+                ->get(BachsApi::baseUrl().'/balances');
         } catch (\Throwable $e) {
             Log::warning('bachs.payout.balance_unreadable', ['error' => $e->getMessage()]);
 
@@ -292,7 +292,7 @@ final class BachsPayoutRail implements PayoutRail
 
         try {
             $response = BachsApi::client($credentials)
-                ->get(BachsApi::baseUrl($credentials).'/payouts/'.$providerPayoutId);
+                ->get(BachsApi::baseUrl().'/payouts/'.$providerPayoutId);
         } catch (\Throwable $e) {
             Log::warning('bachs.payout.lookup_unreachable', [
                 'reference' => $reference,

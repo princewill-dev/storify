@@ -59,12 +59,20 @@ return [
      *
      * Hand-managed in `.env` on the server, exactly like the Paystack keys
      * above. `BACHS_WEBHOOK_SECRET` is the signing secret of the webhook
-     * endpoint created in Bachs' dashboard, not an API key; the API host is
-     * chosen from the key's `sk_sandbox_` / `sk_live_` prefix, so there is
-     * nothing to configure for it.
+     * endpoint created in Bachs' dashboard, not an API key.
+     *
+     * `base_url` is the whole of the sandbox/live decision. It is a setting and
+     * not a derivation — not from the key's `sk_sandbox_` prefix, and not from
+     * `APP_ENV` — so "which Bachs is this call hitting?" is answerable by
+     * reading one line rather than by reading the code. The same shape as
+     * `paystack.base_url` above. It applies to every Bachs call including a
+     * business's own connected account, and it defaults to live because a
+     * sandbox key against live fails loudly while the reverse does not fail at
+     * all — see {@see App\Services\Payments\Gateways\BachsApi::baseUrl()}.
      */
     'bachs' => [
         'api_key' => env('BACHS_API_KEY'),
+        'base_url' => env('BACHS_BASE_URL', 'https://api.bachs.io/v1'),
         'webhook_secret' => env('BACHS_WEBHOOK_SECRET'),
         // The connect endpoint's own secret, when Bachs issues it a different
         // one. Left unset it falls back to the value above, so one secret for

@@ -264,7 +264,7 @@ final class PaymentGatewayRegistry
                     [
                         'key' => 'api_key',
                         'label' => 'API key',
-                        'help' => 'Dashboard → Developers. sk_sandbox_ keys test, sk_live_ keys take real money.',
+                        'help' => 'Dashboard → Developers. The key must belong to the Bachs environment this platform is configured against — sandbox and live keys are not interchangeable, and a mismatch is refused by the provider rather than routed around.',
                         'placeholder' => 'sk_live_…',
                         'secret' => true,
                         'rules' => ['required', 'string', 'max:255', self::SAFE],
