@@ -421,11 +421,18 @@ function ws39Token(User $user): string
 }
 
 test('the gateway catalogue lists each provider with its fee', function () {
-    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    // Granted, because the full menu is now the plan's to give: a business with
+    // neither the grant nor the entitlement is handed the bank rail alone, and
+    // the test below asserts that. This one is about what the full menu says
+    // when a business is allowed to look at it.
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    ws39GrantOwnGateway($business);
 
     $response = $this->withToken(ws39Token($owner))
         ->getJson('/api/v1/management/payment-gateways')
-        ->assertOk();
+        ->assertOk()
+        ->assertJsonPath('data.gateway_access.allowed', true)
+        ->assertJsonPath('data.gateway_access.reason', null);
 
     $catalogue = collect($response->json('data.catalogue'))->keyBy('code');
 

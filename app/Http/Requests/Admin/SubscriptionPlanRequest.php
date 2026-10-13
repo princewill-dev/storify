@@ -57,6 +57,24 @@ final class SubscriptionPlanRequest extends FormRequest
             'features' => ['nullable', 'array', 'max:30'],
             'features.*' => ['nullable', 'string', 'max:255'],
             'sort_order' => ['sometimes', 'integer', 'min:0', 'max:100000'],
+
+            // What the plan actually grants, keyed by
+            // {@see \App\Support\Plans\EntitlementRegistry}. Deliberately
+            // validated as a free-form map and then narrowed by the registry in
+            // the service rather than enumerated here: enumerating the keys in
+            // two places is how a new entitlement ships on the API and is
+            // silently dropped by a validator nobody remembered to update.
+            //
+            // A limit arrives as a number or as null/blank — and blank means
+            // unlimited, which is the top tier's defining feature, so it must be
+            // accepted rather than treated as missing.
+            'entitlements' => ['sometimes', 'nullable', 'array'],
+            'entitlements.*' => ['nullable'],
+
+            // The rank a plan change compares on. Not `sort_order`, which is
+            // display order, and not `amount`, which cannot compare a yearly
+            // plan against a monthly one.
+            'tier' => ['sometimes', 'integer', 'min:1', 'max:255'],
         ];
     }
 

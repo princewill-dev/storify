@@ -26,6 +26,8 @@ class SubscriptionPlan extends Model
         'is_trial',
         'trial_days',
         'features',
+        'entitlements',
+        'tier',
         'sort_order',
     ];
 
@@ -35,6 +37,12 @@ class SubscriptionPlan extends Model
         'is_default' => 'boolean',
         'is_trial' => 'boolean',
         'features' => 'array',
+        // What this plan grants, keyed by
+        // {@see \App\Support\Plans\EntitlementRegistry}. Null is a meaningful
+        // value for a limit — it means unlimited — so this is read with
+        // `is_array()` and never with `??` further down.
+        'entitlements' => 'array',
+        'tier' => 'integer',
     ];
 
     protected static function booted()

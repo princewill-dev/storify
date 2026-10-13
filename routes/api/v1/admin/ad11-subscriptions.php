@@ -1,6 +1,8 @@
 <?php
 
+use App\Http\Controllers\Api\V1\Admin\BusinessPlanController;
 use App\Http\Controllers\Api\V1\Admin\EarlyPassController;
+use App\Http\Controllers\Api\V1\Admin\EntitlementController;
 use App\Http\Controllers\Api\V1\Admin\SubscriptionController;
 use App\Http\Controllers\Api\V1\Admin\SubscriptionPlanController;
 use App\Http\Middleware\AdminApiActivityLogger;
@@ -28,10 +30,23 @@ use App\Http\Middleware\AdminApiActivityLogger;
 Route::middleware(['permission:admin.subscriptions', AdminApiActivityLogger::class])->group(function () {
     Route::get('subscriptions', [SubscriptionController::class, 'index'])->name('subscriptions.index');
 
+    // The catalogue the plan editor is built from: every entitlement a plan may
+    // grant, with its label, type, unit and default. Not under
+    // `subscription-plans/`, because that collection binds `{plan}` — see
+    // EntitlementController.
+    Route::get('entitlements', [EntitlementController::class, 'index'])->name('entitlements.index');
+
     Route::get('subscription-plans', [SubscriptionPlanController::class, 'index'])->name('subscription-plans.index');
     Route::post('subscription-plans', [SubscriptionPlanController::class, 'store'])->name('subscription-plans.store');
     Route::put('subscription-plans/{plan}', [SubscriptionPlanController::class, 'update'])->name('subscription-plans.update');
     Route::delete('subscription-plans/{plan}', [SubscriptionPlanController::class, 'destroy'])->name('subscription-plans.destroy');
+
+    // Putting a business on a plan from the console — the support action that
+    // has to exist before the store limit can safely bite. Under
+    // `admin.subscriptions` because it changes what a business is entitled to.
+    // Registered here rather than in ad04's businesses group so that the plan
+    // CRUD and the thing that uses it share a permission and a file.
+    Route::put('businesses/{business}/plan', [BusinessPlanController::class, 'update'])->name('businesses.plan');
 });
 
 Route::middleware(['permission:admin.businesses', AdminApiActivityLogger::class])->group(function () {

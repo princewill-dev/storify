@@ -49,6 +49,13 @@ final class SubscriptionPlanResource extends JsonResource
             'interval_count' => (int) $plan->interval_count,
             'interval_label' => $this->intervalLabel($plan->interval, (int) $plan->interval_count),
             'features' => array_values($plan->features ?? []),
+            // What the plan actually grants, as stored — not merged with the
+            // registry defaults. The editor has to show the admin what the row
+            // says, so that saving the form twice is the same as saving it once;
+            // resolving defaults here would write them back on the next save and
+            // turn "says nothing" into a decision nobody made.
+            'entitlements' => is_array($plan->entitlements) ? $plan->entitlements : null,
+            'tier' => (int) $plan->tier,
             'is_active' => (bool) $plan->is_active,
             'is_default' => (bool) $plan->is_default,
             'is_trial' => (bool) $plan->is_trial,

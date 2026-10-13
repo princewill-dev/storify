@@ -245,27 +245,45 @@ test('selecting an invalid or inactive plan is refused', function () {
     expect($owner->fresh()->selected_plan_id)->toBeNull();
 });
 
-test('changing a plan swaps it immediately and logs the change', function () {
+test('changing to a dearer plan is quoted rather than applied', function () {
     Log::spy();
 
     [$owner] = createBusinessOwner(['trial_ends_at' => null]);
     $starter = ws07Plan(['name' => 'Starter', 'amount' => 5000]);
     $growth = ws07Plan(['name' => 'Growth', 'amount' => 9000, 'sort_order' => 2]);
-    $subscription = ws07Subscribe($owner, $starter);
+    // A fixed remainder, so the proration is a number and not a function of the
+    // calendar: 15 days left of a 30-day month, at ₦5,000 → ₦9,000 a month, is
+    // ₦2,500 owed on top of the ₦2,500 of time already paid for.
+    $subscription = ws07Subscribe($owner, $starter, ['expires_at' => now()->addDays(15)]);
+    $expiresAt = $subscription->expires_at;
 
     $this->withToken(ws07Token($owner))
         ->postJson('/api/v1/management/subscription/change-plan', ['plan_id' => $growth->id])
         ->assertOk()
-        ->assertJsonPath('data.subscription.plan.name', 'Growth')
-        ->assertJsonPath('data.subscription.next_amount', 9000);
+        ->assertJsonPath('data.status', 'payment_required')
+        ->assertJsonPath('data.payment_type', 'plan_change')
+        ->assertJsonPath('data.plan.name', 'Growth')
+        ->assertJsonPath('data.charge_kobo', 200000)
+        ->assertJsonPath('data.charge', 2000)
+        // The plan in force is still the one being paid for — an unpaid upgrade
+        // is a quote, not a plan.
+        ->assertJsonPath('data.subscription.plan.name', 'Starter')
+        ->assertJsonPath('data.subscription.pending_plan.name', 'Growth');
 
-    expect($subscription->fresh()->subscription_plan_id)->toBe($growth->id);
+    $fresh = $subscription->fresh();
+
+    expect($fresh->subscription_plan_id)->toBe($starter->id)
+        ->and($fresh->pending_plan_id)->toBe($growth->id)
+        ->and($fresh->pending_charge_kobo)->toBe(200000)
+        ->and($fresh->pending_requested_at)->not->toBeNull()
+        ->and($fresh->expires_at->equalTo($expiresAt))->toBeTrue();
 
     Log::shouldHaveReceived('info')
-        ->withArgs(fn ($message, $context = []) => $message === 'subscription.plan_changed'
+        ->withArgs(fn ($message, $context = []) => $message === 'subscription.plan_change_pending'
             && ($context['user_id'] ?? null) === $owner->id
             && ($context['old_plan_id'] ?? null) === $starter->id
-            && ($context['new_plan_id'] ?? null) === $growth->id);
+            && ($context['new_plan_id'] ?? null) === $growth->id
+            && ($context['charge_kobo'] ?? null) === 200000);
 });
 
 test('changing to the current plan is refused', function () {

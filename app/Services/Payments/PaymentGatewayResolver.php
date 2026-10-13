@@ -10,6 +10,7 @@ use App\Services\Subscription\PlatformBillingGateway;
 use App\Support\Money\ExchangeRateService;
 use App\Support\Money\StoreCurrency;
 use App\Support\Payments\CredentialCipher;
+use App\Support\Payments\GatewayGrant;
 use App\Support\Payments\PaymentGatewayRegistry;
 use App\Support\Payments\PaymentWebhookUrl;
 use App\Support\Payments\SystemProcessor;
@@ -232,10 +233,17 @@ final class PaymentGatewayResolver
         $storeRows = $store ? $this->storeRows((int) $store->id) : collect();
         $currency = $store ? $this->currencyFor($store) : null;
         // Resolved once rather than per provider — neither can change inside the
-        // loop, and each is a query. The grant is read here rather than passed
-        // in because the screen must never be told a regime the server would not
-        // honour: this is the same column `PaymentGatewayService::connect()`
-        // refuses on.
+        // loop, and each is a query.
+        //
+        // The own-keys question is asked of {@see GatewayGrant} rather than read
+        // off `businesses.can_connect_own_gateway` here, because that column is
+        // only one of the two ways a business reaches this ability — the top
+        // plan grants it as well — and a screen reading the column alone would
+        // deny the entitlement to the businesses that paid for it. It is the
+        // same method `PaymentGatewayService::connect()` refuses through, so the
+        // screen cannot be told a regime the server would not honour, and the
+        // enforced-processor case comes back false for the same reason it is
+        // refused on write.
         //
         // `auto_payout` rides along here because it is read for the same reason
         // and at the same cost: the screen promises the owner their money is
@@ -245,16 +253,11 @@ final class PaymentGatewayResolver
         // resolves to on, which is the column's own default.
         $businessRow = DB::table('businesses')
             ->where('id', $businessId)
-            ->first(['business_code', 'can_connect_own_gateway', 'auto_payout']);
+            ->first(['business_code', 'auto_payout']);
 
         $businessCode = $businessRow?->business_code;
         $enforced = SystemProcessor::stored();
-        // The grant is reported as *usable* only when the platform is not
-        // enforcing a processor. An admin holding a grant while the switch is on
-        // is not a state the screen should render a key form for: the connect
-        // would be refused (`GatewayGrant`), so showing it would be a form whose
-        // only outcome is an error.
-        $canConnectOwn = (bool) ($businessRow?->can_connect_own_gateway ?? false) && $enforced === null;
+        $canConnectOwn = GatewayGrant::mayConnectOwn($businessId);
         $autoPayout = (bool) ($businessRow?->auto_payout ?? true);
 
         $states = [];
@@ -267,6 +270,15 @@ final class PaymentGatewayResolver
 
             $states[] = [
                 'code' => $code,
+                // The name travels with the state, not only with the catalogue.
+                //
+                // A screen can hold a provider's state without holding its
+                // catalogue entry — the business's own screen drops every
+                // definition it may not connect, while deliberately keeping the
+                // state of anything already connected, so a downgraded business
+                // can still see and remove what it has. Without the name here
+                // that row has nothing to call itself but its code.
+                'name' => PaymentGatewayRegistry::get($code)['name'] ?? $code,
                 'is_enabled' => $resolved->isEnabled,
                 // Whether the platform offers this provider at all.
                 //

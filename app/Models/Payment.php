@@ -25,6 +25,19 @@ class Payment extends Model
 
     public const TYPE_OTHER = 'other';
 
+    /**
+     * The prorated difference on an upgrade, paid mid-period.
+     *
+     * Its own value rather than `other` because the three things that read this
+     * column have to treat it differently: activation swaps the plan and leaves
+     * `expires_at` alone (a purchase starts a period, a renewal extends one, a
+     * change buys the remainder of the one already running), the checkout prices
+     * it from the quoted difference rather than the plan's list price, and the
+     * billing list shows it for what it is. The payments table holds it as a
+     * MySQL ENUM — see the migration that added it.
+     */
+    public const TYPE_PLAN_CHANGE = 'plan_change';
+
     protected $fillable = [
         'payment_code',
         'business_id',

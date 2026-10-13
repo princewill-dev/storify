@@ -15,6 +15,17 @@ Schedule::job(new ProcessTrialExpirations)
     ->dailyAt('08:00')
     ->when(fn () => User::whereNotNull('trial_ends_at')->exists());
 
+// Booked plan downgrades, moved onto their new plan once the paid period ends.
+//
+// A downgrade is recorded rather than applied — the period it lands in was paid
+// for at the dearer plan's price — so this run is the only thing that ever keeps
+// that promise. Not guarded by a `when()`: with nothing booked there is nothing
+// to find, and a stopped scheduler should show up as an owner stuck on a plan
+// they have left rather than as a silently skipped condition.
+Schedule::command('subscriptions:apply-scheduled')
+    ->dailyAt('00:20')
+    ->withoutOverlapping();
+
 // Weekly ledger integrity scan (report only — backfill with ledger:reconcile --post)
 Schedule::command('ledger:reconcile')
     ->weeklyOn(1, '06:00');

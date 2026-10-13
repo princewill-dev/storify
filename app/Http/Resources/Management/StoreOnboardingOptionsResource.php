@@ -23,6 +23,7 @@ use Illuminate\Support\Collection;
  *     staff: Collection<int, User>,
  *     banks: Collection<int, StoreBank>,
  *     currencies: Collection<int, Currency>,
+ *     quota: array{used: int, limit: int|null, remaining: int|null, reached: bool, upgrade_url: string}|null,
  * } $resource
  */
 final class StoreOnboardingOptionsResource extends JsonResource
@@ -32,6 +33,7 @@ final class StoreOnboardingOptionsResource extends JsonResource
      *     staff: Collection<int, User>,
      *     banks: Collection<int, StoreBank>,
      *     currencies: Collection<int, Currency>,
+     *     quota: array{used: int, limit: int|null, remaining: int|null, reached: bool, upgrade_url: string}|null,
      * }  $options
      */
     public function __construct(private readonly User $user, array $options)
@@ -71,6 +73,13 @@ final class StoreOnboardingOptionsResource extends JsonResource
                 'email' => $member->email,
                 'roles' => $member->roles->pluck('name')->all(),
             ])->values()->all(),
+            // What this business is allowed, against what it holds.
+            //
+            // Sent so the create screen can say "3 of 3 stores" and stop
+            // offering a form whose only outcome is a refusal — the same
+            // contract the payment screens hold with GatewayGrant. The write
+            // path asks the same class, so the two cannot disagree.
+            'store_quota' => $this->resource['quota'],
             'main_domain' => config('app.main_domain', parse_url((string) config('app.url'), PHP_URL_HOST)),
             // The subdomain a store is actually published under. Kept separate
             // from main_domain because storefronts live on their own domain.

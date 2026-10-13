@@ -8,7 +8,9 @@ use App\Http\Requests\Management\Subscription\PlanSelectionRequest;
 use App\Http\Resources\Subscription\ActiveSubscriptionResource;
 use App\Http\Resources\Subscription\BillingHistoryPaymentResource;
 use App\Http\Resources\Subscription\SubscriptionPlanResource;
+use App\Models\Payment;
 use App\Repositories\Subscription\SubscriptionPlanRepository;
+use App\Services\Subscription\PlanChangeResult;
 use App\Services\Subscription\PlanSelectionService;
 use App\Services\SubscriptionTrialSettings;
 use App\Support\Money\Naira;
@@ -122,8 +124,14 @@ class PlanController extends ApiController
     }
 
     /**
-     * Swap the plan on an active subscription. No proration, no charge today —
-     * the new amount applies from the next renewal.
+     * Move the plan on an active subscription.
+     *
+     * Three outcomes, and the payload says which one it was rather than leaving
+     * the caller to infer it from a message: the plan is applied, a downgrade is
+     * booked for the period end, or an upgrade needs its prorated difference
+     * paid first. An upgrade that needs paying does not move anything — that is
+     * the point, and it is what the old implementation got wrong by making every
+     * change free and immediate.
      */
     public function change(PlanSelectionRequest $request): JsonResponse
     {
@@ -146,11 +154,38 @@ class PlanController extends ApiController
             return $this->error('Invalid plan selection.', 422);
         }
 
-        $subscription = $this->planSelection->change($user, $subscription, $plan);
+        $result = $this->planSelection->change($user, $subscription, $plan);
+        $subscription = $subscription->fresh();
 
-        return $this->ok([
+        if ($result->wasRefused()) {
+            return $this->error($result->message ?? 'Invalid plan selection.', 422);
+        }
+
+        $payload = [
+            'status' => $result->status,
             'subscription' => ActiveSubscriptionResource::make($subscription)->resolve(),
-        ], "Your plan has been changed to {$plan->name}. The new billing amount will apply on your next renewal.");
+        ];
+
+        if ($result->needsPayment()) {
+            $amount = $plan->currency.' '.number_format((float) Naira::decimalFromKobo($result->chargeKobo), 2);
+
+            return $this->ok([
+                ...$payload,
+                'plan' => SubscriptionPlanResource::make($plan)->resolve(),
+                'charge_kobo' => $result->chargeKobo,
+                'charge' => (float) Naira::decimalFromKobo($result->chargeKobo),
+                'payment_type' => Payment::TYPE_PLAN_CHANGE,
+            ], "Moving to {$plan->name} costs {$amount} for the rest of your current period. "
+                .'Complete the payment and the plan changes the moment it clears — your renewal date stays where it is.');
+        }
+
+        if ($result->status === PlanChangeResult::SCHEDULED) {
+            return $this->ok($payload, "Your plan moves to {$plan->name} when the current period ends"
+                .($result->effectiveAt ? ' on '.$result->effectiveAt->format('j M Y') : '')
+                .'. Everything you have keeps working until then.');
+        }
+
+        return $this->ok($payload, "Your plan has been changed to {$plan->name}. The new billing amount will apply on your next renewal.");
     }
 
     /**

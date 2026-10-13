@@ -17,6 +17,7 @@ use App\Services\Payments\Data\PaymentIntent;
 use App\Services\StoreActivationNotifier;
 use App\Support\Money\Naira;
 use App\Support\Payments\CallbackUrl;
+use DomainException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
@@ -56,7 +57,15 @@ final class SubscriptionPaymentService
      * lets a concurrent duplicate surface as UniqueConstraintViolationException
      * to the caller rather than as a second charge.
      *
+     * A plan change is the one attempt that attaches to a subscription that
+     * already exists. Creating a second one there would be two subscriptions for
+     * one business, one of them holding a plan nobody bought a term for — and
+     * the activation that followed would have handed out a fresh period for the
+     * price of a difference.
+     *
      * @return array{0: Subscription, 1: Payment}
+     *
+     * @throws DomainException when a plan change is attempted with nothing to change
      */
     public function startAttempt(
         User $user,
@@ -70,7 +79,16 @@ final class SubscriptionPaymentService
         int $totalKobo,
     ): array {
         return DB::transaction(function () use ($user, $plan, $coupon, $idempotencyKey, $paymentType, $ipAddress, $planAmountKobo, $discountKobo, $totalKobo) {
-            $subscription = $this->payments->createPendingSubscription($user, $plan);
+            $subscription = $paymentType === Payment::TYPE_PLAN_CHANGE
+                ? $this->payments->activeSubscriptionFor($user->business_id)
+                : $this->payments->createPendingSubscription($user, $plan);
+
+            if ($subscription === null) {
+                // Between the controller's guard and here the subscription
+                // lapsed or was cancelled. Refusing is the only safe answer:
+                // there is no period to sell the remainder of.
+                throw new DomainException('There is no plan change waiting for payment.');
+            }
 
             $payment = $this->payments->createPendingPayment($user, $plan, $subscription, [
                 'idempotency_key' => $idempotencyKey,
@@ -349,8 +367,15 @@ final class SubscriptionPaymentService
 
             $this->payments->activateSubscription($subscription, $plan, $lockedPayment);
 
-            $this->payments->activateUser($lockedPayment->user_id);
-            $this->payments->activatePendingStores($lockedPayment->business_id);
+            // A plan change is not the start of service, so it does not wake the
+            // business up and it does not reactivate its stores. The second of
+            // those is the one that would hurt: a store suspended by moderation
+            // is suspended on purpose, and an upgrade must not quietly undo that
+            // as a side effect of somebody paying a difference.
+            if ($lockedPayment->payment_type !== Payment::TYPE_PLAN_CHANGE) {
+                $this->payments->activateUser($lockedPayment->user_id);
+                $this->payments->activatePendingStores($lockedPayment->business_id);
+            }
 
             $exhaustedCoupon = null;
             $couponCode = data_get($lockedPayment->metadata, 'coupon_code');
@@ -376,7 +401,13 @@ final class SubscriptionPaymentService
             // to be told and the journal line attributed to the payer.
             $user = User::query()->find($payment->user_id) ?? $requestUser;
 
-            $this->activationNotifier->send($user);
+            // Same reasoning as the store reactivation above, one step further:
+            // this notifier mails the customer about their store and tells every
+            // admin a store was created. Neither happened — the business bought
+            // a plan change — so it is skipped rather than reworded.
+            if ($payment->payment_type !== Payment::TYPE_PLAN_CHANGE) {
+                $this->activationNotifier->send($user);
+            }
 
             if ($exhaustedCoupon) {
                 $this->notifyCouponExhausted($exhaustedCoupon);
@@ -448,7 +479,18 @@ final class SubscriptionPaymentService
     {
         DB::transaction(function () use ($payment, $subscription, $message) {
             $this->payments->markPaymentFailed($payment, $message);
-            $this->payments->cancelSubscription($subscription);
+
+            // Cancelling the subscription is right for an attempt that never
+            // became a term — there is nothing to leave pending. It is wrong for
+            // a plan change, which rides on a subscription that is already
+            // running and paid for: a gateway that is briefly down would take
+            // the business off the plan it is on, and the upgrade would have
+            // cost it its current one. The failed attempt is left behind on the
+            // subscription's pending columns and does nothing at all.
+            if ($payment->payment_type !== Payment::TYPE_PLAN_CHANGE) {
+                $this->payments->cancelSubscription($subscription);
+            }
+
             $this->payments->cancelTransactions($payment->reference);
         });
     }

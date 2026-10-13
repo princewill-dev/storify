@@ -26,6 +26,11 @@ class Subscription extends Model
         'business_id',
         'user_id',
         'subscription_plan_id',
+        'pending_plan_id',
+        'pending_charge_kobo',
+        'pending_requested_at',
+        'scheduled_plan_id',
+        'scheduled_at',
         'subscription_code',
         'status',
         'starts_at',
@@ -42,6 +47,9 @@ class Subscription extends Model
         'starts_at' => 'datetime',
         'expires_at' => 'datetime',
         'cancelled_at' => 'datetime',
+        'pending_requested_at' => 'datetime',
+        'scheduled_at' => 'datetime',
+        'pending_charge_kobo' => 'integer',
         'metadata' => 'array',
         'trial_reminder_day5_sent_at' => 'datetime',
         'trial_reminder_day6_sent_at' => 'datetime',
@@ -72,6 +80,38 @@ class Subscription extends Model
     public function subscriptionPlan(): BelongsTo
     {
         return $this->belongsTo(SubscriptionPlan::class);
+    }
+
+    /**
+     * The plan an upgrade is waiting to be paid for. Null when none is.
+     *
+     * Not the plan in force — that is {@see self::subscriptionPlan()}. The two
+     * differ exactly while a prorated charge is in flight, which is the state
+     * that has to be read carefully: entitlement comes from the plan in force
+     * until the money lands, so a business cannot spend an upgrade it has not
+     * paid for by starting a checkout.
+     */
+    public function pendingPlan(): BelongsTo
+    {
+        return $this->belongsTo(SubscriptionPlan::class, 'pending_plan_id');
+    }
+
+    /**
+     * The plan a downgrade takes effect on when the paid period ends.
+     */
+    public function scheduledPlan(): BelongsTo
+    {
+        return $this->belongsTo(SubscriptionPlan::class, 'scheduled_plan_id');
+    }
+
+    public function hasPendingChange(): bool
+    {
+        return $this->pending_plan_id !== null;
+    }
+
+    public function hasScheduledChange(): bool
+    {
+        return $this->scheduled_plan_id !== null;
     }
 
     public function payments(): HasMany

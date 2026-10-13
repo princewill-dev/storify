@@ -3,6 +3,7 @@
 namespace App\Services\Subscription;
 
 use App\Models\Coupon;
+use App\Models\Payment;
 use App\Models\SubscriptionPlan;
 use App\Models\User;
 use App\Repositories\Subscription\SubscriptionPaymentRepository;
@@ -24,6 +25,9 @@ final class SubscriptionPricingService
      * The checkout page only ever shows a plan the user chose; the
      * default-plan fallback belongs to the initialization endpoint. A renewal
      * with no history is really a first purchase, so it may fall back too.
+     *
+     * A plan change is priced from its own quoted figure rather than from the
+     * plan it is moving to — see {@see self::changeAmountKobo()}.
      */
     public function quote(User $user, string $paymentType, ?int $businessId, ?string $couponCode, bool $allowDefault): CheckoutQuote
     {
@@ -33,7 +37,7 @@ final class SubscriptionPricingService
             return new CheckoutQuote(null, null, 0, 0, 0, null);
         }
 
-        $planAmountKobo = Naira::koboFromStrict($plan->amount);
+        $planAmountKobo = $this->changeAmountKobo($paymentType, $businessId, $plan);
         $coupon = null;
         $discountKobo = 0;
         $couponError = null;
@@ -56,6 +60,33 @@ final class SubscriptionPricingService
             max(0, $planAmountKobo - $discountKobo),
             $couponError,
         );
+    }
+
+    /**
+     * What a plan change costs, in kobo.
+     *
+     * The prorated difference the change was quoted at, read off the
+     * subscription — not the new plan's list price. Charging the list price for
+     * a mid-period upgrade would bill a second full term for a period the
+     * business is already in the middle of, and the difference is the whole
+     * point of the exercise.
+     *
+     * Falls back to the plan's amount when there is no pending change, which is
+     * the case the controller refuses before reaching here; falling back rather
+     * than pricing at zero means a bug in that guard charges too much instead of
+     * giving an upgrade away.
+     *
+     * Everything downstream is unchanged: the coupon, if any, discounts this
+     * figure, and the gateway amount check compares the provider's figure to the
+     * persisted payment row rather than to the plan.
+     */
+    private function changeAmountKobo(string $paymentType, ?int $businessId, SubscriptionPlan $plan): int
+    {
+        if ($paymentType !== Payment::TYPE_PLAN_CHANGE) {
+            return Naira::koboFromStrict($plan->amount);
+        }
+
+        return $this->payments->pendingChargeKobo($businessId) ?? Naira::koboFromStrict($plan->amount);
     }
 
     /**

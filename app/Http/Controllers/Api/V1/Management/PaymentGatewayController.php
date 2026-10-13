@@ -14,6 +14,7 @@ use App\Services\Management\PaymentGatewayService;
 use App\Services\Payments\Data\GatewayCredentials;
 use App\Services\Payments\PaymentGatewayManager;
 use App\Services\Payments\PaymentGatewayResolver;
+use App\Support\Payments\GatewayGrant;
 use App\Support\Payments\PaymentGatewayRegistry;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -37,6 +38,23 @@ final class PaymentGatewayController extends ApiController
 {
     use ResolvesManagementContext;
 
+    /**
+     * The one provider that survives a plan without own-gateway access.
+     *
+     * Named because two places now depend on the same fact — the reduced
+     * catalogue, and the sentence that tells the owner to connect a bank account
+     * instead — and a business told to use a rail that the same response hides
+     * would have nowhere to go.
+     */
+    private const BANK_RAIL = 'bank_transfer';
+
+    /**
+     * Where the screen sends a business that needs a bigger plan. The management
+     * app's own plans route, which is where the refusal contract's
+     * `subscription_required` points too.
+     */
+    private const UPGRADE_URL = '/plans';
+
     public function __construct(
         private readonly PaymentGatewayResolver $resolver,
         private readonly PaymentGatewayService $service,
@@ -48,13 +66,65 @@ final class PaymentGatewayController extends ApiController
     {
         $user = $this->user($request);
         $store = $this->resolveStore($request, $user);
+        // Asked once and used for both answers, so that the menu a business is
+        // handed cannot disagree with the explanation printed above it.
+        $refusal = GatewayGrant::refusalReason((int) $user->business_id);
+        $mayConnectOwn = $refusal === null;
 
         return $this->ok([
-            'catalogue' => PaymentGatewayRegistry::cataloguePayload(),
+            'catalogue' => $this->catalogueFor($mayConnectOwn),
+            // Their own connection state, sent whole whatever the answer above.
+            // It is the business's data about its own account, and a business
+            // that has just dropped to a smaller plan must still be able to see
+            // — and disconnect — what it holds. Hiding a live connection would
+            // strand it: still charging at checkout, and with no screen left
+            // that admits it exists.
             'providers' => $this->resolver->states((int) $user->business_id, $store),
             'stores' => $this->storesPayload($user),
             'scope' => ['store_id' => $store?->id],
+            // Why the catalogue is one entry long, when it is. Stated by the
+            // server rather than inferred by the screen from a short list, so
+            // "you cannot connect your own keys" and "this platform has one
+            // provider" do not render as the same page.
+            'gateway_access' => [
+                'allowed' => $mayConnectOwn,
+                'reason' => $refusal,
+                'upgrade_url' => self::UPGRADE_URL,
+            ],
         ]);
+    }
+
+    /**
+     * The provider menu, cut down when the business may not connect anything.
+     *
+     * The strip is here rather than in the screen because it is the plan talking,
+     * not a display preference: a business on a plan without own-gateway access
+     * has nothing to do with eleven provider cards, and the screen that renders
+     * whatever it is handed cannot drift from the rule if it is never handed
+     * anything else. The write is refused independently by {@see GatewayGrant} —
+     * this is what stops the screen offering it.
+     *
+     * `bank_transfer` is the whole of the reduced menu, and it needs no
+     * special-casing to survive: it is provisioned from the business's own bank
+     * accounts rather than from API keys, and {@see GatewayGrant::usesOwnKeys()}
+     * gates only providers that need keys. It is also the rail the refusal itself
+     * points the owner at — telling somebody to have their bank account
+     * connected while hiding the screen that adds one would be a dead end.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function catalogueFor(bool $mayConnectOwn): array
+    {
+        $catalogue = PaymentGatewayRegistry::cataloguePayload();
+
+        if ($mayConnectOwn) {
+            return $catalogue;
+        }
+
+        return array_values(array_filter(
+            $catalogue,
+            static fn (array $provider): bool => $provider['code'] === self::BANK_RAIL,
+        ));
     }
 
     public function update(ConnectGatewayRequest $request, string $provider): JsonResponse

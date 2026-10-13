@@ -14,6 +14,7 @@ use App\Http\Resources\Management\StoreOnboardingResource;
 use App\Models\Store;
 use App\Repositories\Management\StoreOnboardingRepository;
 use App\Services\Payments\Custody\WalletSummaryService;
+use App\Support\Plans\StoreQuota;
 use DomainException;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
@@ -104,9 +105,11 @@ class StoreOnboardingController extends ApiController
     public function createOptions(Request $request): JsonResponse
     {
         $user = $this->user($request);
+        $options = $this->repository->formOptions($user);
+        $options['quota'] = $user->business === null ? null : StoreQuota::payload($user->business);
 
         return $this->ok(
-            (new StoreOnboardingOptionsResource($user, $this->repository->formOptions($user)))->resolve($request),
+            (new StoreOnboardingOptionsResource($user, $options))->resolve($request),
         );
     }
 
@@ -118,6 +121,22 @@ class StoreOnboardingController extends ApiController
         // was even usable; keep that gate on the write itself.
         if (! $user->is_verified) {
             return $this->error('Please verify your email before creating a store.', 403);
+        }
+
+        // The plan's store limit, checked before anything is read from the
+        // request or written. It was never checked anywhere before: the platform
+        // stored a `settings.store_creation_limit`, showed it in the admin
+        // console, validated it, and read it from no creation path — so a
+        // three-store plan could run thirty.
+        //
+        // A 403 in the gate's own shape rather than the 422 this controller uses
+        // for bad input, because nothing about the request is wrong. The business
+        // is asking for something it is not entitled to, which is the same
+        // category as the subscription gate and is answered the same way.
+        $refusal = $user->business === null ? null : StoreQuota::refusal($user->business);
+
+        if ($refusal !== null) {
+            return response()->json($refusal, 403);
         }
 
         $data = $request->validated();

@@ -21,7 +21,14 @@ class InitializePaymentRequest extends FormRequest
         return [
             'idempotency_key' => ['required', 'string', 'max:100'],
             'coupon_code' => ['nullable', 'string', 'max:100'],
-            'payment_type' => ['nullable', Rule::in([Payment::TYPE_SUBSCRIPTION, Payment::TYPE_RENEWAL])],
+            // `plan_change` is listed here because the checkout has to be able
+            // to price the prorated difference a recorded change was quoted at
+            // — the controller still refuses it unless such a change exists.
+            'payment_type' => ['nullable', Rule::in([
+                Payment::TYPE_SUBSCRIPTION,
+                Payment::TYPE_RENEWAL,
+                Payment::TYPE_PLAN_CHANGE,
+            ])],
             'callback_url' => ['nullable', 'url', 'max:255'],
         ];
     }

@@ -63,7 +63,11 @@ class PaymentController extends ApiController
         $businessId = $this->businessId($request);
         $paymentType = $filters['payment_type'] ?? Payment::TYPE_SUBSCRIPTION;
 
-        if ($this->payments->businessHasActiveSubscription($businessId)) {
+        if ($refusal = $this->planChangeRefusal($businessId, $paymentType)) {
+            return $refusal;
+        }
+
+        if ($this->payments->businessHasActiveSubscription($businessId) && $paymentType !== Payment::TYPE_PLAN_CHANGE) {
             return $this->error('You already have an active subscription.', 409);
         }
 
@@ -109,7 +113,11 @@ class PaymentController extends ApiController
         $businessId = $this->businessId($request);
         $paymentType = $data['payment_type'] ?? Payment::TYPE_SUBSCRIPTION;
 
-        if ($this->payments->businessHasActiveSubscription($businessId)) {
+        if ($refusal = $this->planChangeRefusal($businessId, $paymentType)) {
+            return $refusal;
+        }
+
+        if ($this->payments->businessHasActiveSubscription($businessId) && $paymentType !== Payment::TYPE_PLAN_CHANGE) {
             return $this->error('You already have an active subscription.', 409);
         }
 
@@ -128,6 +136,16 @@ class PaymentController extends ApiController
         $plan = $quote->plan;
         $coupon = $quote->coupon;
         $totalKobo = $quote->totalKobo;
+
+        if ($coupon && $totalKobo <= 0 && $paymentType === Payment::TYPE_PLAN_CHANGE) {
+            // Refused rather than half-honoured. `activateWithCoupon` creates a
+            // subscription, and a plan change moves one — so the coupon would
+            // either be spent on nothing or, worse, the platform would take it
+            // and leave the plan where it was. A coupon that covers a whole
+            // difference is an edge case, and saying so plainly is better than a
+            // path whose only test is nobody's.
+            return $this->error('This coupon covers the whole amount, which a plan change cannot use. Choose a plan without it.', 422);
+        }
 
         if ($coupon && $totalKobo <= 0) {
             return $this->activateWithCoupon($user, $plan, $coupon);
@@ -152,6 +170,11 @@ class PaymentController extends ApiController
                 $quote->discountKobo,
                 $totalKobo,
             );
+        } catch (DomainException $e) {
+            // The subscription the change was quoted against stopped being
+            // active between the guard above and this write. Nothing was
+            // charged and nothing was created — say so rather than 500.
+            return $this->error($e->getMessage(), 422);
         } catch (UniqueConstraintViolationException) {
             // A concurrent request with the same key won the race; hand back
             // whatever it stored rather than creating a second charge.
@@ -312,6 +335,34 @@ class PaymentController extends ApiController
             'redirect' => '/',
             'subscription' => SubscriptionResource::make($result->subscription)->resolve(),
         ], $plan->name.' activated successfully.');
+    }
+
+    /**
+     * The guards a `plan_change` checkout needs before anything is priced.
+     *
+     * A plan change is the one checkout that runs *alongside* an active
+     * subscription, so it is the one that has to prove it is entitled to: there
+     * must be an active subscription to change, and a change must actually be
+     * waiting to be paid for. Without the second check, `payment_type:
+     * plan_change` would be a way to open a checkout for a plan nobody quoted.
+     *
+     * @return JsonResponse|null the refusal, or null when the checkout may proceed
+     */
+    private function planChangeRefusal(?int $businessId, string $paymentType): ?JsonResponse
+    {
+        if ($paymentType !== Payment::TYPE_PLAN_CHANGE) {
+            return null;
+        }
+
+        if (! $this->payments->businessHasActiveSubscription($businessId)) {
+            return $this->error('A plan change needs an active subscription.', 422);
+        }
+
+        if ($this->payments->pendingPlanFor($businessId) === null) {
+            return $this->error('There is no plan change waiting for payment.', 422);
+        }
+
+        return null;
     }
 
     private function replayedResponse(Payment $payment): JsonResponse

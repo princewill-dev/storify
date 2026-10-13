@@ -6,6 +6,7 @@ use App\Models\SubscriptionPlan;
 use App\Models\User;
 use App\Services\ActivityRecorder;
 use App\Support\Money\Naira;
+use App\Support\Plans\EntitlementRegistry;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -70,7 +71,7 @@ final class SubscriptionPlanService
         $old = $this->auditValues($plan);
 
         DB::transaction(function () use ($plan, $data, $old, $actor) {
-            $attributes = $this->attributes($data);
+            $attributes = $this->attributes($data, $plan);
 
             if ($attributes['is_default']) {
                 SubscriptionPlan::query()
@@ -121,7 +122,7 @@ final class SubscriptionPlanService
      * @param  array<string, mixed>  $data
      * @return array<string, mixed>
      */
-    private function attributes(array $data): array
+    private function attributes(array $data, ?SubscriptionPlan $existing = null): array
     {
         $isDefault = (bool) ($data['is_default'] ?? false);
 
@@ -140,7 +141,40 @@ final class SubscriptionPlanService
             'trial_days' => ($data['is_trial'] ?? false) ? (int) $data['trial_days'] : null,
             'features' => $this->features($data['features'] ?? []),
             'sort_order' => (int) ($data['sort_order'] ?? 0),
+            'entitlements' => $this->entitlements($data, $existing),
+            'tier' => array_key_exists('tier', $data)
+                ? (int) $data['tier']
+                : (int) ($existing->tier ?? 1),
         ];
+    }
+
+    /**
+     * What the plan grants, narrowed to what the registry knows about.
+     *
+     * The narrowing is {@see EntitlementRegistry::normalize()}'s, not this
+     * method's: unknown keys are dropped, limits are coerced to integers, a
+     * blank limit becomes `null` — unlimited, not zero — and a toggle is read
+     * with `FILTER_VALIDATE_BOOLEAN`. Writing the map raw would be one typo away
+     * from a plan whose store limit is the string "many", and every reader of
+     * that column downstream would have to defend against it separately.
+     *
+     * **Absent means unchanged**, which is a deliberate exception to this
+     * request's otherwise full-replacement contract. The column is new, so every
+     * client that predates it — an older admin console, a script, a test that
+     * posts the fields it knows about — omits the key, and reading that as
+     * "grant nothing" would empty out a plan's contents the first time anybody
+     * renamed it. Present, and it replaces the map wholesale.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>|null
+     */
+    private function entitlements(array $data, ?SubscriptionPlan $existing): ?array
+    {
+        if (! array_key_exists('entitlements', $data)) {
+            return $existing?->entitlements;
+        }
+
+        return $data['entitlements'] === null ? null : EntitlementRegistry::normalize($data['entitlements']);
     }
 
     /**
@@ -188,6 +222,12 @@ final class SubscriptionPlanService
             'is_trial' => (bool) $plan->is_trial,
             'trial_days' => $plan->trial_days !== null ? (int) $plan->trial_days : null,
             'sort_order' => (int) $plan->sort_order,
+            // Audited because it is the field with the widest blast radius on
+            // this form: an edit here changes what every business subscribed to
+            // the plan is entitled to, immediately and silently, and the trail
+            // is the only place that change is attributable afterwards.
+            'entitlements' => $plan->entitlements,
+            'tier' => (int) $plan->tier,
         ];
     }
 }
