@@ -69,19 +69,25 @@ class WarehouseController extends ApiController
         // the 403 the create endpoint returns has told the owner nothing until
         // they have filled in the form.
         //
-        // In `data` rather than in the pagination meta, which is where the
-        // staff, product and store reads each put theirs — one path shape for
-        // one question, so the SPA reads all four the same way.
+        // In the pagination meta, which is the platform's rule for this: `data`
+        // is the collection and nothing else, and extras ride beside it.
+        // StaffParityController puts `stats` and `store` there, and
+        // ProductController's `data` is its bare rows. This endpoint briefly
+        // broke that — `data` became `{warehouses, warehouse_quota}`, which the
+        // SPA iterates as the list — and every card on /warehouses rendered
+        // blank, because an object has no rows to name and no stock to count.
+        // The list shape is a contract with a screen that already exists; the
+        // quota is a new arrival and is what has to move.
         return $this->ok(
+            WarehouseSummaryResource::collection($warehouses->getCollection())->resolve($request),
+            null,
+            200,
             [
-                'warehouses' => WarehouseSummaryResource::collection($warehouses->getCollection())->resolve($request),
+                ...$this->paginationMeta($warehouses),
                 'warehouse_quota' => $user->business === null
                     ? null
                     : PlanQuota::payload($user->business, EntitlementRegistry::WAREHOUSES),
             ],
-            null,
-            200,
-            $this->paginationMeta($warehouses),
         );
     }
 

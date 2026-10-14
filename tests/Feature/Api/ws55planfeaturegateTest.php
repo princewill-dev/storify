@@ -599,10 +599,15 @@ test('the warehouse list is told what the business holds', function () {
     $this->withToken(ws55Token($owner))
         ->getJson('/api/v1/management/warehouses')
         ->assertOk()
-        ->assertJsonPath('data.warehouse_quota.used', 1)
-        ->assertJsonPath('data.warehouse_quota.limit', 2)
-        ->assertJsonPath('data.warehouse_quota.remaining', 1)
-        ->assertJsonPath('data.warehouse_quota.reached', false);
+        // In `meta`, beside the rows rather than around them: `data` is the
+        // warehouse list this screen's cards bind to, and the quota is an
+        // extra riding alongside. Asserted here as well as flat, because
+        // `data` holding the list is the half that a screen depends on.
+        ->assertJsonPath('data.0.name', 'Main')
+        ->assertJsonPath('meta.warehouse_quota.used', 1)
+        ->assertJsonPath('meta.warehouse_quota.limit', 2)
+        ->assertJsonPath('meta.warehouse_quota.remaining', 1)
+        ->assertJsonPath('meta.warehouse_quota.reached', false);
 });
 
 /* ------------------------------------------------------------- the storefront */

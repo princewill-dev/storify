@@ -58,13 +58,16 @@ test('the warehouse list returns stock and low-stock counts', function () {
 
     stockAt($warehouse, 4, 10);
 
+    // Flat in `data`: the SPA binds this list straight to its cards, and a
+    // wrapper object here renders every card blank — which is the bug these
+    // paths were corrected from.
     $this->withToken(warehouseToken($owner))
         ->getJson('/api/v1/management/warehouses')
         ->assertOk()
-        ->assertJsonPath('data.warehouses.0.name', 'Main Warehouse')
-        ->assertJsonPath('data.warehouses.0.total_stock', 4)
-        ->assertJsonPath('data.warehouses.0.product_count', 1)
-        ->assertJsonPath('data.warehouses.0.low_stock_count', 1);
+        ->assertJsonPath('data.0.name', 'Main Warehouse')
+        ->assertJsonPath('data.0.total_stock', 4)
+        ->assertJsonPath('data.0.product_count', 1)
+        ->assertJsonPath('data.0.low_stock_count', 1);
 });
 
 test('the warehouse list excludes other businesses and deleted warehouses', function () {
@@ -79,7 +82,7 @@ test('the warehouse list excludes other businesses and deleted warehouses', func
 
     $response->assertOk();
 
-    expect(array_column($response->json('data.warehouses'), 'name'))->toBe(['Mine']);
+    expect(array_column($response->json('data'), 'name'))->toBe(['Mine']);
 });
 
 test('a warehouse can be created with several staff assigned', function () {
