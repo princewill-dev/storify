@@ -14,15 +14,19 @@
 $mainDomain = (string) env('APP_MAIN_DOMAIN', 'storify.ng');
 
 /*
-| The storefronts do not live on the main domain. Every store is served from
-| its own subdomain of a separate domain — {slug}.storify.buzz — while
-| management, admin and the marketing site stay on APP_MAIN_DOMAIN. The two
-| are kept apart deliberately: nothing else derives from this value.
+| The domain every store's own subdomain hangs from — {slug}.<this>.
 |
-| The backend is not on a subdomain of either; it is its own origin, reached
-| through API_BASE_URL.
+| This used to be a separate domain (storify.buzz) so a store slug could never
+| collide with app./office./www. The wildcard now lives on the main domain
+| instead, and those names are held clear by the reserved-slug rules rather
+| than by a domain boundary — see config/storefront.php, which the storefront
+| SPA mirrors. Keep the key separate from `main_domain`: a deployment still
+| publishing on another domain, or a single-store one, overrides this alone.
+|
+| The backend is not a subdomain of this; it is its own origin, reached through
+| API_BASE_URL.
 */
-$storefrontDomain = (string) env('STOREFRONT_MAIN_DOMAIN', 'storify.buzz');
+$storefrontDomain = (string) env('STOREFRONT_MAIN_DOMAIN', 'storify.ng');
 
 return [
 

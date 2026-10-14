@@ -32,8 +32,10 @@ final class SpaUrls
      * A store's own storefront. Each store is served from its own subdomain,
      * so the link has to carry the slug — there is no single storefront origin.
      *
-     * The subdomains hang off `storefront_main_domain` (storify.buzz), which is
-     * a different domain from the one management and admin use.
+     * The subdomains hang off `storefront_main_domain`, which now defaults to
+     * the main domain itself. It stays a key of its own rather than reusing
+     * `main_domain`: a deployment that publishes stores elsewhere — as this one
+     * did, on storify.buzz — overrides this value alone.
      *
      * A configured STOREFRONT_URL wins, which is what a single-store
      * deployment (or a local dev server reached via ?store=) wants. Note that
