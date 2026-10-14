@@ -49,6 +49,9 @@ function sc39Store(User $owner, array $attributes = []): Store
         'name' => 'Store '.fake()->unique()->numerify('####'),
         'slug' => 'sc39-'.fake()->unique()->numerify('######'),
         'status' => Store::STATUS_ACTIVE,
+        // The public storefront API refuses a store that is not published, and
+        // this file charges through the storefront checkout.
+        'has_website' => true,
         'payment_mode' => 'manual',
     ], $attributes));
 }

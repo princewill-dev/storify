@@ -37,6 +37,9 @@ function ws39Store(User $owner, array $attributes = []): Store
         'name' => 'Store '.fake()->unique()->numerify('####'),
         'slug' => 'ws39-'.fake()->unique()->numerify('######'),
         'status' => Store::STATUS_ACTIVE,
+        // The public storefront API refuses a store that is not published, and
+        // this file reads the storefront's payment methods through it.
+        'has_website' => true,
         'payment_mode' => 'manual',
     ], $attributes));
 }

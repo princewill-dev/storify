@@ -110,6 +110,9 @@ function pf41Store(User $owner, array $attributes = []): Store
         'name' => 'Store '.fake()->unique()->numerify('####'),
         'slug' => 'pf41-'.fake()->unique()->numerify('######'),
         'status' => Store::STATUS_ACTIVE,
+        // The public storefront API refuses a store that is not published, and
+        // the charge helper in this file sells through the storefront.
+        'has_website' => true,
         'payment_mode' => 'manual',
     ], $attributes));
 }

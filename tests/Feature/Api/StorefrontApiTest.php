@@ -212,3 +212,54 @@ test('customers can view their orders and downloads through the api', function (
         'first_name' => 'Renamed',
     ], $headers)->assertOk();
 });
+
+/**
+ * The owner's off-switch, seen from the customer's side.
+ *
+ * A store exists, is not deleted, and simply is not published. Every endpoint
+ * that goes through ResolvesStorefrontContext has to answer 404 with the
+ * `storefront_offline` marker — 404 rather than 403 or 410 so a customer
+ * probing addresses cannot tell a shop that is off from one that never
+ * existed, and a marker so the storefront SPA can tell them apart.
+ */
+test('a store whose storefront is switched off serves nothing', function () {
+    [$store] = storefrontContext();
+
+    $store->update(['has_website' => false]);
+
+    $this->getJson('/api/v1/storefront/'.$store->slug.'/home')
+        ->assertStatus(404)
+        ->assertJsonPath('message', 'This storefront is offline.')
+        ->assertJsonPath('errors.store.0', 'storefront_offline');
+
+    $this->getJson('/api/v1/storefront/'.$store->slug.'/products')
+        ->assertStatus(404)
+        ->assertJsonPath('errors.store.0', 'storefront_offline');
+
+    $this->getJson('/api/v1/storefront/'.$store->slug.'/cart')
+        ->assertStatus(404)
+        ->assertJsonPath('errors.store.0', 'storefront_offline');
+});
+
+/**
+ * The gate reads `has_website` and nothing else. It deliberately does not
+ * change what a suspended store does — that hole is older than this switch and
+ * pinning it here keeps the two from being confused for each other.
+ */
+test('a suspended store still serves, because suspension is not the off-switch', function () {
+    [$store] = storefrontContext();
+
+    $store->update(['status' => 'suspended']);
+
+    $this->getJson('/api/v1/storefront/'.$store->slug.'/home')->assertOk();
+});
+
+test('a deleted store 404s without the offline marker', function () {
+    [$store] = storefrontContext();
+
+    $store->update(['status' => 'deleted']);
+
+    $this->getJson('/api/v1/storefront/'.$store->slug.'/home')
+        ->assertStatus(404)
+        ->assertJsonMissingPath('errors.store.0');
+});

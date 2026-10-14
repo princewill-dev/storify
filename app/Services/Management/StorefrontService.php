@@ -42,6 +42,29 @@ final class StorefrontService
     }
 
     /**
+     * Takes the storefront offline, keeping everything that would be awkward or
+     * impossible to win back.
+     *
+     * The slug stays and is never cleared. Re-enabling must not have to
+     * re-claim the address, and while this row still holds it no other store can
+     * take it — `Rule::unique('stores','slug')` sees it, and so does the store
+     * create form's availability check.
+     *
+     * The nation-wide delivery route stays for the same reason:
+     * `syncNationwideDelivery()` upserts it, so re-enabling should not have to
+     * rebuild it out of a second form. Nothing about the route is served while
+     * the storefront is off, because the whole storefront refuses at
+     * ResolvesStorefrontContext.
+     *
+     * One column changes and nothing else can be left half-applied, so unlike
+     * `enable()` this is not wrapped in a transaction.
+     */
+    public function disable(Store $store): void
+    {
+        $store->update(['has_website' => false]);
+    }
+
+    /**
      * Upserts the "All States" route the storefront checkout charges.
      *
      * @param  array<string, mixed>  $data

@@ -453,7 +453,113 @@ test('managing a storefront needs the stores settings permission', function () {
         ->assertStatus(403);
 });
 
+test('disabling a storefront keeps the slug and the delivery route it had', function () {
+    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    $store = ws05Store($owner, ['name' => 'Live Shop', 'slug' => 'live-shop']);
+
+    $this->withToken(ws05Token($owner))
+        ->postJson("/api/v1/management/stores/{$store->store_id}/enable-website", [
+            'store_name' => 'Live Shop',
+            'slug' => 'live-shop',
+            'is_nationwide' => true,
+            'nationwide_fee' => 1500,
+            'nationwide_days' => 4,
+        ])
+        ->assertOk();
+
+    $this->withToken(ws05Token($owner))
+        ->postJson("/api/v1/management/stores/{$store->store_id}/disable-website")
+        ->assertOk()
+        ->assertJsonPath('data.store.has_website', false)
+        // The address survives the switch, and so does the route the storefront
+        // checkout charged: switching back on must not have to win either back.
+        ->assertJsonPath('data.store.slug', 'live-shop')
+        ->assertJsonPath('data.store.storefront_url', null)
+        ->assertJsonPath('data.store.nationwide_delivery.fee', 150000);
+
+    $offline = $store->fresh();
+
+    expect($offline->has_website)->toBeFalse()
+        ->and($offline->slug)->toBe('live-shop')
+        ->and(DeliveryRoute::where('store_id', $store->id)->count())->toBe(1);
+});
+
+test('a disabled storefront can be switched back on at the same address', function () {
+    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    $store = ws05Store($owner, ['name' => 'Live Shop', 'slug' => 'live-shop', 'has_website' => true]);
+
+    $this->withToken(ws05Token($owner))
+        ->postJson("/api/v1/management/stores/{$store->store_id}/disable-website")
+        ->assertOk();
+
+    $this->withToken(ws05Token($owner))
+        ->postJson("/api/v1/management/stores/{$store->store_id}/enable-website", [
+            'store_name' => 'Live Shop',
+            'slug' => 'live-shop',
+        ])
+        ->assertOk()
+        ->assertJsonPath('data.store.has_website', true)
+        ->assertJsonPath('data.store.slug', 'live-shop');
+});
+
+test('disabling a storefront that is already offline is refused', function () {
+    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    $store = ws05Store($owner, ['has_website' => false]);
+
+    $this->withToken(ws05Token($owner))
+        ->postJson("/api/v1/management/stores/{$store->store_id}/disable-website")
+        ->assertStatus(422)
+        ->assertJsonPath('errors.store.0', 'This store has no online storefront to take offline.');
+});
+
+test('a deleted store cannot be taken offline', function () {
+    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    $store = ws05Store($owner, ['status' => Store::STATUS_DELETED, 'has_website' => true]);
+
+    $this->withToken(ws05Token($owner))
+        ->postJson("/api/v1/management/stores/{$store->store_id}/disable-website")
+        ->assertStatus(404);
+
+    expect($store->fresh()->has_website)->toBeTrue();
+});
+
+test('a storefront cannot be disabled for another business store', function () {
+    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    [$otherOwner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+
+    $theirs = ws05Store($otherOwner, ['has_website' => true]);
+
+    $this->withToken(ws05Token($owner))
+        ->postJson("/api/v1/management/stores/{$theirs->store_id}/disable-website")
+        ->assertStatus(403);
+
+    expect($theirs->fresh()->has_website)->toBeTrue();
+});
+
+test('disabling a storefront needs the stores settings permission', function () {
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    $store = ws05Store($owner, ['has_website' => true]);
+
+    $staff = User::factory()->create([
+        'role' => 'staff',
+        'status' => 'active',
+        'is_verified' => true,
+        'business_id' => $business->id,
+    ]);
+
+    (new SpatiePermissionSeeder)->run();
+    setPermissionsTeamId($business->id);
+    $staff->assignRole('Managing Director');
+
+    $this->withToken(ws05Token($staff))
+        ->postJson("/api/v1/management/stores/{$store->store_id}/disable-website")
+        ->assertStatus(403);
+
+    expect($store->fresh()->has_website)->toBeTrue();
+});
+
 test('storefront endpoints require authentication', function () {
     $this->getJson('/api/v1/management/storefront/stores')->assertStatus(401);
     $this->postJson('/api/v1/management/stores/check-slug', ['name' => 'Nope'])->assertStatus(401);
+    $this->postJson('/api/v1/management/stores/st_0000000001/disable-website')->assertStatus(401);
 });

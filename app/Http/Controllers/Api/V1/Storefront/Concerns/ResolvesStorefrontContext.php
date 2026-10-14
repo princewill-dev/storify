@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1\Storefront\Concerns;
 
+use App\Exceptions\StorefrontOfflineException;
 use App\Models\Cart;
 use App\Models\Customer;
 use App\Models\Store;
@@ -10,12 +11,32 @@ use Illuminate\Support\Str;
 
 trait ResolvesStorefrontContext
 {
+    /**
+     * The one funnel every customer-facing storefront endpoint goes through.
+     *
+     * `firstOrFail()` already answers 404 for a slug that is unknown or
+     * deleted; `has_website` is the owner's own off-switch, and it refuses with
+     * the same status and a marker the SPA can read (see
+     * StorefrontOfflineException). Both refusals look identical to a customer
+     * probing addresses, which is the point.
+     *
+     * Every controller that `use`s this trait picks the gate up at once:
+     * catalog, cart, checkout, tracking, support and downloads. That includes
+     * `tracking`, which the storefront Worker calls — suppressing a switched-off
+     * shop's tags is right, and the Worker is built to fail open.
+     */
     protected function resolveStore(string $slug): Store
     {
-        return Store::query()
+        $store = Store::query()
             ->where('slug', $slug)
             ->where('status', '!=', 'deleted')
             ->firstOrFail();
+
+        if (! $store->has_website) {
+            throw new StorefrontOfflineException;
+        }
+
+        return $store;
     }
 
     protected function currentCustomer(Request $request): ?Customer

@@ -56,6 +56,9 @@ function cw39Store(User $owner, array $attributes = []): Store
         'name' => 'Store '.fake()->unique()->numerify('####'),
         'slug' => 'cw39-'.fake()->unique()->numerify('######'),
         'status' => Store::STATUS_ACTIVE,
+        // The public storefront API refuses a store that is not published, and
+        // the charge helper in this file initialises payments through it.
+        'has_website' => true,
         'payment_mode' => 'manual',
     ], $attributes));
 }

@@ -21,6 +21,10 @@ function ws30Store(User $owner, array $attributes = []): Store
         'business_id' => $owner->business_id,
         'name' => 'Main Store',
         'status' => Store::STATUS_ACTIVE,
+        // The public storefront API refuses a store that is not published, and
+        // two tests here read a service back through it. Pass
+        // `['has_website' => false]` to get an offline store deliberately.
+        'has_website' => true,
     ], $attributes));
 }
 

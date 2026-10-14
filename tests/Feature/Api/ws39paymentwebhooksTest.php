@@ -52,6 +52,9 @@ function wh39Store(User $owner, array $attributes = []): Store
         'name' => 'Store '.fake()->unique()->numerify('####'),
         'slug' => 'wh39-'.fake()->unique()->numerify('######'),
         'status' => Store::STATUS_ACTIVE,
+        // The public storefront API refuses a store that is not published, and
+        // these settlements go through the storefront checkout.
+        'has_website' => true,
         'payment_mode' => 'manual',
     ], $attributes));
 }

@@ -24,9 +24,14 @@ Route::middleware('permission:stores view')->group(function () {
 
 // Enabling writes the store's slug and the nationwide delivery route the
 // storefront checkout charges, so it carries the permission legacy required.
+// Disabling is here beside it because it is the same switch: it flips
+// `has_website`, which ResolvesStorefrontContext reads to refuse every public
+// storefront endpoint. It deliberately keeps the slug and the delivery route.
 Route::middleware('permission:stores settings')->group(function () {
     Route::post('stores/{store}/enable-website', [StorefrontController::class, 'enableWebsite'])
         ->name('storefront.enable-website');
+    Route::post('stores/{store}/disable-website', [StorefrontController::class, 'disableWebsite'])
+        ->name('storefront.disable-website');
     Route::post('stores/{store}/storefront', [StorefrontController::class, 'store'])
         ->name('storefront.store');
 });

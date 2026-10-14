@@ -78,6 +78,9 @@ function cc45Store($owner): Store
         'name' => 'Store '.fake()->unique()->numerify('####'),
         'slug' => 'cc45-'.fake()->unique()->numerify('######'),
         'status' => Store::STATUS_ACTIVE,
+        // The public storefront API refuses a store that is not published, and
+        // these charges are initialised through the storefront.
+        'has_website' => true,
         'payment_mode' => 'manual',
     ]);
 }

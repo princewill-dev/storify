@@ -168,6 +168,40 @@ class StorefrontController extends ApiController
         );
     }
 
+    /**
+     * The off-switch, and the mirror image of the enable path.
+     *
+     * What it does *not* do is as deliberate as what it does: the slug and the
+     * nation-wide delivery route both survive (see StorefrontService::disable),
+     * so switching back on lands the storefront on the address it had, and
+     * customers who bookmarked it are not sent to a dead host. The refusal for
+     * an already-off store mirrors enable's "already has an online storefront".
+     */
+    public function disableWebsite(Request $request, Store $store): JsonResponse
+    {
+        $this->authorizeStorefront($request, $store);
+
+        if (! $store->has_website) {
+            $message = 'This store has no online storefront to take offline.';
+
+            return $this->error($message, 422, ['store' => [$message]]);
+        }
+
+        $url = StorefrontResource::urlFor($store->slug);
+
+        $this->storefront->disable($store);
+
+        Log::info('api.management.storefront_disabled', [
+            'user_id' => $this->user($request)->id,
+            'store_id' => $store->id,
+        ]);
+
+        return $this->ok(
+            ['store' => (new StorefrontResource($store->fresh(), $this->stores->nationwideRoute($store)))->resolve($request)],
+            'Storefront taken offline. '.$url.' no longer serves customers.',
+        );
+    }
+
     private function authorizeStorefront(Request $request, Store $store): void
     {
         $this->authorizeStore($request, $store);

@@ -110,6 +110,9 @@ function ws40Store(User $owner, array $attributes = []): Store
         'name' => 'Store '.fake()->unique()->numerify('####'),
         'slug' => 'ws40-'.fake()->unique()->numerify('######'),
         'status' => Store::STATUS_ACTIVE,
+        // The public storefront API refuses a store that is not published, and
+        // these tests read the payment methods a storefront would offer.
+        'has_website' => true,
         'payment_mode' => 'manual',
     ], $attributes));
 }

@@ -33,6 +33,9 @@ function ws38Store(User $owner, array $attributes = []): Store
         'name' => 'Store '.fake()->unique()->numerify('####'),
         'slug' => 'ws38-'.fake()->unique()->numerify('######'),
         'status' => Store::STATUS_ACTIVE,
+        // The public storefront API refuses a store that is not published, and
+        // this file reaches it through the tracking endpoint.
+        'has_website' => true,
         'payment_mode' => 'manual',
     ], $attributes));
 }
