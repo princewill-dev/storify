@@ -128,6 +128,19 @@ function ws27StaffWith(User $owner, array $permissions, array $storeIds = []): U
     return $staff;
 }
 
+/*
+ * One of the store-scoped lists behind these tabs is the invoice list, which
+ * WS-55 gates by the business's plan, and this suite is about the tab scoping
+ * rather than about the gate. Every business it builds runs on a live trial that
+ * has never picked a tier, so it resolves to the platform's default plan — and
+ * the test database has no plan rows at all. Installing one with every module
+ * included is what lets those legs reach the routes they are testing; the
+ * helper's own docblock explains why the trial is the path it takes.
+ */
+beforeEach(function () {
+    defaultPlanIncludingEveryModule();
+});
+
 test('the store tab summary counts every tab scoped to the store', function () {
     [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
     $store = ws27Store($owner, ['name' => 'Lekki']);

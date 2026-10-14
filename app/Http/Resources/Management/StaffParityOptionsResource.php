@@ -23,6 +23,7 @@ use Spatie\Permission\Models\Role;
  *     roles: Collection<int, Role>,
  *     stores: Collection<int, Store>,
  *     warehouses: Collection<int, Warehouse>,
+ *     quota: array{used: int, limit: int|null, remaining: int|null, reached: bool, upgrade_url: string}|null,
  * } $resource
  */
 final class StaffParityOptionsResource extends JsonResource
@@ -32,6 +33,7 @@ final class StaffParityOptionsResource extends JsonResource
      *     roles: Collection<int, Role>,
      *     stores: Collection<int, Store>,
      *     warehouses: Collection<int, Warehouse>,
+     *     quota: array{used: int, limit: int|null, remaining: int|null, reached: bool, upgrade_url: string}|null,
      * }  $options
      */
     public function __construct(array $options)
@@ -60,6 +62,12 @@ final class StaffParityOptionsResource extends JsonResource
                 'warehouse_code' => $warehouse->warehouse_code,
                 'name' => $warehouse->name,
             ])->values()->all(),
+            // What this business is allowed, against what it holds — the same
+            // contract the store create form holds with `store_quota`. The
+            // invite button reads it and stops offering a form whose only
+            // outcome is the 403 the invite endpoint returns, and the seats
+            // counted are staff accounts, so the owner never consumes one.
+            'staff_quota' => $this->resource['quota'],
         ];
     }
 }

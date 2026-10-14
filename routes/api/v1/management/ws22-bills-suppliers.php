@@ -21,20 +21,20 @@ use App\Http\Controllers\Api\V1\Management\Accounting\SupplierController;
 | form's option payload — need "accounting bills".
 */
 
-Route::middleware('permission:accounting view')->prefix('accounting')->name('accounting.')->group(function () {
+Route::middleware(['plan.feature:accounting', 'permission:accounting view'])->prefix('accounting')->name('accounting.')->group(function () {
     Route::get('suppliers', [SupplierController::class, 'index'])->name('suppliers.index');
     Route::get('suppliers/{supplier}', [SupplierController::class, 'show'])->name('suppliers.show');
     Route::get('bills', [BillController::class, 'index'])->name('bills.index');
     Route::get('bills/{bill}', [BillController::class, 'show'])->name('bills.show');
 });
 
-Route::middleware('permission:accounting suppliers')->prefix('accounting')->name('accounting.')->group(function () {
+Route::middleware(['plan.feature:accounting', 'permission:accounting suppliers'])->prefix('accounting')->name('accounting.')->group(function () {
     Route::post('suppliers', [SupplierController::class, 'store'])->name('suppliers.store');
     Route::put('suppliers/{supplier}', [SupplierController::class, 'update'])->name('suppliers.update');
     Route::delete('suppliers/{supplier}', [SupplierController::class, 'destroy'])->name('suppliers.destroy');
 });
 
-Route::middleware('permission:accounting bills')->prefix('accounting')->name('accounting.')->group(function () {
+Route::middleware(['plan.feature:accounting', 'permission:accounting bills'])->prefix('accounting')->name('accounting.')->group(function () {
     Route::get('bill-options', [BillController::class, 'options'])->name('bills.options');
     Route::post('bills', [BillController::class, 'store'])->name('bills.store');
     Route::post('bills/{bill}/payments', [BillController::class, 'storePayment'])->name('bills.payments.store');

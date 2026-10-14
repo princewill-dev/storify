@@ -26,20 +26,20 @@ use App\Http\Controllers\Api\V1\Management\Accounting\JournalController;
 | the SPA converts what the user types once, at the edge.
 */
 
-Route::middleware('permission:accounting view')->prefix('accounting')->name('accounting.')->group(function () {
+Route::middleware(['plan.feature:accounting', 'permission:accounting view'])->prefix('accounting')->name('accounting.')->group(function () {
     Route::get('dashboard', [AccountingDashboardController::class, 'index'])->name('dashboard');
     Route::get('accounts', [ChartOfAccountsController::class, 'index'])->name('accounts.index');
     Route::get('journal', [JournalController::class, 'index'])->name('journal.index');
     Route::get('journal/{entry}', [JournalController::class, 'show'])->name('journal.show');
 });
 
-Route::middleware('permission:accounting accounts')->prefix('accounting')->name('accounting.')->group(function () {
+Route::middleware(['plan.feature:accounting', 'permission:accounting accounts'])->prefix('accounting')->name('accounting.')->group(function () {
     Route::post('accounts', [ChartOfAccountsController::class, 'store'])->name('accounts.store');
     Route::put('accounts/{account}', [ChartOfAccountsController::class, 'update'])->name('accounts.update');
     Route::post('accounts/{account}/toggle', [ChartOfAccountsController::class, 'toggle'])->name('accounts.toggle');
 });
 
-Route::middleware('permission:accounting journal')->prefix('accounting')->name('accounting.')->group(function () {
+Route::middleware(['plan.feature:accounting', 'permission:accounting journal'])->prefix('accounting')->name('accounting.')->group(function () {
     Route::post('journal', [JournalController::class, 'store'])->name('journal.store');
     Route::post('journal/{entry}/post', [JournalController::class, 'postDraft'])->name('journal.post');
     Route::post('journal/{entry}/reverse', [JournalController::class, 'reverse'])->name('journal.reverse');

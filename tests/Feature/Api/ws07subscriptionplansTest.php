@@ -128,12 +128,19 @@ test('a trialing owner sees days remaining and trial end date', function () {
     expect($response->json('data.trial.days_left'))->toBeGreaterThanOrEqual(4)->toBeLessThanOrEqual(5);
 });
 
-test('selecting a plan starts the platform trial and lands on the dashboard', function () {
+test('asking for the platform trial starts it and lands on the dashboard', function () {
+    // The trial has to be asked for. It used to start on any first selection,
+    // which was right while selecting a plan *was* the trial question — and
+    // became a bug the moment trial, coupon and pay became three peers on one
+    // onboarding page.
     [$owner] = createBusinessOwner(['trial_ends_at' => null]);
     $plan = ws07Plan();
 
     $this->withToken(ws07Token($owner))
-        ->postJson('/api/v1/management/subscription/select-plan', ['plan_id' => $plan->id])
+        ->postJson('/api/v1/management/subscription/select-plan', [
+            'plan_id' => $plan->id,
+            'start_trial' => true,
+        ])
         ->assertOk()
         ->assertJsonPath('data.next', 'dashboard')
         ->assertJsonPath('data.trial_started', true)
@@ -152,17 +159,24 @@ test('re-selecting a plan during a trial does not restart the trial', function (
     $growth = ws07Plan(['name' => 'Growth', 'amount' => 9000]);
 
     $this->withToken(ws07Token($owner))
-        ->postJson('/api/v1/management/subscription/select-plan', ['plan_id' => $starter->id])
+        ->postJson('/api/v1/management/subscription/select-plan', [
+            'plan_id' => $starter->id,
+            'start_trial' => true,
+        ])
         ->assertOk();
 
     $trialEndsAt = $owner->fresh()->trial_ends_at;
 
     // Legacy re-ran `now()->addDays()` on every selection, so a trialing user
-    // could extend the trial indefinitely by re-selecting a plan.
+    // could extend the trial indefinitely by re-selecting a plan. The second
+    // call asks for the trial again on purpose: asking must not be enough.
     $this->travel(2)->days();
 
     $this->withToken(ws07Token($owner))
-        ->postJson('/api/v1/management/subscription/select-plan', ['plan_id' => $growth->id])
+        ->postJson('/api/v1/management/subscription/select-plan', [
+            'plan_id' => $growth->id,
+            'start_trial' => true,
+        ])
         ->assertOk()
         ->assertJsonPath('data.trial_started', false)
         ->assertJsonPath('data.next', 'dashboard');
@@ -177,7 +191,10 @@ test('selecting a plan without a platform trial routes to payment', function () 
     $plan = ws07Plan();
 
     $this->withToken(ws07Token($owner))
-        ->postJson('/api/v1/management/subscription/select-plan', ['plan_id' => $plan->id])
+        ->postJson('/api/v1/management/subscription/select-plan', [
+            'plan_id' => $plan->id,
+            'start_trial' => true,
+        ])
         ->assertOk()
         ->assertJsonPath('data.next', 'payment')
         ->assertJsonPath('data.trial_started', false);
@@ -188,12 +205,42 @@ test('selecting a plan without a platform trial routes to payment', function () 
         ->and($owner->trial_ends_at)->toBeNull();
 });
 
+test('choosing a plan in order to pay for it does not spend the trial', function () {
+    // The reason `start_trial` exists. On the onboarding plan page a plan is
+    // selected before the person has decided between paying, a coupon and the
+    // trial, and selecting it must not be the same act as claiming it.
+    [$owner] = createBusinessOwner(['trial_ends_at' => null]);
+    $plan = ws07Plan();
+
+    $this->withToken(ws07Token($owner))
+        ->postJson('/api/v1/management/subscription/select-plan', ['plan_id' => $plan->id])
+        ->assertOk()
+        ->assertJsonPath('data.trial_started', false)
+        ->assertJsonPath('data.next', 'payment');
+
+    // Selected, and still eligible — the once-only trial is untouched.
+    expect($owner->fresh()->selected_plan_id)->toBe($plan->id)
+        ->and($owner->fresh()->trial_ends_at)->toBeNull();
+
+    $this->withToken(ws07Token($owner))
+        ->postJson('/api/v1/management/subscription/select-plan', [
+            'plan_id' => $plan->id,
+            'start_trial' => true,
+        ])
+        ->assertOk()
+        ->assertJsonPath('data.trial_started', true)
+        ->assertJsonPath('data.next', 'dashboard');
+});
+
 test('an owner who already used a trial is not granted another one', function () {
     [$owner] = createBusinessOwner(['trial_ends_at' => now()->subDay()]);
     $plan = ws07Plan();
 
     $this->withToken(ws07Token($owner))
-        ->postJson('/api/v1/management/subscription/select-plan', ['plan_id' => $plan->id])
+        ->postJson('/api/v1/management/subscription/select-plan', [
+            'plan_id' => $plan->id,
+            'start_trial' => true,
+        ])
         ->assertOk()
         ->assertJsonPath('data.next', 'payment')
         ->assertJsonPath('data.trial_started', false);

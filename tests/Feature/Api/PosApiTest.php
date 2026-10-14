@@ -13,7 +13,12 @@ use App\Models\User;
  */
 function posContext(): array
 {
-    [$owner, $business] = createBusinessOwner();
+    // The trial is how this business reaches the platform's default plan, which
+    // is the one the `beforeEach` below installs. WS-55 gates every
+    // `/api/v1/pos/*` route, and {@see Entitlements::for()} resolves a business
+    // with neither a subscription nor a live trial to `SOURCE_NONE` — no plan,
+    // and therefore no till.
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
 
     $store = Store::create([
         'user_id' => $owner->id,
@@ -61,6 +66,20 @@ function posProduct(Store $store, float $amount = 1000, int $quantity = 10): Pro
         'status' => 'active',
     ]);
 }
+
+/*
+ * WS-55 gates the whole till by the business's plan, and this suite is about the
+ * till rather than about the gate. The test database has no plan rows at all
+ * (`SeedsPlatformFixturesOnce` seeds the permission catalogue and nothing else),
+ * so a trial here would resolve down to the *registry* defaults — where `pos` is
+ * `false` — and every route below would answer `403 plan_feature_unavailable`.
+ * Installing a default plan with the till on it is what lets these tests reach
+ * the routes they are testing; the helper's own docblock explains why the trial
+ * is the path it takes.
+ */
+beforeEach(function () {
+    defaultPlanIncludingEveryModule();
+});
 
 test('pos login exposes only the business stores and issues pos audience tokens', function () {
     [$owner, , $store] = posContext();

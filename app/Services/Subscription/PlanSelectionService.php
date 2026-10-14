@@ -50,18 +50,28 @@ final class PlanSelectionService
     public function __construct(private readonly SubscriptionTrialSettings $trialSettings) {}
 
     /**
-     * Record the chosen plan on the user, starting the platform trial if this
-     * is the business's first selection.
+     * Record the chosen plan on the user, starting the platform trial only when
+     * the caller asks for one.
      *
      * A trial starts once: legacy re-ran `now()->addDays()` on every selection,
      * so a trialing user could extend the trial indefinitely by picking a
      * different plan. An existing (even expired) trial end date is never moved.
+     *
+     * `$startTrial` is the caller's intent and is required rather than assumed.
+     * It used to be inferred — any first selection started the trial — which
+     * was right while selecting a plan *was* the trial question, and became a
+     * bug the moment trial, coupon and pay were three peers on one onboarding
+     * page: choosing a plan in order to pay for it would have spent the
+     * once-only trial. Defaulting to false is deliberate; defaulting to true
+     * would reintroduce exactly that. Both guards still apply on top of the
+     * caller's request — the feature must be switched on, and the business must
+     * never have had a trial.
      */
-    public function select(User $user, SubscriptionPlan $plan): PlanSelectionResult
+    public function select(User $user, SubscriptionPlan $plan, bool $startTrial = false): PlanSelectionResult
     {
         $trial = $this->trialSettings->get();
 
-        $startTrial = $trial['enabled'] && $user->trial_ends_at === null;
+        $startTrial = $startTrial && $trial['enabled'] && $user->trial_ends_at === null;
         $trialEndsAt = $startTrial ? now()->addDays($trial['days']) : $user->trial_ends_at;
 
         DB::transaction(function () use ($user, $plan, $trialEndsAt) {

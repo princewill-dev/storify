@@ -167,7 +167,21 @@ Route::middleware(['auth:sanctum', 'token.audience:management', 'team.context', 
         });
 
         // Accounting
-        Route::middleware('permission:accounting view')->prefix('accounting')->name('accounting.')->group(function () {
+        //
+        // `plan.feature:accounting` first, so an owner whose plan does not include
+        // the books is told that and pointed at the plan that does, rather than
+        // being told they are unauthorised for a permission they hold by virtue of
+        // being the owner. The entitlement's default is false, which means a plan
+        // that states nothing about it grants nothing — see
+        // 2026_10_14_000002_fill_plan_entitlements_from_tier_names.php for why the
+        // plan rows that should grant it had to be filled in first.
+        //
+        // Every route below is also declared by a module in management/ (ws16,
+        // ws22, ws23, ws24, ws37) and shadowed by it, since Laravel keys routes by
+        // method+URI and the modules load last. They are gated here anyway: a
+        // declaration that is ungated is exactly how the gate gets lost the next
+        // time somebody adds a route to this block.
+        Route::middleware(['plan.feature:accounting', 'permission:accounting view'])->prefix('accounting')->name('accounting.')->group(function () {
             Route::get('dashboard', [AccountingController::class, 'dashboard'])->name('dashboard');
             Route::get('accounts', [AccountingController::class, 'accounts'])->name('accounts.index');
             Route::get('journal', [AccountingController::class, 'journal'])->name('journal.index');
@@ -177,7 +191,7 @@ Route::middleware(['auth:sanctum', 'token.audience:management', 'team.context', 
             Route::get('bills', [AccountingController::class, 'bills'])->name('bills.index');
         });
 
-        Route::middleware('permission:accounting reports')->prefix('accounting/reports')->name('accounting.reports.')->group(function () {
+        Route::middleware(['plan.feature:accounting', 'permission:accounting reports'])->prefix('accounting/reports')->name('accounting.reports.')->group(function () {
             Route::get('profit-and-loss', [AccountingController::class, 'profitAndLoss'])->name('profit-and-loss');
             Route::get('balance-sheet', [AccountingController::class, 'balanceSheet'])->name('balance-sheet');
             Route::get('trial-balance', [AccountingController::class, 'trialBalance'])->name('trial-balance');

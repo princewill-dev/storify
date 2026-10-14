@@ -4,6 +4,7 @@ namespace App\Services\Auth;
 
 use App\Models\User;
 use App\Services\OtpService;
+use App\Support\Identity\DerivedName;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -52,15 +53,20 @@ final class ManagementAuthService
      * `null` means the account already exists; every other QueryException
      * keeps travelling out, exactly as before.
      *
-     * @param  array{name: string, email: string, phone: string, password: string}  $data
+     * The name and phone number are optional. `users.name` is NOT NULL, so a
+     * missing name is derived from the email rather than left to fail at the
+     * database — see {@see DerivedName}. Both are placeholders at this point;
+     * the payment settings screen is where a person confirms them.
+     *
+     * @param  array{name?: string|null, email: string, phone?: string|null, password: string}  $data
      */
     public function register(array $data, Request $request): ?User
     {
         try {
             return User::create([
-                'name' => $data['name'],
+                'name' => $data['name'] ?? DerivedName::forUser($data['email']),
                 'email' => $data['email'],
-                'phone' => $data['phone'],
+                'phone' => $data['phone'] ?? null,
                 'password' => $data['password'],
                 'role' => User::ROLE_BUSINESS_OWNER,
                 'status' => 'active',

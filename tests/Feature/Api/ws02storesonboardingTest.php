@@ -315,7 +315,7 @@ test('store creation is closed to unverified owners and users without the permis
         ->assertStatus(401);
 });
 
-test('the create form options carry the defaults, currencies, banks and staff', function () {
+test('the create form options carry the defaults, banks and staff — and no currency list', function () {
     [$owner, $business] = createBusinessOwner([
         'trial_ends_at' => now()->addWeek(),
         'phone' => '08031112222',
@@ -337,9 +337,151 @@ test('the create form options carry the defaults, currencies, banks and staff', 
         ->assertJsonPath('data.defaults.support_email', $owner->email)
         ->assertJsonPath('data.defaults.support_phone', '08031112222');
 
+    // The create form stopped asking for a currency: Storify is the merchant of
+    // record and holds one wallet currency, so the server writes the platform
+    // default and there is nothing left for the client to pick from. A payload
+    // that still carried the list would be a query nothing consumes.
     expect(array_column($response->json('data.staff'), 'name'))->toContain('Ada')
-        ->and($response->json('data.currencies'))->toHaveCount(1)
+        ->and($response->json())->not->toHaveKey('data.currencies')
         ->and($response->json('data.banks'))->toBe([]);
+});
+
+test('the create form options report the store model the signup answers imply', function () {
+    [$owner, $business] = createBusinessOwner(
+        ['trial_ends_at' => now()->addWeek()],
+        ['onboarding_intents' => ['sell_online', 'sell_in_store']],
+    );
+
+    $response = $this->withToken(ws02Token($owner))
+        ->getJson('/api/v1/management/stores/onboarding/options');
+
+    $response->assertOk()
+        // Both answers present: a storefront and a counter. The form uses this
+        // to decide which address fields to ask for, and never shows it.
+        ->assertJsonPath('data.defaults.store_model.has_website', true)
+        ->assertJsonPath('data.defaults.store_model.is_physical', true)
+        ->assertJsonPath('data.defaults.store_model.pos_enabled', true);
+
+    // The raw answers are not sent alongside it. Nothing renders them, and the
+    // client deriving the model for itself is exactly what this replaces.
+    expect($response->json('data.defaults'))->not->toHaveKey('intents');
+
+    // A business that predates the column reads as no answer at all, which
+    // implies no model — the store the old form created when nobody ticked a
+    // box.
+    $business->update(['onboarding_intents' => null]);
+
+    $this->withToken(ws02Token($owner))
+        ->getJson('/api/v1/management/stores/onboarding/options')
+        ->assertOk()
+        ->assertJsonPath('data.defaults.store_model.has_website', false)
+        ->assertJsonPath('data.defaults.store_model.is_physical', false)
+        ->assertJsonPath('data.defaults.store_model.pos_enabled', false);
+});
+
+test('a store is created from the signup answers when the form does not state a model', function () {
+    // "Sell in store" is the only answer that implies a counter, and the form
+    // no longer offers the toggles that used to say so.
+    [$owner] = createBusinessOwner(
+        ['trial_ends_at' => now()->addWeek()],
+        ['onboarding_intents' => ['sell_in_store']],
+    );
+
+    $created = $this->withToken(ws02Token($owner))
+        ->postJson('/api/v1/management/stores', ['name' => 'Front Counter'])
+        ->assertCreated();
+
+    $store = Store::find($created->json('data.store.id'));
+
+    expect($store->store_type)->toBe('physical')
+        ->and($store->has_website)->toBeFalse()
+        ->and($store->pos_enabled)->toBeTrue();
+
+    // The other direction: selling online implies a storefront and no counter.
+    [$onlineOwner] = createBusinessOwner(
+        ['trial_ends_at' => now()->addWeek()],
+        ['onboarding_intents' => ['sell_online']],
+    );
+
+    $online = Store::find(
+        $this->withToken(ws02Token($onlineOwner))
+            ->postJson('/api/v1/management/stores', ['name' => 'Web Only'])
+            ->assertCreated()
+            ->json('data.store.id'),
+    );
+
+    expect($online->store_type)->toBe('online')
+        ->and($online->has_website)->toBeTrue()
+        ->and($online->pos_enabled)->toBeFalse();
+});
+
+test('an explicit flag still wins over the signup answer', function () {
+    // The inference fills silence, it does not overrule a caller that has
+    // stated what it wants — which is what keeps a store created from any
+    // other client behaving as that client asked.
+    [$owner] = createBusinessOwner(
+        ['trial_ends_at' => now()->addWeek()],
+        ['onboarding_intents' => ['sell_in_store']],
+    );
+
+    $store = Store::find(
+        $this->withToken(ws02Token($owner))
+            ->postJson('/api/v1/management/stores', [
+                'name' => 'Deliberate',
+                'has_website' => true,
+                'pos_enabled' => false,
+            ])
+            ->assertCreated()
+            ->json('data.store.id'),
+    );
+
+    expect($store->store_type)->toBe('both')
+        ->and($store->has_website)->toBeTrue()
+        ->and($store->pos_enabled)->toBeFalse();
+});
+
+test('a store with no currency in the request takes the platform default', function () {
+    $currency = Currency::create(['name' => 'Naira', 'code' => 'NGN', 'symbol' => '₦', 'is_default' => true]);
+
+    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+
+    $store = Store::find(
+        $this->withToken(ws02Token($owner))
+            ->postJson('/api/v1/management/stores', ['name' => 'Currencyless'])
+            ->assertCreated()
+            ->json('data.store.id'),
+    );
+
+    // The create form no longer offers a picker, so silence has to mean the
+    // platform's currency rather than a null the dashboards render as a
+    // missing symbol.
+    expect($store->currency_id)->toBe($currency->id);
+});
+
+test('the till can be switched on at creation, and silence leaves the column default alone', function () {
+    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    [$quietOwner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+
+    $created = $this->withToken(ws02Token($owner))
+        ->postJson('/api/v1/management/stores', [
+            'name' => 'Front Counter',
+            'is_physical' => true,
+            'pos_enabled' => true,
+        ])
+        ->assertCreated()
+        ->assertJsonPath('data.store.pos_enabled', true);
+
+    expect(Store::find($created->json('data.store.id'))->pos_enabled)->toBeTrue();
+
+    // Saying nothing about the till means the column's own default, untouched:
+    // an SPA built before this flag existed keeps creating stores exactly as it
+    // did, rather than having `false` written over the default on its behalf.
+    $quiet = $this->withToken(ws02Token($quietOwner))
+        ->postJson('/api/v1/management/stores', ['name' => 'Back Office'])
+        ->assertCreated()
+        ->assertJsonPath('data.store.pos_enabled', false);
+
+    expect(Store::find($quiet->json('data.store.id'))->pos_enabled)->toBeFalse();
 });
 
 test('the finalize payload carries the live URL and the next step', function () {

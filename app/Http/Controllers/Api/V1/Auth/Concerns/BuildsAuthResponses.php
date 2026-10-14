@@ -6,6 +6,7 @@ use App\Mail\OtpMail;
 use App\Models\Customer;
 use App\Models\User;
 use App\Services\OtpService;
+use App\Support\Plans\Entitlements;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 
@@ -53,8 +54,25 @@ trait BuildsAuthResponses
                 'business_code' => $user->business->business_code,
                 'status' => $user->business->status,
                 'currency' => $user->business->currency,
+                // Carried here rather than fetched separately: it is what the
+                // SPA needs to order the `/welcome` cards and pre-tick the
+                // store form, and both of those screens are reached straight
+                // from an auth response. A list of strings, never null.
+                'intents' => $user->business->onboarding_intents ?? [],
             ] : null,
             'subscription' => $this->subscriptionPayload($user),
+            // What this business's plan entitles it to, and what it does not —
+            // see Entitlements::payload(). Carried on the auth response because
+            // that is the one payload the SPA caches for the whole session, and
+            // the sidebar has to know before it renders whether each section is
+            // open or locked. A second endpoint would be a second round trip on
+            // every page load to answer a question already answered here.
+            //
+            // `owner` and `owner.selectedPlan` are read lazily by Entitlements
+            // and only when there is no active subscription, which is why they
+            // are not in the loadMissing above: a paying business never touches
+            // them.
+            'entitlements' => Entitlements::for($user->business)->payload(),
             'roles' => $user->getRoleNames()->values()->all(),
             'permissions' => $user->getAllPermissions()->pluck('name')->values()->all(),
             'stores' => $this->storesPayload($user),
@@ -131,6 +149,20 @@ trait BuildsAuthResponses
 
     /**
      * The frontend's next onboarding step after authentication.
+     *
+     * The order is the flow, and each step is the first thing still missing:
+     * a forced password change, then email verification, then a business, then
+     * a plan, then the welcome interstitial. A staff member is short-circuited
+     * to the dashboard on purpose — they are not being onboarded, they were
+     * invited into somebody else's business — and that is also why `welcome`
+     * lives on the business: a cashier must never be sent to their employer's
+     * checklist.
+     *
+     * `welcome` sits *after* the subscription check and not before it, which
+     * is the one ordering decision here worth stating. An owner who has paid
+     * for nothing yet is sent to plans, not to a page congratulating them on
+     * an account they cannot use. The interstitial is what follows access, not
+     * a substitute for obtaining it.
      */
     protected function nextStep(User $user): string
     {
@@ -154,6 +186,15 @@ trait BuildsAuthResponses
 
         if ($business && ! $business->hasActiveSubscription() && ! ($user->trial_ends_at && $user->trial_ends_at->isFuture())) {
             return 'plans';
+        }
+
+        // Reached only with access in hand. A business that has never been
+        // welcomed gets the interstitial once; the moment it is seen, this
+        // returns to being `dashboard` and never forces again. Existing
+        // businesses are backfilled as seen by the migration that adds the
+        // column, so they are not caught by this branch.
+        if ($business && $business->welcome_seen_at === null) {
+            return 'welcome';
         }
 
         return 'dashboard';

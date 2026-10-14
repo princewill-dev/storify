@@ -2,27 +2,31 @@
 
 namespace App\Http\Resources\Management;
 
-use App\Models\Currency;
 use App\Models\StoreBank;
 use App\Models\User;
+use App\Support\Stores\StoreModelDefaults;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Support\Collection;
 
 /**
  * WS-02 — everything the store create screen needs to render in one round
- * trip: the owner-derived defaults, the currency list, the business' bank
- * accounts and its active staff.
+ * trip: the owner-derived defaults, the business' bank accounts and its active
+ * staff.
  *
  * The controller hands over what StoreOnboardingRepository read and the user
  * the defaults are derived from; this resource only shapes it, so the query
  * side and the response side stay separate. Legacy assembled the same data in
  * the controller and passed it to Blade.
  *
+ * There is no currency list. The create form no longer offers one — Storify is
+ * the merchant of record and holds one wallet currency, so a per-store choice
+ * was the owner being asked to decide something already decided, and the
+ * server now writes the platform default itself.
+ *
  * @property-read array{
  *     staff: Collection<int, User>,
  *     banks: Collection<int, StoreBank>,
- *     currencies: Collection<int, Currency>,
  *     quota: array{used: int, limit: int|null, remaining: int|null, reached: bool, upgrade_url: string}|null,
  * } $resource
  */
@@ -32,7 +36,6 @@ final class StoreOnboardingOptionsResource extends JsonResource
      * @param  array{
      *     staff: Collection<int, User>,
      *     banks: Collection<int, StoreBank>,
-     *     currencies: Collection<int, Currency>,
      *     quota: array{used: int, limit: int|null, remaining: int|null, reached: bool, upgrade_url: string}|null,
      * }  $options
      */
@@ -52,13 +55,21 @@ final class StoreOnboardingOptionsResource extends JsonResource
                 'support_email' => $this->user->email,
                 'support_phone' => $this->user->phone,
                 'address' => $this->user->location,
+                // The store model the signup answers produce, from the same
+                // class the write path uses. The create form no longer offers
+                // the three toggles and does not report the model either — it
+                // uses this only to stop asking for the things that model says
+                // it does not need, and to know whether to name a storefront
+                // address.
+                //
+                // Derived here rather than in the client because a form that
+                // describes one store while the server creates another is the
+                // exact failure this pairing prevents. The raw `intents` are
+                // deliberately not sent alongside: nothing renders them, and
+                // the client working out the model for itself is what this
+                // replaces.
+                'store_model' => StoreModelDefaults::fromIntents($this->user->business?->onboarding_intents),
             ],
-            'currencies' => collect($this->resource['currencies'])->map(fn (Currency $currency) => [
-                'id' => $currency->id,
-                'name' => $currency->name,
-                'code' => $currency->code,
-                'symbol' => $currency->symbol,
-            ])->values()->all(),
             'banks' => collect($this->resource['banks'])->map(fn (StoreBank $bank) => [
                 'id' => $bank->id,
                 'bank_name' => $bank->bank_name,

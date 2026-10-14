@@ -13,6 +13,8 @@ use App\Http\Resources\Management\Warehouse\WarehouseSummaryResource;
 use App\Models\Warehouse;
 use App\Repositories\Management\Warehouse\WarehouseRepository;
 use App\Services\Management\Warehouse\WarehouseService;
+use App\Support\Plans\EntitlementRegistry;
+use App\Support\Plans\PlanQuota;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -56,10 +58,27 @@ class WarehouseController extends ApiController
 
     public function index(WarehouseIndexRequest $request): JsonResponse
     {
-        $warehouses = $this->repository->paginateForUser($this->user($request), $request->validated());
+        $user = $this->user($request);
 
+        $warehouses = $this->repository->paginateForUser($user, $request->validated());
+
+        // The plan's warehouse limit, beside the rows it counts. This list
+        // *is* the warehouse screen — there is no separate options read — so it
+        // is where "Add warehouse" lives, and therefore where the limit has to
+        // be visible: a screen that offers a create button whose only outcome is
+        // the 403 the create endpoint returns has told the owner nothing until
+        // they have filled in the form.
+        //
+        // In `data` rather than in the pagination meta, which is where the
+        // staff, product and store reads each put theirs — one path shape for
+        // one question, so the SPA reads all four the same way.
         return $this->ok(
-            ['warehouses' => WarehouseSummaryResource::collection($warehouses->getCollection())->resolve($request)],
+            [
+                'warehouses' => WarehouseSummaryResource::collection($warehouses->getCollection())->resolve($request),
+                'warehouse_quota' => $user->business === null
+                    ? null
+                    : PlanQuota::payload($user->business, EntitlementRegistry::WAREHOUSES),
+            ],
             null,
             200,
             $this->paginationMeta($warehouses),
@@ -68,7 +87,25 @@ class WarehouseController extends ApiController
 
     public function store(WarehousePayloadRequest $request): JsonResponse
     {
-        $warehouse = $this->service->create($this->user($request), $request->validated());
+        $user = $this->user($request);
+
+        // The plan's warehouse limit, checked before anything is written. It was
+        // declared in the catalogue and read from no creation path — the same
+        // defect the store limit had — so a plan that sold one warehouse could
+        // run thirty.
+        //
+        // A 403 rather than the 422 this controller uses for bad input, for the
+        // reason the store limit gives: nothing about the request is wrong, the
+        // business is asking for something its plan does not include.
+        $refusal = $user->business === null
+            ? null
+            : PlanQuota::refusal($user->business, EntitlementRegistry::WAREHOUSES);
+
+        if ($refusal !== null) {
+            return response()->json($refusal, 403);
+        }
+
+        $warehouse = $this->service->create($user, $request->validated());
 
         return $this->ok(['warehouse' => $this->detail($request, $warehouse)], 'Warehouse created.', 201);
     }

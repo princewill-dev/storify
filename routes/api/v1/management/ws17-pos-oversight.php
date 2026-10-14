@@ -28,7 +28,7 @@ use Illuminate\Support\Facades\Route;
 | keep those fields, or POS sales lose the data their badge and filter read.
 */
 
-Route::middleware('permission:pos view_history')->group(function () {
+Route::middleware(['plan.feature:pos', 'permission:pos view_history'])->group(function () {
     Route::get('pos/overview', [SessionController::class, 'overview'])->name('pos.overview');
     Route::get('pos/sessions', [SessionController::class, 'index'])->name('pos.sessions.index');
     Route::get('pos/sessions/{session}', [SessionController::class, 'show'])->name('pos.sessions.show');
@@ -39,18 +39,24 @@ Route::middleware('permission:pos view_history')->group(function () {
         ->name('stores.pos.sessions.show');
 });
 
-Route::middleware('permission:pos open_session')->group(function () {
+Route::middleware(['plan.feature:pos', 'permission:pos open_session'])->group(function () {
     Route::post('stores/{store}/pos/open', [SessionController::class, 'open'])->name('pos.open');
 });
 
-Route::middleware('permission:pos close_session')->group(function () {
+Route::middleware(['plan.feature:pos', 'permission:pos close_session'])->group(function () {
     Route::post('stores/{store}/pos/close', [SessionController::class, 'close'])->name('pos.close');
 });
 
-Route::middleware('permission:stores settings')->group(function () {
+Route::middleware(['plan.feature:pos', 'permission:stores settings'])->group(function () {
     Route::post('stores/{store}/pos/enable', [SessionController::class, 'enable'])->name('pos.enable');
 });
 
+// **Not gated, and this is the one group here that is not a POS route.** It is
+// declared in this file only to re-register GET orders with the legacy `source`
+// filter and `pos_session_id` — see the file docblock. Orders are not a POS
+// module: putting `plan.feature:pos` here would take a business's own order
+// history away along with its till, which is not something a plan is meant to
+// sell. Every group above it carries the gate.
 Route::middleware('permission:orders view')->group(function () {
     Route::get('orders', [OrderSourceController::class, 'index'])->name('orders.index');
 });

@@ -60,6 +60,19 @@ function ws21Invoice(User $owner, array $attributes = [], array $items = []): In
     return $invoice;
 }
 
+/*
+ * WS-55 gates the invoice API by the business's plan, and this suite is about
+ * the invoices rather than about the gate. Every business it builds runs on a
+ * live trial that has never picked a tier, so it resolves to the platform's
+ * default plan — and the test database has no plan rows at all. Installing one
+ * with invoices included is what lets these tests reach the routes they are
+ * testing; the helper's own docblock explains why the trial is the path it
+ * takes.
+ */
+beforeEach(function () {
+    defaultPlanIncludingEveryModule();
+});
+
 test('the invoice list returns the legacy stats row and filters by status and search', function () {
     [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
 

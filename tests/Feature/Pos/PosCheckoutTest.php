@@ -13,7 +13,13 @@ use Laravel\Sanctum\Sanctum;
 
 function createPosSaleContext(): array
 {
-    [$owner, $business] = createBusinessOwner();
+    // The trial is how this business reaches the platform's default plan, which
+    // is the one the `beforeEach` below installs. WS-55 gates every
+    // `/api/v1/pos/*` route, and {@see Entitlements::for()} resolves a business
+    // with neither a subscription nor a live trial to `SOURCE_NONE` — no plan,
+    // and therefore no till. The other businesses these tests build exist only
+    // to hold a foreign store or account; no request ever authenticates as one.
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
 
     $staff = User::factory()->create([
         'role' => 'staff',
@@ -61,6 +67,20 @@ function createPosSaleContext(): array
 
     return [$staff, $store, $product, $stock];
 }
+
+/*
+ * WS-55 gates the whole till by the business's plan, and this suite is about
+ * checkout rather than about the gate. The test database has no plan rows at all
+ * (`SeedsPlatformFixturesOnce` seeds the permission catalogue and nothing else),
+ * so the trial `createPosSaleContext()` opens would resolve down to the
+ * *registry* defaults — where `pos` is `false` — and every checkout below would
+ * answer `403 plan_feature_unavailable`. Installing a default plan with the till
+ * on it is what lets these tests reach the routes they are testing; the helper's
+ * own docblock explains why the trial is the path it takes.
+ */
+beforeEach(function () {
+    defaultPlanIncludingEveryModule();
+});
 
 test('a mismatched split payment does not leave a partial order behind', function () {
     [, $store, $product] = createPosSaleContext();

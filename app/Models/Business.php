@@ -12,6 +12,31 @@ class Business extends Model
 {
     use HasFactory;
 
+    /**
+     * The answers to "How can we be of help", and the only list of them.
+     *
+     * Validation, the store form's pre-ticked toggles and the SPA's ordering of
+     * the `/welcome` cards all read this constant, so an answer cannot be added
+     * on one side of the wire without existing on the other. The stored value
+     * for "sell online" is `sell_online` and not `online`, because a store
+     * column of that name already means something else.
+     *
+     * @var list<string>
+     */
+    public const ONBOARDING_INTENTS = [
+        'sell_online',
+        'sell_in_store',
+        'sell_digital',
+        'dropshipping',
+        'transfer_existing',
+    ];
+
+    /**
+     * The default answer, and the one the interests screen arrives with
+     * selected: everybody signing up is here to sell something online.
+     */
+    public const DEFAULT_ONBOARDING_INTENT = 'sell_online';
+
     protected $fillable = [
         'user_id',
         'name',
@@ -45,6 +70,17 @@ class Business extends Model
         // payout sweep, which is where a destination is made. See the migration
         // for why it is not `store_banks.is_primary`.
         'payout_bank_id',
+        // What the owner said they were here to do, as a list drawn from
+        // self::ONBOARDING_INTENTS. Shapes the experience — the store form's
+        // pre-ticked toggles, the order of the `/welcome` cards — and gates
+        // nothing: no nav item and no tab is ever hidden by it.
+        'onboarding_intents',
+        // When the `/welcome` interstitial was dealt with. Null means it has
+        // not been, and `next` keeps steering the owner back to it. Per
+        // business and not per user: it is a fact about the business's
+        // onboarding, and a cashier must neither be shown it nor be able to
+        // clear it by loading a page.
+        'welcome_seen_at',
     ];
 
     protected function casts(): array
@@ -56,6 +92,8 @@ class Business extends Model
             'auto_payout' => 'boolean',
             'custody_enabled' => 'boolean',
             'custody_enabled_at' => 'datetime',
+            'onboarding_intents' => 'array',
+            'welcome_seen_at' => 'datetime',
         ];
     }
 

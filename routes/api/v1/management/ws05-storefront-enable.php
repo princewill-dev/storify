@@ -27,11 +27,23 @@ Route::middleware('permission:stores view')->group(function () {
 // Disabling is here beside it because it is the same switch: it flips
 // `has_website`, which ResolvesStorefrontContext reads to refuse every public
 // storefront endpoint. It deliberately keeps the slug and the delivery route.
+//
+// `plan.feature:storefront` is on the two routes that switch a storefront *on*
+// and deliberately not on the one that switches it off — nor on the group, and
+// not as a route-name prefix. Both of those are the same decision seen twice:
+// gating "off" would mean a business that lost the entitlement had a live
+// storefront it could not close, and a prefix would catch
+// `storefront.check-slug` and `storefront.stores.*`, which are shared reads that
+// store create and the store screens call. A gate that breaks the create form
+// for the very businesses it is meant to restrict is worse than no gate.
 Route::middleware('permission:stores settings')->group(function () {
-    Route::post('stores/{store}/enable-website', [StorefrontController::class, 'enableWebsite'])
-        ->name('storefront.enable-website');
+    Route::middleware('plan.feature:storefront')->group(function () {
+        Route::post('stores/{store}/enable-website', [StorefrontController::class, 'enableWebsite'])
+            ->name('storefront.enable-website');
+        Route::post('stores/{store}/storefront', [StorefrontController::class, 'store'])
+            ->name('storefront.store');
+    });
+
     Route::post('stores/{store}/disable-website', [StorefrontController::class, 'disableWebsite'])
         ->name('storefront.disable-website');
-    Route::post('stores/{store}/storefront', [StorefrontController::class, 'store'])
-        ->name('storefront.store');
 });

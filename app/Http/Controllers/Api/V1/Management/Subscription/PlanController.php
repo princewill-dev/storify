@@ -83,8 +83,14 @@ class PlanController extends ApiController
     }
 
     /**
-     * Choose a plan while unsubscribed: start the platform trial if enabled,
-     * otherwise send the user on to payment.
+     * Choose a plan while unsubscribed: start the platform trial if the caller
+     * asked for one and one is available, otherwise send the user on to payment.
+     *
+     * The plan is recorded either way — that is what makes the checkout able to
+     * quote a price at all — so a caller on its way to paying selects the plan
+     * with `start_trial: false` and keeps its trial. `next` stays `dashboard`
+     * when a trial is running and `payment` when one is not, which is the
+     * contract the onboarding plan page reads.
      */
     public function select(PlanSelectionRequest $request): JsonResponse
     {
@@ -109,7 +115,9 @@ class PlanController extends ApiController
             return $this->error('Invalid plan selection.', 422);
         }
 
-        $selection = $this->planSelection->select($user, $plan);
+        // Explicitly opt-in, and false when the flag is absent. A caller that
+        // says nothing about the trial does not get one.
+        $selection = $this->planSelection->select($user, $plan, (bool) ($data['start_trial'] ?? false));
 
         $onTrial = $selection->trialEndsAt !== null && $selection->trialEndsAt->isFuture();
 

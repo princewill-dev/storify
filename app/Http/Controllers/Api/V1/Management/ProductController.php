@@ -13,6 +13,8 @@ use App\Models\Product;
 use App\Repositories\Management\Product\ProductRepository;
 use App\Services\Access\TenantGuard;
 use App\Services\Management\Product\ProductService;
+use App\Support\Plans\EntitlementRegistry;
+use App\Support\Plans\PlanQuota;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -94,6 +96,25 @@ class ProductController extends ApiController
     public function store(StoreProductRequest $request): JsonResponse
     {
         $user = $this->user($request);
+
+        // The plan's product limit, before anything is read from the request.
+        // Declared in the catalogue and read from no creation path until now —
+        // the same defect the store limit had — so a plan selling a thousand
+        // products could hold a hundred thousand.
+        //
+        // A 403 rather than the 422 this controller uses for a bad store or
+        // warehouse pick: nothing about the request is wrong, and it is the same
+        // shape the subscription gate and the store limit answer with. Reaching
+        // here means the FormRequest already passed, so this cannot mask a
+        // validation error.
+        $refusal = $user->business === null
+            ? null
+            : PlanQuota::refusal($user->business, EntitlementRegistry::PRODUCTS);
+
+        if ($refusal !== null) {
+            return response()->json($refusal, 403);
+        }
+
         $data = $request->validated();
 
         $storeIds = $this->accessibleStoreIds($request);

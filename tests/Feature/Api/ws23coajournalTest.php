@@ -50,6 +50,18 @@ function ws23PostEntry(int $businessId, array $options = []): JournalEntry
     ], $options);
 }
 
+/*
+ * WS-55 gates the accounting API by the business's plan, and this suite is about
+ * the books rather than about the gate. Every business it builds runs on a live
+ * trial that has never picked a tier, so it resolves to the platform's default
+ * plan — and the test database has no plan rows at all. Installing one with the
+ * books included is what lets these tests reach the routes they are testing; the
+ * helper's own docblock explains why the trial is the path it takes.
+ */
+beforeEach(function () {
+    defaultPlanIncludingEveryModule();
+});
+
 test('the accounts list returns sign-corrected balances, parent links and hides other businesses', function () {
     [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
     ws23EnsureBooks($business->id);

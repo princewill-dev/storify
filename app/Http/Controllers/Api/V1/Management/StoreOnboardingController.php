@@ -11,10 +11,12 @@ use App\Http\Requests\Management\StoreOnboardingIndexRequest;
 use App\Http\Resources\Management\StoreOnboardingFinalizeResource;
 use App\Http\Resources\Management\StoreOnboardingOptionsResource;
 use App\Http\Resources\Management\StoreOnboardingResource;
+use App\Models\Currency;
 use App\Models\Store;
 use App\Repositories\Management\StoreOnboardingRepository;
 use App\Services\Payments\Custody\WalletSummaryService;
 use App\Support\Plans\StoreQuota;
+use App\Support\Stores\StoreModelDefaults;
 use DomainException;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
@@ -50,7 +52,7 @@ use Illuminate\Support\Str;
  *   A valid payload from an unverified caller still answers 403, so nothing
  *   is escalated, and this is deliberately not worked around;
  * - the store-create options carry their user-derived defaults in the
- *   resource, while the staff/bank/currency reads stay business-scoped in
+ *   resource, while the staff and bank reads stay business-scoped in
  *   the repository.
  */
 class StoreOnboardingController extends ApiController
@@ -144,10 +146,31 @@ class StoreOnboardingController extends ApiController
         $data['support_phone'] ??= $user->phone;
         $data['address'] ??= $user->location;
 
-        $hasWebsite = $request->boolean('has_website');
-        $isPhysical = $request->boolean('is_physical');
+        // What the business said it was here for, at signup, read back into the
+        // store model. The create form no longer asks — see
+        // StoreModelDefaults for why and for the mapping itself.
+        $inferred = StoreModelDefaults::fromIntents($user->business?->onboarding_intents);
+
+        // A caller that states a flag still wins; the inference only fills
+        // silence. That is what keeps an SPA built before this change creating
+        // stores exactly as it did, and what leaves room for an explicit
+        // override later.
+        $hasWebsite = $request->has('has_website') ? $request->boolean('has_website') : $inferred['has_website'];
+        $isPhysical = $request->has('is_physical') ? $request->boolean('is_physical') : $inferred['is_physical'];
 
         $data['has_website'] = $hasWebsite;
+
+        // Written only when there is something to write. `validated()` omits an
+        // absent optional key, and defaulting it here would overrule the
+        // column's own default for every caller that never sends it — which is
+        // the pre-existing contract this still keeps: silence plus no answer at
+        // signup leaves `pos_enabled` untouched.
+        if ($request->has('pos_enabled')) {
+            $data['pos_enabled'] = $request->boolean('pos_enabled');
+        } elseif ($inferred['pos_enabled']) {
+            $data['pos_enabled'] = true;
+        }
+
         // The legacy form never persisted the store model it asked about, so
         // every created store kept the schema default; derive it from the two
         // checkboxes instead.
@@ -157,6 +180,14 @@ class StoreOnboardingController extends ApiController
             default => StoreType::ONLINE->value,
         };
         $data['physical_address'] = $isPhysical ? ($data['physical_address'] ?? null) : null;
+
+        // Currency is the platform's, not the store's. Storify is the merchant
+        // of record and holds one wallet currency, so a per-store picker was
+        // asking the owner to choose something the platform had already
+        // decided — and leaving it blank left `currency_id` null, which the
+        // dashboards then rendered as a missing symbol. Absent now means the
+        // platform default rather than nothing.
+        $data['currency_id'] ??= Currency::query()->where('is_default', true)->value('id');
 
         if (empty($data['slug'])) {
             // Prefer the deterministic -1, -2 suffix the slug check suggests

@@ -57,9 +57,15 @@ class SubscriptionGate
      * browse plans, redeem a coupon or finish a payment on every screen in
      * that family.
      *
+     * `business.` is the business's own name, confirmed by the owner after
+     * signup derived it from their email address. A lapsed business still has
+     * an accountant to send its invoices to, and the name on them is worth
+     * being able to correct whether or not there is an active plan behind it —
+     * the same argument that puts `profile.` here.
+     *
      * @var list<string>
      */
-    public const EXEMPT_PREFIXES = ['auth.', 'profile.', 'kyc.', 'plans.', 'subscription.'];
+    public const EXEMPT_PREFIXES = ['auth.', 'profile.', 'kyc.', 'plans.', 'subscription.', 'business.'];
 
     /**
      * The message legacy flashed when it bounced an owner to the plans page.

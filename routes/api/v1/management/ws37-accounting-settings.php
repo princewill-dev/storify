@@ -28,7 +28,7 @@ use App\Http\Controllers\Api\V1\Management\Accounting\ReconciliationController;
 
 // Bank reconciliation — statement import, match/unmatch/ignore, auto-match,
 // completion snapshot.
-Route::middleware('permission:accounting reconcile')->prefix('accounting/reconciliation')->name('accounting.reconciliation.')->group(function () {
+Route::middleware(['plan.feature:accounting', 'permission:accounting reconcile'])->prefix('accounting/reconciliation')->name('accounting.reconciliation.')->group(function () {
     Route::get('/', [ReconciliationController::class, 'index'])->name('index');
     Route::post('/', [ReconciliationController::class, 'store'])->name('store');
     Route::get('{import}', [ReconciliationController::class, 'show'])->name('show');
@@ -40,11 +40,11 @@ Route::middleware('permission:accounting reconcile')->prefix('accounting/reconci
 });
 
 // Accounting settings — mappings, opening balances, fiscal periods.
-Route::middleware('permission:accounting view')->prefix('accounting')->name('accounting.')->group(function () {
+Route::middleware(['plan.feature:accounting', 'permission:accounting view'])->prefix('accounting')->name('accounting.')->group(function () {
     Route::get('settings', [AccountingSettingsController::class, 'index'])->name('settings.index');
 });
 
-Route::middleware('permission:accounting settings')->prefix('accounting/settings')->name('accounting.settings.')->group(function () {
+Route::middleware(['plan.feature:accounting', 'permission:accounting settings'])->prefix('accounting/settings')->name('accounting.settings.')->group(function () {
     Route::put('mappings', [AccountingSettingsController::class, 'updateMappings'])->name('mappings.update');
     Route::post('opening-balances', [AccountingSettingsController::class, 'storeOpeningBalances'])->name('opening-balances.store');
     Route::post('periods/{period}/close', [AccountingSettingsController::class, 'closePeriod'])->name('periods.close');
@@ -54,6 +54,6 @@ Route::middleware('permission:accounting settings')->prefix('accounting/settings
 // Year-end close is deliberately its own permission (legacy did the same):
 // moving the net result to retained earnings and locking twelve periods is
 // an owner-level act.
-Route::middleware('permission:accounting close')->prefix('accounting/settings')->name('accounting.settings.')->group(function () {
+Route::middleware(['plan.feature:accounting', 'permission:accounting close'])->prefix('accounting/settings')->name('accounting.settings.')->group(function () {
     Route::post('years/{year}/close', [AccountingSettingsController::class, 'closeYear'])->whereNumber('year')->name('years.close');
 });

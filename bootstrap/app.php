@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\EnsurePlanFeature;
 use App\Http\Middleware\EnsureTokenAudience;
 use App\Http\Middleware\IsPlatformAdmin;
 use App\Http\Middleware\SetPermissionsTeamId;
@@ -31,6 +32,10 @@ return Application::configure(basePath: dirname(__DIR__))
             'team.context' => SetPermissionsTeamId::class,
             'platform.admin' => IsPlatformAdmin::class,
             'token.audience' => EnsureTokenAudience::class,
+            // Parameterised: `plan.feature:accounting`, `plan.feature:storefront`.
+            // The entitlement key is the argument, so the next feature a plan can
+            // grant is a word on a route group rather than a middleware class.
+            'plan.feature' => EnsurePlanFeature::class,
         ]);
 
         // This app is API-only: an unauthenticated request gets a JSON 401 from

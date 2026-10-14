@@ -164,6 +164,19 @@ beforeEach(function () {
     $this->seed(PaymentMethodSeeder::class);
 });
 
+/*
+ * WS-55 gates the till by the business's plan, and the POS legs in this suite
+ * are about what the till is offered rather than about the gate. Every business
+ * here runs on a live trial that has never picked a tier, so it resolves to the
+ * platform's default plan — and the test database has no plan rows at all.
+ * Installing one with the till included is what lets those legs reach the routes
+ * they are testing; the helper's own docblock explains why the trial is the path
+ * it takes.
+ */
+beforeEach(function () {
+    defaultPlanIncludingEveryModule();
+});
+
 test('a store with nothing configured is offered no payment methods at all', function () {
     // The defect: this used to fall back to every platform-active method, so an
     // unconfigured store was shown gateways its business had never connected —

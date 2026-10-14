@@ -10,6 +10,8 @@ use App\Http\Resources\Management\StaffResource;
 use App\Models\User;
 use App\Repositories\Management\StaffRepository;
 use App\Services\Management\StaffService;
+use App\Support\Plans\EntitlementRegistry;
+use App\Support\Plans\PlanQuota;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -70,7 +72,27 @@ class StaffController extends ApiController
 
     public function store(StoreStaffRequest $request): JsonResponse
     {
-        $staff = $this->service->invite($this->user($request), $request->validated(), $request->file('photo'));
+        $user = $this->user($request);
+
+        // The plan's staff limit, checked before anything is written. This
+        // controller's `POST staff` is shadowed by WS-20's StaffParityController
+        // — Laravel keys routes by method and URI, and the module files load
+        // last — so what runs today is there, and that one is gated too. This
+        // is gated as well because an ungated declaration is exactly how a hole
+        // appears the day the load order changes.
+        //
+        // A 403 in the refusal's own shape: nothing about the request is wrong,
+        // the business is asking for something its plan does not include. The
+        // seats counted are staff accounts, and the owner is not one of them.
+        $refusal = $user->business === null
+            ? null
+            : PlanQuota::refusal($user->business, EntitlementRegistry::STAFF);
+
+        if ($refusal !== null) {
+            return response()->json($refusal, 403);
+        }
+
+        $staff = $this->service->invite($user, $request->validated(), $request->file('photo'));
 
         return $this->ok(
             ['staff' => (new StaffResource($staff->fresh()))->detailed()->resolve($request)],

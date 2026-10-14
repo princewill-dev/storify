@@ -29,6 +29,7 @@ use Illuminate\Support\Collection;
  *     size_units: Collection<int, SizeUnit>,
  *     weight_units: Collection<int, WeightUnit>,
  *     business_currency: string,
+ *     quota: array{used: int, limit: int|null, remaining: int|null, reached: bool, upgrade_url: string}|null,
  * } $resource
  */
 final class ProductFormOptionsResource extends JsonResource
@@ -42,6 +43,7 @@ final class ProductFormOptionsResource extends JsonResource
      *     size_units: Collection<int, SizeUnit>,
      *     weight_units: Collection<int, WeightUnit>,
      *     business_currency: string,
+     *     quota: array{used: int, limit: int|null, remaining: int|null, reached: bool, upgrade_url: string}|null,
      * }  $options
      */
     public function __construct(array $options)
@@ -106,6 +108,12 @@ final class ProductFormOptionsResource extends JsonResource
             ],
             'low_stock_threshold' => ProductResource::LOW_STOCK_THRESHOLD,
             'business_currency' => $this->resource['business_currency'],
+            // What this business is allowed, against what it holds — the same
+            // contract the store create form holds with `store_quota`. Sent so
+            // the create screen can stop offering a form whose only outcome is
+            // the 403 the product endpoint returns, rather than letting somebody
+            // fill in a whole product before being told.
+            'product_quota' => $this->resource['quota'],
         ];
     }
 }

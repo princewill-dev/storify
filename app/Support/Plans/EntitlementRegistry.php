@@ -2,6 +2,7 @@
 
 namespace App\Support\Plans;
 
+use App\Services\Accounting\LedgerPostingService;
 use App\Support\Payments\GatewayGrant;
 use App\Support\Payments\PaymentGatewayRegistry;
 use App\Support\Plugins\PluginRegistry;
@@ -39,14 +40,44 @@ use App\Support\Plugins\PluginRegistry;
  * because the usual way to collapse them — `if ($value)` — silently turns the
  * unlimited plan into a plan with nothing.
  *
- * ## Declared ahead of being enforced
+ * ## Declaring here is a promise to enforce
  *
- * `staff_limit`, `products_limit` and `warehouses_limit` are declared here and
- * enforced nowhere yet. Declaring them is what makes the admin editor complete
- * and the next limit a one-line call rather than a migration, an admin form and
- * a release. They are listed rather than omitted so the set of things a plan can
- * say is visible in one place — but nothing reads them today, and this file
- * describes the platform's vocabulary, not its gates.
+ * Every key below has a real enforcement point, and a test
+ * (`ws55planfeaturegateTest.php`) fails on any key that does not — because the
+ * failure mode this catalogue is most prone to is a key that can be set in the
+ * admin console, is shown to admins as a real setting, and is read by no code.
+ * That is not hypothetical: it is exactly what happened to the store limit,
+ * which the platform stored, displayed and validated while reading it from no
+ * creation path, so a three-store plan could run thirty.
+ *
+ * The enforcement points, one per key:
+ *
+ * | key | enforced at |
+ * |---|---|
+ * | `stores_limit` | {@see StoreQuota} / {@see PlanQuota}, on store creation |
+ * | `staff_limit` | {@see PlanQuota}, on staff creation |
+ * | `products_limit` | {@see PlanQuota}, on product creation |
+ * | `warehouses_limit` | {@see PlanQuota}, on warehouse creation |
+ * | `own_gateway` | {@see GatewayGrant}, on connecting own payment keys |
+ * | `storefront` | {@see FeatureGate}, on publishing a storefront |
+ * | `accounting` | {@see FeatureGate}, on every accounting route |
+ * | `pos` | {@see FeatureGate}, on every `/api/v1/pos/*` route and POS oversight |
+ * | `plugins` | {@see FeatureGate}, on the plugin routes |
+ * | `invoices` | {@see FeatureGate}, on the invoice routes |
+ *
+ * ## Why these three default to `false`, and what that cost
+ *
+ * `pos`, `plugins` and `invoices` were added after `accounting` and default to
+ * `false` like it, which is the safe direction for a *restriction* and the
+ * dangerous one for a *grant*: a plan row that says nothing about a toggle
+ * receives the default, so every plan written before these keys existed would
+ * have lost all three at deploy.
+ *
+ * That is why
+ * 2026_10_14_000003_fill_module_entitlements_from_tier_names.php exists and why
+ * the three seeded tiers state all three keys explicitly — every row this
+ * platform ships says yes or no out loud. Any key added after this one has the
+ * same obligation.
  */
 final class EntitlementRegistry
 {
@@ -75,6 +106,69 @@ final class EntitlementRegistry
     public const STOREFRONT = 'storefront';
 
     /**
+     * The books: the ledger, expenses, suppliers, bills, reconciliation and the
+     * reports built from them.
+     *
+     * Off by default, and off is a real position rather than a placeholder. Most
+     * of what a small shop needs is an order list and a payout total, both of
+     * which the platform shows without any of this. Double-entry accounting is
+     * for a business that has somebody to read it.
+     *
+     * Note what this does *not* gate: the ledger is still written for every
+     * business, on every order, sale and payment ({@see LedgerPostingService}),
+     * and every business is still seeded a chart of accounts at setup. Gating
+     * the write path would mean unwinding entries on a downgrade and rebuilding
+     * them on an upgrade; gating the screens means an upgrade is instant and a
+     * downgrade costs nothing. What is Enterprise-only is being able to *look*.
+     */
+    public const ACCOUNTING = 'accounting';
+
+    /**
+     * The till: the POS application, and the console screens that oversee it.
+     *
+     * Off by default, and this is the most consequential default in the
+     * catalogue — a business on a plan that says nothing about it loses point of
+     * sale entirely, staff sign-in included. See the class docblock for why every
+     * shipped plan row states this key explicitly rather than inheriting it.
+     *
+     * What it gates is `routes/api/v1/pos.php` from the point a user is resolved
+     * onwards. `POST /pos/login` is deliberately outside it: there is no
+     * authenticated user at that point, so there is nothing to ask the plan
+     * about, and refusing a sign-in would be a refusal in a costume nobody can
+     * read. Everything after it — the session, the catalogue, the checkout — is
+     * behind the gate, which is what makes this "the plan does not include the
+     * till" rather than "the till is read-only".
+     */
+    public const POS = 'pos';
+
+    /**
+     * Third-party marketing and analytics integrations, configured per business
+     * or per store.
+     *
+     * Gates the settings screen that turns an integration on. What a *plugin*
+     * does once installed — a tracking pixel on a storefront, a review widget —
+     * is not gated by this and is not meant to be: the toggle governs whether the
+     * business may configure integrations at all, the same line
+     * {@see PluginRegistry} already draws between available and enabled.
+     */
+    public const PLUGINS = 'plugins';
+
+    /**
+     * Invoices: raising one against an order, sending it, and recording payment.
+     *
+     * Gates the management module and the till's invoice endpoints together,
+     * because they are one feature reached two ways. The whole surface is those
+     * two — there is no public route a customer follows to an invoice, so this
+     * refuses the PDF with the rest of the module rather than leaving a document
+     * reachable by a business whose plan does not include invoices at all.
+     *
+     * Note the ledger parallel and where it stops: invoices already issued and
+     * posted stay posted, because nothing here touches the write path. What a
+     * business loses on a downgrade is the screen, not the record.
+     */
+    public const INVOICES = 'invoices';
+
+    /**
      * @return array<string, array<string, mixed>>
      */
     private static function definitions(): array
@@ -92,11 +186,16 @@ final class EntitlementRegistry
                 'label' => 'Staff accounts',
                 'help' => 'How many staff accounts this plan may create. Leave blank for no limit.',
                 'type' => self::TYPE_LIMIT,
-                // Null — unlimited — rather than a number, because nothing
-                // reads this yet and a default that reads as a restriction
-                // would be enforced by surprise the day it is wired up.
+                // Null — unlimited — and that is now the platform's stated
+                // position for every seeded tier rather than a placeholder. The
+                // seeded `features` copy has said "Unlimited products" from the
+                // start, so a number here would contradict the plan card.
                 'default' => null,
-                'unit' => 'staff',
+                // Plural, because {@see PlanQuota} writes its refusals in the
+                // plural and English will not take an "s" bolted on. "staff" was
+                // also wrong on its own terms: what is limited is accounts, and
+                // an owner reads "no more staff" as being about people.
+                'unit' => 'staff accounts',
             ],
 
             self::PRODUCTS => [
@@ -133,6 +232,49 @@ final class EntitlementRegistry
                 'help' => 'Publish a public storefront for each store.',
                 'type' => self::TYPE_TOGGLE,
                 'default' => true,
+                'unit' => null,
+            ],
+
+            self::ACCOUNTING => [
+                'label' => 'Accounting',
+                'help' => 'The books — ledger accounts, journal, expenses, suppliers, bills, bank reconciliation and financial reports.',
+                'type' => self::TYPE_TOGGLE,
+                // Off by default, so every plan that says nothing about it gets
+                // no accounting — including a plan that predates this key. That
+                // is the safe direction for a *restriction* and the unsafe
+                // direction for a *grant*, which is why the plan rows that
+                // should grant it have to say so: see
+                // 2026_10_14_000002_fill_plan_entitlements_from_tier_names.php.
+                'default' => false,
+                'unit' => null,
+            ],
+
+            self::POS => [
+                'label' => 'Point of sale',
+                'help' => 'The till application — register sessions, offline-capable checkout, and the console screens that oversee them.',
+                'type' => self::TYPE_TOGGLE,
+                // Off, like accounting and for the same reason: this is the
+                // top tier's differentiator rather than a platform-wide right.
+                // The cost of getting it wrong is higher here — see the POS
+                // constant for what a business on a plan that says nothing
+                // loses.
+                'default' => false,
+                'unit' => null,
+            ],
+
+            self::PLUGINS => [
+                'label' => 'Plugins',
+                'help' => 'Connect third-party marketing and analytics integrations, for the business or for a single store.',
+                'type' => self::TYPE_TOGGLE,
+                'default' => false,
+                'unit' => null,
+            ],
+
+            self::INVOICES => [
+                'label' => 'Invoices',
+                'help' => 'Raise an invoice against an order, send it, and record what comes back.',
+                'type' => self::TYPE_TOGGLE,
+                'default' => false,
                 'unit' => null,
             ],
         ];

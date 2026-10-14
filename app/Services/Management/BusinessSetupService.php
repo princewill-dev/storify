@@ -5,6 +5,7 @@ namespace App\Services\Management;
 use App\Models\Business;
 use App\Models\User;
 use App\Services\Accounting\LedgerSetupService;
+use App\Support\Identity\DerivedName;
 use Database\Seeders\SpatiePermissionSeeder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -28,6 +29,13 @@ final class BusinessSetupService
     public function __construct(private readonly LedgerSetupService $ledger) {}
 
     /**
+     * The name and the intents are both optional and both have defaults: the
+     * name is derived from the owner's email when the screen did not ask for
+     * one, and the intents default to "sell online" — which is the answer the
+     * interests screen arrives with already selected, so an owner who submits
+     * it without touching anything has said the same thing as one who does not
+     * reach that screen at all.
+     *
      * @param  array<string, mixed>  $data
      */
     public function create(User $user, array $data): Business
@@ -35,10 +43,14 @@ final class BusinessSetupService
         $business = DB::transaction(function () use ($user, $data) {
             $business = Business::create([
                 'user_id' => $user->id,
-                'name' => $data['name'],
+                // Placeholder when absent, confirmed on the payment settings
+                // screen. See DerivedName — `businesses.name` is NOT NULL and a
+                // plan is priced against a business, so it cannot be skipped.
+                'name' => $data['name'] ?? DerivedName::forBusiness($user->email),
                 'description' => $data['description'] ?? null,
                 'business_location' => $data['business_location'] ?? null,
                 'status' => 'active',
+                'onboarding_intents' => $data['intents'] ?? [Business::DEFAULT_ONBOARDING_INTENT],
             ]);
 
             // The legacy form validated a phone number and then dropped it.

@@ -20,13 +20,13 @@ use App\Http\Controllers\Api\V1\Management\Accounting\ExpenseController;
 | the mutating expense routes need "accounting expenses".
 */
 
-Route::middleware('permission:accounting view')->prefix('accounting')->name('accounting.')->group(function () {
+Route::middleware(['plan.feature:accounting', 'permission:accounting view'])->prefix('accounting')->name('accounting.')->group(function () {
     Route::get('expenses', [ExpenseController::class, 'index'])->name('expenses.index');
     Route::get('expense-options', [ExpenseController::class, 'options'])->name('expenses.options');
     Route::get('expenses/{expense}', [ExpenseController::class, 'show'])->name('expenses.show');
 });
 
-Route::middleware('permission:accounting expenses')->prefix('accounting')->name('accounting.')->group(function () {
+Route::middleware(['plan.feature:accounting', 'permission:accounting expenses'])->prefix('accounting')->name('accounting.')->group(function () {
     Route::post('expenses', [ExpenseController::class, 'store'])->name('expenses.store');
     Route::post('expenses/{expense}/void', [ExpenseController::class, 'void'])->name('expenses.void');
     Route::delete('expenses/{expense}', [ExpenseController::class, 'destroy'])->name('expenses.destroy');

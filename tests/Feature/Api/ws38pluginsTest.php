@@ -52,6 +52,18 @@ beforeEach(function () {
     config(['frontend.storefront_main_domain' => 'storify.buzz']);
 });
 
+/*
+ * WS-55 gates the plugin API by the business's plan, and this suite is about the
+ * plugins rather than about the gate. Every business it builds runs on a live
+ * trial that has never picked a tier, so it resolves to the platform's default
+ * plan — and the test database has no plan rows at all. Installing one with
+ * plugins included is what lets these tests reach the routes they are testing;
+ * the helper's own docblock explains why the trial is the path it takes.
+ */
+beforeEach(function () {
+    defaultPlanIncludingEveryModule();
+});
+
 test('the catalogue lists every plugin with its fields and no tag templates', function () {
     [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
 

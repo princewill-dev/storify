@@ -2,7 +2,6 @@
 
 namespace App\Repositories\Management;
 
-use App\Models\Currency;
 use App\Models\Order;
 use App\Models\Store;
 use App\Models\StoreBank;
@@ -108,16 +107,15 @@ final class StoreOnboardingRepository
     }
 
     /**
-     * The create form's picker data: the active staff of the business, its
-     * bank accounts and the global currency list.
+     * The create form's picker data: the active staff of the business and its
+     * bank accounts.
      *
-     * The staff and bank reads are business-scoped on purpose — a picker that
-     * read across tenants would leak another business's staff and accounts.
+     * Both reads are business-scoped on purpose — a picker that read across
+     * tenants would leak another business's staff and accounts.
      *
      * @return array{
      *     staff: Collection<int, User>,
      *     banks: Collection<int, StoreBank>,
-     *     currencies: Collection<int, Currency>,
      * }
      */
     public function formOptions(User $user): array
@@ -134,9 +132,9 @@ final class StoreOnboardingRepository
                 ->where('business_id', $user->business_id)
                 ->orderBy('bank_name')
                 ->get(),
-            'currencies' => Currency::query()
-                ->orderBy('name')
-                ->get(['id', 'name', 'code', 'symbol']),
+            // No currencies read: the create form stopped asking for one, so
+            // this would be a query whose result nothing renders. The write
+            // path picks the platform default instead.
         ];
     }
 

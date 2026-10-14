@@ -40,6 +40,13 @@ class CreateStoreRequest extends FormRequest
             'bank_id' => ['nullable', 'exists:store_banks,id'],
             'has_website' => ['boolean'],
             'is_physical' => ['boolean'],
+            // The till. The column has existed since stores did and the store
+            // settings screen has always been able to flip it; what was missing
+            // is a way to say it at creation, which is what somebody who
+            // answered "Sell in store" at signup is told their store will have.
+            // Optional: absent means the column default, so an SPA built before
+            // this keeps creating stores exactly as it did.
+            'pos_enabled' => ['boolean'],
             'physical_address' => ['nullable', 'string', 'max:255'],
             'currency_id' => ['nullable', 'exists:currencies,id'],
             'business_id' => ['nullable', 'exists:businesses,id'],

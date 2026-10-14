@@ -70,13 +70,74 @@ test('business setup is rejected before the email is verified', function () {
     expect($user->fresh()->business_id)->toBeNull();
 });
 
-test('business setup validates the business name', function () {
+test('business setup derives a name when the screen did not ask for one', function () {
+    // "How can we be of help" collects intents and nothing else. The business
+    // row still needs a name — a plan cannot be priced against nothing — so it
+    // is derived from the owner's address and corrected later, on the payment
+    // settings screen. A blank name is therefore not an error any more.
+    $user = unprovisionedOwner(['email' => 'chidi.okonkwo@example.com']);
+
+    $this->withToken(onboardingToken($user))
+        ->postJson('/api/v1/management/setup', [
+            'name' => '',
+            'intents' => ['sell_online', 'sell_in_store'],
+        ])
+        ->assertCreated()
+        ->assertJsonPath('data.user.business.name', 'Chidi Okonkwo')
+        ->assertJsonPath('data.next', 'plans');
+
+    expect(Business::find($user->fresh()->business_id)->onboarding_intents)
+        ->toBe(['sell_online', 'sell_in_store']);
+});
+
+test('business setup stores the default intent when none is submitted', function () {
     $user = unprovisionedOwner();
 
     $this->withToken(onboardingToken($user))
-        ->postJson('/api/v1/management/setup', ['name' => ''])
+        ->postJson('/api/v1/management/setup', [])
+        ->assertCreated();
+
+    expect(Business::find($user->fresh()->business_id)->onboarding_intents)
+        ->toBe([Business::DEFAULT_ONBOARDING_INTENT]);
+});
+
+test('business setup refuses an intent that is not on the list', function () {
+    $user = unprovisionedOwner();
+
+    $this->withToken(onboardingToken($user))
+        ->postJson('/api/v1/management/setup', ['intents' => ['sell_online', 'sell_cars']])
         ->assertStatus(422)
-        ->assertJsonValidationErrors('name');
+        ->assertJsonValidationErrors('intents.1');
+});
+
+test('registration does not require a name or a phone number', function () {
+    $this->postJson('/api/v1/management/auth/register', [
+        'email' => 'ada.eze@example.com',
+        'password' => 'brand-new-password',
+        'password_confirmation' => 'brand-new-password',
+    ])->assertCreated();
+
+    // `users.name` is NOT NULL, so the account still gets one — derived, and
+    // displayed nowhere the person can see until they confirm it.
+    $user = User::where('email', 'ada.eze@example.com')->firstOrFail();
+
+    expect($user->name)->toBe('Ada Eze')
+        ->and($user->phone)->toBeNull();
+});
+
+test('registration still accepts a name and phone from an older build of the app', function () {
+    $this->postJson('/api/v1/management/auth/register', [
+        'name' => 'Ada Eze',
+        'email' => 'ada@example.com',
+        'phone' => '08012345678',
+        'password' => 'brand-new-password',
+        'password_confirmation' => 'brand-new-password',
+    ])->assertCreated();
+
+    $user = User::where('email', 'ada@example.com')->firstOrFail();
+
+    expect($user->name)->toBe('Ada Eze')
+        ->and($user->phone)->toBe('08012345678');
 });
 
 test('a forced password change does not require the current password', function () {

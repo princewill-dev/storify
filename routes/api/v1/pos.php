@@ -17,9 +17,18 @@ use Illuminate\Support\Facades\Route;
 
 Route::prefix('pos')->group(function () {
 
+    // Deliberately outside the plan gate below. There is no authenticated user
+    // at this point, so there is nothing to ask the plan about — and refusing a
+    // sign-in would be a refusal a cashier cannot act on, in place of the one
+    // their owner can.
     Route::post('/login', [AuthController::class, 'login']);
 
-    Route::middleware(['auth:sanctum', 'team.context', 'token.audience:pos'])->group(function () {
+    // `plan.feature:pos` last in the list, so it runs with a user already
+    // resolved. Everything below it is the till: the session, the catalogue,
+    // checkout, and the invoice endpoints. A business whose plan does not
+    // include POS gets `403 plan_feature_unavailable` from every one of them,
+    // which is what "the plan does not include the till" means in practice.
+    Route::middleware(['auth:sanctum', 'team.context', 'token.audience:pos', 'plan.feature:pos'])->group(function () {
 
         Route::get('/me', [AuthController::class, 'me']);
         Route::post('/logout', [AuthController::class, 'logout']);

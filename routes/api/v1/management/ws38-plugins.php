@@ -11,7 +11,11 @@ use Illuminate\Support\Facades\Route;
 // the same endpoint configures the business-wide default (absent) and a single
 // store's override (present). See PluginController::resolveStore().
 
-Route::middleware('permission:settings plugins')->prefix('plugins')->name('plugins.')->group(function () {
+// `plan.feature:plugins` first, so a business whose plan does not include
+// plugins is told that rather than that it lacks the permission — the owner
+// holds every permission by virtue of being the owner, and "your plan does not
+// include this" is the sentence they can act on.
+Route::middleware(['plan.feature:plugins', 'permission:settings plugins'])->prefix('plugins')->name('plugins.')->group(function () {
     Route::get('/', [PluginController::class, 'index'])->name('index');
     Route::put('{pluginKey}', [PluginController::class, 'update'])->name('update');
     Route::delete('{pluginKey}', [PluginController::class, 'destroy'])->name('destroy');

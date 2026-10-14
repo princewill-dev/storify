@@ -200,6 +200,16 @@ final class Entitlements
     }
 
     /**
+     * What the client needs to render the plan it is on, and to sell the one it
+     * is not.
+     *
+     * `entitlements` is what the business holds; `locked` is what it does not,
+     * each entry naming the plan that would grant it. Both are here rather than
+     * behind a second endpoint because the SPA caches this payload once per
+     * session and needs both at the same moment — a sidebar that renders a
+     * feature as locked and cannot say what unlocks it is a dead end with an
+     * icon on it.
+     *
      * @return array<string, mixed>
      */
     public function payload(): array
@@ -213,7 +223,68 @@ final class Entitlements
             ],
             'source' => $this->source,
             'entitlements' => $this->effective(),
+            'locked' => $this->locked(),
         ];
+    }
+
+    /**
+     * Every toggle this business does not hold, and the plan that would grant it.
+     *
+     * Each entry carries the catalogue's own `label` and `help` as well as the
+     * plan, because the upgrade screen has to answer three questions — what is
+     * this, which plan has it, what does that cost — and every one of the
+     * answers already lives in a table. Sending them makes the SPA's upgrade
+     * page a rendering of the catalogue rather than a second copy of it.
+     *
+     * The price travels with the name because the two are read from the same row
+     * at the same moment: an upgrade prompt that says "part of the Enterprise
+     * plan" and then quotes a price from somewhere else is a prompt that can
+     * disagree with the plan page it sends the owner to.
+     *
+     * When **no** active plan grants the toggle the entry is still present, with
+     * `plan_name` null — so a client can tell "there is no upgrade path for this"
+     * from "the payload did not mention it", and say the former instead of
+     * rendering a button that leads nowhere. The key is present either way,
+     * which is what makes that distinction readable.
+     *
+     * **Cost:** one active-plan read per locked toggle — three at most, on a table
+     * with as many rows as the platform has plans, and only for a payload the SPA
+     * fetches once per session. Accepted rather than optimised into a single query
+     * by collecting the plans here, because that would put "the cheapest active
+     * plan that grants this" in two places, and this codebase has already paid
+     * for that mistake once.
+     *
+     * @return array<string, array{
+     *     label: string,
+     *     help: string,
+     *     plan_name: string|null,
+     *     amount: float|null,
+     *     currency: string|null,
+     * }>
+     */
+    private function locked(): array
+    {
+        $locked = [];
+
+        foreach (EntitlementRegistry::all() as $key => $definition) {
+            if ($definition['type'] !== EntitlementRegistry::TYPE_TOGGLE || $this->allows($key)) {
+                continue;
+            }
+
+            $plan = self::planGranting($key);
+
+            $locked[$key] = [
+                'label' => (string) $definition['label'],
+                'help' => (string) ($definition['help'] ?? ''),
+                'plan_name' => $plan?->name,
+                // `decimal:2` casts to a string, so this is normalised here
+                // rather than left for the client to parse.
+                'amount' => $plan === null ? null : (float) $plan->amount,
+                'currency' => $plan?->currency,
+            ];
+        }
+
+        return $locked;
     }
 
     /**

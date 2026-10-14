@@ -21,7 +21,7 @@ use App\Http\Controllers\Api\V1\Management\Accounting\ReportsController;
 | "accounting reports".
 */
 
-Route::middleware('permission:accounting reports')->prefix('accounting/reports')->name('accounting.reports.')->group(function () {
+Route::middleware(['plan.feature:accounting', 'permission:accounting reports'])->prefix('accounting/reports')->name('accounting.reports.')->group(function () {
     Route::get('profit-and-loss', [ReportsController::class, 'profitAndLoss'])->name('profit-and-loss');
     Route::get('balance-sheet', [ReportsController::class, 'balanceSheet'])->name('balance-sheet');
     Route::get('trial-balance', [ReportsController::class, 'trialBalance'])->name('trial-balance');

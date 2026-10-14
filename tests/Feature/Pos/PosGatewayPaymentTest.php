@@ -65,7 +65,14 @@ use Laravel\Sanctum\Sanctum;
 
 function pgContext(): array
 {
-    [$owner, $business] = createBusinessOwner();
+    // The trial is how this business reaches the platform's default plan, which
+    // is the one the `beforeEach` below installs. WS-55 gates every
+    // `/api/v1/pos/*` route, and {@see Entitlements::for()} resolves a business
+    // with neither a subscription nor a live trial to `SOURCE_NONE` — no plan,
+    // and therefore no till. The other businesses these tests build exist only
+    // to hold a foreign store or bank account; no request ever authenticates as
+    // one.
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
 
     $staff = User::factory()->create([
         'role' => 'staff',
@@ -481,6 +488,21 @@ function pgExecuteSale(
 
 beforeEach(function () {
     $this->seed(PaymentMethodSeeder::class);
+});
+
+/*
+ * WS-55 gates the whole till by the business's plan, and this suite is about the
+ * money the till takes rather than about the gate. The test database has no plan
+ * rows at all (`SeedsPlatformFixturesOnce` seeds the permission catalogue and
+ * nothing else), so the trial `pgContext()` opens would resolve down to the
+ * *registry* defaults — where `pos` is `false` — and every request below would
+ * answer `403 plan_feature_unavailable` before it reached the thing under test.
+ * Installing a default plan with the till on it is what lets these tests reach
+ * the routes they are testing; the helper's own docblock explains why the trial
+ * is the path it takes.
+ */
+beforeEach(function () {
+    defaultPlanIncludingEveryModule();
 });
 
 /* ------------------------------------------------------ opening the provider */

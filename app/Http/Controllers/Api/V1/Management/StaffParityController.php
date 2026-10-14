@@ -15,6 +15,8 @@ use App\Models\StaffDocument;
 use App\Models\User;
 use App\Repositories\Management\StaffParityRepository;
 use App\Services\Management\StaffParityService;
+use App\Support\Plans\EntitlementRegistry;
+use App\Support\Plans\PlanQuota;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -106,12 +108,37 @@ class StaffParityController extends ApiController
             'roles' => $this->repository->teamRoles($user),
             'stores' => $user->accessibleStores()->get(['id', 'store_id', 'name']),
             'warehouses' => $user->accessibleWarehouses()->get(['id', 'warehouse_code', 'name']),
+            'quota' => $user->business === null
+                ? null
+                : PlanQuota::payload($user->business, EntitlementRegistry::STAFF),
         ]))->resolve($request));
     }
 
     public function store(StaffParityStoreRequest $request): JsonResponse
     {
         $user = $this->user($request);
+
+        // The plan's staff limit, checked before anything is written. It was
+        // declared in the catalogue and read from no creation path — the same
+        // defect the store limit had — so a plan that sold five seats could
+        // invite fifty.
+        //
+        // A 403 in the refusal's own shape rather than the 422 this controller
+        // uses for bad input, because nothing about the request is wrong. The
+        // business is asking for something it is not entitled to, which is the
+        // same category as the subscription gate and is answered the same way.
+        //
+        // The seats counted are staff accounts, and the owner is not one of
+        // them — see PlanQuota, which is also what the store create endpoint
+        // asks. Invitations count from the moment they are sent, because an
+        // invitation holds a seat whether or not it is accepted.
+        $refusal = $user->business === null
+            ? null
+            : PlanQuota::refusal($user->business, EntitlementRegistry::STAFF);
+
+        if ($refusal !== null) {
+            return response()->json($refusal, 403);
+        }
 
         $staff = $this->service->invite($request, $user, $request->validated(), $request->roleNames());
 

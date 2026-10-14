@@ -22,7 +22,7 @@ use Illuminate\Support\Facades\Route;
 | swallowed by the model route.
 */
 
-Route::middleware('permission:invoices view')->group(function () {
+Route::middleware(['plan.feature:invoices', 'permission:invoices view'])->group(function () {
     Route::get('invoices', [InvoiceController::class, 'index'])->name('invoices.index');
 
     Route::get('invoices/form-options', [InvoiceController::class, 'formOptions'])
@@ -36,11 +36,11 @@ Route::middleware('permission:invoices view')->group(function () {
         ->name('invoices.show');
 });
 
-Route::middleware('permission:invoices create')->group(function () {
+Route::middleware(['plan.feature:invoices', 'permission:invoices create'])->group(function () {
     Route::post('invoices', [InvoiceController::class, 'store'])->name('invoices.store');
 });
 
-Route::middleware('permission:invoices edit')->group(function () {
+Route::middleware(['plan.feature:invoices', 'permission:invoices edit'])->group(function () {
     Route::put('invoices/{invoice}', [InvoiceController::class, 'update'])->name('invoices.update');
     Route::post('invoices/{invoice}/send', [InvoiceController::class, 'send'])->name('invoices.send');
     Route::post('invoices/{invoice}/mark-paid', [InvoiceController::class, 'markPaid'])->name('invoices.mark-paid');
@@ -48,6 +48,6 @@ Route::middleware('permission:invoices edit')->group(function () {
     Route::post('invoices/{invoice}/void', [InvoiceController::class, 'void'])->name('invoices.void');
 });
 
-Route::middleware('permission:invoices delete')->group(function () {
+Route::middleware(['plan.feature:invoices', 'permission:invoices delete'])->group(function () {
     Route::delete('invoices/{invoice}', [InvoiceController::class, 'destroy'])->name('invoices.destroy');
 });

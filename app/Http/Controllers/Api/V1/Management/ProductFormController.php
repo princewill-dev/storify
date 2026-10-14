@@ -15,6 +15,8 @@ use App\Models\Product;
 use App\Models\ProductImage;
 use App\Repositories\Management\ProductRepository;
 use App\Services\Management\ProductFormService;
+use App\Support\Plans\EntitlementRegistry;
+use App\Support\Plans\PlanQuota;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -103,6 +105,28 @@ class ProductFormController extends ApiController
     public function store(StoreProductRequest $request): JsonResponse
     {
         $user = $this->user($request);
+
+        // The plan's product limit, checked before anything is read from the
+        // request. This module re-registers `POST products` over the base
+        // controller's declaration — Laravel keys routes by method and URI, and
+        // the module files load last — so this is the handler that actually
+        // runs, and the check has to live here as well as there. Both are
+        // gated, because an ungated declaration is exactly how a hole appears
+        // the day the ordering changes.
+        //
+        // A 403 in the refusal's own shape rather than the 422 this controller
+        // uses for bad input: nothing about the request is wrong, and this one
+        // is answered the same way the store limit and the subscription gate
+        // answer. It runs after the FormRequest has validated, so it cannot
+        // mask a validation error.
+        $refusal = $user->business === null
+            ? null
+            : PlanQuota::refusal($user->business, EntitlementRegistry::PRODUCTS);
+
+        if ($refusal !== null) {
+            return response()->json($refusal, 403);
+        }
+
         $isDigital = $request->boolean('is_digital');
         $hasVariants = $request->boolean('has_variants');
 
@@ -182,7 +206,18 @@ class ProductFormController extends ApiController
      */
     public function formOptions(Request $request): JsonResponse
     {
-        $options = $this->repository->formOptions($this->user($request));
+        $user = $this->user($request);
+
+        $options = $this->repository->formOptions($user);
+
+        // The plan's product limit, merged in here rather than read by the
+        // repository: the repository is the query side, and this is the same
+        // `PlanQuota::payload()` the store create screen gets — the form can
+        // then say "480 of 500 products" and stop offering a create button
+        // whose only outcome is the 403 the store endpoint returns.
+        $options['quota'] = $user->business === null
+            ? null
+            : PlanQuota::payload($user->business, EntitlementRegistry::PRODUCTS);
 
         return $this->ok((new ProductFormOptionsResource($options))->toArray($request));
     }

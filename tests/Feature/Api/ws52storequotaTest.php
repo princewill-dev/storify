@@ -386,6 +386,15 @@ test('the seeded tiers carry the shape the owner asked for', function () {
         ->and($ownGateway('Entry'))->toBeFalse()
         ->and($ownGateway('Growth'))->toBeFalse()
         ->and($ownGateway('Enterprise'))->toBeTrue();
+
+    // And the opening offer carries the default, because nothing held it: this
+    // table is empty at the start of every test, which is what a fresh install's
+    // looks like. Without this the flag is left to the console on a new database
+    // and a trial nobody has chosen a plan for resolves to *no* plan at all.
+    // The half that matters just as much — that a held flag is never taken — is
+    // pinned by the test below.
+    expect(SubscriptionPlan::where('name', 'Entry')->firstOrFail()->is_default)->toBeTrue()
+        ->and(SubscriptionPlan::where('is_default', true)->count())->toBe(1);
 });
 
 test('the plan seeder leaves an admin plan alone, and does not take the default', function () {
@@ -395,6 +404,13 @@ test('the plan seeder leaves an admin plan alone, and does not take the default'
     $this->seed(SubscriptionPlanSeeder::class);
 
     $entry = SubscriptionPlan::where('name', 'Entry')->firstOrFail();
+
+    // On a clean database the seeder puts the default on the entry tier, so the
+    // admin has to *move* it for this test to be about anything. That move is
+    // the console action the seeder must respect: `Entitlements::for()` resolves
+    // a trial nobody has chosen a plan for to whichever row holds the flag, so a
+    // seeder that took it back would re-entitle every such trial on deploy.
+    $entry->update(['is_default' => false]);
 
     $custom = SubscriptionPlan::create([
         'name' => 'Agency Retainer',
@@ -420,10 +436,78 @@ test('the plan seeder leaves an admin plan alone, and does not take the default'
         ->and($entry->fresh()->name)->toBe('Starter')
         ->and((float) $entry->fresh()->amount)->toBe(7000.0)
         ->and($entry->fresh()->is_active)->toBeTrue()
-        // The seeded plans never take the default: it decides what a trial
-        // nobody has chosen a plan for resolves to, and moving it at deploy time
-        // would re-entitle every such trial without anybody asking.
-        ->and(SubscriptionPlan::where('is_default', true)->value('id'))->toBe($custom->id);
+        // The seeded plans never *take* the default: it decides what a trial
+        // nobody has chosen a plan for resolves to, and taking it at deploy time
+        // would re-entitle every such trial without anybody asking. Note this
+        // run does create a row — `Entry` was renamed to `Starter` above, so
+        // `firstOrCreate` matches nothing and inserts one — and that row has to
+        // arrive unflagged for this to hold.
+        ->and(SubscriptionPlan::where('is_default', true)->value('id'))->toBe($custom->id)
+        ->and(SubscriptionPlan::where('name', 'Entry')->firstOrFail()->is_default)->toBeFalse();
+});
+
+test('the pricing reconciliation puts the ladder back and leaves unknown rows alone', function () {
+    // The defect: `firstOrCreate` cannot price a row that already exists, so an
+    // `Enterprise` row from an older seeder kept its old price — ₦5,000 a month,
+    // the same as `Entry` — while its entitlements were filled in around it. The
+    // gate was right and the page that sells the top tier was wrong.
+    $this->seed(SubscriptionPlanSeeder::class);
+
+    $enterprise = SubscriptionPlan::where('name', 'Enterprise')->firstOrFail();
+    $enterprise->update([
+        'amount' => 5000,
+        'description' => 'Monthly subscription — full access to all Storify features',
+        'features' => ['Create and manage your store'],
+    ]);
+
+    $stranger = SubscriptionPlan::create([
+        'name' => 'Agency Retainer',
+        'amount' => 120000,
+        'currency' => 'NGN',
+        'interval' => 'monthly',
+        'interval_count' => 1,
+        'is_active' => true,
+        'is_default' => false,
+        'is_trial' => false,
+        'tier' => 2,
+        'sort_order' => 8,
+        'features' => ['Whatever the agency agreed'],
+        'entitlements' => [EntitlementRegistry::STORES => 99],
+    ]);
+
+    // Run the migration the way the deploy does. It returns an anonymous class
+    // and performs its work in `up()`, so requiring the file is the whole of it.
+    $migration = require database_path(
+        'migrations/2026_10_14_000005_apply_seeded_tier_pricing_and_copy.php'
+    );
+    $migration->up();
+
+    // The tier is priced from the seeder, and its copy with it — the page was
+    // describing the top tier as smaller than the entry tier.
+    expect((float) $enterprise->fresh()->amount)->toBe(50000.0)
+        ->and($enterprise->fresh()->description)->toBe(SubscriptionPlanSeeder::TIERS[3]['description'])
+        ->and($enterprise->fresh()->features)->toBe(SubscriptionPlanSeeder::TIERS[3]['features']);
+
+    // The ladder, and the property the owner asked for: the top tier is
+    // magnitudes above the entry tier rather than equal to it.
+    expect((float) SubscriptionPlan::where('name', 'Entry')->firstOrFail()->amount)->toBe(5000.0)
+        ->and((float) SubscriptionPlan::where('name', 'Growth')->firstOrFail()->amount)->toBe(15000.0);
+
+    // A plan no tier recognises is not the platform's to re-price — an agency
+    // plan is a console decision and this migration has no opinion about it.
+    $stranger->refresh();
+    expect((float) $stranger->amount)->toBe(120000.0)
+        ->and($stranger->description)->toBeNull();
+
+    // And it is a reconciliation, not a reconciler: a second run changes nothing
+    // because by then there is nothing to put right.
+    $before = $enterprise->fresh()->updated_at;
+    $fresh = require database_path(
+        'migrations/2026_10_14_000005_apply_seeded_tier_pricing_and_copy.php'
+    );
+    $fresh->up();
+
+    expect($enterprise->fresh()->updated_at->toIso8601String())->toBe($before->toIso8601String());
 });
 
 test('the seeder is idempotent against a business that already runs on it', function () {

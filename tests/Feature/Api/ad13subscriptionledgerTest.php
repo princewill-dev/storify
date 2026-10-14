@@ -6,6 +6,7 @@ use App\Models\Store;
 use App\Models\SubscriptionPlan;
 use App\Models\User;
 use App\Services\Accounting\LedgerSetupService;
+use App\Support\Plans\EntitlementRegistry;
 use Database\Seeders\SpatiePermissionSeeder;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Http\Client\Request;
@@ -63,6 +64,25 @@ function ad13subsPlan(): SubscriptionPlan
         'is_default' => false,
         'is_trial' => false,
         'features' => ['Sell online'],
+        // Stated, and it has to be: the test below sets `selected_plan_id` on
+        // the owner, which takes the trial *off* the default plan and onto this
+        // row — so `defaultPlanIncludingEveryModule()` never gets a say, and a
+        // plan that says nothing about a module resolves to the registry
+        // defaults, where every module toggle is `false`. This suite's last
+        // assertion reads the tenant's own journal through the management API,
+        // which is `plan.feature:accounting`.
+        'entitlements' => [
+            EntitlementRegistry::STORES => null,
+            EntitlementRegistry::STAFF => null,
+            EntitlementRegistry::PRODUCTS => null,
+            EntitlementRegistry::WAREHOUSES => null,
+            EntitlementRegistry::OWN_GATEWAY => true,
+            EntitlementRegistry::STOREFRONT => true,
+            EntitlementRegistry::ACCOUNTING => true,
+            EntitlementRegistry::POS => true,
+            EntitlementRegistry::PLUGINS => true,
+            EntitlementRegistry::INVOICES => true,
+        ],
     ]);
 }
 
@@ -119,6 +139,18 @@ function ad13subsFakeGateway(string $reference, int $amountKobo = 1500000): void
             : Http::response(['status' => true, 'message' => 'Transactions retrieved', 'data' => [$payload]]);
     });
 }
+
+/*
+ * WS-55 gates the accounting API by the business's plan, and this suite is about
+ * the books rather than about the gate. Every business it builds runs on a live
+ * trial that has never picked a tier, so it resolves to the platform's default
+ * plan — and the test database has no plan rows at all. Installing one with the
+ * books included is what lets these tests reach the routes they are testing; the
+ * helper's own docblock explains why the trial is the path it takes.
+ */
+beforeEach(function () {
+    defaultPlanIncludingEveryModule();
+});
 
 test('a subscription payment posts its full amount to the platform books and never to the tenant books', function () {
     Mail::fake();
