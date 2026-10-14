@@ -279,6 +279,42 @@ test('a store cannot be created with another business bank or staff', function (
     expect(Store::where('name', 'like', 'Nope%')->exists())->toBeFalse();
 });
 
+test('a second store may reuse the support contact the first one took', function () {
+    // One business, several stores, one support line: the shops are run by the
+    // same people, and the create form offers the owner's own contact as the
+    // default. So the first store takes it and the second arrives carrying
+    // exactly the same details — the ordinary case, which a `unique` rule the
+    // vendor model left behind refused with "already been taken".
+    [$owner] = createBusinessOwner([
+        'trial_ends_at' => now()->addWeek(),
+        'email' => 'hello@codycafe.ng',
+        'phone' => '08030000000',
+    ]);
+
+    $token = ws02Token($owner);
+
+    // Stating no contact at all, so the server defaults it from the profile —
+    // the path that filled the first store's fields.
+    $first = $this->withToken($token)
+        ->postJson('/api/v1/management/stores', ['name' => 'Cody Cafe Ikoyi'])
+        ->assertCreated();
+
+    // Then stating them outright, which is what the form posts once it has been
+    // prefilled with the owner's own details.
+    $second = $this->withToken($token)
+        ->postJson('/api/v1/management/stores', [
+            'name' => 'Cody Cafe Lekki',
+            'support_email' => 'hello@codycafe.ng',
+            'support_phone' => '08030000000',
+        ])
+        ->assertCreated();
+
+    expect(Store::where('support_phone', '08030000000')->where('support_email', 'hello@codycafe.ng')->count())
+        ->toBe(2)
+        ->and(Store::find($first->json('data.store.id'))->support_phone)->toBe('08030000000')
+        ->and(Store::find($second->json('data.store.id'))->support_email)->toBe('hello@codycafe.ng');
+});
+
 test('store creation is closed to unverified owners and users without the permission', function () {
     [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
     $token = ws02Token($owner);

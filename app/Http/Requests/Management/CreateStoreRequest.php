@@ -27,8 +27,21 @@ class CreateStoreRequest extends FormRequest
             // unverified caller still answers 403, so nothing is escalated.
             'slug' => ['nullable', 'string', 'max:255', new ReservedStoreSlug, Rule::unique('stores', 'slug')],
             'description' => ['nullable', 'string'],
-            'support_email' => ['nullable', 'email', 'max:255', 'unique:stores,support_email'],
-            'support_phone' => ['nullable', 'string', 'max:50', 'unique:stores,support_phone'],
+            // Not unique, either of them. A business runs several stores on one
+            // support line — the shops are staffed by the same people and the
+            // form offers the owner's own number as the default — so a second
+            // store reusing it is the ordinary case, and these rules refused it
+            // with "The support phone has already been taken."
+            //
+            // The uniqueness outlived the one-seller-one-store model it was
+            // written for, and was enforced here and nowhere else: the store
+            // settings form and both admin forms accepted a duplicate and then
+            // met the database's unique index, which surfaced as a 500. That
+            // index is gone too — see 2026_10_14_000006 — so keeping these
+            // rules would only make this path disagree with every other one
+            // into the same columns.
+            'support_email' => ['nullable', 'email', 'max:255'],
+            'support_phone' => ['nullable', 'string', 'max:50'],
             'address' => ['nullable', 'string'],
             'instagram_url' => ['nullable', 'url', 'max:255'],
             'facebook_url' => ['nullable', 'url', 'max:255'],
