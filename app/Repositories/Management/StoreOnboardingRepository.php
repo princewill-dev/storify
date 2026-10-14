@@ -107,15 +107,13 @@ final class StoreOnboardingRepository
     }
 
     /**
-     * The create form's picker data: the active staff of the business and its
-     * bank accounts.
+     * The create form's picker data: the active staff of the business.
      *
-     * Both reads are business-scoped on purpose — a picker that read across
-     * tenants would leak another business's staff and accounts.
+     * Business-scoped on purpose — a picker that read across tenants would leak
+     * another business's staff.
      *
      * @return array{
      *     staff: Collection<int, User>,
-     *     banks: Collection<int, StoreBank>,
      * }
      */
     public function formOptions(User $user): array
@@ -128,13 +126,14 @@ final class StoreOnboardingRepository
                 ->with('roles')
                 ->orderBy('name')
                 ->get(['id', 'name', 'email']),
-            'banks' => StoreBank::query()
-                ->where('business_id', $user->business_id)
-                ->orderBy('bank_name')
-                ->get(),
             // No currencies read: the create form stopped asking for one, so
             // this would be a query whose result nothing renders. The write
             // path picks the platform default instead.
+            //
+            // No bank accounts read either, for the same reason: the form no
+            // longer offers a payout picker. Accounts are assigned on the
+            // store's payment screen, where the store exists and the question
+            // has an answer worth giving.
         ];
     }
 

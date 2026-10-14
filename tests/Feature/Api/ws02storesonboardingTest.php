@@ -341,9 +341,44 @@ test('the create form options carry the defaults, banks and staff — and no cur
     // record and holds one wallet currency, so the server writes the platform
     // default and there is nothing left for the client to pick from. A payload
     // that still carried the list would be a query nothing consumes.
+    //
+    // The bank list went the same way, for the plainer reason that the form
+    // stopped assigning a payout account — that belongs on the store's own
+    // payment screen, where the store exists.
     expect(array_column($response->json('data.staff'), 'name'))->toContain('Ada')
         ->and($response->json())->not->toHaveKey('data.currencies')
-        ->and($response->json('data.banks'))->toBe([]);
+        ->and($response->json())->not->toHaveKey('data.banks');
+});
+
+test('the create form is not prefilled with the owner, and offers no payout picker', function () {
+    // Two prefills that read as the form having lost track of what it already
+    // knows: the owner's own name in the *store's* name field, so a shop opened
+    // called "Ade" unless somebody cleared it; and `users.location` in a
+    // business-address field, asking for the second time on one screen for the
+    // address the store's own field had been filled from.
+    [$owner] = createBusinessOwner([
+        'trial_ends_at' => now()->addWeek(),
+        'name' => 'Ade Balogun',
+        'location' => '12 Clifford Street, Lagos',
+    ]);
+
+    $response = $this->withToken(ws02Token($owner))
+        ->getJson('/api/v1/management/stores/onboarding/options')
+        ->assertOk();
+
+    expect($response->json('data.defaults'))->not->toHaveKey('name')
+        ->and($response->json('data.defaults'))->not->toHaveKey('address')
+        ->and($response->json('data'))->not->toHaveKey('banks')
+        ->and($response->json('data.defaults.store_model'))->toBeArray();
+
+    // The address itself is not lost: the write path defaults `stores.address`
+    // from the same profile, so nothing that reads one lost one. Only the
+    // second asking went.
+    $created = $this->withToken(ws02Token($owner))
+        ->postJson('/api/v1/management/stores', ['name' => 'Cody Cafe'])
+        ->assertCreated();
+
+    expect(Store::find($created->json('data.store.id'))->address)->toBe('12 Clifford Street, Lagos');
 });
 
 test('the create form options report the store model the signup answers imply', function () {
@@ -438,6 +473,64 @@ test('an explicit flag still wins over the signup answer', function () {
     expect($store->store_type)->toBe('both')
         ->and($store->has_website)->toBeTrue()
         ->and($store->pos_enabled)->toBeFalse();
+});
+
+test('a stated counter turns the till on, even when the signup answers said online only', function () {
+    // The till follows the counter, and the counter is now something the create
+    // form states rather than only something the signup answers imply. Reading
+    // the *inferred* flag here gave an owner who ticked "Physical store" a
+    // counter with nothing to put on it whenever their signup answers
+    // disagreed — which is the one case the two checks exist to let them
+    // express, so getting it wrong would have made the checks decorative.
+    [$owner] = createBusinessOwner(
+        ['trial_ends_at' => now()->addWeek()],
+        ['onboarding_intents' => ['sell_online']],
+    );
+
+    $store = Store::find(
+        $this->withToken(ws02Token($owner))
+            ->postJson('/api/v1/management/stores', [
+                'name' => 'Shop and Web',
+                'is_physical' => true,
+                'physical_address' => '12 Clifford Street, Lagos',
+            ])
+            ->assertCreated()
+            ->json('data.store.id'),
+    );
+
+    expect($store->store_type)->toBe('both')
+        ->and($store->pos_enabled)->toBeTrue()
+        ->and($store->physical_address)->toBe('12 Clifford Street, Lagos');
+});
+
+test('a store stated as selling nowhere is refused, while silence still infers one', function () {
+    [$owner] = createBusinessOwner(
+        ['trial_ends_at' => now()->addWeek()],
+        ['onboarding_intents' => ['sell_in_store']],
+    );
+
+    // The create form requires one of its two checks, so it cannot produce this
+    // — but the API can be told it outright, and `store_type` is derived from
+    // those same two flags: neither of them true is not a store shape at all.
+    $this->withToken(ws02Token($owner))
+        ->postJson('/api/v1/management/stores', [
+            'name' => 'Nowhere',
+            'is_physical' => false,
+            'has_website' => false,
+        ])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors('is_physical');
+
+    expect(Store::where('name', 'Nowhere')->exists())->toBeFalse();
+
+    // The refusal is for a contradiction the caller stated, not for a payload
+    // that says nothing about the model: the inference is what every client
+    // built before the checks existed relies on, and it must still run.
+    $created = $this->withToken(ws02Token($owner))
+        ->postJson('/api/v1/management/stores', ['name' => 'Inferred'])
+        ->assertCreated();
+
+    expect(Store::find($created->json('data.store.id'))->store_type)->toBe('physical');
 });
 
 test('a store with no currency in the request takes the platform default', function () {

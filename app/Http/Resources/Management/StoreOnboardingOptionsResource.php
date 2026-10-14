@@ -2,7 +2,6 @@
 
 namespace App\Http\Resources\Management;
 
-use App\Models\StoreBank;
 use App\Models\User;
 use App\Support\Stores\StoreModelDefaults;
 use Illuminate\Http\Request;
@@ -11,22 +10,35 @@ use Illuminate\Support\Collection;
 
 /**
  * WS-02 — everything the store create screen needs to render in one round
- * trip: the owner-derived defaults, the business' bank accounts and its active
- * staff.
+ * trip: the owner-derived prefills and the business' active staff.
  *
  * The controller hands over what StoreOnboardingRepository read and the user
  * the defaults are derived from; this resource only shapes it, so the query
  * side and the response side stay separate. Legacy assembled the same data in
  * the controller and passed it to Blade.
  *
- * There is no currency list. The create form no longer offers one — Storify is
- * the merchant of record and holds one wallet currency, so a per-store choice
- * was the owner being asked to decide something already decided, and the
- * server now writes the platform default itself.
+ * ## Three things this payload stopped carrying
+ *
+ * **A currency list.** The create form no longer offers one — Storify is the
+ * merchant of record and holds one wallet currency, so a per-store choice was
+ * the owner being asked to decide something already decided, and the server now
+ * writes the platform default itself.
+ *
+ * **A bank list.** The form no longer offers a payout picker either. Where a
+ * store's money lands is a payment setting, and every other payment control
+ * lives on the store's own screen; this one was a choice offered before the
+ * store had sold anything.
+ *
+ * **The owner's name, and their location as an address.** Both were prefills
+ * for fields that no longer exist — `name` filled the *store's* name with the
+ * owner's, and `address` filled a business-address field that asked, for the
+ * second time on one screen, for the address the store's own field had been
+ * filled from. The write path still defaults `stores.address` to
+ * `users.location`, so nothing that reads an address lost one; the form simply
+ * stops asking twice.
  *
  * @property-read array{
  *     staff: Collection<int, User>,
- *     banks: Collection<int, StoreBank>,
  *     quota: array{used: int, limit: int|null, remaining: int|null, reached: bool, upgrade_url: string}|null,
  * } $resource
  */
@@ -35,7 +47,6 @@ final class StoreOnboardingOptionsResource extends JsonResource
     /**
      * @param  array{
      *     staff: Collection<int, User>,
-     *     banks: Collection<int, StoreBank>,
      *     quota: array{used: int, limit: int|null, remaining: int|null, reached: bool, upgrade_url: string}|null,
      * }  $options
      */
@@ -51,10 +62,8 @@ final class StoreOnboardingOptionsResource extends JsonResource
     {
         return [
             'defaults' => [
-                'name' => $this->user->name,
                 'support_email' => $this->user->email,
                 'support_phone' => $this->user->phone,
-                'address' => $this->user->location,
                 // The store model the signup answers produce, from the same
                 // class the write path uses. The create form no longer offers
                 // the three toggles and does not report the model either — it
@@ -70,14 +79,6 @@ final class StoreOnboardingOptionsResource extends JsonResource
                 // replaces.
                 'store_model' => StoreModelDefaults::fromIntents($this->user->business?->onboarding_intents),
             ],
-            'banks' => collect($this->resource['banks'])->map(fn (StoreBank $bank) => [
-                'id' => $bank->id,
-                'bank_name' => $bank->bank_name,
-                'account_name' => $bank->account_name,
-                'masked_account_number' => $bank->masked_account_number,
-                'is_primary' => (bool) $bank->is_primary,
-                'is_verified' => (bool) $bank->is_verified,
-            ])->values()->all(),
             'staff' => collect($this->resource['staff'])->map(fn (User $member) => [
                 'id' => $member->id,
                 'name' => $member->name,

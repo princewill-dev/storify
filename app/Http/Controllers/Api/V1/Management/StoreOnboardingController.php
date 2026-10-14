@@ -52,8 +52,18 @@ use Illuminate\Support\Str;
  *   A valid payload from an unverified caller still answers 403, so nothing
  *   is escalated, and this is deliberately not worked around;
  * - the store-create options carry their user-derived defaults in the
- *   resource, while the staff and bank reads stay business-scoped in
- *   the repository.
+ *   resource, while the staff read stays business-scoped in the repository;
+ * - a stated "sells nowhere" — both flags false — is refused as a 422 here,
+ *   beside the other two refusals, rather than left to the write. `store_type`
+ *   is derived from those two flags, so neither of them being true is not a
+ *   store shape at all; the create form requires one of the two, and this is
+ *   the API saying the same thing to a caller that states it outright.
+ *
+ * The create form no longer offers a payout account, so its options payload
+ * carries no bank list — but `bank_id` is still accepted and still validated
+ * below. The column and the assignment it makes outlive the picker that used to
+ * set it, and a client built before this change keeps creating stores exactly
+ * as it did.
  */
 class StoreOnboardingController extends ApiController
 {
@@ -158,16 +168,46 @@ class StoreOnboardingController extends ApiController
         $hasWebsite = $request->has('has_website') ? $request->boolean('has_website') : $inferred['has_website'];
         $isPhysical = $request->has('is_physical') ? $request->boolean('is_physical') : $inferred['is_physical'];
 
+        // A caller that states both flags false is describing a store that
+        // sells nowhere: no counter to sell from, no storefront to buy from.
+        // The create form cannot produce that — it requires one of the two —
+        // but the API can be told it outright, and the alternative is a store
+        // that exists with nothing to sell through.
+        //
+        // Refused only when both are *stated*. Silence still falls through to
+        // the inference above, so a client built before those checks existed
+        // creates exactly the store it always did; this is the one shape that
+        // cannot have been meant.
+        if ($request->has('has_website') && $request->has('is_physical') && ! $hasWebsite && ! $isPhysical) {
+            return $this->error('Choose whether this store sells in person, online, or both.', 422, [
+                'is_physical' => ['A store must sell in person, online, or both.'],
+            ]);
+        }
+
         $data['has_website'] = $hasWebsite;
+
+        // Not a column. It is the caller's answer to "does this store have a
+        // counter", consumed here and turned into the store type and the
+        // address rule below; `$data` becomes the store's attributes wholesale,
+        // so it has to go before it reaches the write.
+        unset($data['is_physical']);
 
         // Written only when there is something to write. `validated()` omits an
         // absent optional key, and defaulting it here would overrule the
         // column's own default for every caller that never sends it — which is
         // the pre-existing contract this still keeps: silence plus no answer at
         // signup leaves `pos_enabled` untouched.
+        //
+        // The till follows the counter, and the counter is now something a
+        // caller can state rather than only something the signup answers imply.
+        // Reading the inferred flag here meant an owner who ticked "Physical
+        // store" got a counter and then nothing to put on it whenever their
+        // signup answers disagreed — the one case the create form exists to
+        // let them express. `$isPhysical` is the effective counter, stated or
+        // inferred; a caller that states `pos_enabled` itself still wins.
         if ($request->has('pos_enabled')) {
             $data['pos_enabled'] = $request->boolean('pos_enabled');
-        } elseif ($inferred['pos_enabled']) {
+        } elseif ($isPhysical) {
             $data['pos_enabled'] = true;
         }
 

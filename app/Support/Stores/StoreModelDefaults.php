@@ -5,19 +5,18 @@ namespace App\Support\Stores;
 /**
  * The store model a business asked for, read back off its signup answers.
  *
- * ## Why the create form stopped asking
+ * ## What the create form does with this
  *
- * It used to put three checkboxes in front of the person — physical, online,
- * till — and ask a question the platform had already been answered. "How can
- * we be of help" collects exactly this on the screen before, stores it on the
- * business, and nothing but the create form's own pre-ticking ever read it. So
- * the form no longer asks, and this is what fills the silence.
+ * It uses the result as the starting positions of two checks — physical store,
+ * online store — so a business that answered "how can we be of help" sees its
+ * own answer already ticked and only touches the line if it has changed its
+ * mind. A stated flag always wins over this; see the controller. This class
+ * fills the silence, and silence is all it should ever fill.
  *
  * The rule lives here rather than in the controller so that the write path and
  * the options payload cannot disagree about what the answers mean — the form
- * shows this same payload back to the person, and a form describing one store
- * while the server creates another is the failure this class exists to make
- * impossible.
+ * starts from this same payload, and a form describing one store while the
+ * server creates another is the failure this class exists to make impossible.
  *
  * ## The mapping
  *
@@ -31,12 +30,17 @@ namespace App\Support\Stores;
  *
  * ## What an answer of nothing means
  *
- * Every intent `false`, which is the same result the create form produced when
- * a person ticked no boxes. That matters for businesses whose intents predate
- * the column, or that were never asked: they must keep getting the store the
- * old form gave them, not a guess. The caller is still expected to have its own
- * default for the storefront — this class reports what was asked for, and
- * reports nothing when nothing was asked.
+ * Every intent `false`, which is what a business whose intents predate the
+ * column, or that was never asked, resolves to. That matters: such a caller
+ * must keep getting the store it always got, not a guess. The caller is still
+ * expected to have its own default for the storefront — this class reports what
+ * was asked for, and reports nothing when nothing was asked.
+ *
+ * The create form no longer permits the all-false outcome, because a person
+ * who has been shown the question can answer it and a store with no counter and
+ * no storefront sells nothing. Both paths agree about what to do with silence;
+ * they differ only in whether silence is allowed to reach them, and the create
+ * form is the one place where it is not.
  */
 final class StoreModelDefaults
 {
