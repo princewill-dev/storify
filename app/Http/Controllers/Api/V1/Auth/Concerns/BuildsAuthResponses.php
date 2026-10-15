@@ -12,9 +12,9 @@ use Illuminate\Support\Facades\Mail;
 
 trait BuildsAuthResponses
 {
-    protected function sendOtp(string $email, string $type, int $expiryMinutes = 10): void
+    protected function sendOtp(string $email, string $type, int $expiryMinutes = 10, ?int $businessId = null): void
     {
-        $otp = OtpService::generate($email, $type, $expiryMinutes);
+        $otp = OtpService::generate($email, $type, $expiryMinutes, $businessId);
 
         try {
             Mail::to($email)->queue(new OtpMail($otp->code, $expiryMinutes));
@@ -88,12 +88,14 @@ trait BuildsAuthResponses
         return [
             'id' => $customer->id,
             'account_id' => $customer->account_id,
+            'business_id' => $customer->business_id,
             'first_name' => $customer->first_name,
             'last_name' => $customer->last_name,
             'name' => $customer->full_name,
             'email' => $customer->email,
             'phone' => $customer->phone,
             'status' => $customer->status,
+            'account_state' => $customer->accountState(),
             'email_verified' => $customer->email_verified_at !== null,
         ];
     }

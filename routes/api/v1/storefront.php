@@ -1,9 +1,13 @@
 <?php
 
+use App\Http\Controllers\Api\V1\Auth\CustomerAuthController;
 use App\Http\Controllers\Api\V1\Storefront\AccountController;
+use App\Http\Controllers\Api\V1\Storefront\AddressController;
 use App\Http\Controllers\Api\V1\Storefront\CartController;
 use App\Http\Controllers\Api\V1\Storefront\CatalogController;
 use App\Http\Controllers\Api\V1\Storefront\CheckoutController;
+use App\Http\Controllers\Api\V1\Storefront\ConsentController;
+use App\Http\Controllers\Api\V1\Storefront\DataRightsController;
 use App\Http\Controllers\Api\V1\Storefront\DownloadController;
 use App\Http\Controllers\Api\V1\Storefront\SupportController;
 use App\Http\Controllers\Api\V1\Storefront\TrackingController;
@@ -19,7 +23,12 @@ use Illuminate\Support\Facades\Route;
 */
 
 // Customer account (registered first so `account` is not treated as a store slug)
-Route::middleware(['auth:sanctum_customer', 'token.audience:customer'])
+//
+// Tenant-less by design: the token identifies the customer row, and the
+// business is that row's `business_id`. `customer.business` is what makes that
+// safe — it refuses a token whose row has no business, which would otherwise
+// leave every read below with no tenant to be scoped to.
+Route::middleware(['auth:sanctum_customer', 'token.audience:customer', 'customer.business'])
     ->prefix('storefront/account')
     ->name('api.storefront.account.')
     ->group(function () {
@@ -27,11 +36,49 @@ Route::middleware(['auth:sanctum_customer', 'token.audience:customer'])
         Route::get('orders/{orderNumber}', [AccountController::class, 'showOrder'])->name('orders.show');
         Route::get('downloads', [AccountController::class, 'downloads'])->name('downloads.index');
         Route::put('profile', [AccountController::class, 'updateProfile'])->name('profile.update');
+
+        // The customer's own address book. `{address}` is read as a string and
+        // resolved by the repository against this customer, so an id belonging
+        // to somebody else 404s like one that does not exist. The constraint
+        // keeps a literal segment from reaching the parameter if one is ever
+        // added beside it.
+        Route::get('addresses', [AddressController::class, 'index'])->name('addresses.index');
+        Route::post('addresses', [AddressController::class, 'store'])->name('addresses.store');
+        Route::put('addresses/{address}', [AddressController::class, 'update'])
+            ->where('address', '[0-9]+')->name('addresses.update');
+        Route::delete('addresses/{address}', [AddressController::class, 'destroy'])
+            ->where('address', '[0-9]+')->name('addresses.destroy');
+        Route::post('addresses/{address}/default', [AddressController::class, 'setDefault'])
+            ->where('address', '[0-9]+')->name('addresses.default');
+
+        // Communication preferences. Only the optional types are writable; the
+        // terms record is read-only because it is evidence, not a setting.
+        Route::get('consents', [ConsentController::class, 'index'])->name('consents.index');
+        Route::put('consents', [ConsentController::class, 'update'])->name('consents.update');
+
+        // Data rights. The export is a document rather than a screen; the
+        // deletion is a request that ends here and is worked by the business.
+        Route::get('data-export', [DataRightsController::class, 'export'])->name('data-export');
+        Route::post('delete', [DataRightsController::class, 'destroy'])->name('delete');
     });
 
 // Public storefront
 Route::prefix('storefront/{store}')->name('api.storefront.')->group(function () {
     Route::get('home', [CatalogController::class, 'home'])->name('home');
+
+    // Customer accounts belong to one business, so these carry the store in
+    // the path like every other storefront route. The transitional tenant-less
+    // copies live in auth.php and resolve their store from the request; they
+    // exist only while a storefront that predates this is still deployed and
+    // are deleted once it is not.
+    Route::prefix('auth')->name('auth.')->middleware('throttle:auth')->group(function () {
+        Route::post('register', [CustomerAuthController::class, 'register'])->name('register');
+        Route::post('login', [CustomerAuthController::class, 'login'])->name('login');
+        Route::post('verify-otp', [CustomerAuthController::class, 'verifyOtp'])->name('verify-otp');
+        Route::post('resend-otp', [CustomerAuthController::class, 'resendOtp'])->name('resend-otp');
+        Route::post('forgot-password', [CustomerAuthController::class, 'forgotPassword'])->name('forgot-password');
+        Route::post('reset-password', [CustomerAuthController::class, 'resetPassword'])->name('reset-password');
+    });
 
     // Plugin tags this storefront should run. Public because its two callers
     // have no session: the storefront SPA, and the Cloudflare Worker that

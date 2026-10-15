@@ -47,8 +47,21 @@ Route::prefix('admin/auth')->name('api.admin.auth.')->middleware('throttle:auth'
     Route::post('reset-password', [AdminAuthController::class, 'resetPassword'])->name('reset-password');
 });
 
-// Storefront (customer) app — public auth
-Route::prefix('storefront/auth')->name('api.storefront.auth.')->middleware('throttle:auth')->group(function () {
+/*
+| Storefront (customer) app — public auth, transitional.
+|
+| The canonical routes are now `storefront/{store}/auth/*` in storefront.php,
+| because a customer account belongs to one business and the request therefore
+| has to name it. These tenant-less URIs are kept working for the storefront
+| that is already deployed and calls them; the controller resolves the business
+| from the payload, a header, or the request's `Origin` host.
+|
+| Delete this group once no deployed bundle calls it — the same condition that
+| retires the account-less checkout fallback. The `legacy.` name infix keeps it
+| from silently claiming the canonical names, which would otherwise make
+| route('api.storefront.auth.register') resolve to whichever registered last.
+*/
+Route::prefix('storefront/auth')->name('api.storefront.auth.legacy.')->middleware('throttle:auth')->group(function () {
     Route::post('register', [CustomerAuthController::class, 'register'])->name('register');
     Route::post('login', [CustomerAuthController::class, 'login'])->name('login');
     Route::post('verify-otp', [CustomerAuthController::class, 'verifyOtp'])->name('verify-otp');

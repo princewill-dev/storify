@@ -3,6 +3,7 @@
 use App\Models\Customer;
 use App\Models\Otp;
 use App\Models\RefreshToken;
+use App\Models\Store;
 use App\Models\User;
 use Illuminate\Support\Facades\Hash;
 use Laravel\Sanctum\PersonalAccessToken;
@@ -18,6 +19,41 @@ function apiOtp(string $email, string $type): string
 function bearer(string $token): array
 {
     return ['Authorization' => 'Bearer '.$token];
+}
+
+/**
+ * A storefront to hang customer auth off.
+ *
+ * `has_website` is what `resolveStore()` gates on and it defaults to false, so
+ * a store built without it is switched off and every storefront route answers
+ * 404 — which, in a suite about tenant resolution, looks exactly like the bug
+ * these tests exist to catch.
+ */
+function authStorefront(string $slug = 'auth-shop'): Store
+{
+    [, $business] = createBusinessOwner();
+
+    return Store::create([
+        'business_id' => $business->id,
+        'name' => 'Auth Shop',
+        'slug' => $slug,
+        'status' => Store::STATUS_ACTIVE,
+        'has_website' => true,
+    ]);
+}
+
+/**
+ * The header the deployed storefront sends without knowing it does anything.
+ *
+ * The transitional `storefront/auth/*` routes name no store, and the SPA that
+ * calls them has no way to — so the server reads the tenant off `Origin`, which
+ * every browser request carries because the API is its own origin.
+ *
+ * @return array<string, string>
+ */
+function authOriginHeaders(Store $store): array
+{
+    return ['Origin' => 'https://'.$store->slug.'.'.config('frontend.storefront_main_domain')];
 }
 
 test('a business owner can register and verify their email via the api', function () {
@@ -261,6 +297,13 @@ test('an admin can set up, log in and impersonate a user', function () {
 });
 
 test('customers can register, verify and log in', function () {
+    // The transitional tenant-less routes, driven exactly as the storefront
+    // already deployed drives them: no store anywhere, just the `Origin` a
+    // browser sends anyway. This is what has to keep working until that bundle
+    // is replaced, so it is asserted here rather than only in the WS-56 suite.
+    $store = authStorefront();
+    $headers = authOriginHeaders($store);
+
     $this->postJson('/api/v1/storefront/auth/register', [
         'first_name' => 'Jane',
         'last_name' => 'Shopper',
@@ -268,13 +311,13 @@ test('customers can register, verify and log in', function () {
         'phone' => '08012345678',
         'password' => 'secret-pass-123',
         'password_confirmation' => 'secret-pass-123',
-    ])->assertCreated()
+    ], $headers)->assertCreated()
         ->assertJsonPath('data.otp_required', true);
 
     $verify = $this->postJson('/api/v1/storefront/auth/verify-otp', [
         'email' => 'shopper@example.test',
         'otp' => apiOtp('shopper@example.test', 'account'),
-    ])->assertOk();
+    ], $headers)->assertOk();
 
     $token = $verify->json('data.access_token');
 
@@ -288,8 +331,69 @@ test('customers can register, verify and log in', function () {
     $this->postJson('/api/v1/storefront/auth/login', [
         'email' => 'shopper@example.test',
         'password' => 'secret-pass-123',
+    ], $headers)->assertOk()
+        ->assertJsonStructure(['data' => ['access_token', 'refresh_token', 'user' => ['id', 'email']]]);
+});
+
+test('a customer account registered through a storefront belongs to that store', function () {
+    // The canonical shape: the store is in the path, as it is for catalog and
+    // cart, and the account it creates is scoped to that store's business.
+    $store = authStorefront('canonical-shop');
+
+    $this->postJson('/api/v1/storefront/'.$store->slug.'/auth/register', [
+        'first_name' => 'Ada',
+        'last_name' => 'Buyer',
+        'email' => 'canonical@example.test',
+        'phone' => '08012345678',
+        'password' => 'secret-pass-123',
+        'password_confirmation' => 'secret-pass-123',
+    ])->assertCreated()
+        ->assertJsonPath('data.otp_required', true);
+
+    $customer = Customer::where('email', 'canonical@example.test')->sole();
+
+    expect($customer->business_id)->toBe($store->business_id)
+        ->and($customer->registered_at)->not->toBeNull();
+
+    $this->postJson('/api/v1/storefront/'.$store->slug.'/auth/verify-otp', [
+        'email' => 'canonical@example.test',
+        'otp' => apiOtp('canonical@example.test', 'account'),
+    ])->assertOk()
+        ->assertJsonPath('data.user.business_id', $store->business_id);
+
+    $this->postJson('/api/v1/storefront/'.$store->slug.'/auth/login', [
+        'email' => 'canonical@example.test',
+        'password' => 'secret-pass-123',
     ])->assertOk()
         ->assertJsonStructure(['data' => ['access_token', 'refresh_token', 'user' => ['id', 'email']]]);
+});
+
+test('storefront auth refuses a request that names no store', function () {
+    // Nothing in the body, no header, no Origin. This used to resolve a row by
+    // email alone across every business on the platform, which is the defect
+    // the scoping closes; the honest answer is now to say so.
+    $this->postJson('/api/v1/storefront/auth/register', [
+        'first_name' => 'Jane',
+        'last_name' => 'Shopper',
+        'email' => 'nowhere@example.test',
+        'phone' => '08012345678',
+        'password' => 'secret-pass-123',
+        'password_confirmation' => 'secret-pass-123',
+    ])->assertStatus(422)
+        ->assertJsonPath('errors.store.0', 'store_unresolved');
+
+    expect(Customer::where('email', 'nowhere@example.test')->exists())->toBeFalse();
+});
+
+test('the storefront auth route names resolve to the canonical routes', function () {
+    // Both route sets are registered and the transitional one is name-infixed,
+    // so the canonical name is the one the application resolves. Without the
+    // infix the later registration silently wins and this is the assertion that
+    // notices.
+    expect(route('api.storefront.auth.register', ['store' => 'swift-one']))
+        ->toEndWith('/api/v1/storefront/swift-one/auth/register')
+        ->and(route('api.storefront.auth.legacy.register'))
+        ->toEndWith('/api/v1/storefront/auth/register');
 });
 
 test('a staff invitation can be inspected and accepted through the api', function () {

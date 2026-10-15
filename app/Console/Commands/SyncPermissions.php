@@ -21,7 +21,7 @@ class SyncPermissions extends Command
         'pos' => ['open_session', 'process_sale', 'close_session', 'view_history', 'void_sale'],
         'staff' => ['view', 'create', 'edit', 'delete', 'suspend', 'activate'],
         'stores' => ['view', 'create', 'edit', 'delete', 'suspend', 'settings'],
-        'customers' => ['view', 'edit', 'suspend', 'message'],
+        'customers' => ['view', 'edit', 'suspend', 'message', 'note', 'export', 'erase'],
         'transactions' => ['view', 'confirm', 'reject', 'refund', 'export'],
         'invoices' => ['view', 'create', 'edit', 'delete', 'send'],
         'reports' => ['view_sales', 'view_inventory', 'view_staff', 'view_finance', 'export'],

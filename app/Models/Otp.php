@@ -13,6 +13,7 @@ class Otp extends Model
      */
     protected $fillable = [
         'identifier',
+        'business_id',
         'code',
         'type',
         'expires_at',

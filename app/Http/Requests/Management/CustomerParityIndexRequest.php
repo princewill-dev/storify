@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Management;
 
+use App\Models\Customer;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -31,6 +32,10 @@ class CustomerParityIndexRequest extends FormRequest
         if ($this->filled('status')) {
             $this->merge(['status' => strtolower(trim((string) $this->input('status')))]);
         }
+
+        if ($this->filled('account_state')) {
+            $this->merge(['account_state' => strtolower(trim((string) $this->input('account_state')))]);
+        }
     }
 
     /**
@@ -41,6 +46,12 @@ class CustomerParityIndexRequest extends FormRequest
         return [
             'q' => ['nullable', 'string', 'max:100'],
             'status' => ['nullable', Rule::in(['active', 'suspended'])],
+            // The derived account states, a second axis rather than a
+            // replacement: `status` answers "is this account usable", and this
+            // answers "how far through signing up is it". They compose — the
+            // storefront sends `account_state`, and `status` stays for the
+            // suspend/activate filters that already shipped.
+            'account_state' => ['nullable', Rule::in(Customer::ACCOUNT_STATES)],
             'country' => ['nullable', 'string', 'max:100'],
             'store_id' => ['nullable', 'integer'],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],

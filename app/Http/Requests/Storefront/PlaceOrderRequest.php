@@ -4,6 +4,7 @@ namespace App\Http\Requests\Storefront;
 
 use App\Http\Controllers\Api\V1\Storefront\Concerns\ResolvesStorefrontContext;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 /**
  * The storefront checkout payload (`POST /storefront/{store}/checkout`).
@@ -45,11 +46,34 @@ final class PlaceOrderRequest extends FormRequest
         }
 
         $customer = $this->currentCustomer($this);
+
+        // With accounts required, an unauthenticated checkout is refused by
+        // the controller with a marker of its own. Returning no rules here is
+        // what lets that marker answer, instead of a field-level "email is
+        // required" telling the caller to fill in a form that is not the one
+        // being asked of them.
+        if (config('storefront.checkout_requires_account') && ! $customer) {
+            return [];
+        }
+
         $requiresShipping = $cart->items()->whereHas('product', fn ($q) => $q->where('is_digital', false))->exists();
 
         $rules = [
             'notes' => ['nullable', 'string'],
             'delivery_route_id' => ['nullable', 'integer'],
+            // A saved address from the customer's own book. Scoped to their id
+            // and to saved rows, so another customer's address — or an order's
+            // snapshot — is a validation failure rather than a delivery to the
+            // wrong place. A guest has no customer yet, so the rule matches
+            // nothing and an anonymous request can never name one.
+            'delivery_address_id' => [
+                'nullable', 'integer',
+                Rule::exists('delivery_addresses', 'id')->where(
+                    fn ($query) => $query
+                        ->where('customer_id', $customer?->id)
+                        ->where('is_snapshot', false)
+                ),
+            ],
             'email' => [$customer ? 'nullable' : 'required', 'email', 'max:255'],
             'first_name' => [$customer ? 'nullable' : 'required', 'string', 'max:255'],
             'last_name' => [$customer ? 'nullable' : 'required', 'string', 'max:255'],

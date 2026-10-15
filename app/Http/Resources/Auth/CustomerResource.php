@@ -27,12 +27,20 @@ final class CustomerResource extends JsonResource
         return [
             'id' => $customer->id,
             'account_id' => $customer->account_id,
+            // The business this account belongs to. Carried so the storefront
+            // can check the session it is holding is for the store it is
+            // rendering — a session that survives a slug change, or a stray
+            // one on a shared local origin, would otherwise be shown another
+            // store's account. The client checks it; the server does not trust
+            // it, and scopes every read by the token's own customer row.
+            'business_id' => $customer->business_id,
             'first_name' => $customer->first_name,
             'last_name' => $customer->last_name,
             'name' => $customer->full_name,
             'email' => $customer->email,
             'phone' => $customer->phone,
             'status' => $customer->status,
+            'account_state' => $customer->accountState(),
             'email_verified' => $customer->email_verified_at !== null,
         ];
     }

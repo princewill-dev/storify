@@ -11,21 +11,44 @@ class OtpService
     /**
      * Generate a 6-digit OTP code.
      *
+     * `$businessId` scopes the code to one business's customer base, which is
+     * what keeps a storefront code from being usable, or even valid, anywhere
+     * else. One email may hold a customer account at several businesses, so a
+     * code keyed on the address alone proves nothing about which of them the
+     * holder is signing into.
+     *
+     * Omitted — as every management and admin caller omits it — the code is
+     * written and matched against unscoped rows only. That is deliberate: it
+     * leaves those flows byte-identical to before, and it means a storefront
+     * code cannot be replayed into a business login even for the same address.
+     *
      * @param  string  $identifier  Email or phone
      * @param  string  $type  Type of OTP (login, password_reset, etc.)
      * @param  int  $expiryMinutes  Expiry time in minutes (default 10)
+     * @param  int|null  $businessId  Business this code belongs to, when the flow has one
      */
     public static function generate(
         string $identifier,
         string $type = 'login',
-        int $expiryMinutes = 10
+        int $expiryMinutes = 10,
+        ?int $businessId = null
     ): Otp {
-        // Invalidate any existing unverified OTPs for this identifier and type
-        Otp::where('identifier', $identifier)
+        // Invalidate any existing unverified OTPs for this identifier, type and
+        // scope. The scope matters as much here as in verify(): without it,
+        // asking for a storefront code would silently kill an in-flight
+        // management code for the same address, and vice versa. An explicit
+        // branch rather than `where('business_id', null)`, which does not match
+        // in SQL and would quietly invalidate nothing.
+        $existing = Otp::where('identifier', $identifier)
             ->where('type', $type)
             ->where('is_verified', false)
-            ->where('expires_at', '>', now())
-            ->delete();
+            ->where('expires_at', '>', now());
+
+        $businessId === null
+            ? $existing->whereNull('business_id')
+            : $existing->where('business_id', $businessId);
+
+        $existing->delete();
 
         // Generate random 6-digit code
         $code = str_pad((string) random_int(100000, 999999), 6, '0', STR_PAD_LEFT);
@@ -33,6 +56,7 @@ class OtpService
         // Create OTP record
         $otp = Otp::create([
             'identifier' => $identifier,
+            'business_id' => $businessId,
             'code' => $code,
             'type' => $type,
             'expires_at' => now()->addMinutes($expiryMinutes),
@@ -53,20 +77,32 @@ class OtpService
     /**
      * Verify an OTP code.
      *
+     * `$businessId` must match the scope the code was issued under, so a code
+     * generated for one business's customer base cannot be spent on another's.
+     * Callers that passed nothing to generate() must pass nothing here too, or
+     * their own codes will not be found.
+     *
      * @param  string  $identifier  Email or phone
      * @param  string  $code  The OTP code to verify
      * @param  string  $type  Type of OTP
+     * @param  int|null  $businessId  Business this code was issued for, when the flow has one
      */
     public static function verify(
         string $identifier,
         string $code,
-        string $type = 'login'
+        string $type = 'login',
+        ?int $businessId = null
     ): bool {
-        $otp = Otp::where('identifier', $identifier)
+        $query = Otp::where('identifier', $identifier)
             ->where('code', $code)
             ->where('type', $type)
-            ->where('is_verified', false)
-            ->first();
+            ->where('is_verified', false);
+
+        $businessId === null
+            ? $query->whereNull('business_id')
+            : $query->where('business_id', $businessId);
+
+        $otp = $query->first();
 
         if (! $otp) {
             Log::warning('OTP verification failed - code not found', [

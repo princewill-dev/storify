@@ -117,7 +117,15 @@ class CustomerParityController extends ApiController
         // payload; without it the row renders as 0 for the very customer the
         // list counted correctly. Reuse the aggregate above so the count keeps
         // the same scoping as `stats.total_orders` and the list's withCount.
+        //
+        // `lifetime_value` and `last_order_at` come from the same aggregate for
+        // the same reason: a header that sums its own query is a header that
+        // disagrees with the tile under it. All three are computed here rather
+        // than denormalised onto the row, which would drift the moment an order
+        // was cancelled.
         $customer->setAttribute('orders_count', (int) ($blocks['aggregate']->total_orders ?? 0));
+        $customer->setAttribute('lifetime_value', $blocks['aggregate']->total_spent ?? 0);
+        $customer->setAttribute('last_order_at', $blocks['aggregate']->last_order_at ?? null);
 
         return $this->ok([
             'customer' => (new CustomerParityDetailResource($customer))->resolve($request),

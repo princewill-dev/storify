@@ -15,6 +15,7 @@ use App\Http\Resources\Storefront\CheckoutDownloadResource;
 use App\Http\Resources\Storefront\CheckoutOrderDetailResource;
 use App\Http\Resources\Storefront\CheckoutOrderResource;
 use App\Http\Resources\Storefront\CheckoutPaymentMethodResource;
+use App\Models\Customer;
 use App\Models\Order;
 use App\Models\PaymentMethod;
 use App\Models\Store;
@@ -122,6 +123,12 @@ class CheckoutController extends ApiController
             return $this->error('Your cart is empty.', 422);
         }
 
+        $refusal = $this->accountRequirement($customer);
+
+        if ($refusal) {
+            return $refusal;
+        }
+
         try {
             $order = $placeOrder->execute($store, $customer, $request->validated(), $guestToken, $request->ip());
         } catch (\Throwable $e) {
@@ -131,6 +138,52 @@ class CheckoutController extends ApiController
         return $this->ok([
             'order' => $this->orderPayload($request, $order, $store),
         ], 'Order placed. Proceed to payment.', 201);
+    }
+
+    /**
+     * Whether this checkout may proceed, when accounts are required.
+     *
+     * Read from config rather than enforced by middleware, and staged rather
+     * than switched on with the code: the storefront in production places
+     * account-less orders today, and it deploys on push while this API deploys
+     * by hand. A 401 from middleware would leave that storefront with nothing
+     * to say; this answers in the payload's own error envelope, so a bundle
+     * too old to know about accounts can still surface a real sentence.
+     *
+     * Returns null when the order may go ahead — which is every request while
+     * the flag is off, including with no customer at all.
+     */
+    private function accountRequirement(?Customer $customer): ?JsonResponse
+    {
+        if (! config('storefront.checkout_requires_account')) {
+            return null;
+        }
+
+        if (! $customer) {
+            return $this->error(
+                'Please create an account or sign in to complete your order.',
+                403,
+                ['checkout' => ['account_required']]
+            );
+        }
+
+        if ($customer->email_verified_at === null) {
+            return $this->error(
+                'Please verify your email address to complete your order.',
+                403,
+                ['checkout' => ['email_unverified']]
+            );
+        }
+
+        if ($customer->status !== Customer::STATUS_ACTIVE) {
+            return $this->error(
+                'This account cannot place orders. Please contact support.',
+                403,
+                ['checkout' => ['account_inactive']]
+            );
+        }
+
+        return null;
     }
 
     /**
