@@ -38,16 +38,29 @@ use Illuminate\Support\Str;
  * Irreversible, and only ever reached from an explicit approval on the
  * deletion queue.
  *
- * ── What is NOT erased, and why the owner must decide ──────────────────────
+ * ── What is NOT erased, and why ────────────────────────────────────────────
  *
- * Activity log rows are left alone, including the older ones whose
- * `description` contains the customer's name ("Suspended customer: Jane Doe").
- * Scrubbing them would destroy the audit trail of what the business did and
- * why, which is the record that protects the *other* party; leaving them means
- * the name outlives the erasure. Both are defensible and only the business can
- * choose, so this service does the smaller thing: it writes no new personal
- * data into the log (this file's own audit row is keyed by `account_id`) and
- * leaves the existing rows for a decision.
+ * Activity log rows are left alone, including older ones whose `description`
+ * contains the customer's name ("Suspended customer: Jane Doe"). This was put
+ * to the owner as a choice on 2026-10-15 and decided in favour of the trail:
+ * the log is what makes an investigation possible, and the record of what the
+ * business did and why protects the *other* party as much as this one. Scrubbing
+ * it would destroy the evidence of the decision being carried out here.
+ *
+ * What this service still refuses to do is *add* personal data to the log. Its
+ * own audit row is keyed by `account_id` and counts orders rather than naming
+ * anyone, so an erasure is itself recorded without writing back the name that
+ * was just removed. The consequence is deliberate and worth stating plainly:
+ * after an erasure the name survives in older log rows, and that is the accepted
+ * position rather than an oversight. If it is ever revisited, the rows to look
+ * at are `activity_logs.description` before this change, not the rows below.
+ *
+ * The retained orders are the same trade in a different currency. They are held
+ * indefinitely because accounting records outlive the account, and the owner's
+ * position is that retention should be thorough enough to reconstruct what
+ * happened. There is no expiry, so nothing purges them; if a window is ever
+ * fixed, it belongs in a scheduled command over fully-anonymised rows, and it
+ * should be settled with the accountants before it deletes anything.
  */
 final class CustomerErasureService
 {
