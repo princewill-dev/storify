@@ -539,12 +539,25 @@ final class CheckoutPaymentService
     }
 
     /**
-     * Same shape `PaystackService::generateReference('API')` produced, kept
-     * byte-for-byte so references written before this change stay
-     * indistinguishable from the ones written after it.
+     * The reference a new transaction is known by.
+     *
+     * It is a public string — quoted to the customer on the confirmation and
+     * tracking pages, and handed to the provider to echo back — so it is
+     * written to read like an identifier rather than like an internal code. It
+     * used to be `API_<epoch>_<8 hex>`, which printed this platform's own
+     * vocabulary, and a timestamp, on somebody else's receipt.
+     *
+     * Random rather than clock-derived, which is all `md5(uniqid())` amounted
+     * to: `uniqid()` is the time, so anyone who knew roughly when a checkout
+     * was opened could write the reference down. Sixty-four bits from
+     * `random_bytes` against a column that is unique is not a collision that
+     * will happen.
+     *
+     * References already written keep the old shape. Nothing parses either —
+     * the value is matched whole, as a string, on every path that reads it.
      */
     private function generateReference(): string
     {
-        return 'API_'.time().'_'.strtoupper(substr(md5(uniqid()), 0, 8));
+        return 'ch_'.bin2hex(random_bytes(8));
     }
 }

@@ -360,6 +360,33 @@ test('the return url the provider is given carries the reference the success pag
         && $request['return_url'] === $callback.'?provider=bitfra&storify_ref='.$transaction->reference);
 });
 
+test('a new reference reads as an identifier rather than as an internal code', function () {
+    // The reference is not private: the confirmation page prints it, the
+    // tracking page lists it, and the provider is handed it to echo back. It
+    // used to be `API_<epoch>_<8 hex>` — this platform's vocabulary, and the
+    // moment the checkout was opened, on a customer's receipt.
+    sc39FakeBitfra();
+
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    sc39Connect($business, 'bitfra', sc39BitfraKeys());
+    sc39Rate('NGN', 1331.267014);
+
+    $store = sc39Store($owner);
+    $order = sc39Order($store, 23000);
+
+    $reference = $this->postJson('/api/v1/storefront/'.$store->slug.'/payments/bitfra/initialize', [
+        'order_number' => $order->order_number,
+        'amount' => 23000,
+    ], storefrontCustomerHeaders($store))->assertOk()->json('data.reference');
+
+    expect($reference)->toMatch('/^ch_[0-9a-f]{16}$/');
+
+    // The string handed back to the client and the one the row carries are the
+    // same value, so pinning the shape here pins what every reader sees —
+    // including the webhook, which matches on it whole.
+    expect(Transaction::where('order_id', $order->id)->sole()->reference)->toBe($reference);
+});
+
 /* -------------------------------------------------------- idempotency */
 
 test('verifying the same storefront payment twice credits the store once', function () {
