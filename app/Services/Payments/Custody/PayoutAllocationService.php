@@ -65,6 +65,16 @@ final class PayoutAllocationService
     private const WALK_CHUNK = 200;
 
     /**
+     * "Sales from every bucket" — the default, and what a business-level payout
+     * has always meant.
+     *
+     * A string rather than a nullable int because `null` already has a job here:
+     * it names the *business* bucket, which is not the same as naming no bucket
+     * at all.
+     */
+    public const ANY_BUCKET = 'any';
+
+    /**
      * The sales a payout of at most `$capKobo` would be drawn from.
      *
      * Returns the plan rather than writing anything: the sweep needs the total
@@ -78,11 +88,28 @@ final class PayoutAllocationService
      * the wallet is worth less than the sum of its sales — the held sales absorb
      * none of the shortfall, and a payment can never exceed what is in the wallet.
      *
+     * ## `$bucket` is what makes per-store payout possible
+     *
+     * A sale's bucket is `custody_store_id` — decided once at credit and recorded,
+     * never re-derived, so these two cannot disagree about where money is. Passing
+     * a store id draws only from that store's takings; passing `null` draws only
+     * from money no store accounts for; the default draws from all of it, which is
+     * the business-level payout that existed before stores had wallets.
+     *
+     * Without this a store's payout would be capped by the business's whole wallet
+     * and could be funded by another store's sales — money leaving an account that
+     * never earned it, and the store that did earn it left short.
+     *
      * @param  array<int, int>  $excludeStoreIds
+     * @param  int|string|null  $bucket  A store id, `null` for the business bucket, or {@see ANY_BUCKET}.
      * @return Collection<int, array{transaction_id: int, store_id: int|null, amount_kobo: int}>
      */
-    public function plan(Business $business, int $capKobo, array $excludeStoreIds = []): Collection
-    {
+    public function plan(
+        Business $business,
+        int $capKobo,
+        array $excludeStoreIds = [],
+        int|string|null $bucket = self::ANY_BUCKET,
+    ): Collection {
         $plan = collect();
 
         if ($capKobo <= 0) {
@@ -104,6 +131,20 @@ final class PayoutAllocationService
             ->whereNull('unwound_at')
             ->with(['order:id,store_id', 'invoice:id,store_id'])
             ->orderBy('id')
+            // The bucket test, in SQL rather than after loading: a business with
+            // thousands of sales and one store should not read the other stores'
+            // rows to decide they are not its.
+            ->when(
+                $bucket !== self::ANY_BUCKET,
+                fn ($query) => $query->where(
+                    fn ($inner) => $bucket === null
+                        ? $inner->whereNull('custody_store_id')
+                        // A sale recorded against a store that has since been
+                        // deleted keeps its id; the bucket still names it, and the
+                        // sweep decides separately whether that store can be paid.
+                        : $inner->where('custody_store_id', $bucket),
+                ),
+            )
             ->chunkById(self::WALK_CHUNK, function (Collection $sales) use (&$plan, &$remaining, $claimed, $excludeStoreIds) {
                 foreach ($sales as $sale) {
                     if ($remaining <= 0) {
