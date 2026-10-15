@@ -59,7 +59,7 @@ class Payout extends Model
     public const STATUS_CANCELLED = 'cancelled';
 
     protected $fillable = [
-        'business_id', 'store_id', 'provider', 'destination_id',
+        'business_id', 'store_id', 'provider', 'destination_id', 'payout_bank_id',
         'bank_code', 'account_number', 'account_name',
         'amount_kobo', 'currency', 'status', 'reference', 'provider_payout_id',
         'failure_code', 'failure_reason', 'requested_by',
@@ -132,11 +132,17 @@ class Payout extends Model
         int $amountKobo,
         string $currency = 'NGN',
         ?int $requestedBy = null,
+        ?int $payoutBankId = null,
     ): self {
         return static::query()->create([
             'business_id' => $businessId,
             'store_id' => $storeId,
             'provider' => $provider,
+            // Which of the business's accounts this was, alongside the number and
+            // code it was made to. A snapshot, written here and never resolved
+            // again: a payout already reserved keeps going where it was reserved
+            // for even if the store changes its bank in the meantime.
+            'payout_bank_id' => $payoutBankId,
             'account_number' => $accountNumber,
             'bank_code' => $bankCode,
             'account_name' => $accountName,

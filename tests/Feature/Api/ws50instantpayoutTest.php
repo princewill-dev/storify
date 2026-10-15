@@ -687,7 +687,10 @@ test('an unreadable balance falls back to the settlement window, not to paying b
 
     expect($result['status'])->toBe('attempted')
         ->and($result['matured'])->toBe(0)
-        ->and($result['outcome'])->toBeNull()
+        // An empty tally: a business may now have several destinations, so the
+        // outcome is what each of them did rather than one string. Nothing to pay
+        // and nothing withheld is no entries at all.
+        ->and($result['outcome'])->toBe([])
         ->and(ip50Payouts($business))->toHaveCount(0)
         // Still owed, not yet payable — and it will mature on its own once the
         // window passes, with nothing to repair.
@@ -750,7 +753,9 @@ test('a provider that refuses the payout leaves the sale payable for the run', f
     $result = app(InstantPayoutService::class)->afterCollection($sale->fresh());
 
     expect($result['status'])->toBe('attempted')
-        ->and($result['outcome'])->toBe('failed')
+        // One destination, one outcome — the shape is a tally because a
+        // business can have several, not because this one does.
+        ->and($result['outcome'])->toBe(['failed' => 1])
         ->and(ip50Payouts($business)->sole()->status)->toBe(Payout::STATUS_FAILED)
         // Back in the wallet, and owed: the run can still pay it.
         ->and((int) $business->fresh()->available_balance)->toBe(100000);
@@ -774,7 +779,7 @@ test('asking twice does not pay twice', function () {
 
     expect($second['status'])->toBe('attempted')
         ->and($second['matured'])->toBe(0)
-        ->and($second['outcome'])->toBeNull()
+        ->and($second['outcome'])->toBe([])
         ->and(ip50Payouts($business))->toHaveCount(1)
         ->and(ip50Payouts($business)->sole()->amount_kobo)->toBe(100000);
 

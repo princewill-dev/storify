@@ -3,6 +3,7 @@
 namespace App\Services\Payments\Custody;
 
 use App\Models\Business;
+use App\Models\Store;
 use App\Models\Transaction;
 use App\Services\Accounting\LedgerPostingService;
 use App\Services\Payments\Payouts\TransferOutcome;
@@ -598,9 +599,41 @@ final class CustodyService
      *
      * @throws \Exception when the business cannot cover it
      */
-    public function releaseForPayout(Business $business, int $amountKobo): void
+    public function releaseForPayout(Business $business, int $amountKobo, ?Collection $plan = null): void
     {
-        $business->debitAvailable($amountKobo);
+        $plan ??= collect();
+
+        $debited = 0;
+
+        // Grouped by the *bucket*, not by `store_id`. An allocation's `store_id`
+        // is attribution — which store's takings this was — and with per-store
+        // wallets off it names a store whose own wallet is empty, because the
+        // money is on the business. Grouping by it debited the wrong wallet and
+        // the reservation was refused for insufficient funds.
+        foreach ($plan->groupBy(fn (array $row) => $row['bucket'] ?? '') as $storeId => $rows) {
+            $share = (int) collect($rows)->sum('amount_kobo');
+
+            if ($share <= 0) {
+                continue;
+            }
+
+            $scope = $storeId === ''
+                ? $business
+                : (Store::query()->find((int) $storeId) ?? $business);
+
+            $scope->debitAvailable($share);
+            $debited += $share;
+        }
+
+        // Whatever the walk could not attribute to a sale. Unattributable money
+        // lives in the business bucket, and with per-store wallets off every row
+        // grouped above is the business's too — so this remainder plus those
+        // shares is exactly the single debit this used to be.
+        $remainder = $amountKobo - $debited;
+
+        if ($remainder > 0) {
+            $business->debitAvailable($remainder);
+        }
     }
 
     /**

@@ -148,6 +148,19 @@ class Store extends Model
         return $this->hasMany(StoreBank::class, 'business_id', 'business_id');
     }
 
+    /**
+     * The bank this store's takings are paid into, when it names one of its own.
+     *
+     * Null is the ordinary state and means the store pays out to the business
+     * default — see the migration. A relation rather than a balance, exactly as
+     * `Business::payoutBank()`, because the row is the business's and this only
+     * names which of them receives the money.
+     */
+    public function payoutBank(): BelongsTo
+    {
+        return $this->belongsTo(StoreBank::class, 'payout_bank_id');
+    }
+
     public function assignedBanks(): BelongsToMany
     {
         return $this->belongsToMany(StoreBank::class, 'store_bank', 'store_id', 'store_bank_id')

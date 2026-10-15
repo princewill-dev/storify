@@ -102,7 +102,7 @@ final class PayoutAllocationService
      *
      * @param  array<int, int>  $excludeStoreIds
      * @param  int|string|null  $bucket  A store id, `null` for the business bucket, or {@see ANY_BUCKET}.
-     * @return Collection<int, array{transaction_id: int, store_id: int|null, amount_kobo: int}>
+     * @return Collection<int, array{transaction_id: int, store_id: int|null, bucket: int|null, amount_kobo: int}>
      */
     public function plan(
         Business $business,
@@ -170,7 +170,15 @@ final class PayoutAllocationService
 
                     $plan->push([
                         'transaction_id' => (int) $sale->id,
+                        // Attribution: which store's takings this was. Derived,
+                        // and deliberately unchanged — it is what the payout
+                        // screens report.
                         'store_id' => $storeId,
+                        // The wallet the money is actually in. Null is the
+                        // business bucket, which is every sale when per-store
+                        // wallets are off — so the reservation debits the same
+                        // single wallet it always did.
+                        'bucket' => $sale->custody_store_id !== null ? (int) $sale->custody_store_id : null,
                         'amount_kobo' => $take,
                     ]);
 

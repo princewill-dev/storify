@@ -6,6 +6,7 @@ use App\Models\Business;
 use App\Models\Payout;
 use App\Models\PayoutHold;
 use App\Models\Store;
+use App\Models\StoreBank;
 use App\Services\Accounting\LedgerPostingService;
 use App\Services\Payments\Data\GatewayCredentials;
 use App\Services\Payments\Payouts\PayoutDestinationRef;
@@ -413,8 +414,15 @@ final class PayoutSweepService
      */
     public function candidates(): Collection
     {
+        // A business with money on one of its stores but nothing on itself is
+        // just as payable as one holding the whole balance, and with per-store
+        // wallets on that is the ordinary case. Asking only about the business
+        // column made every such business invisible to the run: the stores held
+        // the money and nothing ever looked at them.
         return Business::query()
-            ->where('available_balance', '>', 0)
+            ->where(fn ($query) => $query
+                ->where('available_balance', '>', 0)
+                ->orWhereHas('stores', fn ($stores) => $stores->where('available_balance', '>', 0)))
             ->orderBy('id')
             ->limit((int) config('custody.payout_batch', 100))
             ->get();
@@ -439,10 +447,10 @@ final class PayoutSweepService
      * only failure beside `destination_unusable` that counts, and why a send
      * refused by the provider with a code of its own does not.
      */
-    public function destinationIsExhausted(Business $business): bool
+    public function destinationIsExhausted(Business $business, ?StoreBank $bank = null): bool
     {
         $ceiling = $this->maxDestinationFailures();
-        $bank = $business->payoutBank;
+        $bank ??= $business->payoutBank;
 
         if ($ceiling <= 0 || $bank === null) {
             return false;
@@ -458,9 +466,9 @@ final class PayoutSweepService
      * Public so the console can say *how far* past the ceiling a business is,
      * rather than only that it is past it.
      */
-    public function destinationFailures(Business $business): int
+    public function destinationFailures(Business $business, ?StoreBank $bank = null): int
     {
-        $bank = $business->payoutBank;
+        $bank ??= $business->payoutBank;
 
         if ($bank === null) {
             return 0;
@@ -549,9 +557,20 @@ final class PayoutSweepService
      */
     private function destinationFailureQuery(Business $business, object $bank)
     {
+        // Scoped to *this* destination, not to the business.
+        //
+        // The count means "refusals of this account since money last reached this
+        // account", and with one destination per business the two readings were
+        // the same thing. With several they are not: a payout that landed in
+        // store B's bank would reset store A's count, and a destination the
+        // provider will never accept would be retried on every run for ever
+        // without the ceiling ever tripping — which is precisely the situation
+        // the ceiling exists to stop.
         $lastPaidAt = Payout::query()
             ->where('business_id', $business->id)
             ->where('status', Payout::STATUS_PAID)
+            ->where('bank_code', (string) $bank->bank_code)
+            ->where('account_number', (string) $bank->account_number)
             ->max('created_at');
 
         return Payout::query()
@@ -586,14 +605,14 @@ final class PayoutSweepService
         }
 
         foreach ($this->candidates() as $business) {
-            $outcome = $this->sweepBusiness($business, $context);
-
-            // Null is "nothing was owed and nothing was withheld" — a business
-            // whose whole balance is accounted for by sales a store hold is
-            // withholding. Counted as nothing rather than as `skipped`, because
-            // `skipped` reads as "another run took the money".
-            if ($outcome !== null) {
-                $counts[$outcome]++;
+            // A tally rather than one outcome: a business may now have several
+            // destinations, and one of them can fail while another lands. An
+            // empty tally is "nothing was owed and nothing was withheld" — a
+            // business whose whole balance is behind store holds. Counted as
+            // nothing rather than as `skipped`, because `skipped` reads as
+            // "another run took the money".
+            foreach ($this->sweepBusiness($business, $context) as $outcome => $count) {
+                $counts[$outcome] += $count;
             }
         }
 
@@ -670,12 +689,17 @@ final class PayoutSweepService
      * @param  array{provider: string, rail: PayoutRail, credentials: GatewayCredentials}|null  $context
      * @return string|null one of `sweep()`'s tally keys, or null when there is nothing to count
      */
-    public function sweepBusiness(Business $business, ?array $context = null): ?string
+    /**
+     * Pay this business everything it is owed, one transfer per destination.
+     *
+     * @return array<string, int> the tallies to add to the run's report
+     */
+    public function sweepBusiness(Business $business, ?array $context = null): array
     {
         $context ??= $this->context();
 
         if ($context === null) {
-            return null;
+            return [];
         }
 
         $restriction = $this->restrictionFor($business);
@@ -683,34 +707,75 @@ final class PayoutSweepService
         if ($restriction !== null) {
             $this->reportRestriction($business, $restriction);
 
-            return $restriction['count'];
+            return [$restriction['count'] => 1];
         }
 
-        $payable = $this->payableFor($business);
+        $destinations = $this->payableDestinations($business);
 
-        $plan = $payable['plan'];
-        $amountKobo = $payable['payable_kobo'];
-        $capKobo = $payable['available_kobo'];
-        $heldStoreIds = $payable['held_store_ids'];
-
-        // Nothing to send, and there is only one way to get here with money still
-        // owed: the whole of the balance belongs to held stores. Counted as
-        // `on_hold` rather than skipped, because "skipped" reads as "another run
-        // took it", and this is a deliberate withholding that will not resolve
-        // until somebody lifts it.
-        if ($amountKobo <= 0) {
-            return $heldStoreIds !== [] && $capKobo > 0 ? 'on_hold' : null;
+        // No buckets at all: no stores with money, and nothing on the business.
+        if ($destinations->isEmpty()) {
+            return [];
         }
 
-        $payout = $this->reserve($business, $amountKobo, $context['provider'], $plan);
+        $tally = [];
+        $payableKobo = 0;
+        $withheldKobo = 0;
 
-        // Not a failure. The overwhelmingly likely reason is that a concurrent run
-        // took the money first, which is the reservation doing its job.
-        if ($payout === null) {
-            return 'skipped';
+        foreach ($destinations as $destination) {
+            $amountKobo = (int) $destination['payable_kobo'];
+            $payableKobo += $amountKobo;
+            $withheldKobo += (int) $destination['withheld_kobo'];
+
+            // A destination whose money is entirely behind a store hold has
+            // nothing to send and is not an outcome in itself — the tally below
+            // decides whether the business as a whole was withheld.
+            if ($amountKobo <= 0) {
+                continue;
+            }
+
+            // Checked per destination, not once for the business. One account the
+            // provider keeps refusing should stop *that* transfer, not every
+            // other store's — which is what a single business-level check would
+            // do now that a business can have several.
+            if ($this->destinationIsExhausted($business, $destination['bank'])) {
+                Log::warning('custody.payout.destination_exhausted', [
+                    'business_id' => $business->id,
+                    'bank_code' => $destination['bank']->bank_code,
+                    'account_number' => $destination['bank']->account_number,
+                    'failures' => $this->destinationFailures($business, $destination['bank']),
+                ]);
+
+                $tally['exhausted'] = ($tally['exhausted'] ?? 0) + 1;
+
+                continue;
+            }
+
+            $payout = $this->reserve(
+                $business,
+                $destination['bank'],
+                $amountKobo,
+                $context['provider'],
+                $destination['plan'],
+                $destination['store_ids'],
+            );
+
+            // Not a failure. The overwhelmingly likely reason is that a
+            // concurrent run took the money first, which is the reservation
+            // doing its job.
+            $outcome = $payout === null ? 'skipped' : $this->dispatch($payout, $context);
+
+            $tally[$outcome] = ($tally[$outcome] ?? 0) + 1;
         }
 
-        return $this->dispatch($payout, $context);
+        // Nothing went anywhere, and money is still owed — it is all behind
+        // store holds. Counted as `on_hold` rather than skipped, because
+        // "skipped" reads as "another run took it", and this is a deliberate
+        // withholding that will not resolve until somebody lifts it.
+        if ($tally === [] && $payableKobo <= 0 && $withheldKobo > 0) {
+            $tally['on_hold'] = 1;
+        }
+
+        return $tally;
     }
 
     /**
@@ -813,59 +878,199 @@ final class PayoutSweepService
      *     unattributed_kobo: int,
      * }
      */
-    public function payableFor(Business $business): array
+    /**
+     * What this business is owed, split by where it is going.
+     *
+     * Per destination, because a payout is one transfer and a business may now
+     * have several: its own default account, and an account a store names for
+     * itself. Each entry is one transfer — a destination, the sales funding it,
+     * and the amount.
+     *
+     * ## Buckets are grouped by where they are paid, not by store
+     *
+     * Two stores sharing the business default are one destination and one
+     * transfer, which is what the platform did before any of this existed and
+     * what a business with stores that all pay into the same account still
+     * wants. Grouping by store would send two transfers to one account and pay
+     * the provider twice for the privilege.
+     *
+     * ## A bucket is capped by its own money
+     *
+     * Each store contributes `max(0, its available)`, and its plan is drawn only
+     * from its own sales. That is the whole point of the split: without it a
+     * store's payout could be funded by another store's takings — money leaving
+     * an account that never earned it, and the store that did earn it left short.
+     *
+     * A **negative** bucket contributes nothing and keeps its negative, to be
+     * recovered from its own later sales. It does not reduce a sibling's payout,
+     * which is the owner's stated rule — this store's money is this store's —
+     * and it is the one place this differs from the business-level arithmetic,
+     * where a deficit behind the wallet did absorb a held store's share.
+     *
+     * ## With the flag off this is one destination and one bucket
+     *
+     * Every sale has a null bucket and every balance is on the business, so the
+     * grouping yields exactly one entry, funded by exactly the sales the old
+     * single-business walk found. The gap and held-store arithmetic below
+     * reproduces itself term for term — which is what lets the flag be flipped
+     * without a second code path.
+     *
+     * @return Collection<int, array{bank: StoreBank, plan: Collection, payable_kobo: int, available_kobo: int, store_ids: array<int, int>, withheld_kobo: int, unattributed_kobo: int}>
+     */
+    public function payableDestinations(Business $business): Collection
     {
         $heldStoreIds = $this->holds->heldStoreIds($business);
-        $capKobo = $business->payoutableBalance();
+        $default = $business->payoutBank;
 
-        $plan = $this->allocations->plan($business, $capKobo, $heldStoreIds);
-        $amountKobo = $this->allocations->total($plan);
+        // The blocker has already refused a business with no usable default, so
+        // this is belt-and-braces rather than a state the sweep reaches.
+        if (! $default) {
+            return collect();
+        }
 
-        $withheldKobo = 0;
-        $gapKobo = 0;
+        /** @var array<int, array{bank: StoreBank, buckets: array<int, array{bucket: int|null, available: int, held: bool}>}> $groups */
+        $groups = [];
 
-        if ($amountKobo < $capKobo && $heldStoreIds !== []) {
-            $fullKobo = $this->allocations->total(
-                $this->allocations->plan($business, $capKobo),
-            );
+        $add = function (?int $bucket, int $available, bool $held, StoreBank $bank) use (&$groups): void {
+            $groups[(int) $bank->id] ??= ['bank' => $bank, 'buckets' => []];
+            $groups[(int) $bank->id]['buckets'][] = ['bucket' => $bucket, 'available' => $available, 'held' => $held];
+        };
 
-            $withheldKobo = max(0, $fullKobo - $amountKobo);
-            $gapKobo = max(0, $capKobo - $fullKobo);
+        // The business's own bucket: money no store accounts for.
+        $add(null, max(0, (int) $business->available_balance), false, $default);
 
-            Log::warning('custody.payout.store_held', [
-                'business_id' => $business->id,
-                'store_ids' => $heldStoreIds,
-                'available_kobo' => $capKobo,
+        $stores = Store::query()
+            ->where('business_id', $business->id)
+            ->with('payoutBank')
+            ->get();
+
+        foreach ($stores as $store) {
+            $held = in_array((int) $store->id, $heldStoreIds, true);
+            $available = max(0, (int) $store->available_balance);
+
+            // Nothing to pay and nothing withheld: the store is not part of any
+            // destination this run, and adding it would only create a group with
+            // an empty plan.
+            if ($available === 0 && ! $held) {
+                continue;
+            }
+
+            // A store naming its own account is paid there; one that names none
+            // falls back to the business default, which is the rule stated on the
+            // payout screen.
+            $add((int) $store->id, $held ? 0 : $available, $held, $store->payoutBank ?? $default);
+        }
+
+        return collect($groups)->map(function (array $group) use ($business, $heldStoreIds) {
+            // The cap counts every bucket in this destination, held ones
+            // included — because what the hold costs is measured against what
+            // the destination would otherwise have sent.
+            $capKobo = array_sum(array_column($group['buckets'], 'available'));
+
+            $plan = collect();
+            $attributedKobo = 0;
+            $anyHeld = false;
+
+            foreach ($group['buckets'] as $bucket) {
+                if ($bucket['held']) {
+                    $anyHeld = true;
+
+                    continue;
+                }
+
+                if ($bucket['available'] <= 0) {
+                    continue;
+                }
+
+                // Planned per bucket, so each store's cap is drawn only from its
+                // own sales. The destination's plan is the union of its buckets'
+                // plans, and its attributed amount is what they add up to.
+                $bucketPlan = $this->allocations->plan($business, $bucket['available'], $heldStoreIds, $bucket['bucket']);
+                $plan = $plan->merge($bucketPlan);
+                $attributedKobo += $this->allocations->total($bucketPlan);
+            }
+
+            $withheldKobo = 0;
+            $gapKobo = 0;
+            $amountKobo = $attributedKobo;
+
+            if ($attributedKobo < $capKobo && $anyHeld) {
+                // What the destination would have paid with no hold in the way —
+                // every bucket's sales walked, not just the paying ones — so the
+                // difference is what the hold actually cost rather than what the
+                // held store's balance happens to be.
+                $fullKobo = $this->allocations->total(
+                    $this->allocations->plan($business, $capKobo),
+                );
+
+                $withheldKobo = max(0, $fullKobo - $attributedKobo);
+                $gapKobo = max(0, $capKobo - $fullKobo);
+                $amountKobo = $attributedKobo + $gapKobo;
+
+                Log::warning('custody.payout.store_held', [
+                    'business_id' => $business->id,
+                    'store_ids' => $heldStoreIds,
+                    'available_kobo' => $capKobo,
+                    'payable_kobo' => $attributedKobo,
+                    'withheld_kobo' => $withheldKobo,
+                    'unattributed_kobo' => $gapKobo,
+                    'reasons' => $this->holds->storeHolds($business)->pluck('reason', 'store_id')->all(),
+                ]);
+            } elseif ($attributedKobo < $capKobo) {
+                $gapKobo = $capKobo - $attributedKobo;
+                $amountKobo = $capKobo;
+            }
+
+            // Never more than the destination holds. With one bucket this cannot
+            // bite — the walk's total is bounded by the same cap — but a
+            // destination pooling several buckets can have its unattributed gap
+            // measured against a walk that spent the cap on another bucket's
+            // older sales. Sending more than is there is the one outcome worth a
+            // belt-and-braces clamp; the reservation would refuse it anyway, and
+            // refusing here keeps the log honest about why.
+            $amountKobo = min($amountKobo, $capKobo);
+
+            if ($gapKobo > 0) {
+                Log::warning('custody.payout.allocation_short', [
+                    'business_id' => $business->id,
+                    'available_kobo' => $capKobo,
+                    'attributed_kobo' => $amountKobo - $gapKobo,
+                    'gaped_kobo' => $gapKobo,
+                ]);
+            }
+
+            return [
+                'bank' => $group['bank'],
+                'plan' => $plan,
                 'payable_kobo' => $amountKobo,
+                'available_kobo' => $capKobo,
+                'store_ids' => collect($group['buckets'])->pluck('bucket')->filter()->values()->all(),
                 'withheld_kobo' => $withheldKobo,
                 'unattributed_kobo' => $gapKobo,
-                'reasons' => $this->holds->storeHolds($business)->pluck('reason', 'store_id')->all(),
-            ]);
+            ];
+        })->values();
+    }
 
-            $amountKobo += $gapKobo;
-        } elseif ($amountKobo < $capKobo) {
-            $gapKobo = $capKobo - $amountKobo;
-            $amountKobo = $capKobo;
-        }
-
-        if ($gapKobo > 0) {
-            // Logged as the same shortfall it would be without a hold — a hold does
-            // not get to hide money that no sale can account for.
-            Log::warning('custody.payout.allocation_short', [
-                'business_id' => $business->id,
-                'available_kobo' => $capKobo,
-                'attributed_kobo' => $amountKobo - $gapKobo,
-                'gaped_kobo' => $gapKobo,
-            ]);
-        }
+    /**
+     * The aggregate, for the screens and the dry run.
+     *
+     * "How much is payable for this business" is still one figure — the sum of
+     * what each destination will send — and every caller of this wants exactly
+     * that. Kept as a method rather than made into a sum at each call site so the
+     * wallet page and the run cannot disagree about the total.
+     */
+    public function payableFor(Business $business): array
+    {
+        $destinations = $this->payableDestinations($business);
 
         return [
-            'plan' => $plan,
-            'payable_kobo' => $amountKobo,
-            'available_kobo' => $capKobo,
-            'held_store_ids' => $heldStoreIds,
-            'withheld_kobo' => $withheldKobo,
-            'unattributed_kobo' => $gapKobo,
+            'plan' => $destinations->flatMap(fn ($destination) => $destination['plan'])->values(),
+            'payable_kobo' => (int) $destinations->sum('payable_kobo'),
+            'available_kobo' => (int) $destinations->sum('available_kobo'),
+            'held_store_ids' => $this->holds->heldStoreIds($business),
+            'withheld_kobo' => (int) $destinations->sum('withheld_kobo'),
+            'unattributed_kobo' => (int) $destinations->sum('unattributed_kobo'),
+            'destinations' => $destinations,
         ];
     }
 
@@ -890,31 +1095,38 @@ final class PayoutSweepService
      *
      * @param  Collection<int, array{transaction_id: int, store_id: int|null, amount_kobo: int}>  $plan
      */
-    private function reserve(Business $business, int $amountKobo, string $provider, Collection $plan): ?Payout
-    {
-        $bank = $business->payoutBank;
-
-        if (! $bank) {
-            return null;
-        }
+    private function reserve(
+        Business $business,
+        StoreBank $bank,
+        int $amountKobo,
+        string $provider,
+        Collection $plan,
+        array $storeIds = [],
+    ): ?Payout {
 
         try {
-            return DB::transaction(function () use ($business, $bank, $amountKobo, $provider, $plan) {
+            return DB::transaction(function () use ($business, $bank, $amountKobo, $provider, $plan, $storeIds) {
                 $payout = Payout::reserve(
                     (int) $business->id,
-                    null,
+                    // The store this transfer was for, when the destination
+                    // serves exactly one. Null when it pools several stores, or
+                    // pays money no store accounts for — the per-store breakdown
+                    // of any payout is on its allocations, which is
+                    // authoritative either way.
+                    count($storeIds) === 1 ? (int) $storeIds[0] : null,
                     $provider,
                     (string) $bank->account_number,
                     (string) $bank->bank_code,
                     $bank->account_name,
                     $amountKobo,
                     $this->currency(),
+                    payoutBankId: (int) $bank->id,
                 );
 
                 // Refuses to overdraw, which is the point: if a refund or another
                 // run has taken this money since `candidates()` read it, this
                 // throws and the row above is rolled back with it.
-                $this->wallet->releaseForPayout($business, $amountKobo);
+                $this->wallet->releaseForPayout($business, $amountKobo, $plan);
 
                 $this->allocations->commit($payout, $plan, $this->currency());
 
