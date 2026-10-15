@@ -9,10 +9,13 @@ use Illuminate\Http\Request;
 
 /**
  * The order-tracking payload (`GET /storefront/{store}/orders/{orderNumber}`)
- * — the detailed branch of the controller's orderPayload() map moved
- * verbatim: the base row plus customer_email, items and transactions,
- * appended in the order the array literal emitted them so the serialised
- * shape is unchanged.
+ * — the base row plus the order's items and its payments.
+ *
+ * `customer_email` was carried here and is deliberately gone. This endpoint is
+ * public — the track page reads it without a session — so that field published
+ * the buyer's address to anyone holding the order number, and nothing ever read
+ * it: the storefront had no reference to the key at all. The customer's own
+ * views get the address from their account, which is authenticated.
  *
  * The caller passes the order eager-loaded by
  * CheckoutRepository::findOrderByNumber(..., ['items', 'transactions']); this
@@ -30,7 +33,6 @@ final class CheckoutOrderDetailResource extends CheckoutOrderResource
 
         return [
             ...parent::toArray($request),
-            'customer_email' => $order->customer?->email,
             'items' => $order->items->map(fn ($item) => [
                 'name' => $item->product_name,
                 'quantity' => (int) $item->quantity,

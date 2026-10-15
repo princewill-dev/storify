@@ -169,6 +169,28 @@ function createStorefrontCustomer(Store $store, array $attributes = []): array
     return [$customer, $customer->createToken('customer-access', ['customer'], now()->addHour())->plainTextToken];
 }
 
+/**
+ * Bearer headers for a signed-in customer of the store, for the suites that
+ * charge an order rather than test who may charge it.
+ *
+ * The storefront payment routes require a customer — an order number is public
+ * (it is in the URL and in the emailed receipt), so it cannot also be the thing
+ * that authorises a payment. A suite that walks the charge path therefore has to
+ * be somebody, and this is the shortest way to say so.
+ *
+ * The customer this mints is not necessarily the order's owner: the orders these
+ * suites build name nobody, and an ownerless order resolves for any signed-in
+ * customer (see CheckoutRepository::scopeToCustomer() for why). Ownership itself
+ * is asserted in StorefrontPartPaymentSettingTest, against orders that do name a
+ * customer, so it is tested where it can actually fail.
+ *
+ * @return array<string, string>
+ */
+function storefrontCustomerHeaders(Store $store): array
+{
+    return ['Authorization' => 'Bearer '.createStorefrontCustomer($store)[1]];
+}
+
 function defaultPlanIncludingEveryModule(): SubscriptionPlan
 {
     return SubscriptionPlan::create([

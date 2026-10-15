@@ -101,27 +101,40 @@ Route::prefix('storefront/{store}')->name('api.storefront.')->group(function () 
     Route::delete('cart', [CartController::class, 'clear'])->name('cart.clear');
 
     Route::post('checkout', [CheckoutController::class, 'place'])->name('checkout.place');
-    // Generic provider endpoints. The provider is a path segment rather than
-    // one route per gateway, so adding a provider is a driver and a registry
-    // entry and nothing here.
+
+    // Paying for an order needs the customer who owns it, not merely the store
+    // the order is in. These used to be public, which made the order number the
+    // only thing between a stranger and somebody else's order — and it is the
+    // wrong kind of secret, because it is printed in emails and in the URL the
+    // customer is looking at. The store in the path still scopes the lookup;
+    // this decides *whose* order within it.
     //
-    // {provider} is constrained to known registry keys at the route, so an
-    // unknown one 404s before reaching a controller rather than being passed
-    // into a lookup.
-    Route::post('payments/{provider}/initialize', [CheckoutController::class, 'initializePayment'])
-        ->whereIn('provider', PaymentGatewayRegistry::keys())
-        ->middleware('throttle:20,1')
-        ->name('payments.initialize');
+    // Tracking stays public below: /track is a deliberate feature for people
+    // with no account, and it reads rather than pays.
+    Route::middleware(['auth:sanctum_customer', 'token.audience:customer'])->group(function () {
+        // Generic provider endpoints. The provider is a path segment rather than
+        // one route per gateway, so adding a provider is a driver and a registry
+        // entry and nothing here.
+        //
+        // {provider} is constrained to known registry keys at the route, so an
+        // unknown one 404s before reaching a controller rather than being passed
+        // into a lookup.
+        Route::post('payments/{provider}/initialize', [CheckoutController::class, 'initializePayment'])
+            ->whereIn('provider', PaymentGatewayRegistry::keys())
+            ->middleware('throttle:20,1')
+            ->name('payments.initialize');
 
-    Route::post('payments/{provider}/verify', [CheckoutController::class, 'verifyPayment'])
-        ->whereIn('provider', PaymentGatewayRegistry::keys())
-        ->name('payments.verify');
+        Route::post('payments/{provider}/verify', [CheckoutController::class, 'verifyPayment'])
+            ->whereIn('provider', PaymentGatewayRegistry::keys())
+            ->name('payments.verify');
 
-    // Kept so the already-deployed storefront keeps working through the
-    // rollout — the same handlers with the provider fixed.
-    Route::post('payments/paystack/initialize', [CheckoutController::class, 'paystackInitialize'])->name('payments.paystack.initialize');
-    Route::post('payments/paystack/verify', [CheckoutController::class, 'paystackVerify'])->name('payments.paystack.verify');
-    Route::post('payments/bank-transfer', [CheckoutController::class, 'bankTransfer'])->name('payments.bank-transfer');
+        // Kept so the already-deployed storefront keeps working through the
+        // rollout — the same handlers with the provider fixed.
+        Route::post('payments/paystack/initialize', [CheckoutController::class, 'paystackInitialize'])->name('payments.paystack.initialize');
+        Route::post('payments/paystack/verify', [CheckoutController::class, 'paystackVerify'])->name('payments.paystack.verify');
+        Route::post('payments/bank-transfer', [CheckoutController::class, 'bankTransfer'])->name('payments.bank-transfer');
+    });
+
     Route::get('orders/{orderNumber}', [CheckoutController::class, 'orderShow'])->name('orders.show');
 
     // Tokenised digital downloads. The token in the emailed link IS the

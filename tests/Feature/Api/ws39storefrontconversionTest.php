@@ -53,6 +53,11 @@ function sc39Store(User $owner, array $attributes = []): Store
         // this file charges through the storefront checkout.
         'has_website' => true,
         'payment_mode' => 'manual',
+        // Part payment is allowed so the amounts below can be chosen for the
+        // thing each test is actually about — a ₦1 charge against a ₦23,000
+        // order is testing the currency floor, not the part-payment switch. The
+        // switch is asserted in StorefrontPartPaymentSettingTest.
+        'allow_part_payment' => true,
     ], $attributes));
 }
 
@@ -234,7 +239,7 @@ test('a charge through a USD provider is converted and recorded as the store amo
     $response = $this->postJson('/api/v1/storefront/'.$store->slug.'/payments/bitfra/initialize', [
         'order_number' => $order->order_number,
         'amount' => 23000,
-    ])->assertOk();
+    ], storefrontCustomerHeaders($store))->assertOk();
 
     // The customer agreed to this figure, so it is echoed back and kept.
     $pricing = $response->json('data.pricing');
@@ -280,7 +285,7 @@ test('a charge worth less than one minor unit is refused before the provider is 
     $this->postJson('/api/v1/storefront/'.$store->slug.'/payments/bitfra/initialize', [
         'order_number' => $order->order_number,
         'amount' => 1,
-    ])
+    ], storefrontCustomerHeaders($store))
         ->assertStatus(502)
         ->assertJsonPath(
             'message',
@@ -308,7 +313,7 @@ test('a naira charge keeps its byte-identical shape, with no pricing block', fun
     $this->postJson('/api/v1/storefront/'.$store->slug.'/payments/paystack/initialize', [
         'order_number' => $order->order_number,
         'amount' => 2500,
-    ])->assertOk()
+    ], storefrontCustomerHeaders($store))->assertOk()
         // An empty PHP array serialises as `[]`, and either way there is no
         // charge to compare against.
         ->assertJsonPath('data.pricing', []);
@@ -345,7 +350,7 @@ test('the return url the provider is given carries the reference the success pag
         // Exactly as the storefront sends it: already carrying the provider,
         // because a reference on its own does not say who issued it.
         'callback_url' => $callback.'?provider=bitfra',
-    ])->assertOk();
+    ], storefrontCustomerHeaders($store))->assertOk();
 
     $transaction = Transaction::where('order_id', $order->id)->sole();
 
@@ -369,16 +374,16 @@ test('verifying the same storefront payment twice credits the store once', funct
     $reference = $this->postJson('/api/v1/storefront/'.$store->slug.'/payments/paystack/initialize', [
         'order_number' => $order->order_number,
         'amount' => 2500,
-    ])->assertOk()->json('data.reference');
+    ], storefrontCustomerHeaders($store))->assertOk()->json('data.reference');
 
     // The customer's browser lands on the callback, and then they refresh.
     $this->postJson('/api/v1/storefront/'.$store->slug.'/payments/paystack/verify', [
         'reference' => $reference,
-    ])->assertOk();
+    ], storefrontCustomerHeaders($store))->assertOk();
 
     $this->postJson('/api/v1/storefront/'.$store->slug.'/payments/paystack/verify', [
         'reference' => $reference,
-    ])->assertOk();
+    ], storefrontCustomerHeaders($store))->assertOk();
 
     expect((float) $order->fresh()->amount_paid)->toBe(2500.0)
         ->and((int) $store->fresh()->balance)->toBe(250000)
@@ -401,7 +406,7 @@ test('a webhook settles before the browser returns, and the verify then changes 
     $reference = $this->postJson('/api/v1/storefront/'.$store->slug.'/payments/paystack/initialize', [
         'order_number' => $order->order_number,
         'amount' => 2500,
-    ])->assertOk()->json('data.reference');
+    ], storefrontCustomerHeaders($store))->assertOk()->json('data.reference');
 
     [$payload, $headers] = sc39ChargeSuccess($reference, 250000, $secret);
 
@@ -413,7 +418,7 @@ test('a webhook settles before the browser returns, and the verify then changes 
 
     $this->postJson('/api/v1/storefront/'.$store->slug.'/payments/paystack/verify', [
         'reference' => $reference,
-    ])->assertOk();
+    ], storefrontCustomerHeaders($store))->assertOk();
 
     expect($creditedOnce)->toBe(250000)
         ->and((int) $store->fresh()->balance)->toBe(250000)

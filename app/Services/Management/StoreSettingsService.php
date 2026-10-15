@@ -64,6 +64,15 @@ final class StoreSettingsService
             $attributes['slug'] = $slug;
         }
 
+        // Handled outside the string loop above because it is a boolean with two
+        // meaningful values: `$request->boolean('allow_part_payment')` answers
+        // false for a key the request never carried, which would switch part
+        // payment off every time another card saved. Only an explicit value
+        // counts, so absence leaves the current setting alone.
+        if (array_key_exists('allow_part_payment', $data)) {
+            $attributes['allow_part_payment'] = (bool) $data['allow_part_payment'];
+        }
+
         $oldLogo = $store->logo_path;
         $newLogo = $logo?->store('stores/logos', 'public');
 

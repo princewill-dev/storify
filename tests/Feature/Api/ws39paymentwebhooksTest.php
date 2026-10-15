@@ -796,7 +796,7 @@ test('a bachs webhook settles the order once, and the browser verify that follow
     $this->postJson('/api/v1/storefront/'.$store->slug.'/payments/bachs/initialize', [
         'order_number' => $order->order_number,
         'amount' => 2500,
-    ])->assertOk()
+    ], storefrontCustomerHeaders($store))->assertOk()
         ->assertJsonPath('data.authorization_url', 'https://checkout.bachs.io/chk_wh39');
 
     $transaction = Transaction::where('order_id', $order->id)->sole();
@@ -829,7 +829,7 @@ test('a bachs webhook settles the order once, and the browser verify that follow
     // And then the customer's browser lands on the callback, and they refresh.
     $this->postJson('/api/v1/storefront/'.$store->slug.'/payments/bachs/verify', [
         'reference' => $transaction->reference,
-    ])->assertOk();
+    ], storefrontCustomerHeaders($store))->assertOk();
 
     expect((int) $store->fresh()->balance)->toBe(250000)
         ->and((float) $order->fresh()->amount_paid)->toBe(2500.0);
@@ -847,7 +847,7 @@ test('a replayed bachs webhook does not credit the balance twice', function () {
     $this->postJson('/api/v1/storefront/'.$store->slug.'/payments/bachs/initialize', [
         'order_number' => $order->order_number,
         'amount' => 2500,
-    ])->assertOk();
+    ], storefrontCustomerHeaders($store))->assertOk();
 
     [$body, $headers] = wh39BachsCompleted();
     $uri = '/webhooks/payments/bachs/'.$store->store_id;
@@ -874,7 +874,7 @@ test('a bachs webhook signed with the wrong secret settles nothing', function ()
     $this->postJson('/api/v1/storefront/'.$store->slug.'/payments/bachs/initialize', [
         'order_number' => $order->order_number,
         'amount' => 2500,
-    ])->assertOk();
+    ], storefrontCustomerHeaders($store))->assertOk();
 
     [$body, $headers] = wh39BachsSigned([
         'type' => 'checkout.completed',

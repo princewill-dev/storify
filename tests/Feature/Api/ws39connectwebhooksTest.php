@@ -222,7 +222,7 @@ function cw39Charge(TestCase $test): array
     $test->postJson('/api/v1/storefront/'.$store->slug.'/payments/bachs/initialize', [
         'order_number' => $order->order_number,
         'amount' => 2500,
-    ])->assertOk()->assertJsonPath('data.authorization_url', 'https://checkout.bachs.io/chk_cw39');
+    ], storefrontCustomerHeaders($store))->assertOk()->assertJsonPath('data.authorization_url', 'https://checkout.bachs.io/chk_cw39');
 
     return [
         'business' => $business,
@@ -449,7 +449,7 @@ test('the browser verify and the delivery cannot both settle one sale', function
 
     $this->postJson('/api/v1/storefront/'.$store->slug.'/payments/bachs/verify', [
         'reference' => $transaction->reference,
-    ])->assertOk();
+    ], storefrontCustomerHeaders($store))->assertOk();
 
     expect($transaction->fresh()->status)->toBe(TransactionStatus::CONFIRMED);
 

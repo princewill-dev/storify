@@ -49,6 +49,7 @@ class Store extends Model
         'physical_address',
         'store_type',
         'has_website',
+        'allow_part_payment',
     ];
 
     protected function casts(): array
@@ -56,6 +57,7 @@ class Store extends Model
         return [
             'has_website' => 'boolean',
             'pos_enabled' => 'boolean',
+            'allow_part_payment' => 'boolean',
         ];
     }
 

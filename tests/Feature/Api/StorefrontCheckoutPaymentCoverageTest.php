@@ -29,6 +29,10 @@ function storefrontCheckoutPaymentContext(string $slug = 'checkout-payment-store
         'slug' => $slug,
         'status' => Store::STATUS_ACTIVE,
         'has_website' => true,
+        // The partial transfers below are the subject, not the setting, so this
+        // store opts in. What the switch does when it is off is asserted in
+        // StorefrontPartPaymentSettingTest.
+        'allow_part_payment' => true,
     ]);
 
     return [$store, $business, $user];
@@ -61,7 +65,7 @@ test('a partial bank transfer stays pending and does not credit the order', func
     $this->postJson('/api/v1/storefront/'.$store->slug.'/payments/bank-transfer', [
         'order_number' => $order->order_number,
         'amount' => 400,
-    ])
+    ], storefrontCustomerHeaders($store))
         ->assertCreated()
         ->assertJsonPath('data.transaction.status', 'pending');
 
@@ -81,7 +85,7 @@ test('a bank transfer cannot be submitted against another store order', function
     $this->postJson('/api/v1/storefront/'.$otherStore->slug.'/payments/bank-transfer', [
         'order_number' => $order->order_number,
         'amount' => 400,
-    ])->assertNotFound();
+    ], storefrontCustomerHeaders($otherStore))->assertNotFound();
 
     expect(Transaction::where('order_id', $order->id)->exists())->toBeFalse()
         ->and((float) $order->fresh()->amount_paid)->toBe(0.0);

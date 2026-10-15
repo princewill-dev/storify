@@ -161,7 +161,7 @@ test('a Paystack charge carries no subaccount, no split and no bearer', function
     $this->postJson('/api/v1/storefront/'.$store->slug.'/payments/paystack/initialize', [
         'order_number' => $order->order_number,
         'amount' => 2500,
-    ])->assertOk();
+    ], storefrontCustomerHeaders($store))->assertOk();
 
     $sent = cc45Sent('/transaction/initialize');
 
@@ -212,7 +212,7 @@ test('a Bachs charge carries no account header and no platform fee', function ()
     $this->postJson('/api/v1/storefront/'.$store->slug.'/payments/bachs/initialize', [
         'order_number' => $order->order_number,
         'amount' => 2500,
-    ])->assertOk();
+    ], storefrontCustomerHeaders($store))->assertOk();
 
     expect($headers['X-Account-Id'][0] ?? null)->toBeNull()
         ->and($sent)->not->toHaveKey('platform_fee');
@@ -245,7 +245,7 @@ test('a charge is recorded as platform-processed, and names no account', functio
     $this->postJson('/api/v1/storefront/'.$store->slug.'/payments/paystack/initialize', [
         'order_number' => $order->order_number,
         'amount' => 2500,
-    ])->assertOk();
+    ], storefrontCustomerHeaders($store))->assertOk();
 
     $transaction = DB::table('transactions')->where('order_id', $order->id)->first();
     $metadata = json_decode($transaction->metadata, true);

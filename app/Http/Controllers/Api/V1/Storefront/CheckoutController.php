@@ -93,6 +93,11 @@ class CheckoutController extends ApiController
 
         return $this->ok([
             'store_currency' => $currency,
+            // The store's own part-payment switch, so the payment page can
+            // decide what to draw before it has an order to draw from. Read here
+            // rather than by a call of its own: this is already the one request
+            // the payment step makes about paying.
+            'allow_part_payment' => (bool) $store->allow_part_payment,
             // Null in the ordinary case, and that is deliberate rather than
             // unfinished: with no system processor set, nothing here has changed
             // and a new field with a new message would be a change to a
@@ -187,6 +192,37 @@ class CheckoutController extends ApiController
     }
 
     /**
+     * Whether this store permits paying less than the outstanding balance.
+     *
+     * The rule is deliberately one-sided. A partial payment needs
+     * `allow_part_payment`; clearing the balance does not. With the setting
+     * defaulting to off, the other reading would strand every customer who had
+     * already part-paid before their store's switch was off — money taken,
+     * order uncompletable — so "pay the rest" stays open at all times and only
+     * "pay some of the rest" is gated.
+     *
+     * The refusal names the figure rather than just denying: the caller is a
+     * customer who has already chosen, and "not allowed" without the amount
+     * leaves them guessing what to send instead.
+     */
+    private function refusePartialIfDisallowed(Store $store, float $amount, float $remaining): ?JsonResponse
+    {
+        if ($store->allow_part_payment || $amount >= $remaining) {
+            return null;
+        }
+
+        return $this->error(
+            sprintf(
+                'This store takes full payment only. Please pay the outstanding balance of %s %s.',
+                StoreCurrency::for($store),
+                number_format($remaining, 2),
+            ),
+            422,
+            ['checkout' => ['part_payment_disabled']],
+        );
+    }
+
+    /**
      * Start a payment through whichever provider the store offers.
      *
      * `paystackInitialize` is kept as an alias below so the already-deployed
@@ -199,7 +235,11 @@ class CheckoutController extends ApiController
 
         $data = $request->validated();
 
-        $order = $this->repository->findOrderByNumber($store, $data['order_number']);
+        $order = $this->repository->findOrderByNumber(
+            $store,
+            $data['order_number'],
+            customer: $this->currentCustomer($request),
+        );
 
         $remaining = $order->remainingBalance();
 
@@ -211,6 +251,12 @@ class CheckoutController extends ApiController
 
         if ($amount <= 0) {
             return $this->error('Invalid payment amount.', 422);
+        }
+
+        $refusal = $this->refusePartialIfDisallowed($store, $amount, $remaining);
+
+        if ($refusal) {
+            return $refusal;
         }
 
         $outcome = $this->payments->initialize($store, $order, $amount, $data, $provider);
@@ -249,7 +295,11 @@ class CheckoutController extends ApiController
 
         $data = $request->validated();
 
-        $transaction = $this->repository->findTransactionByReference($store, $data['reference']);
+        $transaction = $this->repository->findTransactionByReference(
+            $store,
+            $data['reference'],
+            $this->currentCustomer($request),
+        );
 
         $outcome = $this->payments->verify($store, $transaction, $data['reference'], $provider);
 
@@ -277,12 +327,24 @@ class CheckoutController extends ApiController
 
         $data = $request->validated();
 
-        $order = $this->repository->findOrderByNumber($store, $data['order_number']);
+        $order = $this->repository->findOrderByNumber(
+            $store,
+            $data['order_number'],
+            customer: $this->currentCustomer($request),
+        );
 
-        $amount = min((float) $data['amount'], $order->remainingBalance());
+        $remaining = $order->remainingBalance();
+
+        $amount = min((float) $data['amount'], $remaining);
 
         if ($amount <= 0) {
             return $this->error('This order is already fully paid.', 409);
+        }
+
+        $refusal = $this->refusePartialIfDisallowed($store, $amount, $remaining);
+
+        if ($refusal) {
+            return $refusal;
         }
 
         $path = $request->hasFile('payment_slip')
@@ -305,7 +367,7 @@ class CheckoutController extends ApiController
             'metadata' => [
                 'source' => 'storefront_api',
                 'payment_method' => 'bank_transfer',
-                'is_partial' => $amount < $order->remainingBalance(),
+                'is_partial' => $amount < $remaining,
             ],
         ]);
 

@@ -26,9 +26,14 @@ use Illuminate\Support\Str;
 | are ever made friendlier — sequential, shorter, derived from the id, or
 | resettable per store — the first test below fails, and the failure is the
 | question "should this still be public?" rather than "fix the assertion".
-| The second test pins the part that still contains a leak: the lookup is
-| scoped to the storefront in the path, so a number from one shop cannot be
-| spent at another.
+| The second test pins the containment: the lookup is scoped to the storefront
+| in the path, so a number from one shop cannot be spent at another.
+|
+| What this endpoint *returns* is now limited to the order itself. It used to
+| carry `customer_email` as well, which put a name and address behind a
+| capability anybody holding the number could spend — the same lever this file
+| is about, used against the buyer rather than the seller. That field is gone;
+| paying is authenticated, and reading is not.
 */
 
 function ws56tContext(string $name = 'Shopfront'): array

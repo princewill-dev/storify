@@ -254,7 +254,7 @@ function pf41Charge(TestCase $test): array
     $test->postJson('/api/v1/storefront/'.$store->slug.'/payments/bachs/initialize', [
         'order_number' => $order->order_number,
         'amount' => 2500,
-    ])->assertOk()->assertJsonPath('data.authorization_url', 'https://checkout.bachs.io/chk_pf41');
+    ], storefrontCustomerHeaders($store))->assertOk()->assertJsonPath('data.authorization_url', 'https://checkout.bachs.io/chk_pf41');
 
     return [
         'owner' => $owner,
@@ -348,7 +348,7 @@ test('the browser return trip writes the same net the webhook would', function (
 
     $this->postJson('/api/v1/storefront/'.$store->slug.'/payments/bachs/verify', [
         'reference' => $transaction->reference,
-    ])->assertOk();
+    ], storefrontCustomerHeaders($store))->assertOk();
 
     $transaction->refresh();
 

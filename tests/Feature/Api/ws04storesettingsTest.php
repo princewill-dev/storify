@@ -140,6 +140,49 @@ test('store details, logo and socials round-trip', function () {
     Storage::disk('public')->assertExists($fresh->logo_path);
 });
 
+test('the part-payment switch round-trips, and a card that omits it leaves it alone', function () {
+    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    $store = ws04Store($owner);
+
+    // Off unless an owner says otherwise: a store that never opens this card
+    // takes full payment only, which is the default the migration sets.
+    //
+    // `fresh()`, not the instance `Store::create` returned: the default lives
+    // on the column, and a model built from the attributes it was handed reads
+    // null for a field the caller never passed.
+    expect($store->fresh()->allow_part_payment)->toBeFalse();
+
+    $this->withToken(ws04Token($owner))->post(ws04Url($store), [
+        '_method' => 'PUT',
+        'name' => $store->name,
+        'allow_part_payment' => true,
+    ])->assertOk()->assertJsonPath('data.store.allow_part_payment', true);
+
+    expect($store->fresh()->allow_part_payment)->toBeTrue();
+
+    // The other cards each post their own payload and none of them mentions
+    // this field. Reading `$request->boolean()` rather than checking presence
+    // would switch part payment back off here, silently, every time any other
+    // card was saved — which is the failure this asserts against.
+    $this->withToken(ws04Token($owner))->post(ws04Url($store), [
+        '_method' => 'PUT',
+        'name' => $store->name,
+        'facebook_url' => 'https://facebook.com/kept',
+    ])->assertOk();
+
+    expect($store->fresh()->allow_part_payment)->toBeTrue()
+        ->and($store->fresh()->facebook_url)->toBe('https://facebook.com/kept');
+
+    // And an explicit off is an off, not an omission.
+    $this->withToken(ws04Token($owner))->post(ws04Url($store), [
+        '_method' => 'PUT',
+        'name' => $store->name,
+        'allow_part_payment' => false,
+    ])->assertOk()->assertJsonPath('data.store.allow_part_payment', false);
+
+    expect($store->fresh()->allow_part_payment)->toBeFalse();
+});
+
 test('saving one settings card does not clear the others', function () {
     [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
     $store = ws04Store($owner, [

@@ -37,6 +37,7 @@ final class StoreResource extends JsonResource
             'store_type' => $store->store_type,
             'has_website' => (bool) $store->has_website,
             'pos_enabled' => (bool) $store->pos_enabled,
+            'allow_part_payment' => (bool) $store->allow_part_payment,
             'description' => $store->description,
             'support_email' => $store->support_email,
             'support_phone' => $store->support_phone,

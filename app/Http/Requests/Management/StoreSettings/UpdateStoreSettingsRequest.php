@@ -52,6 +52,10 @@ final class UpdateStoreSettingsRequest extends FormRequest
             'tiktok_url' => ['nullable', 'url', 'max:255'],
             'logo' => ['nullable', 'image', 'mimes:jpeg,png,jpg,webp', 'max:2048'],
             'remove_logo' => ['nullable', 'boolean'],
+            // `nullable` plus a presence check in the service, not `required`,
+            // because the cards save independently: the Socials card leaving
+            // this out must not switch part payment off.
+            'allow_part_payment' => ['nullable', 'boolean'],
         ];
     }
 }

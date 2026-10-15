@@ -17,6 +17,10 @@ function storefrontBankContext(): array
         'slug' => 'bank-shop',
         'status' => Store::STATUS_ACTIVE,
         'has_website' => true,
+        // ₦500 against a ₦1,500 order is the case under test, so this store
+        // allows part payment. The switch is asserted in
+        // StorefrontPartPaymentSettingTest.
+        'allow_part_payment' => true,
     ]);
 
     return [$store, $business];
