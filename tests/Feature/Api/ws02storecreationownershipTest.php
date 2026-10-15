@@ -20,7 +20,7 @@ function ws02CreationToken(User $user): string
 }
 
 test('an authorised owner creating a store owns it inside their business', function () {
-    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    [$owner, $business] = createBusinessOwner(['kyc' => 'none', 'trial_ends_at' => now()->addWeek()]);
 
     $response = $this->withToken(ws02CreationToken($owner))
         ->postJson('/api/v1/management/stores', [
@@ -35,7 +35,10 @@ test('an authorised owner creating a store owns it inside their business', funct
         ->assertJsonPath('message', 'Store created successfully!')
         ->assertJsonPath('data.store.name', 'Victoria Island Store')
         ->assertJsonPath('data.store.slug', 'victoria-island-store')
-        ->assertJsonPath('data.store.status', Store::STATUS_PENDING)
+        // Live on creation. The KYC check that used to hold this at `pending`
+        // moved to the payment surfaces; nothing about creating a store is
+        // gated any more.
+        ->assertJsonPath('data.store.status', Store::STATUS_ACTIVE)
         ->assertJsonPath('data.store.store_type', 'both')
         ->assertJsonPath('data.store.has_website', true)
         ->assertJsonPath('data.store.physical_address', '12 Test Street, Lagos')
@@ -47,7 +50,7 @@ test('an authorised owner creating a store owns it inside their business', funct
     // owner and their business — not floating, not another tenant's.
     expect((int) $store->user_id)->toBe($owner->id)
         ->and((int) $store->business_id)->toBe($business->id)
-        ->and($store->status)->toBe(Store::STATUS_PENDING)
+        ->and($store->status)->toBe(Store::STATUS_ACTIVE)
         ->and((bool) $store->has_website)->toBeTrue()
         ->and($store->support_email)->toBe('vi-store@example.test');
 });

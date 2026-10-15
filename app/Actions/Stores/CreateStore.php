@@ -29,7 +29,12 @@ final class CreateStore
                 $store = Store::create($data + [
                     'user_id' => $owner->id,
                     'business_id' => $owner->business_id,
-                    'status' => Store::STATUS_PENDING,
+                    // Live on creation. The KYC check that used to hold this at
+                    // `pending` now sits on the payment surfaces instead — see
+                    // `StorePaymentGate` — so an owner can build the whole shop
+                    // before answering the paperwork, and no money moves either
+                    // way until they do.
+                    'status' => Store::STATUS_ACTIVE,
                     'logo_path' => $logoPath,
                 ]);
 

@@ -2,6 +2,7 @@
 
 use App\Models\Business;
 use App\Models\Customer;
+use App\Models\KycApplication;
 use App\Models\Store;
 use App\Models\SubscriptionPlan;
 use App\Models\User;
@@ -71,6 +72,11 @@ function something()
  */
 function createBusinessOwner(array $userAttributes = [], array $businessAttributes = []): array
 {
+    // Pulled out before the factory sees it: `kyc` is this helper's own switch,
+    // not a column on `users`.
+    $kyc = $userAttributes['kyc'] ?? 'approved';
+    unset($userAttributes['kyc']);
+
     $user = User::factory()->create(array_merge([
         'role' => User::ROLE_BUSINESS_OWNER,
         'status' => 'active',
@@ -94,6 +100,42 @@ function createBusinessOwner(array $userAttributes = [], array $businessAttribut
     $user->update(['business_id' => $business->id]);
     (new SpatiePermissionSeeder)->createRolesForBusiness($business);
     setPermissionsTeamId($business->id);
+
+    // An approved KYC application, because a business that can *trade* has one.
+    //
+    // The platform refuses to take a customer's money for a business whose owner
+    // has not been verified — see `StorePaymentGate` — and that check sits on
+    // checkout, the till and invoice payment. A helper that builds a trading
+    // business without it would make every payment test a test of the refusal.
+    //
+    // So the default is verified, and a test that is *about* verification asks
+    // for the other state explicitly: `createBusinessOwner(['kyc' => 'none'])`
+    // for no application at all, or `['kyc' => 'submitted']` for one awaiting
+    // review. The opt-out is in `$userAttributes` because KYC is a fact about
+    // the owner, not about the business.
+    if ($kyc !== 'none') {
+        $application = new KycApplication;
+
+        $application->forceFill([
+            'user_id' => $user->id,
+            'business_id' => $business->id,
+            'status' => $kyc === 'approved'
+                ? KycApplication::STATUS_APPROVED
+                : KycApplication::STATUS_SUBMITTED,
+            'legal_name' => 'Test Owner',
+            'first_name' => 'Test',
+            'last_name' => 'Owner',
+            'phone_number' => '08030000000',
+            'date_of_birth' => now()->subYears(30)->toDateString(),
+            'address_line' => '1 Test Street',
+            'city' => 'Lagos',
+            'state' => 'Lagos',
+            'country' => 'Nigeria',
+            'kyc_document_id' => 'NIN-123456789',
+            'submitted_at' => now()->subDay(),
+            'approved_at' => $kyc === 'approved' ? now()->subDay() : null,
+        ])->save();
+    }
 
     return [$user->fresh(), $business->fresh()];
 }

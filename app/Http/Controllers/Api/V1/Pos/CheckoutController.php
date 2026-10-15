@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Pos\PosCheckoutRequest;
 use App\Mail\PosReceiptMail;
 use App\Models\Store;
+use App\Services\Access\StorePaymentGate;
 use App\Services\Pos\PosPaymentService;
 use DomainException;
 use Illuminate\Http\JsonResponse;
@@ -21,11 +22,19 @@ final class CheckoutController extends Controller
     public function __construct(
         private readonly ProcessPosSale $processSale,
         private readonly PosPaymentService $payments,
+        private readonly StorePaymentGate $paymentGate,
     ) {}
 
     public function __invoke(PosCheckoutRequest $request, Store $store): JsonResponse
     {
         $user = $request->user();
+
+        // KYC gate, in the shape this surface speaks. A till taking cash for a
+        // business the platform has not verified is the same act as a storefront
+        // card charge, so it is refused in the same place for the same reason.
+        if (($refusal = $this->paymentGate->refusal($store)) !== null) {
+            return response()->json(['success' => false, 'message' => $refusal], 422);
+        }
 
         $session = $this->openSessionFor($store, $user);
         if (! $session) {

@@ -21,6 +21,7 @@ use App\Models\PaymentMethod;
 use App\Models\Store;
 use App\Models\Transaction;
 use App\Repositories\Storefront\CheckoutRepository;
+use App\Services\Access\StorePaymentGate;
 use App\Services\Payments\PaymentGatewayResolver;
 use App\Services\Storefront\CheckoutPaymentService;
 use App\Support\Money\StoreCurrency;
@@ -80,6 +81,7 @@ class CheckoutController extends ApiController
         // provider — and under a system processor it is not: the store may have
         // connected several and still have nothing to offer, and a customer
         // staring at a dead checkout deserves the sentence rather than a blank.
+        private readonly StorePaymentGate $paymentGate,
         private readonly PaymentGatewayResolver $gateways,
     ) {}
 
@@ -233,6 +235,13 @@ class CheckoutController extends ApiController
     {
         $store = $this->resolveStore($store);
 
+        // KYC gate. Asked here rather than on store activation, so a shop can be
+        // built and browsed before the paperwork is done and no money moves until
+        // it is.
+        if (($refusal = $this->paymentGate->refusal($store)) !== null) {
+            return $this->error($refusal, 422);
+        }
+
         $data = $request->validated();
 
         $order = $this->repository->findOrderByNumber(
@@ -324,6 +333,13 @@ class CheckoutController extends ApiController
     public function bankTransfer(BankTransferRequest $request, string $store): JsonResponse
     {
         $store = $this->resolveStore($store);
+
+        // KYC gate. Asked here rather than on store activation, so a shop can be
+        // built and browsed before the paperwork is done and no money moves until
+        // it is.
+        if (($refusal = $this->paymentGate->refusal($store)) !== null) {
+            return $this->error($refusal, 422);
+        }
 
         $data = $request->validated();
 

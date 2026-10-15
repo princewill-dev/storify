@@ -109,7 +109,20 @@
                 </div>
 
                 {{-- Payment Form --}}
-                @if(!$isPaid && !$isVoid)
+                @if($paymentRefusal)
+                {{--
+                    The store cannot take money yet. Said on the page rather than
+                    left to the endpoint to refuse after a customer has typed a
+                    card number.
+                --}}
+                <div class="border-t border-slate-100 px-6 py-5">
+                    <div class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                        {{ $paymentRefusal }}
+                    </div>
+                </div>
+                @endif
+
+                @if(!$isPaid && !$isVoid && !$paymentRefusal)
                 <div class="border-t border-slate-100 px-6 py-5">
                     {{-- Tabs --}}
                     <div class="flex gap-1 bg-slate-100 rounded-xl p-1 mb-4 w-fit" id="payTabs">

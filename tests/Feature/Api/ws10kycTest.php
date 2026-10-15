@@ -77,7 +77,7 @@ function ws10Post(object $test, User $user, array $payload, array $files = [], a
 }
 
 test('a fresh owner is told KYC is required and sees the active document types', function () {
-    [$owner] = createBusinessOwner();
+    [$owner] = createBusinessOwner(['kyc' => 'none']);
     ws10DocumentType(['name' => 'Passport', 'code' => 'passport']);
     ws10DocumentType(['name' => 'Retired slip', 'code' => 'old', 'is_active' => false]);
 
@@ -96,7 +96,7 @@ test('a fresh owner is told KYC is required and sees the active document types',
 test('submitting KYC stores the application, captures device metadata and sets the owner pending', function () {
     Storage::fake('public');
 
-    [$owner] = createBusinessOwner();
+    [$owner] = createBusinessOwner(['kyc' => 'none']);
     $type = ws10DocumentType();
 
     $response = ws10Post($this, $owner, ws10Submission(['kyc_document_type_id' => $type->id]), [
@@ -149,7 +149,7 @@ test('submitting KYC queues the business and admin notification emails', functio
     Mail::fake();
     Storage::fake('public');
 
-    [$owner] = createBusinessOwner();
+    [$owner] = createBusinessOwner(['kyc' => 'none']);
     $superadmin = User::factory()->create(['role' => User::ROLE_SUPERADMIN, 'business_id' => null]);
     $type = ws10DocumentType();
 
@@ -162,7 +162,7 @@ test('submitting KYC queues the business and admin notification emails', functio
 test('the admin notification falls back to the configured from address', function () {
     Mail::fake();
 
-    [$owner] = createBusinessOwner();
+    [$owner] = createBusinessOwner(['kyc' => 'none']);
     config(['mail.from.address' => 'ops@storify.test']);
     $type = ws10DocumentType();
 
@@ -175,7 +175,7 @@ test('a mail failure never blocks the KYC submission', function () {
     Log::spy();
     Mail::shouldReceive('to')->andThrow(new RuntimeException('smtp down'));
 
-    [$owner] = createBusinessOwner();
+    [$owner] = createBusinessOwner(['kyc' => 'none']);
     config(['mail.from.address' => 'ops@storify.test']);
     $type = ws10DocumentType();
 
@@ -191,7 +191,7 @@ test('a mail failure never blocks the KYC submission', function () {
 });
 
 test('KYC validation mirrors the legacy rules including the 18 year minimum', function () {
-    [$owner] = createBusinessOwner();
+    [$owner] = createBusinessOwner(['kyc' => 'none']);
 
     $response = ws10Post($this, $owner, [], []);
 
@@ -218,7 +218,7 @@ test('KYC validation mirrors the legacy rules including the 18 year minimum', fu
 test('document uploads enforce the legacy file type and size limits', function () {
     Storage::fake('public');
 
-    [$owner] = createBusinessOwner();
+    [$owner] = createBusinessOwner(['kyc' => 'none']);
     $type = ws10DocumentType();
 
     $response = ws10Post($this, $owner, ws10Submission(['kyc_document_type_id' => $type->id]), [
@@ -242,7 +242,7 @@ test('document uploads enforce the legacy file type and size limits', function (
 });
 
 test('an inactive document type is refused', function () {
-    [$owner] = createBusinessOwner();
+    [$owner] = createBusinessOwner(['kyc' => 'none']);
     $type = ws10DocumentType(['name' => 'Retired', 'code' => 'retired', 'is_active' => false]);
 
     ws10Post($this, $owner, ws10Submission(['kyc_document_type_id' => $type->id]))
@@ -253,7 +253,7 @@ test('an inactive document type is refused', function () {
 });
 
 test('an application under review blocks a second submission', function () {
-    [$owner] = createBusinessOwner();
+    [$owner] = createBusinessOwner(['kyc' => 'none']);
     $type = ws10DocumentType();
     $existing = ws10Application($owner, ['status' => KycApplication::STATUS_SUBMITTED]);
 
@@ -266,7 +266,7 @@ test('an application under review blocks a second submission', function () {
 });
 
 test('an approved application blocks resubmission', function () {
-    [$owner] = createBusinessOwner();
+    [$owner] = createBusinessOwner(['kyc' => 'none']);
     $type = ws10DocumentType();
     ws10Application($owner, [
         'status' => KycApplication::STATUS_APPROVED,
@@ -290,7 +290,7 @@ test('an approved application blocks resubmission', function () {
 test('a rejected owner may resubmit and every application is retained', function () {
     Storage::fake('public');
 
-    [$owner] = createBusinessOwner();
+    [$owner] = createBusinessOwner(['kyc' => 'none']);
     $type = ws10DocumentType();
     $rejected = ws10Application($owner, [
         'status' => KycApplication::STATUS_REJECTED,
@@ -328,7 +328,7 @@ test('a rejected owner may resubmit and every application is retained', function
 test('a resubmission replaces the superseded document instead of orphaning it', function () {
     Storage::fake('public');
 
-    [$owner] = createBusinessOwner();
+    [$owner] = createBusinessOwner(['kyc' => 'none']);
     $type = ws10DocumentType();
 
     Storage::disk('public')->put('kyc/documents/old-id.pdf', 'old');
@@ -363,7 +363,7 @@ test('a resubmission replaces the superseded document instead of orphaning it', 
 test('a resubmission without new uploads keeps the previous documents', function () {
     Storage::fake('public');
 
-    [$owner] = createBusinessOwner();
+    [$owner] = createBusinessOwner(['kyc' => 'none']);
     $type = ws10DocumentType();
 
     Storage::disk('public')->put('kyc/documents/old-id.pdf', 'old');
@@ -382,7 +382,7 @@ test('a resubmission without new uploads keeps the previous documents', function
 });
 
 test('an unverified owner cannot submit and is told to verify their email', function () {
-    [$owner] = createBusinessOwner(['is_verified' => false]);
+    [$owner] = createBusinessOwner(['kyc' => 'none', 'is_verified' => false]);
     $type = ws10DocumentType();
 
     ws10Post($this, $owner, ws10Submission(['kyc_document_type_id' => $type->id]))
@@ -400,7 +400,7 @@ test('an unverified owner cannot submit and is told to verify their email', func
 });
 
 test('KYC is refused to anyone who is not the business owner', function () {
-    [$owner, $business] = createBusinessOwner();
+    [$owner, $business] = createBusinessOwner(['kyc' => 'none']);
     $type = ws10DocumentType();
 
     $staff = User::factory()->create([
@@ -426,7 +426,7 @@ test('KYC is refused to anyone who is not the business owner', function () {
 });
 
 test('a staff member without the settings permission is refused by the route gate', function () {
-    [$owner, $business] = createBusinessOwner();
+    [$owner, $business] = createBusinessOwner(['kyc' => 'none']);
 
     $staff = User::factory()->create([
         'role' => 'staff',
@@ -440,14 +440,14 @@ test('a staff member without the settings permission is refused by the route gat
 });
 
 test('another business never sees this business KYC application', function () {
-    [$owner] = createBusinessOwner();
+    [$owner] = createBusinessOwner(['kyc' => 'none']);
     ws10Application($owner, [
         'status' => KycApplication::STATUS_REJECTED,
         'legal_name' => 'Secret Applicant',
         'review_notes' => 'Private note',
     ]);
 
-    [$otherOwner] = createBusinessOwner();
+    [$otherOwner] = createBusinessOwner(['kyc' => 'none']);
 
     $this->withToken(ws10Token($otherOwner))
         ->getJson('/api/v1/management/kyc')
@@ -468,7 +468,7 @@ test('another business never sees this business KYC application', function () {
 });
 
 test('the gate payload drives the dashboard banners for pending stores', function () {
-    [$owner, $business] = createBusinessOwner();
+    [$owner, $business] = createBusinessOwner(['kyc' => 'none']);
 
     Store::factory()->create(['user_id' => $owner->id, 'business_id' => $business->id, 'status' => 'pending']);
     Store::factory()->create(['user_id' => $owner->id, 'business_id' => $business->id, 'status' => 'suspended']);
@@ -500,10 +500,15 @@ test('the gate payload drives the dashboard banners for pending stores', functio
         ->assertJsonPath('data.gate.banner', null);
 });
 
-test('store activation is refused until KYC is approved', function () {
-    // A live trial, so the subscription gate passes and this test exercises
-    // the KYC refusal rather than the plan refusal in front of it.
-    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+test('store activation no longer waits for KYC, because the payment does', function () {
+    // This test used to pin the opposite: a store could not be switched on until
+    // its owner's application was approved. That made verification a gate on
+    // *building* the shop — an owner could not create a storefront, add a
+    // product or look at their own shop before doing their paperwork.
+    //
+    // The check moved to where money actually moves. Both halves are pinned
+    // here: activation is free, and the till is not.
+    [$owner, $business] = createBusinessOwner(['kyc' => 'none', 'trial_ends_at' => now()->addWeek()]);
 
     $store = Store::factory()->create([
         'user_id' => $owner->id,
@@ -513,21 +518,40 @@ test('store activation is refused until KYC is approved', function () {
 
     $this->withToken(ws10Token($owner))
         ->patchJson("/api/v1/management/stores/{$store->store_id}/activate")
-        ->assertStatus(422)
-        ->assertJsonPath('message', 'Complete KYC verification before activating this store.');
-
-    expect($store->fresh()->status)->toBe('pending');
-
-    ws10Application($owner, [
-        'status' => KycApplication::STATUS_APPROVED,
-        'approved_at' => now(),
-    ]);
-
-    $this->withToken(ws10Token($owner))
-        ->patchJson("/api/v1/management/stores/{$store->store_id}/activate")
         ->assertOk();
 
-    expect($store->fresh()->status)->toBe('active');
+    expect($store->fresh()->status)->toBe('active')
+        // And unverified, so the payment gate is what stops money — not a store
+        // that never went live.
+        ->and($owner->fresh()->kycApplication)->toBeNull();
+
+    expect(app(\App\Services\Access\StorePaymentGate::class)->refusal($store->fresh()))
+        ->toBe(\App\Services\Access\StorePaymentGate::REFUSAL);
+});
+
+test('a verified owner takes payments and an unverified one does not', function () {
+    [$verified] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    [$pending] = createBusinessOwner(['kyc' => 'submitted', 'trial_ends_at' => now()->addWeek()]);
+
+    $gate = app(\App\Services\Access\StorePaymentGate::class);
+
+    $verifiedStore = Store::factory()->create([
+        'user_id' => $verified->id,
+        'business_id' => $verified->business_id,
+        'status' => 'active',
+    ]);
+
+    $pendingStore = Store::factory()->create([
+        'user_id' => $pending->id,
+        'business_id' => $pending->business_id,
+        'status' => 'active',
+    ]);
+
+    expect($gate->allows($verifiedStore))->toBeTrue()
+        // Submitted is not approved. A store awaiting review takes no money,
+        // which is the state an owner is in between answering the form and being
+        // verified.
+        ->and($gate->refusal($pendingStore))->toBe(\App\Services\Access\StorePaymentGate::REFUSAL);
 });
 
 test('the KYC endpoints require authentication', function () {
@@ -548,7 +572,7 @@ test('the identity documents offered are the two the registry issues', function 
 });
 
 test('a retired document type cannot be submitted even though the row exists', function () {
-    [$owner] = createBusinessOwner();
+    [$owner] = createBusinessOwner(['kyc' => 'none']);
     $retired = ws10DocumentType(['code' => 'passport', 'name' => 'International Passport', 'is_active' => false]);
 
     ws10Post($this, $owner, ws10Submission(['kyc_document_type_id' => $retired->id]))
@@ -559,7 +583,7 @@ test('a retired document type cannot be submitted even though the row exists', f
 });
 
 test('the name parts, the dialling code and the postcode round-trip', function () {
-    [$owner] = createBusinessOwner();
+    [$owner] = createBusinessOwner(['kyc' => 'none']);
     $type = ws10DocumentType();
 
     ws10Post($this, $owner, ws10Submission([
@@ -584,7 +608,7 @@ test('the name parts, the dialling code and the postcode round-trip', function (
 });
 
 test('the dialling code defaults and the postcode is optional', function () {
-    [$owner] = createBusinessOwner();
+    [$owner] = createBusinessOwner(['kyc' => 'none']);
     $type = ws10DocumentType();
 
     ws10Post($this, $owner, ws10Submission(['kyc_document_type_id' => $type->id]))

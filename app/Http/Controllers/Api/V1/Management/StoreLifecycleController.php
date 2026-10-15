@@ -8,7 +8,6 @@ use App\Http\Controllers\Api\V1\ApiController;
 use App\Http\Controllers\Api\V1\Management\Concerns\ResolvesManagementContext;
 use App\Http\Requests\Management\StoreLifecycleRequest;
 use App\Http\Resources\Management\StoreLifecycleResource;
-use App\Models\KycApplication;
 use App\Models\Order;
 use App\Models\Store;
 use App\Models\Transaction;
@@ -86,13 +85,12 @@ class StoreLifecycleController extends ApiController
             return $this->error('This store is already active.', 422);
         }
 
-        $owner = $this->owner($store);
-        $kyc = $owner?->kycApplication;
-
-        if (! $kyc || $kyc->status !== KycApplication::STATUS_APPROVED) {
-            return $this->error('Complete KYC verification before activating this store.', 422);
-        }
-
+        // No KYC check. It lived here, and it made verification a gate on
+        // *building* the shop rather than on taking money — an owner who had not
+        // done their paperwork could not create a storefront or see what their
+        // shop looked like. The check moved to where money actually moves; see
+        // `StorePaymentGate`. A store switched off by hand is still switched back
+        // on by hand, which is all this does now.
         $this->lifecycle->activate(
             $store,
             $request->validated('reason') ?? 'Reactivated by store owner',

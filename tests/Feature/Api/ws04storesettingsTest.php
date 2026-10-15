@@ -59,7 +59,7 @@ beforeEach(function () {
 });
 
 test('the settings screen returns the full workspace payload', function () {
-    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    [$owner, $business] = createBusinessOwner(['kyc' => 'none', 'trial_ends_at' => now()->addWeek()]);
     $store = ws04Store($owner, [
         'name' => 'Ikeja Flagship',
         'description' => 'Our busiest store.',
@@ -109,7 +109,7 @@ test('the settings screen returns the full workspace payload', function () {
 test('store details, logo and socials round-trip', function () {
     Storage::fake('public');
 
-    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    [$owner] = createBusinessOwner(['kyc' => 'none', 'trial_ends_at' => now()->addWeek()]);
     $store = ws04Store($owner, ['logo_path' => 'stores/logos/old.png']);
     Storage::disk('public')->put('stores/logos/old.png', 'old-bytes');
 
@@ -141,7 +141,7 @@ test('store details, logo and socials round-trip', function () {
 });
 
 test('the part-payment switch round-trips, and a card that omits it leaves it alone', function () {
-    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    [$owner] = createBusinessOwner(['kyc' => 'none', 'trial_ends_at' => now()->addWeek()]);
     $store = ws04Store($owner);
 
     // Off unless an owner says otherwise: a store that never opens this card
@@ -184,7 +184,7 @@ test('the part-payment switch round-trips, and a card that omits it leaves it al
 });
 
 test('saving one settings card does not clear the others', function () {
-    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    [$owner] = createBusinessOwner(['kyc' => 'none', 'trial_ends_at' => now()->addWeek()]);
     $store = ws04Store($owner, [
         'description' => 'Keep me',
         'address' => '1 Marina Road',
@@ -204,7 +204,7 @@ test('saving one settings card does not clear the others', function () {
 });
 
 test('a store update requires a name', function () {
-    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    [$owner] = createBusinessOwner(['kyc' => 'none', 'trial_ends_at' => now()->addWeek()]);
     $store = ws04Store($owner);
 
     $this->withToken(ws04Token($owner))
@@ -216,7 +216,7 @@ test('a store update requires a name', function () {
 // --- Slug rules ------------------------------------------------------------
 
 test('the slug can move while the storefront is offline but reserved words are refused', function () {
-    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    [$owner] = createBusinessOwner(['kyc' => 'none', 'trial_ends_at' => now()->addWeek()]);
     $store = ws04Store($owner, ['has_website' => false, 'slug' => 'old-address']);
 
     $this->withToken(ws04Token($owner))
@@ -234,7 +234,7 @@ test('the slug can move while the storefront is offline but reserved words are r
 });
 
 test('a live storefront freezes its slug', function () {
-    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    [$owner] = createBusinessOwner(['kyc' => 'none', 'trial_ends_at' => now()->addWeek()]);
     $store = ws04Store($owner, ['has_website' => true, 'slug' => 'live-store']);
 
     $this->withToken(ws04Token($owner))
@@ -252,7 +252,7 @@ test('a live storefront freezes its slug', function () {
 });
 
 test('a slug collision is de-duplicated with a suffix', function () {
-    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    [$owner] = createBusinessOwner(['kyc' => 'none', 'trial_ends_at' => now()->addWeek()]);
     ws04Store($owner, ['slug' => 'shop-one']);
     $store = ws04Store($owner, ['slug' => 'something-else']);
 
@@ -266,7 +266,7 @@ test('a slug collision is de-duplicated with a suffix', function () {
 // --- Service charges -------------------------------------------------------
 
 test('service charges can be created, updated, toggled and deleted', function () {
-    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    [$owner] = createBusinessOwner(['kyc' => 'none', 'trial_ends_at' => now()->addWeek()]);
     $store = ws04Store($owner);
 
     $created = $this->withToken(ws04Token($owner))
@@ -308,7 +308,7 @@ test('service charges can be created, updated, toggled and deleted', function ()
 });
 
 test('a charge created in settings is visible to the POS read endpoint', function () {
-    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    [$owner, $business] = createBusinessOwner(['kyc' => 'none', 'trial_ends_at' => now()->addWeek()]);
     $store = ws04Store($owner);
 
     $staff = ws04Staff($owner);
@@ -335,7 +335,7 @@ test('a charge created in settings is visible to the POS read endpoint', functio
 });
 
 test('service charge validation and store scoping', function () {
-    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    [$owner] = createBusinessOwner(['kyc' => 'none', 'trial_ends_at' => now()->addWeek()]);
     $store = ws04Store($owner);
     $other = ws04Store($owner, ['slug' => 'other-store']);
 
@@ -357,7 +357,7 @@ test('service charge validation and store scoping', function () {
 // --- Staff assignment ------------------------------------------------------
 
 test('staff can be assigned and removed from the store context', function () {
-    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    [$owner] = createBusinessOwner(['kyc' => 'none', 'trial_ends_at' => now()->addWeek()]);
     $store = ws04Store($owner);
     $staff = ws04Staff($owner, ['name' => 'Ada Cashier']);
 
@@ -381,7 +381,7 @@ test('staff can be assigned and removed from the store context', function () {
 });
 
 test('deactivated staff are neither offered nor assignable', function () {
-    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    [$owner] = createBusinessOwner(['kyc' => 'none', 'trial_ends_at' => now()->addWeek()]);
     $store = ws04Store($owner);
     $removed = ws04Staff($owner, ['name' => 'Gone Grace', 'status' => 'deleted']);
 
@@ -398,8 +398,8 @@ test('deactivated staff are neither offered nor assignable', function () {
 });
 
 test('staff from another business cannot be assigned or removed', function () {
-    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
-    [$otherOwner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    [$owner] = createBusinessOwner(['kyc' => 'none', 'trial_ends_at' => now()->addWeek()]);
+    [$otherOwner] = createBusinessOwner(['kyc' => 'none', 'trial_ends_at' => now()->addWeek()]);
     $store = ws04Store($owner);
     $intruder = ws04Staff($otherOwner, ['name' => 'Intruder']);
 
@@ -418,7 +418,7 @@ test('staff from another business cannot be assigned or removed', function () {
 test('suspending a store records the reason and queues the owner mail', function () {
     Mail::fake();
 
-    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    [$owner] = createBusinessOwner(['kyc' => 'none', 'trial_ends_at' => now()->addWeek()]);
     $store = ws04Store($owner);
 
     // The acting user is a staff member, but the mail must reach the owner.
@@ -441,7 +441,7 @@ test('suspending a store records the reason and queues the owner mail', function
 test('a store cannot be suspended twice', function () {
     Mail::fake();
 
-    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    [$owner] = createBusinessOwner(['kyc' => 'none', 'trial_ends_at' => now()->addWeek()]);
     $store = ws04Store($owner, ['status' => Store::STATUS_SUSPENDED]);
 
     $this->withToken(ws04Token($owner))
@@ -449,29 +449,21 @@ test('a store cannot be suspended twice', function () {
         ->assertStatus(422);
 });
 
-test('reactivation is gated on the owners approved KYC', function () {
+test('reactivation is not gated on KYC, because the payment is', function () {
     Mail::fake();
 
-    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    // Switching a store back on is an operational act — it was suspended for a
+    // reason that had nothing to do with the owner's paperwork. What that
+    // paperwork gates is the money, and it does so on the payment surfaces; see
+    // `StorePaymentGate`.
+    [$owner, $business] = createBusinessOwner(['kyc' => 'none', 'trial_ends_at' => now()->addWeek()]);
     $store = ws04Store($owner, ['status' => Store::STATUS_SUSPENDED]);
 
     $this->withToken(ws04Token($owner))
-        ->patchJson(ws04Url($store, '/activate'))
-        ->assertStatus(422)
-        ->assertJsonPath('message', 'Complete KYC verification before activating this store.');
-
-    expect($store->fresh()->status)->toBe(Store::STATUS_SUSPENDED);
-
-    KycApplication::create([
-        'user_id' => $owner->id,
-        'business_id' => $business->id,
-        'status' => KycApplication::STATUS_APPROVED,
-        'legal_name' => 'Ada Owner',
-    ]);
-
-    $this->withToken(ws04Token($owner))
-        ->patchJson(ws04Url($store, '/activate'), ['reason' => 'KYC approved'])
+        ->patchJson(ws04Url($store, '/activate'), ['reason' => 'Reopening for the week'])
         ->assertOk();
+
+    expect($store->fresh()->status)->toBe(Store::STATUS_ACTIVE);
 
     expect($store->fresh()->status)->toBe(Store::STATUS_ACTIVE);
 
@@ -479,7 +471,7 @@ test('reactivation is gated on the owners approved KYC', function () {
 });
 
 test('deleting a store is refused while orders or transactions are incomplete', function () {
-    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    [$owner, $business] = createBusinessOwner(['kyc' => 'none', 'trial_ends_at' => now()->addWeek()]);
     $store = ws04Store($owner);
 
     $order = Order::create([
@@ -522,7 +514,7 @@ test('deleting a store is refused while orders or transactions are incomplete', 
 // --- Delivery routes -------------------------------------------------------
 
 test('delivery routes are stored in kobo and scoped to their store', function () {
-    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    [$owner] = createBusinessOwner(['kyc' => 'none', 'trial_ends_at' => now()->addWeek()]);
     $store = ws04Store($owner);
 
     $created = $this->withToken(ws04Token($owner))
@@ -562,7 +554,7 @@ test('delivery routes are stored in kobo and scoped to their store', function ()
 });
 
 test('delivery route validation rejects fractional kobo and zero days', function () {
-    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    [$owner] = createBusinessOwner(['kyc' => 'none', 'trial_ends_at' => now()->addWeek()]);
     $store = ws04Store($owner);
 
     $this->withToken(ws04Token($owner))
@@ -575,7 +567,7 @@ test('delivery route validation rejects fractional kobo and zero days', function
 });
 
 test('a delivery route without an area saves instead of hitting the NOT NULL column', function () {
-    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    [$owner] = createBusinessOwner(['kyc' => 'none', 'trial_ends_at' => now()->addWeek()]);
     $store = ws04Store($owner);
 
     // delivery_routes.area is NOT NULL with no default under MySQL strict
@@ -611,7 +603,7 @@ test('a delivery route without an area saves instead of hitting the NOT NULL col
 });
 
 test('a delivery route from a sibling store is not reachable', function () {
-    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    [$owner, $business] = createBusinessOwner(['kyc' => 'none', 'trial_ends_at' => now()->addWeek()]);
     $store = ws04Store($owner);
     $other = ws04Store($owner, ['slug' => 'other-store']);
 
@@ -638,8 +630,8 @@ test('a delivery route from a sibling store is not reachable', function () {
 // --- Tenant isolation ------------------------------------------------------
 
 test('every settings route refuses another business store', function () {
-    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
-    [$otherOwner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    [$owner] = createBusinessOwner(['kyc' => 'none', 'trial_ends_at' => now()->addWeek()]);
+    [$otherOwner] = createBusinessOwner(['kyc' => 'none', 'trial_ends_at' => now()->addWeek()]);
     $theirs = ws04Store($otherOwner, ['name' => 'Theirs']);
     $token = ws04Token($owner);
 

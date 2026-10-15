@@ -27,8 +27,8 @@ function ws02Store(User $owner, array $attributes = []): Store
 }
 
 test('the store list returns the onboarding payload and hides deleted and foreign stores', function () {
-    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
-    [$otherOwner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    [$owner] = createBusinessOwner(['kyc' => 'none', 'trial_ends_at' => now()->addWeek()]);
+    [$otherOwner] = createBusinessOwner(['kyc' => 'none', 'trial_ends_at' => now()->addWeek()]);
 
     ws02Store($owner, [
         'name' => 'Mine',
@@ -57,7 +57,7 @@ test('the store list returns the onboarding payload and hides deleted and foreig
 });
 
 test('the store list honours the legacy status, search and date filters', function () {
-    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    [$owner] = createBusinessOwner(['kyc' => 'none', 'trial_ends_at' => now()->addWeek()]);
 
     $aged = ws02Store($owner, ['name' => 'Alpha Store', 'slug' => 'ws02-alpha']);
     ws02Store($owner, ['name' => 'Beta Store', 'slug' => 'ws02-beta', 'status' => Store::STATUS_SUSPENDED]);
@@ -84,7 +84,7 @@ test('the store list honours the legacy status, search and date filters', functi
 });
 
 test('the store list counts the distinct customers behind its orders', function () {
-    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    [$owner, $business] = createBusinessOwner(['kyc' => 'none', 'trial_ends_at' => now()->addWeek()]);
     $store = ws02Store($owner, ['name' => 'Counting Store', 'slug' => 'ws02-counting']);
 
     $customer = Customer::create([
@@ -130,7 +130,7 @@ test('the store list counts the distinct customers behind its orders', function 
 test('a store can be created with the store model, branding and several staff', function () {
     Storage::fake('public');
 
-    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    [$owner, $business] = createBusinessOwner(['kyc' => 'none', 'trial_ends_at' => now()->addWeek()]);
 
     $staff = collect(['Ada', 'Bola', 'Chidi'])->map(fn ($name) => User::factory()->create([
         'role' => 'staff',
@@ -164,7 +164,10 @@ test('a store can be created with the store model, branding and several staff', 
     $response->assertCreated()
         ->assertJsonPath('data.store.name', 'Swift Essentials')
         ->assertJsonPath('data.store.slug', 'swift-essentials')
-        ->assertJsonPath('data.store.status', Store::STATUS_PENDING)
+        // Live on creation. The KYC check that used to hold this at `pending`
+        // moved to the payment surfaces; nothing about creating a store is
+        // gated any more.
+        ->assertJsonPath('data.store.status', Store::STATUS_ACTIVE)
         ->assertJsonPath('data.store.store_type', 'both')
         ->assertJsonPath('data.store.has_website', true)
         ->assertJsonPath('data.store.description', 'Daily essentials delivered.')
@@ -182,7 +185,7 @@ test('a store can be created with the store model, branding and several staff', 
 });
 
 test('store creation validates the name and refuses reserved or taken slugs', function () {
-    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    [$owner] = createBusinessOwner(['kyc' => 'none', 'trial_ends_at' => now()->addWeek()]);
     $token = ws02Token($owner);
 
     $this->withToken($token)
@@ -204,7 +207,7 @@ test('store creation validates the name and refuses reserved or taken slugs', fu
 });
 
 test('a generated slug colliding with an existing store is suffixed rather than randomised', function () {
-    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    [$owner] = createBusinessOwner(['kyc' => 'none', 'trial_ends_at' => now()->addWeek()]);
 
     ws02Store($owner, ['name' => 'Existing', 'slug' => 'swift-essentials']);
 
@@ -215,7 +218,7 @@ test('a generated slug colliding with an existing store is suffixed rather than 
 });
 
 test('the shared slug check reports availability, a suggestion and reserved words', function () {
-    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    [$owner] = createBusinessOwner(['kyc' => 'none', 'trial_ends_at' => now()->addWeek()]);
 
     ws02Store($owner, ['name' => 'Existing', 'slug' => 'swift-essentials']);
 
@@ -247,8 +250,8 @@ test('the shared slug check reports availability, a suggestion and reserved word
 });
 
 test('a store cannot be created with another business bank or staff', function () {
-    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
-    [$otherOwner, $otherBusiness] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    [$owner] = createBusinessOwner(['kyc' => 'none', 'trial_ends_at' => now()->addWeek()]);
+    [$otherOwner, $otherBusiness] = createBusinessOwner(['kyc' => 'none', 'trial_ends_at' => now()->addWeek()]);
 
     $foreignBank = StoreBank::create([
         'business_id' => $otherBusiness->id,
@@ -285,7 +288,7 @@ test('a second store may reuse the support contact the first one took', function
     // default. So the first store takes it and the second arrives carrying
     // exactly the same details — the ordinary case, which a `unique` rule the
     // vendor model left behind refused with "already been taken".
-    [$owner] = createBusinessOwner([
+    [$owner] = createBusinessOwner(['kyc' => 'none', 
         'trial_ends_at' => now()->addWeek(),
         'email' => 'hello@codycafe.ng',
         'phone' => '08030000000',
@@ -316,7 +319,7 @@ test('a second store may reuse the support contact the first one took', function
 });
 
 test('store creation is closed to unverified owners and users without the permission', function () {
-    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    [$owner, $business] = createBusinessOwner(['kyc' => 'none', 'trial_ends_at' => now()->addWeek()]);
     $token = ws02Token($owner);
 
     $owner->update(['is_verified' => false]);
@@ -352,7 +355,7 @@ test('store creation is closed to unverified owners and users without the permis
 });
 
 test('the create form options carry the defaults, banks and staff — and no currency list', function () {
-    [$owner, $business] = createBusinessOwner([
+    [$owner, $business] = createBusinessOwner(['kyc' => 'none', 
         'trial_ends_at' => now()->addWeek(),
         'phone' => '08031112222',
     ]);
@@ -392,7 +395,7 @@ test('the create form is not prefilled with the owner, and offers no payout pick
     // called "Ade" unless somebody cleared it; and `users.location` in a
     // business-address field, asking for the second time on one screen for the
     // address the store's own field had been filled from.
-    [$owner] = createBusinessOwner([
+    [$owner] = createBusinessOwner(['kyc' => 'none', 
         'trial_ends_at' => now()->addWeek(),
         'name' => 'Ade Balogun',
         'location' => '12 Clifford Street, Lagos',
@@ -419,7 +422,7 @@ test('the create form is not prefilled with the owner, and offers no payout pick
 
 test('the create form options report the store model the signup answers imply', function () {
     [$owner, $business] = createBusinessOwner(
-        ['trial_ends_at' => now()->addWeek()],
+        ['kyc' => 'none', 'trial_ends_at' => now()->addWeek()],
         ['onboarding_intents' => ['sell_online', 'sell_in_store']],
     );
 
@@ -454,7 +457,7 @@ test('a store is created from the signup answers when the form does not state a 
     // "Sell in store" is the only answer that implies a counter, and the form
     // no longer offers the toggles that used to say so.
     [$owner] = createBusinessOwner(
-        ['trial_ends_at' => now()->addWeek()],
+        ['kyc' => 'none', 'trial_ends_at' => now()->addWeek()],
         ['onboarding_intents' => ['sell_in_store']],
     );
 
@@ -470,7 +473,7 @@ test('a store is created from the signup answers when the form does not state a 
 
     // The other direction: selling online implies a storefront and no counter.
     [$onlineOwner] = createBusinessOwner(
-        ['trial_ends_at' => now()->addWeek()],
+        ['kyc' => 'none', 'trial_ends_at' => now()->addWeek()],
         ['onboarding_intents' => ['sell_online']],
     );
 
@@ -491,7 +494,7 @@ test('an explicit flag still wins over the signup answer', function () {
     // stated what it wants — which is what keeps a store created from any
     // other client behaving as that client asked.
     [$owner] = createBusinessOwner(
-        ['trial_ends_at' => now()->addWeek()],
+        ['kyc' => 'none', 'trial_ends_at' => now()->addWeek()],
         ['onboarding_intents' => ['sell_in_store']],
     );
 
@@ -519,7 +522,7 @@ test('a stated counter turns the till on, even when the signup answers said onli
     // disagreed — which is the one case the two checks exist to let them
     // express, so getting it wrong would have made the checks decorative.
     [$owner] = createBusinessOwner(
-        ['trial_ends_at' => now()->addWeek()],
+        ['kyc' => 'none', 'trial_ends_at' => now()->addWeek()],
         ['onboarding_intents' => ['sell_online']],
     );
 
@@ -541,7 +544,7 @@ test('a stated counter turns the till on, even when the signup answers said onli
 
 test('a store stated as selling nowhere is refused, while silence still infers one', function () {
     [$owner] = createBusinessOwner(
-        ['trial_ends_at' => now()->addWeek()],
+        ['kyc' => 'none', 'trial_ends_at' => now()->addWeek()],
         ['onboarding_intents' => ['sell_in_store']],
     );
 
@@ -572,7 +575,7 @@ test('a store stated as selling nowhere is refused, while silence still infers o
 test('a store with no currency in the request takes the platform default', function () {
     $currency = Currency::create(['name' => 'Naira', 'code' => 'NGN', 'symbol' => '₦', 'is_default' => true]);
 
-    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    [$owner] = createBusinessOwner(['kyc' => 'none', 'trial_ends_at' => now()->addWeek()]);
 
     $store = Store::find(
         $this->withToken(ws02Token($owner))
@@ -588,8 +591,8 @@ test('a store with no currency in the request takes the platform default', funct
 });
 
 test('the till can be switched on at creation, and silence leaves the column default alone', function () {
-    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
-    [$quietOwner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    [$owner] = createBusinessOwner(['kyc' => 'none', 'trial_ends_at' => now()->addWeek()]);
+    [$quietOwner] = createBusinessOwner(['kyc' => 'none', 'trial_ends_at' => now()->addWeek()]);
 
     $created = $this->withToken(ws02Token($owner))
         ->postJson('/api/v1/management/stores', [
@@ -614,7 +617,7 @@ test('the till can be switched on at creation, and silence leaves the column def
 });
 
 test('the finalize payload carries the live URL and the next step', function () {
-    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    [$owner] = createBusinessOwner(['kyc' => 'none', 'trial_ends_at' => now()->addWeek()]);
 
     $store = ws02Store($owner, [
         'name' => 'Live Store',
@@ -643,8 +646,8 @@ test('the finalize payload carries the live URL and the next step', function () 
 });
 
 test('another business store is never reachable through the onboarding routes', function () {
-    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
-    [$otherOwner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    [$owner] = createBusinessOwner(['kyc' => 'none', 'trial_ends_at' => now()->addWeek()]);
+    [$otherOwner] = createBusinessOwner(['kyc' => 'none', 'trial_ends_at' => now()->addWeek()]);
 
     $theirs = ws02Store($otherOwner, ['name' => 'Theirs', 'slug' => 'ws02-theirs-final']);
 

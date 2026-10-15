@@ -9,6 +9,7 @@ use App\Mail\InvoicePaymentReceiptMail;
 use App\Models\Invoice;
 use App\Models\PaymentMethod;
 use App\Models\Transaction;
+use App\Services\Access\StorePaymentGate;
 use App\Services\Accounting\LedgerPostingService;
 use App\Services\Payments\PaymentGatewayResolver;
 use App\Services\PaystackService;
@@ -30,6 +31,7 @@ class InvoicePaymentController extends Controller
     public function __construct(
         PaystackService $paystackService,
         protected readonly PaymentGatewayResolver $gateways,
+        protected readonly StorePaymentGate $paymentGate,
     ) {
         $this->paystack = $paystackService;
     }
@@ -63,12 +65,26 @@ class InvoicePaymentController extends Controller
             $storeHasPaystack = false;
         }
 
-        return view('storefront.pages.invoice-pay', compact('invoice', 'store', 'businessName', 'storeBankAccounts', 'storeHasPaystack', 'token'));
+        // And the same for the KYC gate: a business that may not take money yet
+        // gets a page that says so rather than a payment button whose endpoint
+        // refuses it.
+        $paymentRefusal = $this->paymentGate->refusal($store);
+
+        if ($paymentRefusal !== null) {
+            $storeHasPaystack = false;
+            $storeBankAccounts = collect();
+        }
+
+        return view('storefront.pages.invoice-pay', compact('invoice', 'store', 'businessName', 'storeBankAccounts', 'storeHasPaystack', 'paymentRefusal', 'token'));
     }
 
     public function initialize(Request $request, string $token): JsonResponse
     {
         $invoice = Invoice::where('payment_token', $token)->firstOrFail();
+
+        if (($refusal = $this->paymentGate->refusal($invoice->store)) !== null) {
+            return response()->json(['success' => false, 'message' => $refusal], 422);
+        }
 
         if (($problem = $this->enforcementProblem($invoice)) !== null) {
             return response()->json(['success' => false, 'message' => $problem], 409);
@@ -323,6 +339,10 @@ class InvoicePaymentController extends Controller
     public function bankTransfer(Request $request, string $token): RedirectResponse
     {
         $invoice = Invoice::where('payment_token', $token)->firstOrFail();
+
+        if (($refusal = $this->paymentGate->refusal($invoice->store)) !== null) {
+            return back()->with('error', $refusal);
+        }
 
         // The offline rail too: a slip is money paid outside the platform, so
         // there is no split to make and nothing for it to be a payment *through*
