@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1\Management;
 
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Http\Controllers\Api\V1\Management\Concerns\ResolvesManagementContext;
+use App\Http\Requests\Management\DashboardTrendRequest;
 use App\Http\Requests\Management\DashboardWidgetsRequest;
 use App\Http\Resources\Management\Dashboard\LowStockProductResource;
 use App\Http\Resources\Management\Dashboard\PendingTransferResource;
@@ -12,6 +13,7 @@ use App\Http\Resources\Management\Dashboard\RecentOrderResource;
 use App\Http\Resources\Management\Dashboard\RecentStaffResource;
 use App\Http\Resources\Management\Dashboard\RecentTransactionResource;
 use App\Http\Resources\Management\Dashboard\RevenueSeriesResource;
+use App\Http\Resources\Management\Dashboard\TrendSeriesResource;
 use App\Http\Resources\Management\Dashboard\WarehouseWidgetResource;
 use App\Models\Store;
 use App\Models\Warehouse;
@@ -65,6 +67,19 @@ class DashboardWidgetsController extends ApiController
      * editor).
      */
     private const LOW_STOCK_THRESHOLD = 10;
+
+    /**
+     * Each trend metric, and the ability `index()` gates the matching card on.
+     *
+     * Kept as a map rather than as a list of `if ($user->can(...))` blocks
+     * because the two halves have to move together: a metric added here without
+     * its ability would be a series anyone on the page can read.
+     */
+    private const TREND_METRIC_ABILITIES = [
+        'revenue' => 'transactions view',
+        'orders' => 'orders view',
+        'products' => 'products view',
+    ];
 
     public function __construct(
         private readonly DashboardWidgetsRepository $dashboard,
@@ -248,5 +263,72 @@ class DashboardWidgetsController extends ApiController
         ];
 
         return $this->ok($data);
+    }
+
+    /**
+     * The trend window behind the tile sparklines and the chart.
+     *
+     * Its own endpoint rather than a fourth block on `index()` for two reasons.
+     * The range control makes it parameterised — `index()` has no window to
+     * parameterise — and these are `GROUP BY DATE(created_at)` scans over
+     * `transactions` and `orders`, which should not run on every dashboard
+     * load for the sake of four sparklines.
+     *
+     * Each metric is gated on the ability `index()` gates its card on, and a
+     * metric the caller may not see is never queried. The route's own
+     * `dashboard view` gate is not enough on its own: fifteen seeded roles hold
+     * it, and most of them cannot see revenue. A cashier, a store manager, an
+     * inventory clerk and a delivery agent all reach this page, and `index()`
+     * withholds the revenue card from every one of them — so an ungated series
+     * here would hand back, in an array, precisely what the widgets payload had
+     * just been careful not to.
+     */
+    public function trend(DashboardTrendRequest $request): JsonResponse
+    {
+        $user = $this->user($request);
+        $businessId = $user->business_id;
+
+        $accessibleStoreIds = $this->dashboard->accessibleStoreIds($user);
+        $requestedStoreId = $request->filled('store_id') ? $request->integer('store_id') : null;
+
+        if ($requestedStoreId !== null && ! $accessibleStoreIds->contains($requestedStoreId)) {
+            abort(403, 'You do not have access to this store.');
+        }
+
+        $storeIds = $requestedStoreId === null ? $accessibleStoreIds : collect([$requestedStoreId]);
+
+        $days = $request->window();
+        $from = Carbon::now()->subDays($days - 1)->startOfDay();
+        $to = Carbon::now();
+
+        // The window immediately before this one, day for day. Today is
+        // counted in the current window and has no counterpart in the
+        // previous, so a delta read mid-morning is measured against whole
+        // days — inherent to any rolling window, and the alternative (ending
+        // the window last night) would put a dashboard's own trading day
+        // permanently out of its own chart.
+        $previousTo = $from->copy()->subSecond();
+        $previousFrom = $previousTo->copy()->subDays($days - 1)->startOfDay();
+
+        // Only the metrics this caller may see are asked for, so an unpermitted
+        // one is never read rather than read and then dropped.
+        $metrics = array_values(array_filter(
+            array_keys(self::TREND_METRIC_ABILITIES),
+            fn (string $metric): bool => $user->can(self::TREND_METRIC_ABILITIES[$metric]),
+        ));
+
+        $current = $this->dashboard->dailyMetricTotals($businessId, $storeIds, $from, $to, $metrics);
+        $previous = $this->dashboard->dailyMetricTotals($businessId, $storeIds, $previousFrom, $previousTo, $metrics);
+
+        return $this->ok([
+            'range' => [
+                'days' => $days,
+                'from' => $from->toDateString(),
+                'to' => $to->toDateString(),
+            ],
+            'series' => TrendSeriesResource::series($current, $from, $days),
+            'totals' => TrendSeriesResource::totals($current),
+            'previous' => TrendSeriesResource::totals($previous),
+        ]);
     }
 }

@@ -26,4 +26,11 @@ use App\Http\Controllers\Api\V1\Management\DashboardWidgetsController;
 
 Route::middleware('permission:dashboard view')->group(function () {
     Route::get('dashboard/widgets', [DashboardWidgetsController::class, 'index'])->name('dashboard.widgets');
+
+    // The trend window behind the tile sparklines and the line chart. Split
+    // from the payload above because the range control parameterises it and
+    // because its daily GROUP BYs should not ride on every dashboard load.
+    // Same controller and same repository: the tenant scoping underneath is
+    // one implementation, not two.
+    Route::get('dashboard/trend', [DashboardWidgetsController::class, 'trend'])->name('dashboard.trend');
 });

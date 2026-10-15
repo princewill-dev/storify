@@ -369,6 +369,75 @@ final class DashboardWidgetsRepository
     }
 
     /**
+     * Daily totals for the trend window, one `date => value` map per metric.
+     *
+     * Feeds the sparklines and the period comparison. The controller calls it
+     * twice — once for the window on screen, once for the window immediately
+     * before it — and the resource turns the pair into a series, a total set
+     * and a previous set. Returning raw maps rather than a shaped payload
+     * keeps this layer doing only what the class docblock says it does.
+     *
+     * Three metrics, and not four. `customers` is deliberately absent: the
+     * `customers` table has no `store_id`, so a store-scoped daily count has to
+     * reach the store through `orders` — thirty correlated `EXISTS` subqueries
+     * per request, on a table whose only composite index leads with `user_id`
+     * and so cannot serve the range. A metric the dashboard cannot afford to
+     * draw honestly is a metric it does not draw. The customers tile keeps its
+     * number and its hint and carries no trend, which is the same treatment
+     * every seriesless figure on this page already gets.
+     *
+     * Money stays in the units the columns hold: `transactions.amount` is
+     * decimal naira, summed once in SQL. Nothing here mixes it with the kobo
+     * columns beside it.
+     *
+     * `$metrics` exists for the caller's permission gates, not for its
+     * convenience: `dashboard view` is held by roles that cannot see revenue,
+     * and asking for a metric the caller may not see is how the series leaks
+     * one. A metric left out is never queried, so the gate costs a query
+     * rather than merely deleting a key from an array that already ran it.
+     *
+     * @param  array<int, string>  $metrics  Any of `revenue`, `orders`, `products`.
+     * @return array<string, Collection<string, mixed>> Keyed by the metrics asked for.
+     */
+    public function dailyMetricTotals(
+        int $businessId,
+        Collection $storeIds,
+        Carbon $from,
+        Carbon $to,
+        array $metrics = ['revenue', 'orders', 'products'],
+    ): array {
+        $bucketed = fn (Builder $query, string $column): Collection => $query
+            ->whereBetween($column, [$from, $to])
+            ->selectRaw("DATE({$column}) as date, COUNT(*) as total")
+            ->groupBy('date')
+            ->pluck('total', 'date');
+
+        $totals = [];
+
+        if (in_array('revenue', $metrics, true)) {
+            $totals['revenue'] = $this->transactionQuery($businessId, $storeIds)
+                ->where('status', TransactionStatus::CONFIRMED)
+                ->whereBetween('created_at', [$from, $to])
+                ->selectRaw('DATE(created_at) as date, SUM(amount) as total')
+                ->groupBy('date')
+                ->pluck('total', 'date');
+        }
+
+        if (in_array('orders', $metrics, true)) {
+            $totals['orders'] = $bucketed($this->orderQuery($businessId, $storeIds), 'created_at');
+        }
+
+        if (in_array('products', $metrics, true)) {
+            $totals['products'] = $bucketed(
+                Product::query()->where('business_id', $businessId)->whereIn('store_id', $storeIds),
+                'created_at',
+            );
+        }
+
+        return $totals;
+    }
+
+    /**
      * Pending or approved transfers touching an accessible location — and when
      * a store is selected, only transfers touching *it* (legacy kept ignoring
      * the store selection here).
