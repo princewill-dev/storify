@@ -209,7 +209,13 @@ trait ResolvesStorefrontContext
             $query->where('guest_token', $token);
         }
 
-        $cart = $query->latest()->first();
+        // By id, not by `created_at`. Two carts in the same second — a guest
+        // basket and the customer's own, which is the exact pair this resolves
+        // between — have no order under `latest()`, so the answer would be
+        // whatever MySQL happened to return. `PlaceStorefrontOrder` orders the
+        // same way for the same reason, and the two agreeing is what makes the
+        // basket on screen the basket that gets ordered.
+        $cart = $query->latest('id')->first();
 
         if ($cart) {
             if ($customer && ! $cart->user_id) {

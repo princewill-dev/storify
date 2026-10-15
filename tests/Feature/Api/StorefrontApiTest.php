@@ -113,7 +113,12 @@ test('a digital checkout can be placed without shipping details', function () {
         'quantity' => 0,
     ]);
 
-    $headers = ['X-Guest-Token' => 'guest-digital-1'];
+    // Checkout requires a verified account; the cart is claimed as this one's
+    // by the guest token it was built with.
+    $headers = [
+        'X-Guest-Token' => 'guest-digital-1',
+        'Authorization' => 'Bearer '.createStorefrontCustomer($store)[1],
+    ];
 
     $this->postJson('/api/v1/storefront/'.$store->slug.'/cart/items', [
         'product_id' => $product->id,

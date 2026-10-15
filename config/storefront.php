@@ -39,27 +39,32 @@ return [
     | Checkout requires an account
     |--------------------------------------------------------------------------
     |
-    | When true, an order can only be placed by a signed-in customer whose
-    | email is verified, and checkout collects the account as part of the flow.
-    | When false, an account-less order still fabricates a customer row exactly
-    | as it always has.
+    | On, an order can only be placed by a signed-in customer whose email is
+    | verified, and checkout collects that account as part of the order form —
+    | one form serving both purposes. Off, an account-less order fabricates a
+    | customer row with a password nobody chose, exactly as it always did.
     |
-    | This is a rollover switch, not a preference, and it exists because of the
-    | deploy order rather than because both behaviours are wanted. The API is
-    | deployed by hand and the storefront SPA deploys on push, so the storefront
-    | that ships the new checkout cannot be live before the API accepts it, and
-    | the API cannot start refusing account-less orders before that storefront
-    | is live. It goes: API with this off, then the SPA, then this on.
+    | On is the settled position, not a stage of a rollout: the platform is
+    | merchant of record and an order has to belong to somebody. The switch is
+    | kept only because turning it off is how a bad release is backed out — the
+    | API deploys by hand while the storefront deploys on push, so if a
+    | storefront bug ever has customers unable to register, refusing their
+    | orders is the wrong failure and this is the one lever that ends it.
+    |
+    | That direction is the safe one. Setting it back to false lets a
+    | storefront that knows nothing about accounts keep taking orders; setting
+    | it to true while such a storefront is live refuses every sale it
+    | attempts. Ship the SPA first, then the API.
     |
     | Read in the controller rather than applied as route middleware so the
     | refusal is a readable payload error rather than a bare 401, which is what
     | lets a storefront too old to know about accounts say something useful.
     |
-    | Remove both the flag and its false branch once no deployed bundle places
-    | an account-less order.
+    | Remove both the flag and the false branch in PlaceStorefrontOrder once no
+    | deployed bundle places an account-less order.
     |
     */
 
-    'checkout_requires_account' => env('STOREFRONT_CHECKOUT_REQUIRES_ACCOUNT', false),
+    'checkout_requires_account' => env('STOREFRONT_CHECKOUT_REQUIRES_ACCOUNT', true),
 
 ];

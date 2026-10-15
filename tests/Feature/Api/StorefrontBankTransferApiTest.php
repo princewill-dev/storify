@@ -34,7 +34,12 @@ test('a bank transfer payment can be recorded without a slip', function () {
         'status' => 'active',
     ]);
 
-    $headers = ['X-Guest-Token' => 'bank-guest-1'];
+    // Checkout requires a verified account; the cart is claimed as this one's
+    // by the guest token it was built with.
+    $headers = [
+        'X-Guest-Token' => 'bank-guest-1',
+        'Authorization' => 'Bearer '.createStorefrontCustomer($store)[1],
+    ];
 
     $this->postJson('/api/v1/storefront/'.$store->slug.'/cart/items', [
         'product_id' => $product->id,

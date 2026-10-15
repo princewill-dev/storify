@@ -1,11 +1,14 @@
 <?php
 
 use App\Models\Business;
+use App\Models\Customer;
+use App\Models\Store;
 use App\Models\SubscriptionPlan;
 use App\Models\User;
 use App\Support\Plans\EntitlementRegistry;
 use App\Support\Plans\Entitlements;
 use Database\Seeders\SpatiePermissionSeeder;
+use Illuminate\Support\Str;
 use Tests\Support\SeedsPlatformFixturesOnce;
 use Tests\TestCase;
 
@@ -131,6 +134,41 @@ function createBusinessOwner(array $userAttributes = [], array $businessAttribut
  * ({@see SubscriptionPlanSeeder::TIERS}), because that is the plan a business
  * that can do everything is on.
  */
+/**
+ * A verified customer of a store, and a bearer token that acts as them.
+ *
+ * Checkout requires an account — `storefront.checkout_requires_account` is on
+ * by default and there is no product where it should not be — so a test that
+ * needs an order to exist has to produce one the way the application does: as
+ * somebody. These tests used to post an anonymous payload and let
+ * `PlaceStorefrontOrder` fabricate a customer row, which meant the suite's
+ * picture of checkout was the one path production no longer has. Signing in
+ * costs a line per test and keeps them on the path that runs.
+ *
+ * The row is `verified` and `registered` because those are the two things the
+ * gate checks, and a customer missing either is a different test — one that
+ * asserts the refusal.
+ *
+ * @param  array<string, mixed>  $attributes
+ * @return array{0: Customer, 1: string}
+ */
+function createStorefrontCustomer(Store $store, array $attributes = []): array
+{
+    $customer = Customer::create(array_merge([
+        'business_id' => $store->business_id,
+        'first_name' => 'Ada',
+        'last_name' => 'Buyer',
+        'email' => 'customer-'.Str::lower(Str::random(10)).'@example.test',
+        'phone' => '08010000000',
+        'password' => bcrypt('secret-pass-123'),
+        'status' => Customer::STATUS_ACTIVE,
+        'email_verified_at' => now(),
+        'registered_at' => now(),
+    ], $attributes));
+
+    return [$customer, $customer->createToken('customer-access', ['customer'], now()->addHour())->plainTextToken];
+}
+
 function defaultPlanIncludingEveryModule(): SubscriptionPlan
 {
     return SubscriptionPlan::create([

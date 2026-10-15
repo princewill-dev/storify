@@ -352,6 +352,23 @@ final class PlaceStorefrontOrder
         ]);
     }
 
+    /**
+     * The cart this order is placed from — and it has to be the one checkout
+     * showed the customer.
+     *
+     * That is not a detail. The storefront reads its basket through
+     * `resolveCart`, which treats the customer's own cart and this browser's
+     * guest cart as two halves of one pool and takes the newest of them. This
+     * method used to ask a different question: the customer's cart first, on
+     * its own, and the *oldest* row at that. A signed-in shopper who had
+     * abandoned a cart last month and then filled a fresh basket did not have
+     * the two agree — they were shown the new basket and charged for the old
+     * one, and the basket on screen was thrown away without a word.
+     *
+     * Signing in part-way through checkout is the ordinary path, so this is not
+     * a corner. The two queries have to give one answer, and the answer is the
+     * newest cart in the pool the storefront reads from.
+     */
     private function lockCart(Store $store, ?Customer $customer, ?string $checkoutToken, ?string $guestToken): ?Cart
     {
         $base = Cart::query()
@@ -362,15 +379,28 @@ final class PlaceStorefrontOrder
             return (clone $base)->where('checkout_token', $checkoutToken)->lockForUpdate()->first();
         }
 
+        $query = (clone $base)->lockForUpdate();
+
         if ($customer) {
-            $cart = (clone $base)->where('user_id', $customer->id)->lockForUpdate()->first();
-            if ($cart) {
-                return $cart;
-            }
+            $query->where(function ($q) use ($customer, $guestToken) {
+                $q->where('user_id', $customer->id);
+
+                // Guarded rather than passed through: `where('col', null)`
+                // compiles to `is null`, so an absent guest token would quietly
+                // widen this to every ownerless cart in the store instead of
+                // adding nothing.
+                if ($guestToken !== null) {
+                    $q->orWhere('guest_token', $guestToken);
+                }
+            });
+        } elseif ($guestToken === null) {
+            return null;
+        } else {
+            $query->where('guest_token', $guestToken);
         }
 
-        return $guestToken
-            ? (clone $base)->where('guest_token', $guestToken)->lockForUpdate()->first()
-            : null;
+        // `latest('id')`, matching `resolveCart` exactly — see the note there
+        // for why the tie-break is the id rather than the timestamp.
+        return $query->latest('id')->first();
     }
 }

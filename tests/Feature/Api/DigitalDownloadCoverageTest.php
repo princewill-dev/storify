@@ -216,7 +216,12 @@ test('a digital-only api checkout is tagged digital and writes no stock movement
     $store = ddcStore($owner);
     $product = ddcProduct($store, ['quantity' => 0]);
 
-    $headers = ['X-Guest-Token' => 'ddc-guest-checkout'];
+    // Checkout requires a verified account; the cart is claimed as this one's
+    // by the guest token it was built with.
+    $headers = [
+        'X-Guest-Token' => 'ddc-guest-checkout',
+        'Authorization' => 'Bearer '.createStorefrontCustomer($store)[1],
+    ];
 
     $this->postJson('/api/v1/storefront/'.$store->slug.'/cart/items', [
         'product_id' => $product->id,
@@ -249,7 +254,12 @@ test('a verified storefront payment issues download tokens and queues the buyer 
     $store = ddcStore($owner);
     $product = ddcProduct($store);
 
-    $headers = ['X-Guest-Token' => 'ddc-guest-payment'];
+    // Checkout requires a verified account; the cart is claimed as this one's
+    // by the guest token it was built with.
+    $headers = [
+        'X-Guest-Token' => 'ddc-guest-payment',
+        'Authorization' => 'Bearer '.createStorefrontCustomer($store)[1],
+    ];
 
     $this->postJson('/api/v1/storefront/'.$store->slug.'/cart/items', [
         'product_id' => $product->id,
