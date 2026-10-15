@@ -19,19 +19,39 @@ class KycApplication extends Model
 
     public const STATUS_REJECTED = KycStatus::REJECTED->value;
 
+    /**
+     * Every column the controllers write.
+     *
+     * This list had gone stale — `business_id` and `kyc_document_id` were
+     * missing, along with the three machine-captured columns — so the submit
+     * path used `forceFill` to step around it. `forceFill` is the right tool for
+     * a mass assignment *attack*; using it for a field that simply never got
+     * added to the list means the next `fill()` silently drops that field, which
+     * is how a list goes stale twice.
+     */
     protected $fillable = [
         'user_id',
+        'business_id',
         'status',
         'legal_name',
+        'first_name',
+        'middle_name',
+        'last_name',
         'phone_number',
+        'phone_country_code',
         'date_of_birth',
         'address_line',
         'city',
         'state',
+        'postal_code',
         'country',
         'identification_document_path',
         'selfie_image_path',
         'kyc_document_type_id',
+        'kyc_document_id',
+        'device_type',
+        'browser',
+        'ip_address',
         'submitted_at',
         'approved_at',
         'rejected_at',

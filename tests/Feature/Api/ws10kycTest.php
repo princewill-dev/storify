@@ -6,6 +6,7 @@ use App\Models\KycApplication;
 use App\Models\KycDocumentType;
 use App\Models\Store;
 use App\Models\User;
+use Database\Seeders\KycDocumentTypeSeeder;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
@@ -28,8 +29,8 @@ function ws10DocumentType(array $attributes = []): KycDocumentType
 
 function ws10Application(User $user, array $attributes = []): KycApplication
 {
-    // forceFill: business_id is not in the model's $fillable (see the model),
-    // so create() would drop it and the tenant scoping would miss the row.
+    // forceFill: this seeds a row directly, bypassing validation on purpose —
+    // building a historical application without walking the whole form.
     $application = new KycApplication;
 
     $application->forceFill(array_merge([
@@ -52,7 +53,12 @@ function ws10Application(User $user, array $attributes = []): KycApplication
 function ws10Submission(array $overrides = []): array
 {
     return array_merge([
-        'legal_name' => 'Ada Obi',
+        // The name is posted in parts and `legal_name` is derived server-side,
+        // so a client cannot disagree with the stored row about what the
+        // applicant is called.
+        'first_name' => 'Ada',
+        'middle_name' => 'Ngozi',
+        'last_name' => 'Obi',
         'phone_number' => '08030000000',
         'date_of_birth' => now()->subYears(30)->toDateString(),
         'address_line' => '1 Test Street',
@@ -105,7 +111,14 @@ test('submitting KYC stores the application, captures device metadata and sets t
         ->assertJsonPath('data.can_submit', false)
         ->assertJsonPath('data.block_reason', 'under_review')
         ->assertJsonPath('data.application.status', 'submitted')
-        ->assertJsonPath('data.application.legal_name', 'Ada Obi')
+        // The parts joined. The middle name is in there, which is the whole
+        // reason `legal_name` is derived rather than posted: a client that sent
+        // both could send two different names and the row would hold the wrong
+        // one.
+        ->assertJsonPath('data.application.legal_name', 'Ada Ngozi Obi')
+        ->assertJsonPath('data.application.first_name', 'Ada')
+        ->assertJsonPath('data.application.middle_name', 'Ngozi')
+        ->assertJsonPath('data.application.last_name', 'Obi')
         ->assertJsonPath('data.application.document_type', $type->name)
         ->assertJsonPath('data.application.has_identification_document', true)
         ->assertJsonPath('data.application.has_selfie', true)
@@ -184,7 +197,7 @@ test('KYC validation mirrors the legacy rules including the 18 year minimum', fu
 
     $response->assertStatus(422)
         ->assertJsonValidationErrors([
-            'legal_name', 'phone_number', 'date_of_birth', 'address_line',
+            'first_name', 'last_name', 'phone_number', 'date_of_birth', 'address_line',
             'city', 'state', 'country', 'kyc_document_type_id', 'kyc_document_id',
         ]);
 
@@ -285,9 +298,15 @@ test('a rejected owner may resubmit and every application is retained', function
         'review_notes' => 'Document was blurry.',
     ]);
 
-    ws10Post($this, $owner, ws10Submission(['legal_name' => 'Ada Obi-Chukwu', 'kyc_document_type_id' => $type->id]))
+    ws10Post($this, $owner, ws10Submission([
+        'last_name' => 'Obi-Chukwu',
+        'middle_name' => null,
+        'kyc_document_type_id' => $type->id,
+    ]))
         ->assertCreated()
-        ->assertJsonPath('data.application.legal_name', 'Ada Obi-Chukwu');
+        // No middle name this time, and no double space where one would be.
+        ->assertJsonPath('data.application.legal_name', 'Ada Obi-Chukwu')
+        ->assertJsonPath('data.application.middle_name', null);
 
     $applications = KycApplication::query()->where('user_id', $owner->id)->orderBy('id')->get();
 
@@ -514,4 +533,62 @@ test('store activation is refused until KYC is approved', function () {
 test('the KYC endpoints require authentication', function () {
     $this->getJson('/api/v1/management/kyc')->assertStatus(401);
     $this->postJson('/api/v1/management/kyc', [])->assertStatus(401);
+});
+
+test('the identity documents offered are the two the registry issues', function () {
+    $this->seed(KycDocumentTypeSeeder::class);
+
+    expect(KycDocumentType::query()->where('is_active', true)->pluck('code')->sort()->values()->all())
+        ->toBe(['bvn', 'nin'])
+        // The three that are not offered still exist. Historical applications
+        // name them through a foreign key, so deleting the rows would either
+        // break those applications or blank a field on a compliance record.
+        ->and(KycDocumentType::query()->where('is_active', false)->pluck('code')->sort()->values()->all())
+        ->toBe(['drv_lic', 'passport', 'voter_card']);
+});
+
+test('a retired document type cannot be submitted even though the row exists', function () {
+    [$owner] = createBusinessOwner();
+    $retired = ws10DocumentType(['code' => 'passport', 'name' => 'International Passport', 'is_active' => false]);
+
+    ws10Post($this, $owner, ws10Submission(['kyc_document_type_id' => $retired->id]))
+        ->assertStatus(422)
+        ->assertJsonValidationErrors('kyc_document_type_id');
+
+    expect(KycApplication::query()->where('user_id', $owner->id)->count())->toBe(0);
+});
+
+test('the name parts, the dialling code and the postcode round-trip', function () {
+    [$owner] = createBusinessOwner();
+    $type = ws10DocumentType();
+
+    ws10Post($this, $owner, ws10Submission([
+        'kyc_document_type_id' => $type->id,
+        'phone_country_code' => '+233',
+        'postal_code' => '101233',
+    ]))
+        ->assertCreated()
+        ->assertJsonPath('data.application.first_name', 'Ada')
+        ->assertJsonPath('data.application.middle_name', 'Ngozi')
+        ->assertJsonPath('data.application.last_name', 'Obi')
+        ->assertJsonPath('data.application.phone_country_code', '+233')
+        ->assertJsonPath('data.application.postal_code', '101233');
+
+    // Read back from the database rather than the response, so this pins
+    // storage and not just the payload the write happened to return.
+    $stored = KycApplication::query()->where('user_id', $owner->id)->latest('id')->first();
+
+    expect($stored->first_name)->toBe('Ada')
+        ->and($stored->postal_code)->toBe('101233')
+        ->and($stored->legal_name)->toBe('Ada Ngozi Obi');
+});
+
+test('the dialling code defaults and the postcode is optional', function () {
+    [$owner] = createBusinessOwner();
+    $type = ws10DocumentType();
+
+    ws10Post($this, $owner, ws10Submission(['kyc_document_type_id' => $type->id]))
+        ->assertCreated()
+        ->assertJsonPath('data.application.phone_country_code', '+234')
+        ->assertJsonPath('data.application.postal_code', null);
 });

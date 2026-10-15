@@ -112,15 +112,21 @@ class KycController extends ApiController
             ]);
         }
 
+        // Derived once, before the transaction, so the log line, the stored row
+        // and the review queue all name the applicant the same way.
+        $legalName = $request->legalName();
+        $dialCode = $request->dialCode();
+
         Log::info('business.kyc.submission_received', [
             'user_id' => $user->id,
             'data' => [
-                'legal_name' => $data['legal_name'],
+                'legal_name' => $legalName,
                 'phone_number' => $data['phone_number'],
                 'date_of_birth' => $data['date_of_birth'],
                 'address_line' => $data['address_line'],
                 'city' => $data['city'],
                 'state' => $data['state'],
+                'postal_code' => $data['postal_code'] ?? null,
                 'country' => $data['country'],
                 'kyc_document_type_id' => $data['kyc_document_type_id'],
                 'kyc_document_id' => $data['kyc_document_id'],
@@ -146,23 +152,29 @@ class KycController extends ApiController
             $userAgent = (string) $request->userAgent();
             $ipAddress = $request->ip();
 
-            $application = DB::transaction(function () use ($user, $data, $files, $previous, $userAgent, $ipAddress) {
+            $application = DB::transaction(function () use ($user, $data, $files, $previous, $userAgent, $ipAddress, $legalName, $dialCode) {
                 $application = new KycApplication;
 
-                // forceFill, not fill: the model's $fillable predates
-                // business_id, kyc_document_id, device_type, browser and
-                // ip_address, so fill() would silently drop them — which is
-                // exactly how legacy "captured" device metadata that never
-                // reached the row.
-                $application->forceFill([
+                // `fill`, not `forceFill`. The model's $fillable was missing
+                // business_id, kyc_document_id and the three machine-captured
+                // columns, so this used to step around it — which is how legacy
+                // ended up "capturing" device metadata that never reached the
+                // row. The list is complete now, so anything that is still
+                // dropped from here is genuinely not assignable.
+                $application->fill([
                     'user_id' => $user->id,
                     'business_id' => $user->business_id,
-                    'legal_name' => $data['legal_name'],
+                    'legal_name' => $legalName,
+                    'first_name' => $data['first_name'],
+                    'middle_name' => $data['middle_name'] ?? null,
+                    'last_name' => $data['last_name'],
                     'phone_number' => $data['phone_number'],
+                    'phone_country_code' => $dialCode,
                     'date_of_birth' => $data['date_of_birth'],
                     'address_line' => $data['address_line'],
                     'city' => $data['city'],
                     'state' => $data['state'],
+                    'postal_code' => $data['postal_code'] ?? null,
                     'country' => $data['country'],
                     'kyc_document_type_id' => $data['kyc_document_type_id'],
                     'kyc_document_id' => $data['kyc_document_id'],
@@ -374,12 +386,21 @@ class KycController extends ApiController
             'id' => $application->id,
             'status' => $application->status,
             'status_label' => $application->status_metadata['label'] ?? ucfirst($application->status),
+            // Both the parts and the joined form. The parts are what the wizard
+            // edits; `legal_name` is what the review queue and every historical
+            // record read, and a payload that omitted it would make a resubmit
+            // look like it had lost the applicant's name.
             'legal_name' => $application->legal_name,
+            'first_name' => $application->first_name,
+            'middle_name' => $application->middle_name,
+            'last_name' => $application->last_name,
+            'phone_country_code' => $application->phone_country_code,
             'phone_number' => $application->phone_number,
             'date_of_birth' => $application->date_of_birth?->toDateString(),
             'address_line' => $application->address_line,
             'city' => $application->city,
             'state' => $application->state,
+            'postal_code' => $application->postal_code,
             'country' => $application->country,
             'kyc_document_type_id' => $application->kyc_document_type_id,
             'document_type' => $application->documentType?->name,
