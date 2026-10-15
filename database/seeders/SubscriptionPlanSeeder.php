@@ -6,31 +6,79 @@ use App\Models\SubscriptionPlan;
 use App\Support\Plans\EntitlementRegistry;
 use App\Support\Plans\Entitlements;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\Log;
 
 /**
- * The platform's opening offer: three tiers, seeded once.
+ * The platform's plan catalogue: three tiers, and nothing else.
  *
- * ## What this seeder used to do, and why it had to stop
+ * ## What this seeder does now
  *
- * It ran `updateOrCreate(['name' => ...])` with `'plan_code' => Str::random(24)`
- * inside the *value* array, so every run wrote a fresh `plan_code` onto both
- * plans. Two things followed from that:
+ * It **reconciles**. Every run rewrites `Entry`, `Growth` and `Enterprise` from
+ * {@see self::TIERS} and deletes every other row in `subscription_plans`. What
+ * the catalogue holds after a run is what is written below, whatever it held
+ * before — including rows the console created, which do not survive.
  *
- * 1. **Saved links broke.** `plan_code` is the route key — checkout URLs use it
- *    — so re-seeding invalidated every URL anybody had been sent, and any
- *    subscription row or bookmark pointing at a plan by its code.
- * 2. **Admin work was destroyed.** It also ran
+ * That is a reversal, and it was the owner's decision rather than this file's
+ * idea. The rewrite that came before matched on `name` with `firstOrCreate`:
+ * create if absent, write nothing into a row that already exists. Its virtue was
+ * that re-seeding could never undo console work or invalidate a live
+ * `plan_code`; its cost was that nothing could ever *remove* a plan. On the
+ * database this was written against, the plans page was advertising five —
+ * `Entry`, `Growth` and `Enterprise` beside `Vanilla` at ₦75,000 and `Start up`
+ * at ₦100,000, two rows no current seeder had created and nothing was ever going
+ * to take away. Re-running the seeder, which is what an owner reasonably does
+ * when a page looks wrong, changed nothing at all.
+ *
+ * The trade is the other way now: this file is the source of truth for the
+ * catalogue.
+ *
+ * ## What that costs, stated plainly
+ *
+ * **Deleting a plan deletes its subscriptions.**
+ * `subscriptions.subscription_plan_id` is `onDelete('cascade')`, so a business
+ * sitting on a plan this seeder removes loses that plan outright. It is not
+ * moved to `Entry` first, and the seeder does not refuse. Every row about to be
+ * destroyed is logged with the number of subscriptions going with it, and that
+ * line is the only account of it that will ever exist.
+ *
+ * **It bypasses a guard the console enforces on itself.**
+ * `SubscriptionPlanController::destroy()` refuses to delete a plan carrying
+ * active, pending or suspended subscriptions and tells the admin to deactivate
+ * it instead. This seeder does exactly what that guard exists to prevent. That
+ * is deliberate and known rather than an oversight to be tidied up later: it is
+ * the owner's operation, run by hand, against a catalogue that had stopped being
+ * manageable.
+ *
+ * **A rename is a delete.** Matching is by name, so an admin who renames the
+ * entry tier to something else gets that row deleted — cascading whatever was
+ * subscribed to it — and a fresh `Entry` created in its place. There is no
+ * `plan_code` to match on instead: rows created by an older seeder have none.
+ *
+ * ## The faults the rewrite before this one fixed, which are still fixed
+ *
+ * Neither is worth reintroducing, and the first is why `plan_code` is absent
+ * from the values below:
+ *
+ * 1. **Saved links.** It ran `updateOrCreate` with `'plan_code' => Str::random(24)`
+ *    inside the *values* array, so every run rewrote the code. `plan_code` is
+ *    the route key — checkout URLs use it — so re-seeding invalidated every URL
+ *    anybody had been sent. {@see SubscriptionPlan} fills it on create and only
+ *    when empty, so a surviving tier keeps the code its links are published
+ *    under.
+ * 2. **Admin work.** It ran
  *    `whereNotIn('name', ['Starter Monthly', 'Starter Annual'])->update(['is_active' => false])`,
- *    which switched off every plan an admin had created, and
- *    `where('is_default', true)->update(['is_default' => false])`, which took the
- *    default away from whichever plan had been chosen to hold it. A seeder that
- *    undoes the console is a seeder that cannot be run.
+ *    switching off every plan an admin had created, and cleared `is_default` on
+ *    every row. The default is still claimed below, but only because this seeder
+ *    now owns the whole table: with every other row deleted there is no admin
+ *    choice left for it to undo.
  *
- * So this rewrite is a correctness fix first and a tier change second:
- * `firstOrCreate` on the name, nothing written into a row that already exists,
- * no deactivation sweep and no default-flag shuffle. Running it against a live
- * database does nothing at all once the three tiers are there, whatever the
- * admin has since done to them.
+ * ## Why the flag is cleared before it is set
+ *
+ * {@see Entitlements::for()} resolves a trial whose owner has never picked a
+ * plan through `active()->default()->first()`, and `first()` between two flagged
+ * rows returns whichever the table offers first. Clearing every row before
+ * setting the entry tier's flag means the catalogue never passes through a state
+ * that has two.
  *
  * ## Three tiers, and the top one holds the whole catalogue
  *
@@ -48,66 +96,33 @@ use Illuminate\Database\Seeder;
  * state would send an owner to the most expensive plan on the platform for
  * something it does not actually include.
  *
- * ## These are defaults, not fixtures
+ * ## The values below are the catalogue, not fixtures
  *
- * Names, prices and intervals are the seeder's opening bid. What it asserts is
- * the *shape*: three tiers, all ten keys stated on every one of them, storefronts
- * everywhere, three stores at the entry tier and twenty at the second — and that
- * the ladder climbs, which is the property a price list exists to have.
+ * Names, prices and intervals are the offer, and because they are written on
+ * every run, editing a number here is now the whole of a price change — there is
+ * no reconciliation migration to write beside it. What that costs is that the
+ * console can no longer hold a price: an admin who re-prices a tier from the
+ * admin panel keeps it only until the next seed.
  *
- * The bidding is not quite the last word on an existing database, and this is
- * worth knowing before changing a number here expecting it to land: because
- * `firstOrCreate` writes nothing to a row that is already there, `Entry` and
- * `Growth` will keep whatever price they were created with, and so would
- * `Enterprise` had 2026_10_14_000005 not re-applied this file's price and copy
- * to every recognised row. Read that migration before re-pricing a tier: it runs
- * on the next deploy, once, and the console is where a price is changed
- * afterwards.
+ * What the tests pin is the *shape*: three tiers, all ten keys stated on every
+ * one of them, storefronts everywhere, three stores at the entry tier and twenty
+ * at the second — and that the ladder climbs, which is the property a price list
+ * exists to have.
  *
- * ## The default plan, and why it is stated here — but only where it is free
+ * ## What this seeder does not do
  *
- * The entry tier carries `is_default`, which is what
- * {@see Entitlements::for()} resolves a trial to when the owner has never picked
- * a plan. Leaving it to the console is how the flag ends up on a superseded row:
- * on the database this was written against, `Vendor` and `Starter` — two legacy
- * rows that state no entitlements at all — held it between them, so every new
- * signup was entitled by a row nobody had looked at in months.
- * 2026_10_14_000004_retire_superseded_plan_rows.php retires those two and moves
- * the flag here; this seeder states it so a fresh install never repeats the
- * mistake.
+ * It writes rows, not history. A database that has never been seeded gets the
+ * three tiers and nothing else, which is the intent. A database seeded by an
+ * *older* version is the case the delete exists for: rows a previous seeder
+ * created under other names are removed rather than reconciled, because there is
+ * nothing in them this file could recognise.
+ * 2026_10_14_000004_retire_superseded_plan_rows.php was the earlier answer to
+ * that problem, and it retired `Vendor` and `Starter` by name — rows this
+ * database does not have, which is why the plans page stayed wrong. It remains
+ * as history; this seeder is what clears a catalogue now.
  *
- * It states it **only when no plan holds it already** — see `$defaultIsHeld` in
- * `run()`. Two of the three routes to a second flagged row are silent and worth
- * naming: an admin who renames the entry tier, after which `firstOrCreate`
- * matches nothing and creates a fresh row under the old name; and an admin who
- * simply promotes a plan of their own in the console. Either leaves two rows
- * carrying `is_default`, and `active()->default()->first()` then picks between
- * them by whatever order the table happens to return. Stating the flag
- * unconditionally is only safe while the row it is stated on already exists.
- *
- * ## What this seeder cannot do, and what does it instead
- *
- * `firstOrCreate` means this file describes plans that do not exist yet and
- * leaves every row that already exists exactly as it was — including rows whose
- * name it recognises. On a database seeded by an older version, the `Enterprise`
- * row it would match is a *legacy* row with `entitlements = null`: this seeder
- * matches it, writes nothing, and reports success. So the three tiers below are
- * the definition of the opening offer, and the migrations do the work on rows
- * that are already there:
- *
- * - 2026_10_14_000002_fill_plan_entitlements_from_tier_names.php — the first
- *   seven keys onto recognised rows
- * - 2026_10_14_000003_fill_module_entitlements_from_tier_names.php — `pos`,
- *   `plugins` and `invoices`, added later
- * - 2026_10_14_000004_retire_superseded_plan_rows.php — switching off the rows
- *   this seeder supersedes, and moving the default
- * - 2026_10_14_000005_apply_seeded_tier_pricing_and_copy.php — the price and the
- *   copy of a recognised row, which is the half of a tier `firstOrCreate` cannot
- *   reach at all. A recognised row that already exists keeps whatever it was
- *   created with, and the `Enterprise` row on this platform was created with
- *   `Entry`'s price.
- *
- * `TIERS` is public so those migrations and this seeder read one definition
+ * `TIERS` is public so the tests, and
+ * 2026_10_14_000005_apply_seeded_tier_pricing_and_copy.php, read one definition
  * rather than several that drift.
  */
 class SubscriptionPlanSeeder extends Seeder
@@ -222,28 +237,22 @@ class SubscriptionPlanSeeder extends Seeder
 
     public function run(): void
     {
+        // Cleared before it is set. `is_default` is read as
+        // `active()->default()->first()`, and two flagged rows make that
+        // whichever the table offers first. Everything that is not a tier is
+        // deleted below, so the only row left able to hold it is the entry tier.
+        SubscriptionPlan::where('is_default', true)->update(['is_default' => false]);
+
         $defaultTier = array_key_first(self::TIERS);
 
-        // Read once, before anything is created, and only claim the default if
-        // nothing at all holds it. Stating it unconditionally would be safe for
-        // `firstOrCreate` on one row and unsafe *across* rows: an admin who
-        // renames the entry tier leaves this seeder matching nothing, so it
-        // creates a fresh row under the old name — and a second row carrying the
-        // default, between which {@see Entitlements::for()} then picks
-        // arbitrarily. So a database with no plans gets the flag on the entry
-        // tier, fresh install included; a database that already has one keeps
-        // whatever an admin chose, and the retirement migration is what moves it
-        // off a superseded row.
-        $defaultIsHeld = SubscriptionPlan::where('is_default', true)->exists();
+        // The ids of the rows this run leaves standing. Deleting by *name*
+        // instead would spare a duplicate — two rows called `Entry`, where
+        // `updateOrCreate` matched only one — and the whole point of this seeder
+        // is that the catalogue afterwards is exactly these three.
+        $keep = [];
 
         foreach (self::TIERS as $tier => $plan) {
-            // `firstOrCreate`, so an existing row is left completely alone —
-            // including its `plan_code`, which is a live URL, and including
-            // `is_default`, which is why the flag below is safe to state here.
-            // Everything inside this array is written once and owned by the
-            // admin from then on; this seeder is an opening offer, not a
-            // reconciliation.
-            SubscriptionPlan::firstOrCreate(
+            $keep[] = SubscriptionPlan::updateOrCreate(
                 ['name' => $plan['name']],
                 [
                     'description' => $plan['description'],
@@ -252,31 +261,41 @@ class SubscriptionPlanSeeder extends Seeder
                     'interval' => 'monthly',
                     'interval_count' => 1,
                     'is_active' => true,
-                    // The entry tier takes the default where nobody holds it,
-                    // rather than leaving it to the console, because the
-                    // alternative is not "nobody holds it" but "a row nobody
-                    // meant holds it": `is_default` decides what a trial whose
-                    // owner has never picked a plan resolves to
-                    // ({@see Entitlements::for()}), and leaving it unset means
-                    // that trial is entitled by whichever row happens to be
-                    // flagged — which is how a legacy row ends up deciding the
-                    // entitlements of every new signup. See `$defaultIsHeld`
-                    // above for when this is written and when it stands down.
-                    //
-                    // If you are reading this because the default has moved:
-                    // that is a console action and this seeder will not undo it,
-                    // both because `firstOrCreate` writes nothing to a row that
-                    // is already there and because a flag that is already held
-                    // is never claimed here. Re-seeding is safe.
-                    'is_default' => $tier === $defaultTier && ! $defaultIsHeld,
+                    // Claimed outright, not only where nobody holds it. The
+                    // version of this seeder that shipped before could not take
+                    // the flag off an admin's plan without re-entitling every
+                    // trial that had never chosen one; this one deletes that
+                    // plan, so the choice it would have undone is gone anyway.
+                    'is_default' => $tier === $defaultTier,
                     'is_trial' => false,
                     'trial_days' => null,
                     'tier' => $tier,
                     'sort_order' => $tier,
                     'features' => $plan['features'],
                     'entitlements' => $plan['entitlements'],
+                    // `plan_code` is deliberately absent. It is the route key,
+                    // published in checkout URLs, and the model fills it on
+                    // create and only when empty — rewriting it here is the
+                    // fault that broke every saved link.
                 ]
-            );
+            )->id;
         }
+
+        SubscriptionPlan::whereNotIn('id', $keep)
+            ->get()
+            ->each(function (SubscriptionPlan $plan): void {
+                // Logged before it goes, because the cascade this triggers is
+                // silent and unrecoverable: `subscriptions.subscription_plan_id`
+                // is `onDelete('cascade')`, so this line is the only record of a
+                // business that has just lost its plan.
+                Log::warning('SubscriptionPlanSeeder removed a plan that is not a tier.', [
+                    'plan' => $plan->name,
+                    'plan_code' => $plan->plan_code,
+                    'amount' => $plan->amount,
+                    'subscriptions_deleted' => $plan->subscriptions()->count(),
+                ]);
+
+                $plan->delete();
+            });
     }
 }

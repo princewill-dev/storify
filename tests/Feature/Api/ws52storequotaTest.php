@@ -10,7 +10,7 @@ use App\Support\Plans\StoreQuota;
 use Database\Seeders\SubscriptionPlanSeeder;
 
 /*
-| WS-52 — the store cap, and the seeder that stops eating the admin's work.
+| WS-52 — the store cap, and the plan seeder that owns the catalogue.
 |
 | `settings.store_creation_limit` was stored, validated, displayed in the admin
 | console, and read by no creation path on the platform: a plan that said three
@@ -351,10 +351,12 @@ test('a live trial with no plan row anywhere still gets the house allowance', fu
 
 /* ------------------------------------------------------- the seeder itself */
 
-test('the plan seeder seeds three tiers once and never rewrites them', function () {
-    // `updateOrCreate` with a fresh `plan_code` inside the values array ran on
-    // every `db:seed`, so a saved checkout URL broke on each deploy. A seeder
-    // that cannot be run twice is a seeder nobody can run.
+test('the plan seeder converges on three tiers and keeps their plan codes', function () {
+    // "Runnable twice" now means *converges* rather than *does nothing*: this
+    // seeder rewrites the three tiers on every run and deletes everything else.
+    // The half that must not move is `plan_code` — it is the route key and
+    // checkout URLs are published under it, so a re-seed that reissued it would
+    // break every link anybody had been sent.
     $this->seed(SubscriptionPlanSeeder::class);
 
     $entry = SubscriptionPlan::where('name', 'Entry')->firstOrFail();
@@ -364,6 +366,7 @@ test('the plan seeder seeds three tiers once and never rewrites them', function 
 
     expect(SubscriptionPlan::where('name', 'Entry')->count())->toBe(1)
         ->and($entry->fresh()->plan_code)->toBe($code)
+        ->and(SubscriptionPlan::count())->toBe(3)
         ->and(SubscriptionPlan::where('name', 'Growth')->firstOrFail()->tier)->toBe(2)
         ->and(SubscriptionPlan::where('name', 'Enterprise')->firstOrFail()->tier)->toBe(3);
 });
@@ -397,19 +400,21 @@ test('the seeded tiers carry the shape the owner asked for', function () {
         ->and(SubscriptionPlan::where('is_default', true)->count())->toBe(1);
 });
 
-test('the plan seeder leaves an admin plan alone, and does not take the default', function () {
-    // The old seeder ran `whereNotIn('name', [...])->update(['is_active' => false])`
-    // and cleared `is_default` on every plan. Both undid console work, and one
-    // of them silently re-entitled every trial that had never picked a plan.
+test('the plan seeder deletes a plan it does not recognise, and restores the tiers', function () {
+    // The reversal, stated as a test. This seeder used to leave every existing
+    // row exactly as it was, which meant a catalogue that had accumulated
+    // `Vanilla` and `Start up` beside the three tiers could never be put right by
+    // re-seeding — the one thing an owner reasonably does when the plans page
+    // looks wrong. It owns the table outright now, and this pins what that costs:
+    // the console's plan is gone, a renamed tier is back under its seeded name,
+    // and the default has returned to the entry tier.
     $this->seed(SubscriptionPlanSeeder::class);
 
     $entry = SubscriptionPlan::where('name', 'Entry')->firstOrFail();
 
-    // On a clean database the seeder puts the default on the entry tier, so the
-    // admin has to *move* it for this test to be about anything. That move is
-    // the console action the seeder must respect: `Entitlements::for()` resolves
-    // a trial nobody has chosen a plan for to whichever row holds the flag, so a
-    // seeder that took it back would re-entitle every such trial on deploy.
+    // Console work of every kind the previous seeder went out of its way to
+    // respect: a plan of the admin's own, a moved default, and a renamed and
+    // re-priced tier.
     $entry->update(['is_default' => false]);
 
     $custom = SubscriptionPlan::create([
@@ -425,25 +430,115 @@ test('the plan seeder leaves an admin plan alone, and does not take the default'
         'sort_order' => 9,
     ]);
 
-    // And an admin renames and re-prices a seeded tier, which is the whole point
-    // of planning in data rather than in code.
     $entry->update(['name' => 'Starter', 'amount' => 7000]);
 
     $this->seed(SubscriptionPlanSeeder::class);
 
-    expect($custom->fresh()->is_active)->toBeTrue()
-        ->and($custom->fresh()->is_default)->toBeTrue()
-        ->and($entry->fresh()->name)->toBe('Starter')
-        ->and((float) $entry->fresh()->amount)->toBe(7000.0)
-        ->and($entry->fresh()->is_active)->toBeTrue()
-        // The seeded plans never *take* the default: it decides what a trial
-        // nobody has chosen a plan for resolves to, and taking it at deploy time
-        // would re-entitle every such trial without anybody asking. Note this
-        // run does create a row — `Entry` was renamed to `Starter` above, so
-        // `firstOrCreate` matches nothing and inserts one — and that row has to
-        // arrive unflagged for this to hold.
-        ->and(SubscriptionPlan::where('is_default', true)->value('id'))->toBe($custom->id)
-        ->and(SubscriptionPlan::where('name', 'Entry')->firstOrFail()->is_default)->toBeFalse();
+    expect(SubscriptionPlan::where('name', 'Agency Retainer')->exists())->toBeFalse()
+        ->and($custom->fresh())->toBeNull()
+        ->and(SubscriptionPlan::count())->toBe(3)
+        // A rename is a delete and a re-create: there is no code to match a
+        // renamed row on, because rows from an older seeder have none. The tier
+        // therefore comes back under its seeded name, at its seeded price.
+        ->and(SubscriptionPlan::where('name', 'Starter')->exists())->toBeFalse()
+        ->and((float) SubscriptionPlan::where('name', 'Entry')->firstOrFail()->amount)->toBe(5000.0)
+        // And the flag is claimed rather than respected, because the row that
+        // held it no longer exists to respect.
+        ->and(SubscriptionPlan::where('is_default', true)->count())->toBe(1)
+        ->and(SubscriptionPlan::where('is_default', true)->value('name'))->toBe('Entry');
+});
+
+test('the plan seeder deletes the legacy rows the plans page was advertising', function () {
+    // The report that prompted all of this: the marketing page listing five
+    // plans. It reads `active()->where('is_trial', false)`, so these two were
+    // live and on sale, and the seeder as it was could not take them off.
+    $this->seed(SubscriptionPlanSeeder::class);
+
+    foreach ([['Vanilla', 75000], ['Start up', 100000]] as [$name, $amount]) {
+        SubscriptionPlan::create([
+            'name' => $name,
+            'amount' => $amount,
+            'currency' => 'NGN',
+            'interval' => 'monthly',
+            'interval_count' => 1,
+            'is_active' => true,
+            'is_trial' => false,
+            'tier' => 1,
+            'sort_order' => 1,
+        ]);
+    }
+
+    expect(SubscriptionPlan::count())->toBe(5);
+
+    $this->seed(SubscriptionPlanSeeder::class);
+
+    expect(SubscriptionPlan::count())->toBe(3)
+        ->and(SubscriptionPlan::orderBy('tier')->pluck('name')->all())
+        ->toBe(['Entry', 'Growth', 'Enterprise']);
+});
+
+test('a business on a plan the seeder removes loses its subscription with it', function () {
+    // The cost of the wipe, pinned here so it is never discovered in production
+    // instead. `subscriptions.subscription_plan_id` is `onDelete('cascade')`, so
+    // this is what deleting a plan does to whoever was on it: the seeder does
+    // not move them to `Entry` first, does not refuse, and logs what it took.
+    // The admin console refuses exactly this operation — it tells an admin to
+    // deactivate instead — which is worth knowing when reading the assertion
+    // below rather than assuming it is a bug.
+    $this->seed(SubscriptionPlanSeeder::class);
+
+    [$owner] = createBusinessOwner(['is_verified' => true]);
+
+    $legacy = SubscriptionPlan::create([
+        'name' => 'Vanilla',
+        'amount' => 75000,
+        'currency' => 'NGN',
+        'interval' => 'monthly',
+        'interval_count' => 1,
+        'is_active' => true,
+        'is_trial' => false,
+        'tier' => 1,
+        'sort_order' => 1,
+    ]);
+
+    $subscription = ws52Subscribe($owner, $legacy);
+
+    $this->seed(SubscriptionPlanSeeder::class);
+
+    expect(SubscriptionPlan::where('name', 'Vanilla')->exists())->toBeFalse()
+        ->and(Subscription::find($subscription->id))->toBeNull()
+        // The business itself is untouched: it is the plan that went, not the
+        // account.
+        ->and(Business::find($owner->business_id))->not->toBeNull();
+});
+
+test('the top tier states every entitlement the registry knows', function () {
+    // The owner asked for the last tier to grant full access, and the shape
+    // matters beyond the page: `Entitlements::planGranting()` answers "which
+    // plan would give me this?" with the cheapest plan that grants the toggle,
+    // so a key the top tier does not state sends an owner to the most expensive
+    // plan on the platform for something it does not actually include.
+    $this->seed(SubscriptionPlanSeeder::class);
+
+    $enterprise = SubscriptionPlan::where('name', 'Enterprise')->firstOrFail();
+
+    // Key by key rather than by a count, so a key renamed in the registry reads
+    // as a failure here rather than as a plan that quietly stopped granting
+    // things.
+    expect(array_keys($enterprise->entitlements))
+        ->toEqualCanonicalizing(EntitlementRegistry::keys());
+
+    foreach (EntitlementRegistry::keys() as $key) {
+        if (EntitlementRegistry::type($key) === EntitlementRegistry::TYPE_TOGGLE) {
+            expect($enterprise->entitlements[$key])->toBeTrue();
+
+            continue;
+        }
+
+        // Every limit left open. `null` is unlimited, and it is deliberate that
+        // only this tier has it.
+        expect($enterprise->entitlements[$key])->toBeNull();
+    }
 });
 
 test('the pricing reconciliation puts the ladder back and leaves unknown rows alone', function () {
@@ -512,11 +607,15 @@ test('the pricing reconciliation puts the ladder back and leaves unknown rows al
 
 test('the seeder is idempotent against a business that already runs on it', function () {
     // End to end: seed, subscribe a business, seed again, and the business's
-    // entitlement is the one it bought.
+    // entitlement is the one it bought. This doubles as the guard on the
+    // seeder's sharpest edge — it deletes plans, and
+    // `subscriptions.subscription_plan_id` cascades, so a re-seed that stopped
+    // recognising `Growth` would silently take this business's plan with it.
     $this->seed(SubscriptionPlanSeeder::class);
 
     [$owner, $business] = createBusinessOwner(['is_verified' => true]);
-    ws52Subscribe($owner, SubscriptionPlan::where('name', 'Growth')->firstOrFail());
+    $growth = SubscriptionPlan::where('name', 'Growth')->firstOrFail();
+    $subscription = ws52Subscribe($owner, $growth);
 
     ws52Stores($owner, 20);
 
@@ -526,6 +625,12 @@ test('the seeder is idempotent against a business that already runs on it', func
 
     expect($refusal)->not->toBeNull()
         ->and($refusal['message'])->toContain('Growth');
+
+    // The tier survived the wipe, so the subscription did too, and it is still
+    // the row the business was sold rather than a replacement that happens to
+    // carry the same name.
+    expect($subscription->fresh())->not->toBeNull()
+        ->and($subscription->fresh()->subscription_plan_id)->toBe($growth->id);
 
     expect(Business::find($business->id))->not->toBeNull();
 });
