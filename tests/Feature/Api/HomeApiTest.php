@@ -28,7 +28,7 @@ test('home endpoint returns company, stats, plans, testimonials, services and st
         'status' => 'active',
     ]);
 
-    SubscriptionPlan::create([
+    $starter = SubscriptionPlan::create([
         'name' => 'Starter',
         'amount' => 5000,
         'currency' => 'NGN',
@@ -38,6 +38,7 @@ test('home endpoint returns company, stats, plans, testimonials, services and st
         'is_trial' => false,
         'features' => ['Feature A'],
         'sort_order' => 1,
+        'tier' => 1,
     ]);
 
     Testimonial::create([
@@ -60,6 +61,16 @@ test('home endpoint returns company, stats, plans, testimonials, services and st
         ->assertJsonPath('data.stats.stores', 1)
         ->assertJsonPath('data.stats.products', 1)
         ->assertJsonPath('data.plans.0.name', 'Starter')
+        // The marketing page's cards link to signup carrying these two: the
+        // route key the rest of the platform addresses a plan by, and the rank
+        // a plan change compares on. Neither is the numeric `id`, which belongs
+        // to this payload alone — a link built from it would arrive at a
+        // register screen that cannot resolve it.
+        ->assertJsonPath('data.plans.0.plan_code', $starter->plan_code)
+        ->assertJsonPath('data.plans.0.tier', 1)
+        // Null rather than 0 while the catalogue sells one cadence: there is
+        // nothing to compare, and the page shows no badge at all.
+        ->assertJsonPath('data.yearly_savings_percent', null)
         ->assertJsonPath('data.testimonials.0.name', 'Ada')
         ->assertJsonPath('data.services.0.title', 'Store Setup')
         ->assertJsonPath('data.stores.0.slug', 'store-one')

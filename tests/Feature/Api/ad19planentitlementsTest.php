@@ -191,6 +191,115 @@ test('changing what a plan grants is written to the audit trail', function () {
         ->and($log->new_values['entitlements'] ?? null)->toBe([EntitlementRegistry::STORES => 25]);
 });
 
+/* ------------------------------------------------ the annual twin follows */
+
+test('re-pricing a monthly plan carries its annual twin with it', function () {
+    // The owner's "auto computed, in case admin changes the plans in the
+    // future", driven through the endpoint an admin actually uses. A monthly
+    // tier and its annual twin are two rows with one commercial fact between
+    // them, and the console only ever edits the monthly one — so the annual
+    // price has to follow from the write, not from a seeder run somebody
+    // remembers to do afterwards.
+    $monthly = ad19Plan(['amount' => '5000.00', 'tier' => 1]);
+    $annual = ad19Plan([
+        'name' => 'Entry',
+        'amount' => '48000.00',
+        'interval' => 'yearly',
+        'tier' => 1,
+        'sort_order' => 4,
+    ]);
+
+    $this->withToken(ad19Token(ad19SuperAdmin()))
+        ->putJson("/api/v1/admin/subscription-plans/{$monthly->plan_code}", [
+            'name' => 'Entry',
+            'amount_kobo' => 700000,
+            'currency' => 'NGN',
+            'interval' => 'monthly',
+            'interval_count' => 1,
+            'tier' => 1,
+        ])
+        ->assertOk();
+
+    // ₦7,000 a month, so a year of it less twenty per cent — ₦67,200.
+    expect((float) $annual->fresh()->amount)->toBe(67200.0)
+        ->and((float) $monthly->fresh()->amount)->toBe(7000.0);
+});
+
+test('an annual row priced before its monthly twin existed is corrected when the twin arrives', function () {
+    // The direction the console cannot drive: rows created out of order. An
+    // annual plan can be written while there is no monthly row at its tier to
+    // derive from — there is nothing to check it against, so the observer
+    // leaves it alone rather than inventing a figure. The moment the monthly
+    // row lands, the pair exists and the stale figure is put right.
+    $annual = ad19Plan([
+        'name' => 'Entry',
+        'amount' => '9999.00',
+        'interval' => 'yearly',
+        'tier' => 1,
+    ]);
+
+    expect((float) $annual->fresh()->amount)->toBe(9999.0);
+
+    ad19Plan(['amount' => '5000.00', 'tier' => 1]);
+
+    expect((float) $annual->fresh()->amount)->toBe(48000.0);
+});
+
+test('an annual price typed into the console is refused, and the monthly plan is named', function () {
+    // The observer is the backstop and would put the figure back, which is
+    // exactly why the refusal has to be here: an edit that silently does not
+    // stick reads as a broken form. The admin is told what to edit instead.
+    ad19Plan(['amount' => '5000.00', 'tier' => 1]);
+    $annual = ad19Plan([
+        'name' => 'Entry',
+        'amount' => '48000.00',
+        'interval' => 'yearly',
+        'tier' => 1,
+    ]);
+
+    $this->withToken(ad19Token(ad19SuperAdmin()))
+        ->putJson("/api/v1/admin/subscription-plans/{$annual->plan_code}", [
+            'name' => 'Entry',
+            'amount_kobo' => 6000000,
+            'currency' => 'NGN',
+            'interval' => 'yearly',
+            'interval_count' => 1,
+            'tier' => 1,
+        ])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors('amount');
+
+    expect((float) $annual->fresh()->amount)->toBe(48000.0);
+});
+
+test('an annual plan may be left out of an edit that does not restate its price', function () {
+    // The counterpart to the refusal, and the reason it only fires on a figure
+    // that actually moved: the console submits the whole form, so an edit that
+    // renames a plan re-states its price unchanged. Refusing that would make
+    // the annual row unnameable.
+    ad19Plan(['amount' => '5000.00', 'tier' => 1]);
+    $annual = ad19Plan([
+        'name' => 'Entry',
+        'amount' => '48000.00',
+        'interval' => 'yearly',
+        'tier' => 1,
+    ]);
+
+    $this->withToken(ad19Token(ad19SuperAdmin()))
+        ->putJson("/api/v1/admin/subscription-plans/{$annual->plan_code}", [
+            'name' => 'Entry (annual)',
+            'amount_kobo' => 4800000,
+            'currency' => 'NGN',
+            'interval' => 'yearly',
+            'interval_count' => 1,
+            'tier' => 1,
+        ])
+        ->assertOk();
+
+    expect($annual->fresh()->name)->toBe('Entry (annual)')
+        ->and((float) $annual->fresh()->amount)->toBe(48000.0);
+});
+
 /* ------------------------------------------------------ assigning a plan */
 
 test('an admin puts a trialling business on a plan, and it takes effect', function () {

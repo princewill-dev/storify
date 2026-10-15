@@ -2,6 +2,10 @@
 
 namespace App\Http\Requests\Admin;
 
+use App\Models\SubscriptionPlan;
+use App\Observers\SubscriptionPlanObserver;
+use App\Support\Money\Naira;
+use App\Support\Plans\AnnualPricing;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -100,7 +104,99 @@ final class SubscriptionPlanRequest extends FormRequest
                 if ($this->boolean('is_trial') && $this->boolean('is_default')) {
                     $validator->errors()->add('is_default', 'A trial plan cannot be the default plan.');
                 }
+
+                $this->refuseTypedAnnualAmount($validator);
             },
         ];
+    }
+
+    /**
+     * An annual price is computed, never typed.
+     *
+     * A yearly plan is priced from its monthly twin at the same tier — see
+     * {@see AnnualPricing} — and
+     * {@see SubscriptionPlanObserver} puts a hand-typed figure
+     * back the moment it is saved. Refusing it here is what turns that into
+     * something the admin is *told*, rather than an edit that silently does not
+     * stick. The observer is still the backstop, because the console is not the
+     * only thing that writes a plan.
+     */
+    private function refuseTypedAnnualAmount(Validator $validator): void
+    {
+        if ($this->input('interval') !== 'yearly' || $this->boolean('is_trial')) {
+            return;
+        }
+
+        $monthly = $this->monthlyTwin();
+
+        // No twin to derive from: a yearly plan being created before its
+        // monthly row exists, or a tier the ladder does not pair. There is no
+        // expected figure, so there is nothing to refuse — the observer will
+        // settle it if a twin turns up.
+        if ($monthly === null) {
+            return;
+        }
+
+        $submitted = $this->submittedAmountKobo();
+
+        // No amount in the payload at all. `amount` and `amount_kobo` are
+        // `required_without` each other, so this only happens on a payload that
+        // has already failed its own rules.
+        if ($submitted === null) {
+            return;
+        }
+
+        if ($submitted === AnnualPricing::annualKobo($monthly->amount)) {
+            return;
+        }
+
+        $validator->errors()->add(
+            'amount',
+            'Annual plans are priced automatically — '.AnnualPricing::DISCOUNT_PERCENT
+            ."% off twelve months of the monthly plan. Change the {$monthly->name} monthly plan's "
+            .'price instead and this one follows.',
+        );
+    }
+
+    /**
+     * The monthly plan at the tier this payload would put the plan on.
+     *
+     * `tier` is `sometimes`, so a partial payload falls back to the tier the
+     * plan already sits at — an edit that changes only the name and price must
+     * still find the right twin.
+     */
+    private function monthlyTwin(): ?SubscriptionPlan
+    {
+        $existing = $this->route('plan');
+        $tier = $this->input('tier') ?? ($existing instanceof SubscriptionPlan ? $existing->tier : null);
+
+        if ($tier === null) {
+            return null;
+        }
+
+        return SubscriptionPlan::query()
+            ->where('tier', (int) $tier)
+            ->where('is_trial', false)
+            ->where('interval', 'monthly')
+            ->orderBy('id')
+            ->first();
+    }
+
+    /**
+     * Whatever the payload said the price was, in kobo — or null if it said
+     * nothing. `amount_kobo` wins, because it is the house unit and is what the
+     * service writes when both are present.
+     */
+    private function submittedAmountKobo(): ?int
+    {
+        if ($this->filled('amount_kobo')) {
+            return (int) $this->input('amount_kobo');
+        }
+
+        if ($this->filled('amount')) {
+            return Naira::koboFromStrict((string) $this->input('amount'));
+        }
+
+        return null;
     }
 }

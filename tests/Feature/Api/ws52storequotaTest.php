@@ -5,6 +5,8 @@ use App\Models\Store;
 use App\Models\Subscription;
 use App\Models\SubscriptionPlan;
 use App\Models\User;
+use App\Support\Money\Naira;
+use App\Support\Plans\AnnualPricing;
 use App\Support\Plans\EntitlementRegistry;
 use App\Support\Plans\StoreQuota;
 use Database\Seeders\SubscriptionPlanSeeder;
@@ -351,24 +353,33 @@ test('a live trial with no plan row anywhere still gets the house allowance', fu
 
 /* ------------------------------------------------------- the seeder itself */
 
-test('the plan seeder converges on three tiers and keeps their plan codes', function () {
+test('the plan seeder converges on three tiers in two cadences and keeps their plan codes', function () {
     // "Runnable twice" now means *converges* rather than *does nothing*: this
     // seeder rewrites the three tiers on every run and deletes everything else.
     // The half that must not move is `plan_code` — it is the route key and
     // checkout URLs are published under it, so a re-seed that reissued it would
-    // break every link anybody had been sent.
+    // break every link anybody had been sent. Each cadence has its own row and
+    // therefore its own code, which is why both are captured here and not just
+    // the first one found.
     $this->seed(SubscriptionPlanSeeder::class);
 
-    $entry = SubscriptionPlan::where('name', 'Entry')->firstOrFail();
+    $entry = SubscriptionPlan::where('name', 'Entry')->where('interval', 'monthly')->firstOrFail();
+    $annual = SubscriptionPlan::where('name', 'Entry')->where('interval', 'yearly')->firstOrFail();
     $code = $entry->plan_code;
+    $annualCode = $annual->plan_code;
 
     $this->seed(SubscriptionPlanSeeder::class);
 
-    expect(SubscriptionPlan::where('name', 'Entry')->count())->toBe(1)
+    // The match key is `name` **and** `interval`: the twins deliberately share a
+    // name, so keyed on the name alone `updateOrCreate` would match the monthly
+    // row on both passes and clobber it with the annual figures.
+    expect(SubscriptionPlan::where('name', 'Entry')->count())->toBe(2)
         ->and($entry->fresh()->plan_code)->toBe($code)
-        ->and(SubscriptionPlan::count())->toBe(3)
-        ->and(SubscriptionPlan::where('name', 'Growth')->firstOrFail()->tier)->toBe(2)
-        ->and(SubscriptionPlan::where('name', 'Enterprise')->firstOrFail()->tier)->toBe(3);
+        ->and($annual->fresh()->plan_code)->toBe($annualCode)
+        ->and(SubscriptionPlan::count())->toBe(6)
+        ->and(SubscriptionPlan::where('name', 'Growth')->where('interval', 'monthly')->firstOrFail()->tier)->toBe(2)
+        ->and(SubscriptionPlan::where('name', 'Enterprise')->where('interval', 'monthly')->firstOrFail()->tier)->toBe(3)
+        ->and(SubscriptionPlan::where('name', 'Enterprise')->where('interval', 'yearly')->firstOrFail()->tier)->toBe(3);
 });
 
 test('the seeded tiers carry the shape the owner asked for', function () {
@@ -398,6 +409,55 @@ test('the seeded tiers carry the shape the owner asked for', function () {
     // pinned by the test below.
     expect(SubscriptionPlan::where('name', 'Entry')->firstOrFail()->is_default)->toBeTrue()
         ->and(SubscriptionPlan::where('is_default', true)->count())->toBe(1);
+});
+
+test('each tier is sold annually at twenty per cent off twelve months of it', function () {
+    // The owner's "auto computed, in case admin changes the plans in the
+    // future", pinned as arithmetic rather than as three magic numbers: every
+    // annual price is `AnnualPricing` applied to the monthly row beside it, so
+    // an admin re-pricing a tier underneath moves both and this test still
+    // holds. Asserting the literals instead would pass just as well today and
+    // would fail in the one case that matters — a discounted annual row that
+    // had drifted from its monthly twin.
+    $this->seed(SubscriptionPlanSeeder::class);
+
+    $monthlies = SubscriptionPlan::where('interval', 'monthly')
+        ->where('is_trial', false)
+        ->orderBy('tier')
+        ->get();
+
+    expect($monthlies)->toHaveCount(3);
+
+    foreach ($monthlies as $monthly) {
+        $annual = SubscriptionPlan::where('interval', 'yearly')
+            ->where('tier', $monthly->tier)
+            ->firstOrFail();
+
+        expect(Naira::koboFromStrict($annual->amount))
+            ->toBe(AnnualPricing::annualKobo($monthly->amount))
+            // And the discount is real: strictly cheaper than paying monthly for
+            // a year, which is the only reason a customer would pick it.
+            ->toBeLessThan(Naira::koboFromStrict($monthly->amount) * 12);
+
+        // The twin grants exactly what its monthly sibling grants. A cadence is
+        // a billing decision and not a feature, so anything else would be a
+        // second ladder to keep in step.
+        expect($annual->entitlements)->toBe($monthly->entitlements)
+            ->and($annual->name)->toBe($monthly->name);
+    }
+
+    // The three published prices, stated once so the page's figures are pinned
+    // somewhere a human reads them. Read off models rather than with a query
+    // `pluck`, which skips the `decimal:2` cast and hands back the column's
+    // string form.
+    $prices = fn (string $interval): array => SubscriptionPlan::where('interval', $interval)
+        ->orderBy('sort_order')
+        ->get()
+        ->mapWithKeys(fn (SubscriptionPlan $plan): array => [$plan->name => (float) $plan->amount])
+        ->all();
+
+    expect($prices('monthly'))->toBe(['Entry' => 5000.0, 'Growth' => 15000.0, 'Enterprise' => 50000.0])
+        ->and($prices('yearly'))->toBe(['Entry' => 48000.0, 'Growth' => 144000.0, 'Enterprise' => 480000.0]);
 });
 
 test('the plan seeder deletes a plan it does not recognise, and restores the tiers', function () {
@@ -436,12 +496,12 @@ test('the plan seeder deletes a plan it does not recognise, and restores the tie
 
     expect(SubscriptionPlan::where('name', 'Agency Retainer')->exists())->toBeFalse()
         ->and($custom->fresh())->toBeNull()
-        ->and(SubscriptionPlan::count())->toBe(3)
+        ->and(SubscriptionPlan::count())->toBe(6)
         // A rename is a delete and a re-create: there is no code to match a
         // renamed row on, because rows from an older seeder have none. The tier
         // therefore comes back under its seeded name, at its seeded price.
         ->and(SubscriptionPlan::where('name', 'Starter')->exists())->toBeFalse()
-        ->and((float) SubscriptionPlan::where('name', 'Entry')->firstOrFail()->amount)->toBe(5000.0)
+        ->and((float) SubscriptionPlan::where('name', 'Entry')->where('interval', 'monthly')->firstOrFail()->amount)->toBe(5000.0)
         // And the flag is claimed rather than respected, because the row that
         // held it no longer exists to respect.
         ->and(SubscriptionPlan::where('is_default', true)->count())->toBe(1)
@@ -468,13 +528,16 @@ test('the plan seeder deletes the legacy rows the plans page was advertising', f
         ]);
     }
 
-    expect(SubscriptionPlan::count())->toBe(5);
+    expect(SubscriptionPlan::count())->toBe(8);
 
     $this->seed(SubscriptionPlanSeeder::class);
 
-    expect(SubscriptionPlan::count())->toBe(3)
-        ->and(SubscriptionPlan::orderBy('tier')->pluck('name')->all())
-        ->toBe(['Entry', 'Growth', 'Enterprise']);
+    expect(SubscriptionPlan::count())->toBe(6)
+        // Ordered by insertion and not just by rank, because the twins share a
+        // tier: `orderBy('tier')` alone leaves their order to the engine. The
+        // monthly pass runs first, so the repeat arrives second within a rank.
+        ->and(SubscriptionPlan::orderBy('tier')->orderBy('id')->pluck('name')->all())
+        ->toBe(['Entry', 'Entry', 'Growth', 'Growth', 'Enterprise', 'Enterprise']);
 });
 
 test('a business on a plan the seeder removes loses its subscription with it', function () {
@@ -548,7 +611,9 @@ test('the pricing reconciliation puts the ladder back and leaves unknown rows al
     // gate was right and the page that sells the top tier was wrong.
     $this->seed(SubscriptionPlanSeeder::class);
 
-    $enterprise = SubscriptionPlan::where('name', 'Enterprise')->firstOrFail();
+    // The monthly row explicitly: the tier now has two, and the reconciliation
+    // this test drives is scoped to the monthly ladder.
+    $enterprise = SubscriptionPlan::where('name', 'Enterprise')->where('interval', 'monthly')->firstOrFail();
     $enterprise->update([
         'amount' => 5000,
         'description' => 'Monthly subscription — full access to all Storify features',
@@ -585,8 +650,8 @@ test('the pricing reconciliation puts the ladder back and leaves unknown rows al
 
     // The ladder, and the property the owner asked for: the top tier is
     // magnitudes above the entry tier rather than equal to it.
-    expect((float) SubscriptionPlan::where('name', 'Entry')->firstOrFail()->amount)->toBe(5000.0)
-        ->and((float) SubscriptionPlan::where('name', 'Growth')->firstOrFail()->amount)->toBe(15000.0);
+    expect((float) SubscriptionPlan::where('name', 'Entry')->where('interval', 'monthly')->firstOrFail()->amount)->toBe(5000.0)
+        ->and((float) SubscriptionPlan::where('name', 'Growth')->where('interval', 'monthly')->firstOrFail()->amount)->toBe(15000.0);
 
     // A plan no tier recognises is not the platform's to re-price — an agency
     // plan is a console decision and this migration has no opinion about it.

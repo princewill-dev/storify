@@ -14,9 +14,9 @@ use App\Services\Subscription\PlanChangeResult;
 use App\Services\Subscription\PlanSelectionService;
 use App\Services\SubscriptionTrialSettings;
 use App\Support\Money\Naira;
+use App\Support\Plans\CadenceSavings;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Collection;
 
 class PlanController extends ApiController
 {
@@ -46,7 +46,7 @@ class PlanController extends ApiController
             'monthly' => SubscriptionPlanResource::rows($monthly),
             'yearly' => SubscriptionPlanResource::rows($yearly),
             'other' => SubscriptionPlanResource::rows($other),
-            'yearly_savings_percent' => $this->yearlySavingsPercent($monthly, $yearly),
+            'yearly_savings_percent' => CadenceSavings::yearlyPercent($monthly, $yearly),
             'trial_enabled' => $trial['enabled'],
             'trial_days' => $trial['days'],
             'has_active_subscription' => (bool) $user->business?->hasActiveSubscription(),
@@ -194,28 +194,5 @@ class PlanController extends ApiController
         }
 
         return $this->ok($payload, "Your plan has been changed to {$plan->name}. The new billing amount will apply on your next renewal.");
-    }
-
-    /**
-     * Cheapest monthly (×12) vs cheapest yearly, as an integer percentage.
-     * Computed in kobo so no float arithmetic touches money.
-     */
-    private function yearlySavingsPercent(Collection $monthlyPlans, Collection $yearlyPlans): ?int
-    {
-        if ($monthlyPlans->isEmpty() || $yearlyPlans->isEmpty()) {
-            return null;
-        }
-
-        $annualMonthlyCost = Naira::koboFromLenient($monthlyPlans->min('amount')) * 12;
-        $cheapestYearly = Naira::koboFromLenient($yearlyPlans->min('amount'));
-
-        if ($annualMonthlyCost <= 0) {
-            return null;
-        }
-
-        $saving = $annualMonthlyCost - $cheapestYearly;
-
-        // Integer-only rounding: (saving * 100) / annual, rounded to nearest.
-        return intdiv($saving * 100 + intdiv($annualMonthlyCost, 2), $annualMonthlyCost);
     }
 }

@@ -11,6 +11,7 @@ use App\Models\Subscription;
 use App\Models\SubscriptionPlan;
 use App\Models\Transaction;
 use App\Models\User;
+use App\Support\Plans\PlanPeriod;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Log;
 
@@ -378,6 +379,13 @@ final class SubscriptionPaymentRepository
      * whatever the business does next, which is the most useful thing to do with
      * a difference somebody has already paid.
      *
+     * The one exception is a **cadence extension** — the same tier on a longer
+     * interval, flagged `resets_period` on the payment at the moment it was
+     * quoted. There the money bought a new period in full rather than the
+     * remainder of one already paid for, so the period restarts from today and
+     * the customer gets the term they were sold. Every word above still holds
+     * for the tier upgrades it was written about.
+     *
      * An unresolvable plan (deleted between quote and settlement) leaves the
      * pending columns in place rather than clearing them: the money is in, the
      * intention is still readable, and an admin can hand over the plan by hand
@@ -409,6 +417,13 @@ final class SubscriptionPaymentRepository
             // spent. It can book another one.
             'scheduled_plan_id' => null,
             'scheduled_at' => null,
+            // A cadence extension, and only a cadence extension, moves the
+            // renewal date. Read off the payment rather than re-derived from the
+            // plans, so it is the flag that was set when the figure was quoted.
+            ...(data_get($payment->metadata, 'resets_period') ? [
+                'starts_at' => now(),
+                'expires_at' => PlanPeriod::endFromNow($target),
+            ] : []),
             'metadata' => [
                 ...($subscription->metadata ?? []),
                 'plan_change_payment_id' => $payment->id,

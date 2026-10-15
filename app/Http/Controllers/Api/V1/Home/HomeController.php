@@ -16,6 +16,7 @@ use App\Models\Store;
 use App\Models\SubscriptionPlan;
 use App\Models\Testimonial;
 use App\Services\Home\SupportMessageService;
+use App\Support\Plans\CadenceSavings;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Cache;
@@ -52,13 +53,23 @@ class HomeController extends ApiController
 
     public function index(): JsonResponse
     {
+        $plans = $this->plans();
+
         return $this->ok([
             'company' => $this->company(),
             'stats' => [
                 'stores' => Store::where('status', 'active')->count(),
                 'products' => Product::where('status', 'active')->count(),
             ],
-            'plans' => PlanResource::collection($this->plans())->resolve(),
+            'plans' => PlanResource::collection($plans)->resolve(),
+            // Read off the plan list rather than added as a separate query: the
+            // monthly page and the annual one are the same catalogue, split.
+            // Shares its arithmetic with the dashboard's plan grid, so the two
+            // pricing surfaces cannot quote different savings.
+            'yearly_savings_percent' => CadenceSavings::yearlyPercent(
+                $plans->where('interval', 'monthly'),
+                $plans->where('interval', 'yearly'),
+            ),
             'testimonials' => TestimonialResource::collection($this->testimonials())->resolve(),
             'services' => CompanyServiceResource::collection($this->services())->resolve(),
             'stores' => StoreResource::collection($this->featuredStores())->resolve(),

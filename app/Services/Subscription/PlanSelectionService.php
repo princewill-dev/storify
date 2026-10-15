@@ -9,6 +9,7 @@ use App\Repositories\Subscription\SubscriptionPaymentRepository;
 use App\Services\ActivityRecorder;
 use App\Services\SubscriptionTrialSettings;
 use App\Support\Money\Naira;
+use App\Support\Plans\PlanPeriod;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -29,6 +30,9 @@ use Illuminate\Support\Facades\Log;
  * and their prices, in this order:
  *
  *  - **the same rank and the same price** — refused. There is nothing to grant.
+ *  - **the same rank on a longer cadence** — the plan moves and the period
+ *    restarts, against a charge of the new price less what is left of the old
+ *    one. See "Extending the commitment" below.
  *  - **a downgrade** — booked, not applied. It takes effect when the paid period
  *    ends, because the current period was paid for at the higher plan's price
  *    and taking it away early would be taking back time somebody bought.
@@ -44,6 +48,31 @@ use Illuminate\Support\Facades\Log;
  * tie-break is written down here rather than implied, because an admin can
  * legitimately put a promotion on a higher tier and it should then still read as
  * an upgrade.
+ *
+ * ## Extending the commitment is its own case, and it clears the proration
+ *
+ * Each tier is sold monthly and yearly. Moving between the two is **not** an
+ * upgrade, even though a year costs more than a month — `sameRank()` needs the
+ * price to match as well as the rank, so it does not catch this either, and
+ * without the branch below the move fell through to the upgrade path.
+ *
+ * That was wrong in a way worth writing down. `proratedDifferenceKobo()` values
+ * the new plan only over what is *left of the old period*, and an annual plan's
+ * per-day rate is **lower** than its monthly twin's — that is what the discount
+ * is. So the difference came out negative every time, clamped to zero, and was
+ * applied for free: somebody who clicked "annual" was moved onto the annual plan,
+ * charged nothing, and kept the three weeks left on their month. They had bought
+ * a year and not been given one; the ₦48,000 would have arrived at renewal.
+ *
+ * So the rule is stated rather than inferred: **you may always extend your
+ * commitment immediately by paying the difference, and you may only shorten it at
+ * the period end.** Extending charges the new price less the unused value of what
+ * is left — the same "pay the difference for the rest of the term" arithmetic the
+ * upgrades use — and starts a **fresh term** sized by the new cadence, because the
+ * thing being bought is a longer period and none of it has been paid for. The
+ * shorter direction is untouched: it still fails `isUpgrade()` and is scheduled,
+ * which is correct, since applying it now would take back eleven months somebody
+ * had paid for.
  */
 final class PlanSelectionService
 {
@@ -115,6 +144,15 @@ final class PlanSelectionService
             );
         }
 
+        // Before the upgrade test, not after. A same-tier move to a longer
+        // cadence is not a downgrade and must not be scheduled — a customer
+        // asking for a year, not moving down, and booking it for the end of the
+        // month would read as a refusal. See the class docblock for why it
+        // cannot simply fall through to the upgrade path either.
+        if (PlanPeriod::isExtension($current, $plan)) {
+            return $this->extendCadence($user, $subscription, $current, $plan);
+        }
+
         if (! $this->isUpgrade($current, $plan)) {
             return $this->schedule($user, $subscription, $current, $plan);
         }
@@ -127,6 +165,42 @@ final class PlanSelectionService
             // price. Applying it directly is right; sending anybody to a gateway
             // for ₦0 is not.
             $this->applyNow($user, $subscription, $current, $plan);
+
+            return PlanChangeResult::applied($plan);
+        }
+
+        $this->recordPending($user, $subscription, $current, $plan, $chargeKobo);
+
+        return PlanChangeResult::paymentRequired($plan, $chargeKobo);
+    }
+
+    /**
+     * Move to the same tier on a longer cadence, and start a fresh term.
+     *
+     * The charge is the new plan's price in full less what is left of the
+     * current period valued at the old plan's own rate. Same shape as an
+     * upgrade's difference — "pay the difference for the rest of the term" — but
+     * with nothing subtracted from the new side, because the whole of the new
+     * period is being bought rather than the remainder of an existing one.
+     *
+     * Unlike every other outcome here, settling this one **restarts the period**.
+     * A tier upgrade buys more of the period already paid for, so the renewal
+     * date must not move; a longer cadence is a new period that has been paid for
+     * from today, so it must. That is carried to settlement on the payment's own
+     * metadata — `resets_period` — because the plan that lands is the plan that
+     * was quoted against, even if a later request has overwritten
+     * `pending_plan_id` in the meantime.
+     */
+    private function extendCadence(User $user, Subscription $subscription, SubscriptionPlan $current, SubscriptionPlan $plan): PlanChangeResult
+    {
+        $chargeKobo = $this->cadenceExtensionChargeKobo($current, $plan, $subscription->expires_at);
+
+        if ($chargeKobo <= 0) {
+            // Nothing left of the old period, or what is left is worth more than
+            // the new one costs. Either way there is no figure to send anybody to
+            // a gateway for, so it applies now — and still restarts the term,
+            // which is the half the upgrade path got wrong.
+            $this->applyNow($user, $subscription, $current, $plan, resetsPeriod: true);
 
             return PlanChangeResult::applied($plan);
         }
@@ -178,11 +252,18 @@ final class PlanSelectionService
     }
 
     /**
-     * A free upgrade: the plan moves now and the paid period is untouched.
+     * Move the plan now, against nothing — or against a figure that rounded
+     * away.
+     *
+     * `$resetsPeriod` is false for an upgrade, and that is the point of it: an
+     * upgrade buys more of the period already paid for, so moving the renewal
+     * date would either hand out free days or take back paid ones. A cadence
+     * extension is the opposite case — the period itself is what was bought — so
+     * it passes true and gets a fresh term from today.
      */
-    private function applyNow(User $user, Subscription $subscription, SubscriptionPlan $current, SubscriptionPlan $plan): void
+    private function applyNow(User $user, Subscription $subscription, SubscriptionPlan $current, SubscriptionPlan $plan, bool $resetsPeriod = false): void
     {
-        DB::transaction(function () use ($user, $subscription, $current, $plan) {
+        DB::transaction(function () use ($user, $subscription, $current, $plan, $resetsPeriod) {
             $subscription->update([
                 'subscription_plan_id' => $plan->id,
                 'pending_plan_id' => null,
@@ -190,6 +271,10 @@ final class PlanSelectionService
                 'pending_requested_at' => null,
                 'scheduled_plan_id' => null,
                 'scheduled_at' => null,
+                ...($resetsPeriod ? [
+                    'starts_at' => now(),
+                    'expires_at' => PlanPeriod::endFromNow($plan),
+                ] : []),
             ]);
 
             ActivityRecorder::record(
@@ -209,6 +294,10 @@ final class PlanSelectionService
             'old_plan_id' => $current->id,
             'new_plan_id' => $plan->id,
             'charged_kobo' => 0,
+            // A free change that also moved the renewal date is worth being able
+            // to tell apart from one that did not, after the fact.
+            'resets_period' => $resetsPeriod,
+            'expires_at' => $subscription->expires_at?->toDateTimeString(),
         ]);
     }
 
@@ -287,14 +376,7 @@ final class PlanSelectionService
      */
     private function proratedDifferenceKobo(SubscriptionPlan $from, SubscriptionPlan $to, ?CarbonInterface $expiresAt): int
     {
-        if ($expiresAt === null) {
-            return 0;
-        }
-
-        // Whole days, rounded up: a few hours left is still a day of service the
-        // customer is entitled to, and it is the unit the arithmetic is honest
-        // in. A period already over is worth nothing to either plan.
-        $daysLeft = (int) ceil(max(0, (int) now()->diffInSeconds($expiresAt, false)) / 86400);
+        $daysLeft = $this->daysLeft($expiresAt);
 
         if ($daysLeft <= 0) {
             return 0;
@@ -303,35 +385,52 @@ final class PlanSelectionService
         return max(0, $this->remainingValueKobo($to, $daysLeft) - $this->remainingValueKobo($from, $daysLeft));
     }
 
+    /**
+     * What a longer cadence costs: the new period in full, less the unused value
+     * of the one being left behind.
+     *
+     * The asymmetry against {@see proratedDifferenceKobo()} is deliberate and is
+     * the whole distinction. An upgrade trades the remainder of the current
+     * period for a more expensive remainder of the same period, so both sides are
+     * valued over `daysLeft`. A cadence extension buys a **new, longer period in
+     * full**, so the new side is not discounted by the days left at all — only
+     * the old side is credited.
+     *
+     * Clamped at zero, like the upgrade figure. A month with a day left is worth
+     * less than nothing against a year, and a negative number is not a refund
+     * this platform makes.
+     */
+    private function cadenceExtensionChargeKobo(SubscriptionPlan $from, SubscriptionPlan $to, ?CarbonInterface $expiresAt): int
+    {
+        $daysLeft = $this->daysLeft($expiresAt);
+        $unusedKobo = $daysLeft > 0 ? $this->remainingValueKobo($from, $daysLeft) : 0;
+
+        return max(0, Naira::koboFromStrict($to->amount) - $unusedKobo);
+    }
+
+    /**
+     * Whole days left in the paid period, rounded up — or zero if it is over.
+     *
+     * Rounded up because a few hours left is still a day of service the customer
+     * is entitled to, and it is the unit the arithmetic is honest in. A period
+     * already over is worth nothing to either plan, and `false` on `diffInSeconds`
+     * is what makes a past date come back negative rather than mirrored.
+     */
+    private function daysLeft(?CarbonInterface $expiresAt): int
+    {
+        if ($expiresAt === null) {
+            return 0;
+        }
+
+        return (int) ceil(max(0, (int) now()->diffInSeconds($expiresAt, false)) / 86400);
+    }
+
     private function remainingValueKobo(SubscriptionPlan $plan, int $daysLeft): int
     {
         return $this->roundedDiv(
             Naira::koboFromStrict($plan->amount) * $daysLeft,
-            $this->periodDays($plan),
+            PlanPeriod::days($plan),
         );
-    }
-
-    /**
-     * How many days one billing period of this plan covers.
-     *
-     * A month is 30 days and a year is 365, which is the convention the whole
-     * platform already uses — {@see SubscriptionPaymentRepository::activateSubscription()}
-     * adds a calendar month and a calendar year, and the two agree closely
-     * enough that a prorated figure cannot drift by more than a kobo or two
-     * across a term. Being exact here would mean per-month period lengths, and
-     * the extra precision would only matter on a change made in the last day of
-     * February.
-     */
-    private function periodDays(SubscriptionPlan $plan): int
-    {
-        $count = max(1, (int) ($plan->interval_count ?: 1));
-
-        return match ($plan->interval) {
-            'daily' => $count,
-            'weekly' => 7 * $count,
-            'yearly' => 365 * $count,
-            default => 30 * $count,
-        };
     }
 
     /**

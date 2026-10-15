@@ -440,3 +440,148 @@ test('a coupon covering the whole difference is refused rather than half honoure
     expect($subscription->fresh()->subscription_plan_id)->toBe($starter->id)
         ->and(Payment::where('business_id', $owner->business_id)->count())->toBe(0);
 });
+
+/* ------------------------------------------------ moving between cadences */
+
+test('moving to the annual plan charges the year less the month still running, and starts a twelve-month term', function () {
+    // The regression guard for the defect that seeding annual rows exposed.
+    // `sameRank()` needs equal tier **and** equal amount, so the annual twin of
+    // the business's own plan never matches it; the move then fell through to
+    // the upgrade path, where it was priced as
+    // `value(annual, daysLeft) - value(monthly, daysLeft)`. An annual plan's
+    // daily rate is *lower* than its monthly twin's — that is the discount — so
+    // that difference is negative every time, clamps to zero, and the customer
+    // was moved onto the year for nothing and kept the fifteen days they had.
+    // They bought a year and were given a fortnight.
+    Mail::fake();
+    $this->seed(PaymentMethodSeeder::class);
+
+    [$owner] = createBusinessOwner(['trial_ends_at' => null]);
+    $monthly = ws53Plan(['name' => 'Entry', 'amount' => 5000, 'tier' => 1]);
+    $annual = ws53Plan([
+        'name' => 'Entry',
+        'amount' => 48000,
+        'interval' => 'yearly',
+        'tier' => 1,
+        'sort_order' => 4,
+    ]);
+
+    // Fifteen days in, fifteen left — `ws53Subscribe`'s own window.
+    $subscription = ws53Subscribe($owner, $monthly);
+
+    // A year of Entry costs ₦48,000 and the unused fortnight is worth ₦2,500, so
+    // the year costs ₦45,500 to buy today.
+    $token = ws53Token($owner);
+
+    $this->withToken($token)
+        ->postJson('/api/v1/management/subscription/change-plan', ['plan_id' => $annual->id])
+        ->assertOk()
+        ->assertJsonPath('data.status', 'payment_required')
+        ->assertJsonPath('data.charge_kobo', 4550000);
+
+    ws53FakeGateway('ref_ws53_annual');
+
+    $this->withToken($token)
+        ->postJson('/api/v1/management/subscription/process-payment', [
+            'idempotency_key' => 'ws53-key-annual',
+            'payment_type' => 'plan_change',
+        ])
+        ->assertOk();
+
+    $payment = Payment::latest('id')->first();
+
+    expect($payment->payment_type)->toBe(Payment::TYPE_PLAN_CHANGE)
+        ->and((string) $payment->amount)->toBe('45500.00')
+        // Recorded at the quote, because settlement re-derives nothing: the plan
+        // that lands is the plan that was quoted against, and the flag that says
+        // a fresh term was bought has to travel with it.
+        ->and(data_get($payment->metadata, 'resets_period'))->toBeTrue();
+
+    ws53FakeGateway($payment->reference, 4550000);
+
+    $this->withToken($token)
+        ->getJson('/api/v1/management/subscription/callback?reference='.$payment->reference)
+        ->assertOk();
+
+    $fresh = $subscription->fresh();
+
+    expect($fresh->subscription_plan_id)->toBe($annual->id)
+        ->and($fresh->pending_plan_id)->toBeNull()
+        ->and($fresh->pending_charge_kobo)->toBeNull()
+        // The half the bug got wrong. A tier upgrade leaves the period alone
+        // because the money bought more of it; a cadence change buys a new one
+        // and must move it, or the customer is charged for a year and served a
+        // month.
+        ->and((int) $fresh->starts_at->diffInDays($fresh->expires_at))->toBe(365)
+        ->and($fresh->expires_at->greaterThan(now()->addMonths(11)))->toBeTrue();
+
+    // And a plan change is still not a store activation.
+    Mail::assertNotQueued(StoreActivated::class);
+});
+
+test('shortening the commitment is still booked for the period end rather than applied', function () {
+    // The other direction, and it must not change: a business eleven months into
+    // a year that drops to monthly takes effect when the year it paid for runs
+    // out. Applying it now would take back time somebody bought.
+    [$owner] = createBusinessOwner(['trial_ends_at' => null]);
+    $monthly = ws53Plan(['name' => 'Entry', 'amount' => 5000, 'tier' => 1]);
+    $annual = ws53Plan([
+        'name' => 'Entry',
+        'amount' => 48000,
+        'interval' => 'yearly',
+        'tier' => 1,
+        'sort_order' => 4,
+    ]);
+
+    $subscription = ws53Subscribe($owner, $annual, ['expires_at' => now()->addDays(300)]);
+    $expiresAt = $subscription->fresh()->expires_at;
+
+    $this->withToken(ws53Token($owner))
+        ->postJson('/api/v1/management/subscription/change-plan', ['plan_id' => $monthly->id])
+        ->assertOk()
+        ->assertJsonPath('data.status', 'scheduled');
+
+    expect($subscription->fresh()->subscription_plan_id)->toBe($annual->id)
+        ->and($subscription->fresh()->scheduled_plan_id)->toBe($monthly->id)
+        ->and($subscription->fresh()->expires_at->equalTo($expiresAt))->toBeTrue()
+        ->and(Payment::where('business_id', $owner->business_id)->count())->toBe(0);
+});
+
+test('a commitment extended against a term worth more than it costs is applied free, and the term still restarts', function () {
+    // The arithmetic clamps at zero — a remainder valued at more than the new
+    // period costs is not a refund this platform makes — so there is no figure
+    // to send anybody to a gateway for and the change lands immediately. The
+    // free path must reset the period exactly like the paid one: it is the same
+    // purchase, and it is the reset the old code dropped.
+    [$owner] = createBusinessOwner(['trial_ends_at' => null]);
+    $monthly = ws53Plan(['name' => 'Entry', 'amount' => 5000, 'tier' => 1]);
+    $annual = ws53Plan([
+        'name' => 'Entry',
+        'amount' => 48000,
+        'interval' => 'yearly',
+        'tier' => 1,
+        'sort_order' => 4,
+    ]);
+
+    // A long term on a monthly plan — a promotional period, and the state a
+    // switch made under the old code leaves behind. 350 days of ₦5,000 a month
+    // is worth more than a year of Entry costs.
+    $subscription = ws53Subscribe($owner, $monthly, [
+        'starts_at' => now()->subDays(20),
+        'expires_at' => now()->addDays(350),
+    ]);
+
+    $this->withToken(ws53Token($owner))
+        ->postJson('/api/v1/management/subscription/change-plan', ['plan_id' => $annual->id])
+        ->assertOk()
+        ->assertJsonPath('data.status', 'applied');
+
+    $fresh = $subscription->fresh();
+
+    expect($fresh->subscription_plan_id)->toBe($annual->id)
+        ->and($fresh->pending_charge_kobo)->toBeNull()
+        // A fresh year from today, not the remainder of the promotional one.
+        ->and((int) $fresh->starts_at->diffInDays($fresh->expires_at))->toBe(365)
+        ->and((int) $fresh->starts_at->diffInDays(now()))->toBe(0)
+        ->and(Payment::where('business_id', $owner->business_id)->count())->toBe(0);
+});

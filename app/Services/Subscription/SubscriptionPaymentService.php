@@ -17,6 +17,7 @@ use App\Services\Payments\Data\PaymentIntent;
 use App\Services\StoreActivationNotifier;
 use App\Support\Money\Naira;
 use App\Support\Payments\CallbackUrl;
+use App\Support\Plans\PlanPeriod;
 use DomainException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -105,6 +106,18 @@ final class SubscriptionPaymentService
                     'plan_name' => $plan->name,
                     'plan_id' => $plan->id,
                     'plan_interval' => $plan->interval,
+                    // Whether settling this charge restarts the billing period.
+                    //
+                    // True only for a move to a longer cadence on the same tier,
+                    // which is the one plan change that buys a *period* rather
+                    // than more of the period already paid for. Recorded here, at
+                    // the quote, and read back at settlement rather than derived
+                    // then: the plan that lands is the plan that was quoted
+                    // against, and by the time a payment settles a later request
+                    // may have moved `pending_plan_id` on. Same reason `plan_id`
+                    // itself is recorded here.
+                    'resets_period' => $paymentType === Payment::TYPE_PLAN_CHANGE
+                        && PlanPeriod::isExtension($subscription->subscriptionPlan, $plan),
                     'coupon_code' => $coupon?->code,
                     'base_amount_kobo' => $planAmountKobo,
                     'discount_kobo' => $discountKobo,

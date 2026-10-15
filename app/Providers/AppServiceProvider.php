@@ -4,7 +4,9 @@ namespace App\Providers;
 
 use App\Models\Currency;
 use App\Models\Setting;
+use App\Models\SubscriptionPlan;
 use App\Models\User;
+use App\Observers\SubscriptionPlanObserver;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\Paginator;
@@ -73,6 +75,12 @@ class AppServiceProvider extends ServiceProvider
         }
 
         Paginator::useBootstrapFive();
+
+        // Each tier exists twice, monthly and yearly, and only the monthly row
+        // carries a price anybody chose. Hooking the model is what makes a
+        // re-priced tier carry its annual twin with it, from whichever of the
+        // console, tinker or a migration the change came.
+        SubscriptionPlan::observe(SubscriptionPlanObserver::class);
 
         // Wrap in try-catch to handle missing cache table during migrations
         try {

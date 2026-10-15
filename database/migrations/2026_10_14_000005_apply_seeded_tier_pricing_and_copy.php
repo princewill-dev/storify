@@ -85,7 +85,17 @@ return new class extends Migration
 
     public function up(): void
     {
-        $plans = DB::table('subscription_plans')->get()->keyBy('name');
+        // Monthly rows only. Every tier now exists twice — once a month and once
+        // a year — and `keyBy('name')` keeps the **last** row it sees for a name,
+        // so without this filter the reconciliation would have landed on each
+        // tier's annual twin: the monthly ladder it exists to put back would
+        // have been left alone, and the annual row would have had its price and
+        // its interval rewritten to the monthly figures. Scoping the read is
+        // what keeps this file doing the one thing its docblock describes.
+        $plans = DB::table('subscription_plans')
+            ->where('interval', self::BILLING['interval'])
+            ->get()
+            ->keyBy('name');
 
         $changed = [];
         $unchanged = [];

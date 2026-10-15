@@ -313,11 +313,18 @@ test('setting a plan default un-defaults every other plan and being default impl
     $first = ad11Plan(['name' => 'First', 'is_default' => true]);
     $second = ad11Plan(['name' => 'Second', 'is_default' => false]);
 
+    // Monthly, because the interval is incidental to what this pins — the
+    // default flag and the active implication — and both fixtures sit at the
+    // default tier. Moved to `yearly` it would be an annual price typed by
+    // hand beside a monthly sibling (₦9,000 against the ₦48,000 that ₦5,000 a
+    // month derives), which the console now refuses outright. That refusal has
+    // its own coverage in the plan-entitlement suite; it does not belong here
+    // standing in for a default-flag assertion.
     $response = ad11Put($this, $admin, 'subscription-plans/'.$second->plan_code, [
         'name' => 'Second',
         'amount_kobo' => 900000,
         'currency' => 'NGN',
-        'interval' => 'yearly',
+        'interval' => 'monthly',
         'interval_count' => 1,
         'is_active' => false,
         'is_default' => true,

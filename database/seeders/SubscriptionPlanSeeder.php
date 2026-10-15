@@ -3,13 +3,45 @@
 namespace Database\Seeders;
 
 use App\Models\SubscriptionPlan;
+use App\Observers\SubscriptionPlanObserver;
+use App\Support\Plans\AnnualPricing;
 use App\Support\Plans\EntitlementRegistry;
 use App\Support\Plans\Entitlements;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Log;
 
 /**
- * The platform's plan catalogue: three tiers, and nothing else.
+ * The platform's plan catalogue: three tiers in two cadences, and nothing else.
+ *
+ * ## Two rows per tier
+ *
+ * `Entry`, `Growth` and `Enterprise` each exist **twice** — billed monthly and
+ * billed yearly — so the catalogue a run leaves behind is six rows, not three.
+ *
+ * The twins deliberately share a `name`. The toggle on both pricing pages
+ * already says which cadence you are reading, so a card showing "Entry · per
+ * year" is the whole story and "Entry Annual · per year" tells it twice.
+ * `name` is not unique in the schema, so nothing stops this — but it is why
+ * {@see self::run()} matches rows on `name` **and** `interval` rather than on
+ * name alone. Keyed on the name, the second pass would find the first pass's
+ * row every time and overwrite the monthly price with the annual one.
+ *
+ * **Only the monthly price is stated below.** An annual amount is never typed:
+ * it is {@see AnnualPricing::annualAmount()} of its monthly twin, which is 20%
+ * off twelve months. Changing a tier's price therefore means changing one number
+ * in `TIERS` and nothing else, and an admin who re-prices a tier from the
+ * console gets the same treatment through
+ * {@see SubscriptionPlanObserver} — the two agree because they
+ * call one method rather than restating one rule.
+ *
+ * The twins are otherwise identical — same tier, same description, same
+ * features, same entitlements. Cadence is a question of *when you pay*, not
+ * *what you get*, so a business on the annual plan holds exactly what a business
+ * on the monthly plan holds. That is load-bearing for
+ * {@see Entitlements::planGranting()}: it scans plans for the cheapest that
+ * grants a toggle, and two rows per tier means it will find the monthly one
+ * first. Handing out a different entitlement set per cadence would make that
+ * answer depend on which row the scan happened to reach.
  *
  * ## What this seeder does now
  *
@@ -248,37 +280,39 @@ class SubscriptionPlanSeeder extends Seeder
         // The ids of the rows this run leaves standing. Deleting by *name*
         // instead would spare a duplicate — two rows called `Entry`, where
         // `updateOrCreate` matched only one — and the whole point of this seeder
-        // is that the catalogue afterwards is exactly these three.
+        // is that the catalogue afterwards is exactly these six.
         $keep = [];
 
+        // Monthly first. The order only matters in that a tier's monthly row
+        // exists before its annual twin is written, which is what
+        // {@see \App\Observers\SubscriptionPlanObserver} reads the price from —
+        // though this pass states the annual amount itself and does not rely
+        // on the observer having run.
         foreach (self::TIERS as $tier => $plan) {
-            $keep[] = SubscriptionPlan::updateOrCreate(
-                ['name' => $plan['name']],
-                [
-                    'description' => $plan['description'],
-                    'amount' => $plan['amount'],
-                    'currency' => 'NGN',
-                    'interval' => 'monthly',
-                    'interval_count' => 1,
-                    'is_active' => true,
-                    // Claimed outright, not only where nobody holds it. The
-                    // version of this seeder that shipped before could not take
-                    // the flag off an admin's plan without re-entitling every
-                    // trial that had never chosen one; this one deletes that
-                    // plan, so the choice it would have undone is gone anyway.
-                    'is_default' => $tier === $defaultTier,
-                    'is_trial' => false,
-                    'trial_days' => null,
-                    'tier' => $tier,
-                    'sort_order' => $tier,
-                    'features' => $plan['features'],
-                    'entitlements' => $plan['entitlements'],
-                    // `plan_code` is deliberately absent. It is the route key,
-                    // published in checkout URLs, and the model fills it on
-                    // create and only when empty — rewriting it here is the
-                    // fault that broke every saved link.
-                ]
-            )->id;
+            $keep[] = $this->writeTier(
+                tier: $tier,
+                plan: $plan,
+                interval: 'monthly',
+                amount: (float) $plan['amount'],
+                isDefault: $tier === $defaultTier,
+            );
+        }
+
+        foreach (self::TIERS as $tier => $plan) {
+            $keep[] = $this->writeTier(
+                tier: $tier,
+                plan: $plan,
+                interval: 'yearly',
+                // Never typed. See the class docblock: the annual price is a
+                // fact about the monthly price, not an independent offer.
+                amount: AnnualPricing::annualAmount($plan['amount']),
+                // The default stays on the monthly entry tier. It answers
+                // "which plan does a trial with no selection fall back to?"
+                // ({@see Entitlements::for()}), and the twins carry identical
+                // entitlements, so pointing it at the annual row would change
+                // nothing except which name that fallback reports.
+                isDefault: false,
+            );
         }
 
         SubscriptionPlan::whereNotIn('id', $keep)
@@ -297,5 +331,54 @@ class SubscriptionPlanSeeder extends Seeder
 
                 $plan->delete();
             });
+    }
+
+    /**
+     * Write one row of the ladder and return its id.
+     *
+     * Both cadences of a tier go through here so they cannot drift in anything
+     * except the three things that are supposed to differ — the interval, the
+     * amount and the sort order. Description, features, tier and entitlements
+     * are the same on both rows by construction rather than by two lists being
+     * kept in step by hand.
+     *
+     * @param  array<string, mixed>  $plan  One entry from {@see self::TIERS}.
+     */
+    private function writeTier(int $tier, array $plan, string $interval, float $amount, bool $isDefault): int
+    {
+        return SubscriptionPlan::updateOrCreate(
+            // Matched on the cadence as well as the name. The twins share a
+            // name deliberately (see the class docblock), so matching on the
+            // name alone would find the monthly row on the annual pass and
+            // overwrite its price with the annual one.
+            ['name' => $plan['name'], 'interval' => $interval],
+            [
+                'description' => $plan['description'],
+                'amount' => $amount,
+                'currency' => 'NGN',
+                'interval_count' => 1,
+                'is_active' => true,
+                // Claimed outright, not only where nobody holds it. The
+                // version of this seeder that shipped before could not take
+                // the flag off an admin's plan without re-entitling every
+                // trial that had never chosen one; this one deletes that
+                // plan, so the choice it would have undone is gone anyway.
+                'is_default' => $isDefault,
+                'is_trial' => false,
+                'trial_days' => null,
+                'tier' => $tier,
+                // Monthly rows sort first, then the annual ones, so the admin
+                // list reads as the ladder twice rather than interleaved. The
+                // offset is the tier count rather than a literal, so adding a
+                // fourth tier cannot collide with the annual row of the first.
+                'sort_order' => $interval === 'yearly' ? count(self::TIERS) + $tier : $tier,
+                'features' => $plan['features'],
+                'entitlements' => $plan['entitlements'],
+                // `plan_code` is deliberately absent. It is the route key,
+                // published in checkout URLs, and the model fills it on
+                // create and only when empty — rewriting it here is the
+                // fault that broke every saved link.
+            ]
+        )->id;
     }
 }
