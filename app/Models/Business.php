@@ -81,6 +81,15 @@ class Business extends Model
         // onboarding, and a cashier must neither be shown it nor be able to
         // clear it by loading a page.
         'welcome_seen_at',
+        // Whether the business is registered with the CAC, and under what.
+        // `is_registered` is nullable on purpose: `false` means the owner was
+        // asked and said no, `null` means nobody has asked. Collapsing the two
+        // would make every business that predates the column look like it had
+        // answered.
+        'is_registered',
+        'registration_type',
+        'registration_number',
+        'certificate_path',
     ];
 
     protected function casts(): array
@@ -94,6 +103,7 @@ class Business extends Model
             'custody_enabled_at' => 'datetime',
             'onboarding_intents' => 'array',
             'welcome_seen_at' => 'datetime',
+            'is_registered' => 'boolean',
         ];
     }
 
