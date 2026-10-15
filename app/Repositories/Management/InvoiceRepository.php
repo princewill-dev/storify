@@ -41,6 +41,23 @@ final class InvoiceRepository
     }
 
     /**
+     * The invoices a bulk action may touch, keyed by id.
+     *
+     * Read through {@see scopedQuery}, so an id outside the caller's business —
+     * or outside a restricted member's stores — simply is not in the map. The
+     * caller reports those as skipped rather than distinguishing "no such
+     * invoice" from "not yours", which is what keeps this from being a probe
+     * for other businesses' ids.
+     *
+     * @param  Collection<int, int>  $ids
+     * @return Collection<int, Invoice>
+     */
+    public function scopedByIds(User $user, Collection $ids): Collection
+    {
+        return $this->scopedQuery($user)->whereIn('id', $ids)->get()->keyBy('id');
+    }
+
+    /**
      * The legacy card row was All / Draft / Sent / Overdue / Revenue — no
      * Paid count — and counted only fully paid invoices as revenue.
      *

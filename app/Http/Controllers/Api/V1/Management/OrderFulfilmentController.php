@@ -6,6 +6,7 @@ use App\Enums\OrderStatus;
 use App\Enums\TransactionStatus;
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Http\Controllers\Api\V1\Management\Concerns\ResolvesManagementContext;
+use App\Http\Requests\Management\BulkOrderActionRequest;
 use App\Http\Requests\Management\OrderFulfilmentAcceptRequest;
 use App\Http\Requests\Management\OrderFulfilmentCancelRequest;
 use App\Http\Requests\Management\OrderFulfilmentDispatchRequest;
@@ -14,11 +15,13 @@ use App\Http\Requests\Management\OrderFulfilmentReturnRequest;
 use App\Http\Resources\Management\FulfilmentDeliveryAgentResource;
 use App\Http\Resources\Management\OrderFulfilmentResource;
 use App\Models\Order;
+use App\Models\User;
 use App\Repositories\Management\OrderFulfilmentRepository;
 use App\Services\Access\TenantGuard;
 use App\Services\Management\OrderFulfilmentService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 
 /**
  * WS-12 — the guarded order fulfilment actions.
@@ -77,24 +80,16 @@ class OrderFulfilmentController extends ApiController
     {
         $this->authorizeOrder($request, $order);
 
-        if ($order->status !== OrderStatus::PENDING) {
-            return $this->error('Only pending orders can be accepted.', 409);
-        }
-
         $data = $request->validated();
 
         // Legacy enforced this with a modal only — the controller accepted the
         // order blind. Enforcing it server-side means the warning cannot be
         // bypassed by calling the endpoint directly; the override flag keeps
         // the deliberate "accept anyway" path available.
-        $firstTransaction = $this->repository->firstTransaction($order);
+        $refusal = $this->acceptRefusal($order, (bool) ($data['override_pending_payment'] ?? false));
 
-        if ($firstTransaction && $firstTransaction->status === TransactionStatus::PENDING
-            && ! ($data['override_pending_payment'] ?? false)) {
-            return $this->error(
-                'This order has a payment still pending ('.$firstTransaction->reference.'). Confirm the payment first, or accept with an explicit override.',
-                409,
-            );
+        if ($refusal !== null) {
+            return $this->error($refusal, 409);
         }
 
         $this->service->transition($order, OrderStatus::ACCEPTED, 'accepted', 'Order accepted', $request);
@@ -103,6 +98,29 @@ class OrderFulfilmentController extends ApiController
             ['order' => $this->console($order->fresh())],
             'Order #'.$order->order_number.' has been accepted.',
         );
+    }
+
+    /**
+     * Why this order cannot be accepted, or null if it can.
+     *
+     * Extracted so the single-order action and the bulk action cannot disagree
+     * about the rule. The bulk passes `false` for the override, always: an
+     * override is a person looking at one order and deciding to accept it
+     * anyway, and there is no way to mean that about forty at once.
+     */
+    private function acceptRefusal(Order $order, bool $override): ?string
+    {
+        if ($order->status !== OrderStatus::PENDING) {
+            return 'Only pending orders can be accepted.';
+        }
+
+        $firstTransaction = $this->repository->firstTransaction($order);
+
+        if ($firstTransaction && $firstTransaction->status === TransactionStatus::PENDING && ! $override) {
+            return 'This order has a payment still pending ('.$firstTransaction->reference.'). Confirm the payment first, or accept with an explicit override.';
+        }
+
+        return null;
     }
 
     public function process(Request $request, Order $order): JsonResponse
@@ -216,6 +234,127 @@ class OrderFulfilmentController extends ApiController
             ['order' => $this->console($order->fresh())],
             'Order #'.$order->order_number.' has been returned. Stock restored.',
         );
+    }
+
+    /**
+     * POST /management/orders/bulk-accept — accept the selected orders.
+     *
+     * Per order, not per batch. An order that is already accepted, or that has
+     * a payment still pending, is skipped with its reason rather than failing
+     * the whole selection: a queue of forty where three need attention should
+     * move thirty-seven and name the three.
+     */
+    public function bulkAccept(BulkOrderActionRequest $request): JsonResponse
+    {
+        $user = $this->user($request);
+        $ids = $request->orderIds();
+        $orders = $this->scopedOrders($user, $ids);
+
+        $accepted = [];
+        $skipped = [];
+
+        foreach ($ids as $id) {
+            $order = $orders->get($id);
+
+            if (! $order) {
+                $skipped[$id] = 'Not found.';
+
+                continue;
+            }
+
+            $refusal = $this->acceptRefusal($order, false);
+
+            if ($refusal !== null) {
+                $skipped[$id] = $refusal;
+
+                continue;
+            }
+
+            $this->service->transition($order, OrderStatus::ACCEPTED, 'accepted', 'Order accepted', $request);
+            $accepted[] = $id;
+        }
+
+        return $this->ok(
+            ['accepted' => count($accepted), 'accepted_ids' => $accepted, 'skipped' => $skipped, 'skipped_ids' => array_keys($skipped)],
+            $this->batchMessage('accepted', count($accepted), count($skipped)),
+        );
+    }
+
+    /**
+     * POST /management/orders/bulk-cancel — cancel the selected orders.
+     *
+     * The same per-order contract and the same source-state guard the single
+     * action applies: only pending or accepted orders can be cancelled.
+     */
+    public function bulkCancel(BulkOrderActionRequest $request): JsonResponse
+    {
+        $user = $this->user($request);
+        $ids = $request->orderIds();
+        $orders = $this->scopedOrders($user, $ids);
+        $reason = $request->reason();
+
+        $cancelled = [];
+        $skipped = [];
+
+        foreach ($ids as $id) {
+            $order = $orders->get($id);
+
+            if (! $order) {
+                $skipped[$id] = 'Not found.';
+
+                continue;
+            }
+
+            if (! in_array($order->status, [OrderStatus::PENDING, OrderStatus::ACCEPTED], true)) {
+                $skipped[$id] = 'Only pending or accepted orders can be cancelled.';
+
+                continue;
+            }
+
+            $this->service->cancel($order, $reason, $request);
+            $cancelled[] = $id;
+        }
+
+        return $this->ok(
+            ['cancelled' => count($cancelled), 'cancelled_ids' => $cancelled, 'skipped' => $skipped, 'skipped_ids' => array_keys($skipped)],
+            $this->batchMessage('cancelled', count($cancelled), count($skipped)),
+        );
+    }
+
+    /**
+     * The orders a bulk action may touch, keyed by id.
+     *
+     * Read through the same two rules {@see authorizeOrder} applies one at a
+     * time — the caller's business, and the stores the caller can reach. An id
+     * outside either is simply absent, so it is reported as skipped rather
+     * than distinguished, and this cannot be used to probe for other
+     * businesses' order ids.
+     *
+     * @param  Collection<int, int>  $ids
+     * @return Collection<int, Order>
+     */
+    private function scopedOrders(User $user, Collection $ids): Collection
+    {
+        return Order::query()
+            ->whereIn('id', $ids)
+            ->where('business_id', $user->business_id)
+            ->whereIn('store_id', $user->accessibleStoreIds())
+            ->get()
+            ->keyBy('id');
+    }
+
+    /**
+     * "12 order(s) accepted." or "10 order(s) accepted, 2 skipped."
+     *
+     * The skipped count is in the sentence because a batch that quietly did
+     * less than it was asked to is the failure the per-order contract exists
+     * to avoid, and a bare "ok" over it would put it back.
+     */
+    private function batchMessage(string $verb, int $done, int $skipped): string
+    {
+        $message = $done.' order(s) '.$verb.'.';
+
+        return $skipped > 0 ? $message.' '.$skipped.' skipped.' : $message;
     }
 
     /**

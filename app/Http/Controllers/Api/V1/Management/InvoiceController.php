@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1\Management;
 use App\Enums\InvoiceStatus;
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Http\Controllers\Api\V1\Management\Concerns\ResolvesManagementContext;
+use App\Http\Requests\Management\Invoice\BulkInvoiceActionRequest;
 use App\Http\Requests\Management\Invoice\IndexInvoiceRequest;
 use App\Http\Requests\Management\Invoice\RecordInvoicePaymentRequest;
 use App\Http\Requests\Management\Invoice\StoreInvoiceRequest;
@@ -270,6 +271,133 @@ class InvoiceController extends ApiController
         $this->service->void($invoice, $this->user($request));
 
         return $this->ok(['invoice' => $this->detail($invoice->fresh())], 'Invoice voided.');
+    }
+
+    /**
+     * POST /management/invoices/bulk-send — send the selected invoices.
+     *
+     * The single-invoice `send` refuses a paid or void invoice and refuses one
+     * with nobody to send it to; those refusals are kept, per invoice, rather
+     * than turned into an all-or-nothing batch. A selection of twelve where
+     * two are already paid should send ten and say which two it did not, which
+     * is what a person doing this by hand would do — and the alternative,
+     * failing the whole batch, leaves them to find the two by trial.
+     *
+     * Each row answers for itself; the counts and the skipped ids come back so
+     * the caller can say what happened without guessing.
+     */
+    public function bulkSend(BulkInvoiceActionRequest $request): JsonResponse
+    {
+        $user = $this->user($request);
+        $ids = $request->invoiceIds();
+        $invoices = $this->repository->scopedByIds($user, $ids);
+
+        $sent = [];
+        $skipped = [];
+
+        foreach ($ids as $id) {
+            $invoice = $invoices->get($id);
+
+            if (! $invoice) {
+                $skipped[$id] = 'Not found.';
+
+                continue;
+            }
+
+            if (in_array($invoice->status, [InvoiceStatus::PAID, InvoiceStatus::VOID], true)) {
+                $skipped[$id] = 'A '.$invoice->status->label().' invoice cannot be sent.';
+
+                continue;
+            }
+
+            try {
+                $to = $this->service->send($invoice, $user);
+            } catch (\Throwable $e) {
+                Log::error('api.management.invoice_bulk_send_failed', [
+                    'invoice_id' => $invoice->id,
+                    'error' => $e->getMessage(),
+                ]);
+
+                $skipped[$id] = 'The email could not be queued.';
+
+                continue;
+            }
+
+            if (! $to) {
+                $skipped[$id] = 'No recipient email.';
+
+                continue;
+            }
+
+            $sent[] = $id;
+        }
+
+        return $this->ok(
+            ['sent' => count($sent), 'sent_ids' => $sent, 'skipped' => $skipped, 'skipped_ids' => array_keys($skipped)],
+            $this->batchMessage('sent', count($sent), count($skipped)),
+        );
+    }
+
+    /**
+     * POST /management/invoices/bulk-void — void the selected invoices.
+     *
+     * Same per-invoice contract as {@see bulkSend}, and the same refusals the
+     * single-invoice `void` applies: a paid invoice cannot be voided, and one
+     * that is already void is left alone rather than reported as changed.
+     */
+    public function bulkVoid(BulkInvoiceActionRequest $request): JsonResponse
+    {
+        $user = $this->user($request);
+        $ids = $request->invoiceIds();
+        $invoices = $this->repository->scopedByIds($user, $ids);
+
+        $voided = [];
+        $skipped = [];
+
+        foreach ($ids as $id) {
+            $invoice = $invoices->get($id);
+
+            if (! $invoice) {
+                $skipped[$id] = 'Not found.';
+
+                continue;
+            }
+
+            if ($invoice->status === InvoiceStatus::PAID) {
+                $skipped[$id] = 'A paid invoice cannot be voided.';
+
+                continue;
+            }
+
+            if ($invoice->status === InvoiceStatus::VOID) {
+                $skipped[$id] = 'Already void.';
+
+                continue;
+            }
+
+            $this->service->void($invoice, $user);
+            $voided[] = $id;
+        }
+
+        return $this->ok(
+            ['voided' => count($voided), 'voided_ids' => $voided, 'skipped' => $skipped, 'skipped_ids' => array_keys($skipped)],
+            $this->batchMessage('voided', count($voided), count($skipped)),
+        );
+    }
+
+    /**
+     * "12 invoice(s) sent." or "10 invoice(s) sent, 2 skipped."
+     *
+     * The skipped count is in the sentence on purpose: a batch that silently
+     * did less than it was asked to is the failure this whole per-invoice
+     * contract exists to avoid, and a message that says "ok" over it would put
+     * it back.
+     */
+    private function batchMessage(string $verb, int $done, int $skipped): string
+    {
+        $message = $done.' invoice(s) '.$verb.'.';
+
+        return $skipped > 0 ? $message.' '.$skipped.' skipped.' : $message;
     }
 
     /**

@@ -46,6 +46,13 @@ Route::middleware(['plan.feature:invoices', 'permission:invoices edit'])->group(
     Route::post('invoices/{invoice}/mark-paid', [InvoiceController::class, 'markPaid'])->name('invoices.mark-paid');
     Route::post('invoices/{invoice}/record-payment', [InvoiceController::class, 'recordPayment'])->name('invoices.record-payment');
     Route::post('invoices/{invoice}/void', [InvoiceController::class, 'void'])->name('invoices.void');
+
+    // The bulk URIs are POSTs and cannot collide with the `invoices/{invoice}`
+    // binding, which is only registered for GET, PUT and DELETE — the same
+    // shape the products list uses. Both act per invoice and report what they
+    // skipped, so a batch is never quietly smaller than it was asked to be.
+    Route::post('invoices/bulk-send', [InvoiceController::class, 'bulkSend'])->name('invoices.bulk-send');
+    Route::post('invoices/bulk-void', [InvoiceController::class, 'bulkVoid'])->name('invoices.bulk-void');
 });
 
 Route::middleware(['plan.feature:invoices', 'permission:invoices delete'])->group(function () {

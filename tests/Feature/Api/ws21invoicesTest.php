@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\InvoiceStatus;
+use App\Http\Requests\Management\Invoice\BulkInvoiceActionRequest;
 use App\Mail\InvoiceMail;
 use App\Models\Customer;
 use App\Models\Invoice;
@@ -8,6 +9,7 @@ use App\Models\JournalEntry;
 use App\Models\Store;
 use App\Models\Transaction;
 use App\Models\User;
+use Database\Seeders\SpatiePermissionSeeder;
 use Illuminate\Support\Facades\Mail;
 
 /*
@@ -602,4 +604,146 @@ test('staff without invoice permissions are refused', function () {
         ->assertStatus(403);
 
     expect($staff->business_id)->toBe($business->id);
+});
+
+/*
+|--------------------------------------------------------------------------
+| WS-21 — bulk send and void
+|--------------------------------------------------------------------------
+| The contract that matters is per invoice, not per batch. A selection where
+| two rows cannot be acted on should act on the rest and say which two it did
+| not — never fail the whole batch, and never report a partial batch as though
+| it were whole.
+*/
+
+test('a bulk send sends what it can and names what it skipped', function () {
+    Mail::fake();
+
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    $store = ws21Store($owner);
+
+    $draft = ws21Invoice($owner, ['store_id' => $store->id, 'status' => InvoiceStatus::DRAFT]);
+    $sent = ws21Invoice($owner, ['store_id' => $store->id, 'status' => InvoiceStatus::SENT]);
+    $paid = ws21Invoice($owner, ['store_id' => $store->id, 'status' => InvoiceStatus::PAID, 'amount_paid' => 1000, 'paid_at' => now()]);
+    $void = ws21Invoice($owner, ['store_id' => $store->id, 'status' => InvoiceStatus::VOID, 'voided_at' => now()]);
+
+    $response = $this->withToken(ws21Token($owner))
+        ->postJson('/api/v1/management/invoices/bulk-send', [
+            'invoice_ids' => [$draft->id, $sent->id, $paid->id, $void->id],
+        ])
+        ->assertOk();
+
+    // Two sent — a draft and one already sent, which can be sent again.
+    expect($response->json('data.sent'))->toBe(2)
+        ->and($response->json('data.sent_ids'))->toEqualCanonicalizing([$draft->id, $sent->id])
+        ->and($response->json('data.skipped_ids'))->toEqualCanonicalizing([$paid->id, $void->id])
+        // The reasons are per row, so the reader is told which one to fix.
+        ->and($response->json("data.skipped.{$paid->id}"))->toBe('A Paid invoice cannot be sent.')
+        ->and($response->json("data.skipped.{$void->id}"))->toBe('A Void invoice cannot be sent.');
+
+    // The skipped rows are untouched.
+    expect($paid->fresh()->status)->toBe(InvoiceStatus::PAID)
+        ->and($void->fresh()->status)->toBe(InvoiceStatus::VOID)
+        ->and($draft->fresh()->sent_at)->not->toBeNull();
+
+    Mail::assertQueued(InvoiceMail::class, 2);
+});
+
+test('a bulk void skips a paid invoice and one that is already void', function () {
+    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+
+    $draft = ws21Invoice($owner, ['status' => InvoiceStatus::DRAFT]);
+    $open = ws21Invoice($owner, ['status' => InvoiceStatus::SENT]);
+    $paid = ws21Invoice($owner, ['status' => InvoiceStatus::PAID, 'amount_paid' => 1000, 'paid_at' => now()]);
+    $already = ws21Invoice($owner, ['status' => InvoiceStatus::VOID, 'voided_at' => now()]);
+
+    $response = $this->withToken(ws21Token($owner))
+        ->postJson('/api/v1/management/invoices/bulk-void', [
+            'invoice_ids' => [$draft->id, $open->id, $paid->id, $already->id],
+        ])
+        ->assertOk();
+
+    expect($response->json('data.voided'))->toBe(2)
+        ->and($response->json('data.skipped_ids'))->toEqualCanonicalizing([$paid->id, $already->id])
+        ->and($response->json("data.skipped.{$paid->id}"))->toBe('A paid invoice cannot be voided.')
+        ->and($response->json("data.skipped.{$already->id}"))->toBe('Already void.');
+
+    expect($draft->fresh()->status)->toBe(InvoiceStatus::VOID)
+        ->and($open->fresh()->status)->toBe(InvoiceStatus::VOID)
+        ->and($paid->fresh()->status)->toBe(InvoiceStatus::PAID);
+});
+
+test('a bulk action cannot touch another business\'s invoice, or a store it cannot see', function () {
+    Mail::fake();
+
+    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    [$otherOwner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+
+    $mine = ws21Invoice($owner, ['status' => InvoiceStatus::DRAFT]);
+    $theirs = ws21Invoice($otherOwner, ['status' => InvoiceStatus::DRAFT]);
+
+    $response = $this->withToken(ws21Token($owner))
+        ->postJson('/api/v1/management/invoices/bulk-send', [
+            'invoice_ids' => [$mine->id, $theirs->id],
+        ])
+        ->assertOk();
+
+    expect($response->json('data.sent'))->toBe(1)
+        ->and($response->json('data.sent_ids'))->toBe([$mine->id])
+        // The same answer as an id that does not exist, on purpose: telling
+        // the two apart would make this endpoint a probe for other businesses'
+        // invoice ids.
+        ->and($response->json("data.skipped.{$theirs->id}"))->toBe('Not found.');
+
+    expect($theirs->fresh()->status)->toBe(InvoiceStatus::DRAFT)
+        ->and($theirs->fresh()->sent_at)->toBeNull();
+
+    Mail::assertQueued(InvoiceMail::class, 1);
+});
+
+test('a bulk action refuses an empty selection and one larger than the cap', function () {
+    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    $token = ws21Token($owner);
+
+    $this->withToken($token)
+        ->postJson('/api/v1/management/invoices/bulk-void', ['invoice_ids' => []])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors('invoice_ids');
+
+    // Sending is the reason for the cap: one request, one email per id. An
+    // unbounded list is an unbounded amount of outbound mail.
+    $this->withToken($token)
+        ->postJson('/api/v1/management/invoices/bulk-void', [
+            'invoice_ids' => range(1, BulkInvoiceActionRequest::MAX_IDS + 1),
+        ])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors('invoice_ids');
+
+    $this->withToken($token)
+        ->postJson('/api/v1/management/invoices/bulk-void', ['invoice_ids' => ['not-an-id']])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors('invoice_ids.0');
+});
+
+test('a bulk action needs the invoices edit permission', function () {
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    $invoice = ws21Invoice($owner, ['status' => InvoiceStatus::DRAFT]);
+
+    $staff = User::factory()->create([
+        'role' => 'staff',
+        'status' => 'active',
+        'is_verified' => true,
+        'business_id' => $business->id,
+    ]);
+
+    (new SpatiePermissionSeeder)->run();
+    setPermissionsTeamId($business->id);
+    // A cashier can read invoices and not edit them.
+    $staff->assignRole('Cashier');
+
+    $this->withToken(ws21Token($staff))
+        ->postJson('/api/v1/management/invoices/bulk-void', ['invoice_ids' => [$invoice->id]])
+        ->assertStatus(403);
+
+    expect($invoice->fresh()->status)->toBe(InvoiceStatus::DRAFT);
 });

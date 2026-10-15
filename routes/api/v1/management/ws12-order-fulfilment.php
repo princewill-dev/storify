@@ -50,4 +50,14 @@ Route::middleware('permission:orders status_update')->group(function () {
 
     Route::match(['put', 'patch'], 'orders/{order}/payment', [OrderFulfilmentController::class, 'updatePaymentStatus'])
         ->name('orders.payment');
+
+    // The bulk URIs are POSTs and cannot collide with the `orders/{order}`
+    // binding, which is registered for GET, PUT and DELETE only — the same
+    // shape the products list uses. Only the two transitions that take no
+    // per-order input are here; the request class says why dispatch, deliver
+    // and return are not.
+    Route::post('orders/bulk-accept', [OrderFulfilmentController::class, 'bulkAccept'])
+        ->name('orders.bulk-accept');
+    Route::post('orders/bulk-cancel', [OrderFulfilmentController::class, 'bulkCancel'])
+        ->name('orders.bulk-cancel');
 });

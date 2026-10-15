@@ -4,6 +4,7 @@ use App\Enums\OrderStatus;
 use App\Enums\TransactionStatus;
 use App\Mail\OrderStatusUpdatedMail;
 use App\Models\ActivityLog;
+use App\Http\Requests\Management\BulkOrderActionRequest;
 use App\Models\Business;
 use App\Models\Customer;
 use App\Models\Order;
@@ -17,6 +18,7 @@ use App\Models\Store;
 use App\Models\StoreBank;
 use App\Models\Transaction;
 use App\Models\User;
+use Database\Seeders\SpatiePermissionSeeder;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 
@@ -655,4 +657,138 @@ test('the delivery panel exposes the bank account on a manual transfer transacti
         ->assertJsonPath('data.order.transactions.0.bank.bank_name', 'GTBank')
         ->assertJsonPath('data.order.transactions.0.bank.account_number', '0123456789')
         ->assertJsonPath('data.order.payment_warning.transaction.reference', 'WS12-BANK-1');
+});
+
+/*
+|--------------------------------------------------------------------------
+| WS-12 — bulk accept and cancel
+|--------------------------------------------------------------------------
+| The contract is per order, not per batch: a queue of forty where three need
+| attention should move thirty-seven and name the three. A batch that fails
+| whole leaves the reader to find the three by trial, and a batch that reports
+| success over a partial run is worse.
+*/
+
+test('a bulk accept moves what it can and names what it skipped', function () {
+    Mail::fake();
+
+    [$owner, $business, $store] = ws12Context();
+
+    $pending = ws12Order($store, ['status' => 'pending']);
+    $second = ws12Order($store, ['status' => 'pending']);
+    $already = ws12Order($store, ['status' => 'accepted']);
+
+    // The precondition the single action applies: a first payment still
+    // pending blocks an accept unless somebody says "anyway". A bulk cannot
+    // say that — there is no way to mean it about forty orders at once — so
+    // this one is skipped rather than forced through.
+    $unpaid = ws12Order($store, ['status' => 'pending']);
+    ws12Transaction($unpaid, ['status' => TransactionStatus::PENDING]);
+
+    $response = $this->withToken(ws12Token($owner))
+        ->postJson('/api/v1/management/orders/bulk-accept', [
+            'order_ids' => [$pending->id, $second->id, $already->id, $unpaid->id],
+        ])
+        ->assertOk();
+
+    expect($response->json('data.accepted'))->toBe(2)
+        ->and($response->json('data.accepted_ids'))->toEqualCanonicalizing([$pending->id, $second->id])
+        ->and($response->json('data.skipped_ids'))->toEqualCanonicalizing([$already->id, $unpaid->id])
+        ->and($response->json("data.skipped.{$already->id}"))->toBe('Only pending orders can be accepted.')
+        ->and($response->json("data.skipped.{$unpaid->id}"))->toContain('payment still pending');
+
+    expect($pending->fresh()->status)->toBe(OrderStatus::ACCEPTED)
+        ->and($second->fresh()->status)->toBe(OrderStatus::ACCEPTED)
+        ->and($unpaid->fresh()->status)->toBe(OrderStatus::PENDING);
+});
+
+test('a bulk cancel cancels pending and accepted orders and leaves the rest alone', function () {
+    Mail::fake();
+
+    [$owner, $business, $store] = ws12Context();
+
+    $pending = ws12Order($store, ['status' => 'pending']);
+    $accepted = ws12Order($store, ['status' => 'accepted']);
+    $completed = ws12Order($store, ['status' => 'completed']);
+
+    $response = $this->withToken(ws12Token($owner))
+        ->postJson('/api/v1/management/orders/bulk-cancel', [
+            'order_ids' => [$pending->id, $accepted->id, $completed->id],
+            'reason' => 'Customer changed their mind',
+        ])
+        ->assertOk();
+
+    expect($response->json('data.cancelled'))->toBe(2)
+        ->and($response->json('data.skipped_ids'))->toBe([$completed->id])
+        ->and($response->json("data.skipped.{$completed->id}"))->toBe('Only pending or accepted orders can be cancelled.');
+
+    expect($pending->fresh()->status)->toBe(OrderStatus::CANCELLED)
+        ->and($accepted->fresh()->status)->toBe(OrderStatus::CANCELLED)
+        ->and($completed->fresh()->status)->toBe(OrderStatus::COMPLETED);
+});
+
+test('a bulk action cannot reach another business\'s order', function () {
+    Mail::fake();
+
+    [$owner, $business, $store] = ws12Context();
+    [$otherOwner, $otherBusiness, $otherStore] = ws12Context();
+
+    $mine = ws12Order($store, ['status' => 'pending']);
+    $theirs = ws12Order($otherStore, ['status' => 'pending']);
+
+    $response = $this->withToken(ws12Token($owner))
+        ->postJson('/api/v1/management/orders/bulk-accept', [
+            'order_ids' => [$mine->id, $theirs->id],
+        ])
+        ->assertOk();
+
+    expect($response->json('data.accepted'))->toBe(1)
+        ->and($response->json('data.accepted_ids'))->toBe([$mine->id])
+        // The same answer as an id that does not exist, on purpose: telling
+        // the two apart would make this endpoint a probe for other businesses'
+        // order ids.
+        ->and($response->json("data.skipped.{$theirs->id}"))->toBe('Not found.');
+
+    expect($theirs->fresh()->status)->toBe(OrderStatus::PENDING);
+});
+
+test('a bulk action refuses an empty selection and one larger than the cap', function () {
+    [$owner, $business, $store] = ws12Context();
+    $token = ws12Token($owner);
+
+    $this->withToken($token)
+        ->postJson('/api/v1/management/orders/bulk-accept', ['order_ids' => []])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors('order_ids');
+
+    $this->withToken($token)
+        ->postJson('/api/v1/management/orders/bulk-accept', [
+            'order_ids' => range(1, BulkOrderActionRequest::MAX_IDS + 1),
+        ])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors('order_ids');
+});
+
+test('a bulk action needs the orders status_update permission', function () {
+    [$owner, $business, $store] = ws12Context();
+    $order = ws12Order($store, ['status' => 'pending']);
+
+    $staff = User::factory()->create([
+        'role' => 'staff',
+        'status' => 'active',
+        'is_verified' => true,
+        'business_id' => $business->id,
+    ]);
+
+    (new SpatiePermissionSeeder)->run();
+    setPermissionsTeamId($business->id);
+    // A store associate can read orders and not move them.
+    $staff->assignRole('Store Associate');
+    $staff->assignedStores()->attach($store->id);
+
+    $this->withToken(ws12Token($staff))
+        ->postJson('/api/v1/management/orders/bulk-accept', ['order_ids' => [$order->id]])
+        ->assertStatus(403);
+
+    expect($order->fresh()->status)->toBe(OrderStatus::PENDING);
 });
