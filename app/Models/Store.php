@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\StoreStatus;
+use App\Models\Concerns\HasCustodyWallet;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -13,7 +14,17 @@ use Illuminate\Database\Eloquent\Relations\MorphToMany;
 
 class Store extends Model
 {
-    use BelongsToBusiness, HasFactory;
+    /**
+     * The custody wallet, shared with `Business`.
+     *
+     * `Store` already has a `balance` column and `creditBalance()`/`debitBalance()`
+     * on it — and those are a **different money**: sales charged on the business's
+     * own provider keys, already sitting in the business's own account, unsigned
+     * and refusing to go below zero. This trait adds `pending_balance`,
+     * `available_balance` and their five operations beside it. The two are never
+     * summed; see the trait's docblock.
+     */
+    use BelongsToBusiness, HasCustodyWallet, HasFactory;
 
     public const STATUS_PENDING = StoreStatus::PENDING->value;
 

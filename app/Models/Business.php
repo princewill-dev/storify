@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\HasCustodyWallet;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -10,6 +11,7 @@ use Illuminate\Support\Str;
 
 class Business extends Model
 {
+    use HasCustodyWallet;
     use HasFactory;
 
     /**
@@ -221,30 +223,6 @@ class Business extends Model
     }
 
     /**
-     * Everything Storify is holding for this business, settled or not.
-     *
-     * Derived rather than stored. A third column holding the sum of the other two
-     * is a third thing that can disagree with them, and the disagreement would
-     * only ever be discovered by a business that was paid the wrong amount.
-     */
-    public function walletBalance(): int
-    {
-        return (int) $this->pending_balance + (int) $this->available_balance;
-    }
-
-    /**
-     * What can actually be paid out right now.
-     *
-     * Separate from {@see walletBalance()} on purpose: the difference is money the
-     * provider has not settled to Storify yet, and paying it out would mean
-     * Storify advancing funds it does not have.
-     */
-    public function payoutableBalance(): int
-    {
-        return (int) $this->available_balance;
-    }
-
-    /**
      * Whether Storify collects this business's money and pays it out.
      *
      * The single predicate the whole change hangs off, and it is read in three
@@ -295,162 +273,5 @@ class Business extends Model
             'custody_enabled' => false,
             'custody_enabled_at' => now(),
         ])->save();
-    }
-
-    /**
-     * A collected sale lands here: owed, but not yet settled to us.
-     */
-    public function creditPending(int $amountInKobo): bool
-    {
-        return $this->mutateWallet('pending_balance', $amountInKobo, false);
-    }
-
-    /**
-     * Put money straight into the payable bucket.
-     *
-     * For a payout that was refused: the money was already settled, so returning
-     * it to `pending` would make the business wait a second settlement window for
-     * a transfer the provider declined. It also has to be able to repair a
-     * negative balance left by a refund taken after a payout, which is why it does
-     * not refuse to run while available is below zero.
-     */
-    public function creditAvailable(int $amountInKobo): bool
-    {
-        return $this->mutateWallet('available_balance', $amountInKobo, true);
-    }
-
-    /**
-     * Settlement cleared, so the money moved from owed-but-unsettled to payable.
-     *
-     * Debits pending and credits available in one locked transaction, because a
-     * promote that did half the job would either create money or destroy it.
-     *
-     * @throws \Exception when there is not that much pending — a sign the promote
-     *                    job has run twice, which is a bug worth failing loudly on
-     *                    rather than quietly absorbing.
-     */
-    public function promoteToAvailable(int $amountInKobo): bool
-    {
-        if ($amountInKobo <= 0) {
-            throw new \Exception('Promote amount must be positive');
-        }
-
-        return \DB::transaction(function () use ($amountInKobo) {
-            $business = Business::query()->lockForUpdate()->findOrFail($this->id);
-
-            if ((int) $business->pending_balance < $amountInKobo) {
-                throw new \Exception('Cannot promote more than is pending');
-            }
-
-            $business->decrement('pending_balance', $amountInKobo);
-            $business->increment('available_balance', $amountInKobo);
-            $business->forceFill(['balance_updated_at' => now()])->save();
-
-            $this->refresh();
-
-            return true;
-        });
-    }
-
-    /**
-     * Move money out: a payout reservation, or a refund of settled funds.
-     *
-     * `$allowNegative` is the difference between the two. A payout must never
-     * overdraw — if there is not enough settled money to pay, the right answer is
-     * to pay less, not to invent it. A refund must be allowed to: the business
-     * already has the cash, Storify has refunded the customer from its own
-     * balance, and refusing would leave the debt unrecorded rather than recovered
-     * from the business's next sale.
-     *
-     * @throws \Exception when it would overdraw and is not allowed to.
-     */
-    public function debitAvailable(int $amountInKobo, bool $allowNegative = false): bool
-    {
-        if ($amountInKobo <= 0) {
-            throw new \Exception('Debit amount must be positive');
-        }
-
-        return \DB::transaction(function () use ($amountInKobo, $allowNegative) {
-            $business = Business::query()->lockForUpdate()->findOrFail($this->id);
-
-            if (! $allowNegative && (int) $business->available_balance < $amountInKobo) {
-                throw new \Exception('Insufficient available balance');
-            }
-
-            $business->decrement('available_balance', $amountInKobo);
-            $business->forceFill(['balance_updated_at' => now()])->save();
-
-            $this->refresh();
-
-            return true;
-        });
-    }
-
-    /**
-     * A refund against a sale the provider has not settled to us yet.
-     *
-     * Debits pending, never below zero: this reverses a specific credit, and that
-     * credit is still sitting in pending until it is promoted. If it has already
-     * been promoted, the refund belongs in {@see debitAvailable()} instead — the
-     * caller knows which, because it knows whether the sale was promoted.
-     *
-     * @throws \Exception when it would overdraw pending.
-     */
-    public function debitPending(int $amountInKobo): bool
-    {
-        if ($amountInKobo <= 0) {
-            throw new \Exception('Debit amount must be positive');
-        }
-
-        return \DB::transaction(function () use ($amountInKobo) {
-            $business = Business::query()->lockForUpdate()->findOrFail($this->id);
-
-            if ((int) $business->pending_balance < $amountInKobo) {
-                throw new \Exception('Insufficient pending balance');
-            }
-
-            $business->decrement('pending_balance', $amountInKobo);
-            $business->forceFill(['balance_updated_at' => now()])->save();
-
-            $this->refresh();
-
-            return true;
-        });
-    }
-
-    /**
-     * The shared body of a single-bucket credit.
-     *
-     * Locks the row and re-reads it rather than trusting `$this`, so two workers
-     * crediting the same business cannot both read the same starting figure — the
-     * same reason `Store` does it this way.
-     *
-     * @throws \Exception when the amount is not positive, or when the bucket is
-     *                    one a credit must never overdraw.
-     */
-    private function mutateWallet(string $column, int $amountInKobo, bool $allowNegative): bool
-    {
-        if (! in_array($column, ['pending_balance', 'available_balance'], true)) {
-            throw new \Exception('Unknown wallet bucket');
-        }
-
-        if ($amountInKobo <= 0) {
-            throw new \Exception('Credit amount must be positive');
-        }
-
-        return \DB::transaction(function () use ($column, $amountInKobo, $allowNegative) {
-            $business = Business::query()->lockForUpdate()->findOrFail($this->id);
-
-            if (! $allowNegative && (int) $business->{$column} < -$amountInKobo) {
-                throw new \Exception('Wallet adjustment would overdraw');
-            }
-
-            $business->increment($column, $amountInKobo);
-            $business->forceFill(['balance_updated_at' => now()])->save();
-
-            $this->refresh();
-
-            return true;
-        });
     }
 }
