@@ -206,4 +206,28 @@ return [
     */
     'max_destination_failures' => 3,
 
+    /*
+    | Whether a collected sale is credited to the store that earned it, or to the
+    | business as a whole.
+    |
+    | Off, every bucket is the business's and the platform behaves exactly as it
+    | did before stores had wallets. On, a sale lands on its own store, settles
+    | there, and is paid out to that store's payout account — falling back to the
+    | business default when the store names none.
+    |
+    | **One switch, read in one place.** `CustodyBucket` is the only thing that
+    | reads this, and credit, promote, refund and the sweep all resolve the
+    | bucket through it. They share `transactions.custody_store_id`, which records
+    | where a sale's money went, so flipping some of them and not the others would
+    | credit to one bucket and settle from another — money stranded on a store
+    | with nothing to promote it. That is why this is a flag and not a rollout
+    | order.
+    |
+    | Flipping it is safe for existing balances: money already collected stays on
+    | the business, which is what the business bucket now means — money no store
+    | accounts for. Nothing is redistributed, because the history does not say
+    | which store earned a lump credited before the column existed.
+    */
+    'per_store_wallets' => env('CUSTODY_PER_STORE_WALLETS', false),
+
 ];

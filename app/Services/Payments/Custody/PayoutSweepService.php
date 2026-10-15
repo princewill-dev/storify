@@ -5,6 +5,7 @@ namespace App\Services\Payments\Custody;
 use App\Models\Business;
 use App\Models\Payout;
 use App\Models\PayoutHold;
+use App\Models\Store;
 use App\Services\Accounting\LedgerPostingService;
 use App\Services\Payments\Data\GatewayCredentials;
 use App\Services\Payments\Payouts\PayoutDestinationRef;
@@ -358,7 +359,20 @@ final class PayoutSweepService
             return ['budget' => null, 'floor' => $floor, 'measured' => false];
         }
 
-        $liability = (int) Business::query()->sum('available_balance');
+        // Everything the platform owes, across both kinds of bucket.
+        //
+        // With per-store wallets on, a business's payable money sits on its
+        // stores and the business column holds only what no store accounts for.
+        // Counting the business column alone would understate the liability, let
+        // the gate mature more than the provider is actually holding, and overdraw
+        // the platform's own balance — the precise failure this gate exists to
+        // prevent, arrived at by one missing SUM rather than by a wrong decision.
+        //
+        // Summed unconditionally rather than behind the flag: with it off every
+        // store column is zero, so the figure is exactly what it was, and a
+        // conditional here would be one more place the flag has to be right.
+        $liability = (int) Business::query()->sum('available_balance')
+            + (int) Store::query()->sum('available_balance');
 
         // Reserved and still in flight: the money has left the wallet but has not
         // yet left the provider's balance, so it is spoken for twice if this does

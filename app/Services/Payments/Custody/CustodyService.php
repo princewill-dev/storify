@@ -45,6 +45,7 @@ final class CustodyService
     public function __construct(
         private readonly LedgerPostingService $ledger,
         private readonly CustodyNotifier $notifier,
+        private readonly CustodyBucket $bucket,
     ) {}
 
     /**
@@ -171,17 +172,26 @@ final class CustodyService
         //
         // If the credit fails the claim rolls back with it, so a row is never
         // stamped as credited without having been.
-        $credited = DB::transaction(function () use ($transaction, $business, $netKobo, $settleAt) {
+        // The one place the bucket is decided. Derived once, set on the model so
+        // the credit below reads what the row is about to hold rather than
+        // deriving a second time, and recorded with the claim so everything that
+        // moves this money afterwards — promote, refund, payout — reads it back
+        // instead of asking again. Deriving it later would give a different answer
+        // the moment the order changed store.
+        $custodyStoreId = $this->bucket->storeIdFor($transaction, $business);
+        $transaction->custody_store_id = $custodyStoreId;
+
+        $credited = DB::transaction(function () use ($transaction, $business, $netKobo, $settleAt, $custodyStoreId) {
             $claimed = Transaction::query()
                 ->whereKey($transaction->id)
                 ->whereNull('settle_at')
-                ->update(['settle_at' => $settleAt]);
+                ->update(['settle_at' => $settleAt, 'custody_store_id' => $custodyStoreId]);
 
             if ($claimed === 0) {
                 return false;
             }
 
-            $business->creditPending($netKobo);
+            $this->bucket->creditPending($transaction, $business, $netKobo);
 
             return true;
         });
@@ -192,7 +202,8 @@ final class CustodyService
 
         // The write above went through the query builder, so the caller's
         // instance still says null. Bring it level — not saved again, just
-        // correct for anything that reads it next.
+        // correct for anything that reads it next — including the bucket, which
+        // would otherwise re-derive a store the row has just recorded.
         $transaction->settle_at = $settleAt;
 
         // The business's own books already carry this sale — `postManagedPaymentReceived`
@@ -345,7 +356,10 @@ final class CustodyService
                 continue;
             }
 
-            $business->promoteToAvailable($netKobo);
+            // Through the bucket, so the store a sale was credited to is the
+            // store it settles in. With the flag off this is the business, which
+            // is what every promote did before.
+            $this->bucket->promoteToAvailable($transaction, $business, $netKobo);
             $matured++;
         }
 
@@ -740,9 +754,12 @@ final class CustodyService
         // that was not does not. Reading the marker is what keeps the caller from
         // having to know which bucket the money is sitting in.
         if ($transaction->promoted_at === null) {
-            $business->debitPending($netKobo);
+            $this->bucket->debitPending($transaction, $business, $netKobo);
         } else {
-            $business->debitAvailable($netKobo, allowNegative: true);
+            // The same bucket the credit went into, which is the point of
+            // recording it: a refund on one store drives that store's balance
+            // negative and leaves every other store alone.
+            $this->bucket->debitAvailable($transaction, $business, $netKobo, allowNegative: true);
         }
 
         // **Deliberately no allocation is touched here.** A refund has to stop this
