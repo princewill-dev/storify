@@ -44,7 +44,16 @@ final class RegisterPayoutAccountRequest extends FormRequest
         $businessId = $this->user()?->business_id;
 
         return [
-            'store_id' => ['nullable', 'integer', 'exists:stores,id'],
+            // Scoped to this business. `resolveStore()` checks it again with the
+            // tenant guard, but a bare `exists:stores,id` here would let one
+            // business name another's store and learn from the *shape* of the
+            // refusal that the id was real — a 403 for a store that exists
+            // against a 422 for one that does not is a probe.
+            'store_id' => [
+                'nullable',
+                'integer',
+                Rule::exists('stores', 'id')->where('business_id', (int) $businessId),
+            ],
 
             // An account the business already holds, verified through the
             // bank-transfer flow. Scoped to this business so one tenant's id

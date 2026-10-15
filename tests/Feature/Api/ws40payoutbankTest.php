@@ -224,13 +224,17 @@ test('a bank account belonging to another business is refused', function () {
 });
 
 test('a store scope is refused rather than naming the whole business\'s account', function () {
-    // A payout is one transfer from one wallet, and the wallet is the
-    // business's — nothing else on the platform is separated per store. So a
-    // store's screen naming a bank would either be a lie or a silent redirect of
-    // every other store's money, and there is no third reading. Refused in words,
-    // which is the part worth pinning: a silent `UPDATE` on the business's column
-    // would look like it worked.
+    // With per-store wallets off this is still the answer, and the reason is
+    // unchanged: a payout is one transfer from one wallet, the wallet is the
+    // business's, and a store's screen naming a bank would either be a lie or a
+    // silent redirect of every other store's money.
+    //
+    // What changed is that it is now *conditional*. The wallet and the sweep
+    // became per-store, so with the flag on a store naming its own account names
+    // money that is genuinely separated — see the tests below. This one pins the
+    // off state, which is what a deployment that has not flipped the flag gets.
     pb40NoProvider();
+    config(['custody.per_store_wallets' => false]);
 
     [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
     $store = pb40Store($owner);
@@ -271,4 +275,107 @@ test('a destination can be named before the platform holds any provider keys', f
         ->assertOk();
 
     expect((int) $business->refresh()->payout_bank_id)->toBe((int) $bank->id);
+});
+
+/*
+|--------------------------------------------------------------------------
+| WS-51 — the same question, asked of one store
+|--------------------------------------------------------------------------
+| A store may name its own account, and `stores.payout_bank_id` is that answer.
+| It is an *override*, not a second destination: a store that names none falls
+| back to the business's, which is where everything went before this existed.
+|
+| This endpoint refused a store scope outright until the wallet and the sweep
+| became per-store. The refusal was right for its time — one column, one balance,
+| one transfer — and the tests below pin the two halves of what replaced it: the
+| store write, and the flag that keeps it off until the run would honour it.
+*/
+
+test('with per-store wallets off, a store scope is refused', function () {
+    pb40NoProvider();
+    config(['custody.per_store_wallets' => false]);
+
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    $store = pb40Store($owner);
+    $bank = StoreBank::factory()->create(['business_id' => $business->id]);
+
+    $this->withToken(pb40Token($owner))
+        ->putJson('/api/v1/management/payment-gateways/bachs/payout-account', [
+            'store_bank_id' => $bank->id,
+            'store_id' => $store->id,
+        ])
+        ->assertStatus(422);
+
+    expect($store->fresh()->payout_bank_id)->toBeNull()
+        ->and($business->fresh()->payout_bank_id)->toBeNull();
+});
+
+test('with per-store wallets on, a store names its own account and the business is untouched', function () {
+    pb40NoProvider();
+    config(['custody.per_store_wallets' => true]);
+
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+
+    $businessBank = StoreBank::factory()->create(['business_id' => $business->id]);
+    $storeBank = StoreBank::factory()->create(['business_id' => $business->id]);
+
+    $business->forceFill(['payout_bank_id' => $businessBank->id])->save();
+
+    $store = pb40Store($owner);
+
+    $this->withToken(pb40Token($owner))
+        ->putJson('/api/v1/management/payment-gateways/bachs/payout-account', [
+            'store_bank_id' => $storeBank->id,
+            'store_id' => $store->id,
+        ])
+        ->assertOk();
+
+    expect($store->fresh()->payout_bank_id)->toBe($storeBank->id)
+        // The business's destination is where every store that names none is
+        // paid, so a store claiming one must not move it.
+        ->and($business->fresh()->payout_bank_id)->toBe($businessBank->id);
+});
+
+test('a store cannot be pointed at an account the business does not hold', function () {
+    pb40NoProvider();
+    config(['custody.per_store_wallets' => true]);
+
+    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    [$otherOwner, $otherBusiness] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+
+    $store = pb40Store($owner);
+    $theirs = StoreBank::factory()->create(['business_id' => $otherBusiness->id]);
+
+    $this->withToken(pb40Token($owner))
+        ->putJson('/api/v1/management/payment-gateways/bachs/payout-account', [
+            'store_bank_id' => $theirs->id,
+            'store_id' => $store->id,
+        ])
+        ->assertStatus(422);
+
+    expect($store->fresh()->payout_bank_id)->toBeNull();
+});
+
+test('a store belonging to another business cannot be named at all', function () {
+    pb40NoProvider();
+    config(['custody.per_store_wallets' => true]);
+
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    [$otherOwner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+
+    $bank = StoreBank::factory()->create(['business_id' => $business->id]);
+    $theirs = pb40Store($otherOwner);
+
+    $this->withToken(pb40Token($owner))
+        ->putJson('/api/v1/management/payment-gateways/bachs/payout-account', [
+            'store_bank_id' => $bank->id,
+            'store_id' => $theirs->id,
+        ])
+        // Validation, not a 403: the rule is scoped to the business, so an id
+        // outside it is not a store this request may name — and the same answer
+        // for an id that does not exist keeps this from probing for real ones.
+        ->assertStatus(422)
+        ->assertJsonValidationErrors('store_id');
+
+    expect($theirs->fresh()->payout_bank_id)->toBeNull();
 });

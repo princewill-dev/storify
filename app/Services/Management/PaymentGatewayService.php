@@ -140,17 +140,25 @@ final class PaymentGatewayService
     ): void {
         $definition = PaymentGatewayRegistry::get($provider);
 
-        // A store scope has nowhere to land any more. The destination is a single
-        // column on the business, because the wallet and the payout are the
-        // business's and a payout is one transfer from one balance; a second
-        // destination per store would name money that is not separated anywhere
-        // else. Refused in words rather than silently writing the business's
-        // column from a store's screen, which would quietly redirect every other
-        // store's money.
+        // A store scope used to be refused here, and the refusal was right for
+        // its time: the destination was a single column on the business and a
+        // payout was one transfer from one balance, so a store-scoped write would
+        // have quietly redirected every other store's money.
+        //
+        // Both halves of that are no longer true. A store has its own wallet —
+        // `custody.per_store_wallets` — and the sweep now pays each destination
+        // its own transfer, so a store naming its own account names money that
+        // *is* separated from every other store's. The store write is allowed
+        // now, and gated on the same flag so a store cannot name a bank before
+        // the run would honour it.
         if ($store !== null) {
-            throw ValidationException::withMessages([
-                'store_id' => 'Bank accounts for payouts are set for the whole business. Remove the store and try again.',
-            ]);
+            if (! config('custody.per_store_wallets', false)) {
+                throw ValidationException::withMessages([
+                    'store_id' => 'Per-store payout accounts are not enabled yet.',
+                ]);
+            }
+
+            $this->assertStoreIsOurs($store, $actor);
         }
 
         $business = Business::query()->findOrFail((int) $actor->business_id);
@@ -175,7 +183,15 @@ final class PaymentGatewayService
             ]);
         }
 
-        $business->forceFill(['payout_bank_id' => $bankId])->save();
+        // The store's own column when a store was named, the business's
+        // otherwise. Two columns rather than one, because they mean different
+        // things: the business's is the destination for everything a store does
+        // not claim, and a store's is an override for that store alone.
+        if ($store !== null) {
+            $store->forceFill(['payout_bank_id' => $bankId])->save();
+        } else {
+            $business->forceFill(['payout_bank_id' => $bankId])->save();
+        }
 
         ActivityRecorder::record(
             action: 'payment_gateway.payout_account_registered',
@@ -184,10 +200,30 @@ final class PaymentGatewayService
             // Never the account number: what is recorded is that a bank was
             // named, and enough of it to recognise which one.
             new: ['bank' => $bank['bank_name'] ?? null, 'last4' => substr($bank['account_number'], -4)],
-            metadata: ['provider' => $provider, 'scope' => 'business'],
+            metadata: [
+                'provider' => $provider,
+                'scope' => $store !== null ? 'store' : 'business',
+                'store_id' => $store?->id,
+            ],
             actor: $actor,
             businessId: (int) $actor->business_id,
         );
+    }
+
+    /**
+     * A store the caller may name a payout account for.
+     *
+     * The business check is the tenant one; the store check is the same rule
+     * `accessibleStores()` applies everywhere else, so a restricted staff member
+     * cannot name a store they cannot see.
+     */
+    private function assertStoreIsOurs(Store $store, User $actor): void
+    {
+        if ((int) $store->business_id !== (int) $actor->business_id) {
+            throw ValidationException::withMessages([
+                'store_id' => 'That store is not one of this business\'s stores.',
+            ]);
+        }
     }
 
     /**
