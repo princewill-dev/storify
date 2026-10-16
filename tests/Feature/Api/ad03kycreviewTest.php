@@ -123,8 +123,8 @@ function ad03Post(object $test, User $admin, string $path, array $payload = [])
 
 test('the kyc queue opens on submitted applications and carries status counts', function () {
     $admin = ad03SuperAdmin();
-    [$ownerA, $businessA] = createBusinessOwner();
-    [$ownerB, $businessB] = createBusinessOwner();
+    [$ownerA, $businessA] = createBusinessOwner(['kyc' => 'none']);
+    [$ownerB, $businessB] = createBusinessOwner(['kyc' => 'none']);
 
     $old = ad03Application($ownerA, ['submitted_at' => now()->subDays(2)]);
     $new = ad03Application($ownerB, ['submitted_at' => now()->subHour(), 'legal_name' => 'Newest Applicant']);
@@ -171,7 +171,7 @@ test('the kyc queue opens on submitted applications and carries status counts', 
 
 test('the kyc queue filters by status, searches applicants and paginates', function () {
     $admin = ad03SuperAdmin();
-    [$owner] = createBusinessOwner(['name' => 'Searchable Owner']);
+    [$owner] = createBusinessOwner(['kyc' => 'none', 'name' => 'Searchable Owner']);
 
     $submitted = ad03Application($owner);
     ad03Application($owner, ['status' => 'approved', 'approved_at' => now()]);
@@ -214,7 +214,7 @@ test('the kyc queue filters are validated', function () {
 
 test('the review screen surfaces the fields legacy stored but never showed', function () {
     $admin = ad03SuperAdmin();
-    [$owner, $business] = createBusinessOwner();
+    [$owner, $business] = createBusinessOwner(['kyc' => 'none']);
     $type = ad03DocumentType();
 
     $older = ad03Application($owner, [
@@ -260,7 +260,7 @@ test('approving activates the owner, records the reviewer and queues the approva
     Mail::fake();
 
     $admin = ad03SuperAdmin();
-    [$owner] = createBusinessOwner();
+    [$owner] = createBusinessOwner(['kyc' => 'none']);
     $owner->forceFill(['status' => 'pending'])->save();
 
     $application = ad03Application($owner);
@@ -304,7 +304,7 @@ test('approving activates the owner, records the reviewer and queues the approva
 
 test('an application can only be actioned while it is submitted', function () {
     $admin = ad03SuperAdmin();
-    [$owner] = createBusinessOwner();
+    [$owner] = createBusinessOwner(['kyc' => 'none']);
 
     $application = ad03Application($owner);
 
@@ -340,7 +340,7 @@ test('an application can only be actioned while it is submitted', function () {
 
 test('approve and reject notes are validated like legacy', function () {
     $admin = ad03SuperAdmin();
-    [$owner] = createBusinessOwner();
+    [$owner] = createBusinessOwner(['kyc' => 'none']);
     $application = ad03Application($owner);
 
     ad03Post($this, $admin, 'kyc-applications/'.$application->id.'/approve', [
@@ -363,7 +363,7 @@ test('rejecting moves the owner back to pending and emails the reason', function
     Mail::fake();
 
     $admin = ad03SuperAdmin();
-    [$owner] = createBusinessOwner();
+    [$owner] = createBusinessOwner(['kyc' => 'none']);
 
     $application = ad03Application($owner);
 
@@ -403,7 +403,7 @@ test('the reject response does not over-promise when the notification cannot be 
     Mail::shouldReceive('to')->andThrow(new RuntimeException('smtp down'));
 
     $admin = ad03SuperAdmin();
-    [$owner] = createBusinessOwner();
+    [$owner] = createBusinessOwner(['kyc' => 'none']);
     $application = ad03Application($owner);
 
     $response = ad03Post($this, $admin, 'kyc-applications/'.$application->id.'/reject', [
@@ -430,7 +430,7 @@ test('a mail failure never blocks an approval', function () {
     Mail::shouldReceive('to')->andThrow(new RuntimeException('smtp down'));
 
     $admin = ad03SuperAdmin();
-    [$owner] = createBusinessOwner();
+    [$owner] = createBusinessOwner(['kyc' => 'none']);
     $application = ad03Application($owner);
 
     $response = ad03Post($this, $admin, 'kyc-applications/'.$application->id.'/approve');
@@ -449,7 +449,7 @@ test('auto-approval persists the reviewer note and leaves closed applications al
     Mail::fake();
 
     $admin = ad03SuperAdmin();
-    [$owner] = createBusinessOwner();
+    [$owner] = createBusinessOwner(['kyc' => 'none']);
     $owner->forceFill(['status' => 'pending'])->save();
 
     $draft = ad03Application($owner, ['status' => 'draft']);
@@ -491,7 +491,7 @@ test('auto-approval persists the reviewer note and leaves closed applications al
 
 test('auto-approval targets the newest submitted application', function () {
     $admin = ad03SuperAdmin();
-    [$owner] = createBusinessOwner();
+    [$owner] = createBusinessOwner(['kyc' => 'none']);
 
     $older = ad03Application($owner, ['submitted_at' => now()->subDays(5)]);
     $newer = ad03Application($owner, ['submitted_at' => now()->subHour()]);
@@ -507,7 +507,7 @@ test('a rejected owner can resubmit and be approved — the legacy loop closes',
     Mail::fake();
 
     $admin = ad03SuperAdmin();
-    [$owner] = createBusinessOwner();
+    [$owner] = createBusinessOwner(['kyc' => 'none']);
 
     $first = ad03Application($owner);
 
@@ -537,7 +537,7 @@ test('a rejected owner can resubmit and be approved — the legacy loop closes',
 });
 
 test('a business-scoped account cannot reach the platform kyc queue', function () {
-    [$owner, $business] = createBusinessOwner();
+    [$owner, $business] = createBusinessOwner(['kyc' => 'none']);
     $application = ad03Application($owner);
 
     // The in-business Super Admin role bundles the admin.* permissions, so
@@ -574,7 +574,7 @@ test('the kyc routes require the admin.businesses permission', function () {
 });
 
 test('management tokens and guests are refused', function () {
-    [$owner] = createBusinessOwner();
+    [$owner] = createBusinessOwner(['kyc' => 'none']);
 
     $managementToken = $owner->createToken('management-access', ['management'], now()->addHour())->plainTextToken;
 

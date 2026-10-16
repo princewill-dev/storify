@@ -322,7 +322,10 @@ test('a restricted accountant only searches their store transactions', function 
 // -------------------------------------------------------------------------
 
 test('shell counts returns every legacy sidebar counter', function () {
-    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    // No KYC, because this asserts the sidebar's own reading of it — a business
+    // that has not answered yet shows `required`, which is the state the count
+    // exists to surface. The other counters are indifferent to it.
+    [$owner, $business] = createBusinessOwner(['kyc' => 'none', 'trial_ends_at' => now()->addWeek()]);
 
     $store = ws34Store($owner, $business, ['name' => 'Counted Store', 'pos_enabled' => true]);
     ws34Store($owner, $business, ['name' => 'Deleted Store', 'status' => Store::STATUS_DELETED]);

@@ -192,6 +192,26 @@ final class PaymentGatewayController extends ApiController
     }
 
     /**
+     * DELETE /management/stores/{store}/payout-account — back to the default.
+     *
+     * A `DELETE` rather than a `PUT` with a null, because there is nothing to
+     * name: falling back is the absence of a choice, and an empty submission
+     * would be indistinguishable from a client that lost the value.
+     */
+    public function clearStorePayoutBank(Request $request, Store $store): JsonResponse
+    {
+        $user = $this->user($request);
+
+        $this->guard->authorizeStore($user, $store, 'You do not have access to this store.');
+        $this->service->clearStorePayoutBank($store, $user);
+
+        return $this->ok(
+            ['store' => ['id' => $store->id, 'payout_bank_id' => null]],
+            'That store will be paid into your default account.',
+        );
+    }
+
+    /**
      * Stop taking payments through Storify, or start again.
      *
      * Setting up a bank is not consent to keep selling, so a business being

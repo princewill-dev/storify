@@ -211,6 +211,38 @@ final class PaymentGatewayService
     }
 
     /**
+     * Send a store back to the business default.
+     *
+     * `null` rather than a copy of the business's account, because the two mean
+     * different things the moment the default changes: a store pointing at a
+     * *copy* would keep being paid into an account the business has since
+     * stopped using. Null is the absence of a choice, which is what falling back
+     * means.
+     */
+    public function clearStorePayoutBank(Store $store, User $actor): void
+    {
+        if (! config('custody.per_store_wallets', false)) {
+            throw ValidationException::withMessages([
+                'store_id' => 'Per-store payout accounts are not enabled yet.',
+            ]);
+        }
+
+        $this->assertStoreIsOurs($store, $actor);
+
+        $store->forceFill(['payout_bank_id' => null])->save();
+
+        ActivityRecorder::record(
+            action: 'payment_gateway.store_payout_account_cleared',
+            description: $store->name.' pays into the business default again',
+            old: [],
+            new: [],
+            metadata: ['store_id' => $store->id],
+            actor: $actor,
+            businessId: (int) $actor->business_id,
+        );
+    }
+
+    /**
      * A store the caller may name a payout account for.
      *
      * The business check is the tenant one; the store check is the same rule

@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\V1\Management\PaymentGatewayController;
+use App\Models\Store;
 use Illuminate\Support\Facades\Route;
 
 // WS-39 — Payment gateways.
@@ -48,4 +49,11 @@ Route::middleware('permission:settings payment')->prefix('payment-gateways')->na
     Route::post('{provider}/test', [PaymentGatewayController::class, 'test'])
         ->middleware('throttle:10,1')
         ->name('test');
+});
+
+// Falling back to the business default, which names no provider — so it is not
+// under the `{provider}` prefix the rest of this file uses.
+Route::middleware('permission:settings payment')->group(function () {
+    Route::delete('payment-gateways/stores/{store}/payout-account', [PaymentGatewayController::class, 'clearStorePayoutBank'])
+        ->name('payment-gateways.stores.payout-account.clear');
 });
