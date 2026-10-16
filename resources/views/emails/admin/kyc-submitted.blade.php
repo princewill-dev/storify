@@ -45,9 +45,21 @@
                     <td style="padding:6px 0;width:170px;color:#64748b;">Document type</td>
                     <td style="padding:6px 0;">{{ $application->documentType?->name ?? '—' }}</td>
                   </tr>
+                  {{--
+                      Masked, not printed. A BVN or a NIN is a regulated
+                      identifier and mail is not a channel this platform
+                      controls — it is stored, forwarded and indexed, and the
+                      inbox it lands in is not ours. The reviewer does not need
+                      the number here: they need to know an application is
+                      waiting, and the console shows them the whole of it behind
+                      a permission and an audit row. Enough digits to recognise
+                      a record, and no more.
+                  --}}
                   <tr>
                     <td style="padding:6px 0;width:170px;color:#64748b;">Document ID</td>
-                    <td style="padding:6px 0;">{{ $application->kyc_document_id }}</td>
+                    <td style="padding:6px 0;">{{ $application->kyc_document_id
+                      ? '••••'.substr((string) $application->kyc_document_id, -4)
+                      : '—' }}</td>
                   </tr>
                   <tr>
                     <td style="padding:6px 0;width:170px;color:#64748b;">Submitted at</td>

@@ -6,6 +6,20 @@
   <title>KYC submission received</title>
 </head>
 <body style="margin:0;background:#f4f6f8;color:#0f172a;">
+  {{--
+      Two sentences and a button, and deliberately nothing else.
+
+      A table used to sit between them listing the submitted-on date, the
+      document type and the document number. For a BVN or a NIN the last of
+      those is a regulated identifier, and mail is not a channel this platform
+      controls: it is stored, forwarded, indexed, and read on devices that are
+      somebody else's. An acknowledgement is not worth a permanent copy of a
+      person's identity number sitting in an inbox for ever.
+
+      Nothing is lost by removing it. The reader knows all they need to — that it
+      arrived and that they will hear back — and everything the review needs is
+      in the console, behind a permission and an audit log.
+  --}}
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f6f8;padding:24px 0;">
     <tr>
       <td align="center">
@@ -26,37 +40,17 @@
           </tr>
           <tr>
             <td style="padding:0 32px 16px;">
-              <p style="margin:0;color:#334155;font-size:14px;line-height:20px;">Hi {{ $user->name }}, thanks for submitting your KYC details. Our compliance team will review the information and get back to you shortly.</p>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding:0 32px 20px;">
-              <div style="background:#f1f5f9;border-radius:10px;padding:16px;">
-                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;color:#0f172a;">
-                  <tr>
-                    <td style="padding:6px 0;width:160px;color:#64748b;">Submitted on</td>
-                    <td style="padding:6px 0;">{{ optional($application->submitted_at)->format('j M Y, g:ia') ?? now()->format('j M Y, g:ia') }}</td>
-                  </tr>
-                  <tr>
-                    <td style="padding:6px 0;width:160px;color:#64748b;">Document type</td>
-                    <td style="padding:6px 0;">{{ $application->documentType?->name ?? '—' }}</td>
-                  </tr>
-                  <tr>
-                    <td style="padding:6px 0;width:160px;color:#64748b;">Document ID</td>
-                    <td style="padding:6px 0;">{{ $application->kyc_document_id }}</td>
-                  </tr>
-                </table>
-              </div>
+              <p style="margin:0;color:#334155;font-size:14px;line-height:20px;">Hi {{ $user->name }}, we’ve received your KYC submission and will let you know as soon as it has been reviewed.</p>
             </td>
           </tr>
           <tr>
             <td style="padding:0 32px 16px;">
-              <p style="margin:0;color:#334155;font-size:14px;line-height:20px;">Next, we’ll confirm your details and send you an update. In the meantime, you can finish preparing your store so you’re ready to launch.</p>
+              <p style="margin:0;color:#334155;font-size:14px;line-height:20px;">In the meantime, you can keep setting up your store.</p>
             </td>
           </tr>
           <tr>
             <td style="padding:0 32px 28px;">
-              <a href="{{ \App\Support\SpaUrls::management('/stores/create') }}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;border-radius:8px;padding:10px 16px;font-weight:600;font-size:14px;">Continue store setup</a>
+              <a href="{{ \App\Support\SpaUrls::management('/settings/payment-settings') }}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;border-radius:8px;padding:10px 16px;font-weight:600;font-size:14px;">Continue your setup</a>
             </td>
           </tr>
           <tr>

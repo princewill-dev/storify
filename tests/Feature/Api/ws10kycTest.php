@@ -6,6 +6,7 @@ use App\Models\KycApplication;
 use App\Models\KycDocumentType;
 use App\Models\Store;
 use App\Models\User;
+use App\Services\Access\StorePaymentGate;
 use Database\Seeders\KycDocumentTypeSeeder;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Log;
@@ -525,15 +526,15 @@ test('store activation no longer waits for KYC, because the payment does', funct
         // that never went live.
         ->and($owner->fresh()->kycApplication)->toBeNull();
 
-    expect(app(\App\Services\Access\StorePaymentGate::class)->refusal($store->fresh()))
-        ->toBe(\App\Services\Access\StorePaymentGate::REFUSAL);
+    expect(app(StorePaymentGate::class)->refusal($store->fresh()))
+        ->toBe(StorePaymentGate::REFUSAL);
 });
 
 test('a verified owner takes payments and an unverified one does not', function () {
     [$verified] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
     [$pending] = createBusinessOwner(['kyc' => 'submitted', 'trial_ends_at' => now()->addWeek()]);
 
-    $gate = app(\App\Services\Access\StorePaymentGate::class);
+    $gate = app(StorePaymentGate::class);
 
     $verifiedStore = Store::factory()->create([
         'user_id' => $verified->id,
@@ -551,7 +552,7 @@ test('a verified owner takes payments and an unverified one does not', function 
         // Submitted is not approved. A store awaiting review takes no money,
         // which is the state an owner is in between answering the form and being
         // verified.
-        ->and($gate->refusal($pendingStore))->toBe(\App\Services\Access\StorePaymentGate::REFUSAL);
+        ->and($gate->refusal($pendingStore))->toBe(StorePaymentGate::REFUSAL);
 });
 
 test('the KYC endpoints require authentication', function () {
@@ -615,4 +616,41 @@ test('the dialling code defaults and the postcode is optional', function () {
         ->assertCreated()
         ->assertJsonPath('data.application.phone_country_code', '+234')
         ->assertJsonPath('data.application.postal_code', null);
+});
+
+test('no KYC email carries the identity number', function () {
+    // A BVN or a NIN is a regulated identifier and mail is not a channel this
+    // platform controls — it is stored, forwarded and indexed, and the inbox is
+    // not ours. The acknowledgement printed it in full, on a table that read
+    // like a receipt for a document nobody asked to be sent one.
+    //
+    // Asserted against the rendered body rather than against the view's source,
+    // because the failure mode is a field creeping back into a template and no
+    // test that reads the view would notice.
+    [$owner, $business] = createBusinessOwner(['kyc' => 'none', 'trial_ends_at' => now()->addWeek()]);
+
+    $application = ws10Application($owner, [
+        'status' => KycApplication::STATUS_SUBMITTED,
+        'kyc_document_id' => '22292288298',
+    ]);
+
+    $businessBody = (new BusinessKycSubmitted($owner, $application))->render();
+    $adminBody = (new AdminKycSubmitted($application))->render();
+
+    expect($businessBody)->not->toContain('22292288298')
+        ->and($adminBody)->not->toContain('22292288298')
+        // Enough digits to recognise a record, and no more.
+        ->and($adminBody)->toContain('••••8298');
+});
+
+test('the acknowledgement says what it needs to and nothing else', function () {
+    [$owner] = createBusinessOwner(['kyc' => 'none', 'trial_ends_at' => now()->addWeek()]);
+
+    $application = ws10Application($owner, ['status' => KycApplication::STATUS_SUBMITTED]);
+    $body = (new BusinessKycSubmitted($owner, $application))->render();
+
+    expect($body)->toContain('we’ve received your KYC submission')
+        // The document type is not an identifier on its own, but it was part of
+        // the same receipt and the reader has no use for it.
+        ->and($body)->not->toContain('Document type');
 });
