@@ -35,7 +35,6 @@ test('home endpoint returns company, stats, plans, testimonials, services and st
         'interval' => 'monthly',
         'interval_count' => 1,
         'is_active' => true,
-        'is_trial' => false,
         'features' => ['Feature A'],
         'sort_order' => 1,
         'tier' => 1,

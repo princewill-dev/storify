@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\V1\Management\GlobalSearchController;
 use App\Http\Controllers\Api\V1\Management\ProfilePhotoController;
+use App\Http\Controllers\Api\V1\Management\ProfileThemeController;
 use App\Http\Controllers\Api\V1\Management\ShellCountsController;
 use App\Http\Middleware\ForceJsonResponse;
 
@@ -37,3 +38,10 @@ Route::post('profile/photo', [ProfilePhotoController::class, 'store'])
     ->middleware(ForceJsonResponse::class)
     ->name('profile.photo.store');
 Route::delete('profile/photo', [ProfilePhotoController::class, 'destroy'])->name('profile.photo.destroy');
+
+// The reader's own theme. No permission, because it is a preference about their
+// own screen rather than anything belonging to the business — and `profile.` is
+// already exempt from the subscription gate, so a lapsed owner can still change
+// it. Everything else that is gated would be strange to reach while refused.
+Route::get('profile/theme', [ProfileThemeController::class, 'show'])->name('profile.theme.show');
+Route::put('profile/theme', [ProfileThemeController::class, 'update'])->name('profile.theme.update');

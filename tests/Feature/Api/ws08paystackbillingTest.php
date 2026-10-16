@@ -38,7 +38,6 @@ function ws08Plan(array $attributes = []): SubscriptionPlan
         'interval_count' => 1,
         'is_active' => true,
         'is_default' => false,
-        'is_trial' => false,
         'features' => ['Sell online', 'Unlimited products'],
     ], $attributes));
 }

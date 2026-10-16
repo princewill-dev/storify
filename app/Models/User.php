@@ -33,6 +33,8 @@ class User extends Authenticatable
         'invitation_token', 'invited_at', 'accepted_at', 'force_password_change',
         'pos_pin',
         'theme_preference',
+        // The management console's own theme, separate from the till's above.
+        'management_theme',
         'trial_ends_at', 'selected_plan_id',
     ];
 

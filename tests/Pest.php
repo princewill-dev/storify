@@ -244,7 +244,6 @@ function defaultPlanIncludingEveryModule(): SubscriptionPlan
         'interval_count' => 1,
         'is_active' => true,
         'is_default' => true,
-        'is_trial' => false,
         'tier' => 3,
         'sort_order' => 1,
         'entitlements' => [

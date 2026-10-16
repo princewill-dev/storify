@@ -422,7 +422,6 @@ test('each tier is sold annually at twenty per cent off twelve months of it', fu
     $this->seed(SubscriptionPlanSeeder::class);
 
     $monthlies = SubscriptionPlan::where('interval', 'monthly')
-        ->where('is_trial', false)
         ->orderBy('tier')
         ->get();
 

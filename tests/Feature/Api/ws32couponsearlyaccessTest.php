@@ -27,7 +27,6 @@ function ws32Plan(array $attributes = []): SubscriptionPlan
         'interval_count' => 1,
         'is_active' => true,
         'is_default' => false,
-        'is_trial' => false,
         'features' => ['Online store', 'POS'],
     ], $attributes));
 }

@@ -47,6 +47,10 @@ trait BuildsAuthResponses
             'is_verified' => (bool) $user->is_verified,
             'force_password_change' => (bool) $user->force_password_change,
             'theme_preference' => $user->theme_preference,
+            // The console's theme, which is a different setting from the
+            // terminal's above — a dark till and a light back office are a
+            // perfectly ordinary pair, and one column cannot hold both.
+            'theme' => $user->management_theme,
             'business_id' => $user->business_id,
             'business' => $user->business ? [
                 'id' => $user->business->id,

@@ -62,7 +62,6 @@ function ad13subsPlan(): SubscriptionPlan
         'interval_count' => 1,
         'is_active' => true,
         'is_default' => false,
-        'is_trial' => false,
         'features' => ['Sell online'],
         // Stated, and it has to be: the test below sets `selected_plan_id` on
         // the owner, which takes the trial *off* the default plan and onto this

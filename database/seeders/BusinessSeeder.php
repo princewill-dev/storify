@@ -120,7 +120,7 @@ class BusinessSeeder extends Seeder
         }
 
         $defaultPlan = SubscriptionPlan::where('is_default', true)->first()
-            ?? SubscriptionPlan::where('is_trial', false)->first();
+            ?? SubscriptionPlan::query()->first();
 
         if ($defaultPlan) {
             $owner->update([

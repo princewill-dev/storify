@@ -364,8 +364,6 @@ class SubscriptionPlanSeeder extends Seeder
                 // trial that had never chosen one; this one deletes that
                 // plan, so the choice it would have undone is gone anyway.
                 'is_default' => $isDefault,
-                'is_trial' => false,
-                'trial_days' => null,
                 'tier' => $tier,
                 // Monthly rows sort first, then the annual ones, so the admin
                 // list reads as the ladder twice rather than interleaved. The
