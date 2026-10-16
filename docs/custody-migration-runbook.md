@@ -462,12 +462,14 @@ to check.
 
 ## The one-time clear-up
 
-Two commands, both for history rather than for running the platform: one repairs the bank codes
-already on file, the other closes out the payouts left open by the breakage. Run them in this
-order — the first is what makes the *next* payout go out with the right number, and the second
-gives back the money that was reserved against sends nothing was ever going to make.
+Three commands, all for history rather than for running the platform: one repairs the bank codes
+already on file, the second closes out the payouts left open by the breakage, and the third — only
+on a platform that is still being tested — takes the balances off the books entirely. Run them in
+this order — the first is what makes the *next* payout go out with the right number, the second
+gives back the money that was reserved against sends nothing was ever going to make, and the third
+is only ever about erasing test money, so it must be the last thing done to a database.
 
-Both are safe to run with a worker going, and neither moves money to a provider.
+All three are safe to run with a worker going, and none of them moves money to a provider.
 
 ### 1. Work out every stored bank account's code at each provider
 
@@ -546,7 +548,56 @@ provider that the transfer is gone.
 sent right now has just been stamped as sent: closing that one would credit the money back while the
 transfer goes out anyway. `--older-than=0` disables the guard — only for a run you know is quiet.
 
-Both commands are idempotent. Running either twice moves no money the second time.
+### 3. Take every open settlement off the books (test platforms only)
+
+**Do not run this on a live platform.** A collected sale *is* the business's money until the customer
+is given it back, and the only mark that says otherwise is the one a refund leaves — so clearing a
+balance means marking sales unwound for customers who were never refunded. On real money that is an
+accounting event, not maintenance. It exists because a test database's balances get in the way of
+reading what the payout path actually does.
+
+```bash
+php artisan custody:void-test-sales                            # lists everything and asks first
+php artisan custody:void-test-sales --force                    # for a scripted run
+php artisan custody:void-test-sales --older-than=0 --force     # when you know nothing is sending
+```
+
+It makes two movements, in this order, and the order is the whole design:
+
+1. **Every open payout is closed** (the command in §2, same query, same rules) — the money reserved
+   against a transfer that will never complete goes back to the wallets it came from, and the sales
+   behind it stop being claimed.
+2. **Every sale still standing is voided** through the same routine a refund uses, so the wallet and
+   the journal move together and a sale cannot be voided twice.
+
+The two cancel: the close credits the wallets, the void debits them again, and what is left is the
+platform owing nothing rather than the platform having paid out. Run either half alone and you get
+the wrong thing — a business paid, or a debt that does not exist.
+
+Per sale, one of:
+
+| | |
+|---|---|
+| `took back from available` | the money had matured; it is debited from the spendable balance |
+| `took back from pending` | credited but not yet matured, so it comes out of the pending balance |
+| `of those, N held no balance` | collected by the provider and never credited — nothing moved, and the sale is marked only so the catch-up pass cannot credit it later |
+| `already paid` | a payout landed and the money is in the business's bank account. Untouched, deliberately: debiting the wallet would leave them owing Storify for money they received |
+| `in flight` | a payout is still carrying it. Untouched until the provider says what became of it |
+
+The closing lines print what the platform owed before and after, and — when a balance is still
+standing — the businesses still holding it, by name. A remainder is not a failure: it is money on a
+sale the command deliberately left alone, or a negative left behind by an earlier refund.
+
+`--business={id}` narrows it. `--include-processing` also closes payouts already handed to a
+provider, which may still land — the one flag that can pay a business twice, so it names the amount
+at risk before asking. `--older-than=5` (the default) is the same quiet window §2 keeps.
+
+A voided sale reads as **`refunded`**, because `unwound_at` is the only mark that stops money being
+credited for it later. The journal says which it was: the reference posted is the command's own name
+(`Test cleanup by custody:void-test-sales`), so nobody reading the ledger months later mistakes a
+wiped test balance for a customer who was repaid.
+
+All three commands are idempotent. Running any of them twice moves no money the second time.
 
 ## The numbers to watch
 
