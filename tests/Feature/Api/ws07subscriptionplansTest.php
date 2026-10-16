@@ -146,7 +146,8 @@ test('asking for the platform trial starts it and lands on the dashboard', funct
         ->assertOk()
         ->assertJsonPath('data.next', 'dashboard')
         ->assertJsonPath('data.trial_started', true)
-        ->assertJsonPath('data.selected_plan.name', 'Starter');
+        ->assertJsonPath('data.selected_plan.name', 'Starter')
+        ->assertJsonPath('message', 'Your 7-day free trial has started!');
 
     $owner->refresh();
 
@@ -181,7 +182,20 @@ test('re-selecting a plan during a trial does not restart the trial', function (
         ])
         ->assertOk()
         ->assertJsonPath('data.trial_started', false)
-        ->assertJsonPath('data.next', 'dashboard');
+        ->assertJsonPath('data.next', 'dashboard')
+        // And it must not *say* a trial started, which is a different sentence
+        // from the one `next` is read off. The message used to be keyed on
+        // whether a trial window is open, so every selection made from inside a
+        // live trial — this one included — answered "Your 7-day free trial has
+        // started!" while the payload in the same response said
+        // `trial_started: false`. A business on a trial clicking a plan was told
+        // its trial had just begun, every time.
+        ->assertJsonPath(
+            'message',
+            'Your plan is saved. You are on your free trial until '
+                .$trialEndsAt->format('j M Y')
+                .' — pay before then to keep your stores running.',
+        );
 
     expect($owner->fresh()->trial_ends_at->equalTo($trialEndsAt))->toBeTrue()
         ->and($owner->fresh()->selected_plan_id)->toBe($growth->id);
@@ -245,7 +259,11 @@ test('an owner who already used a trial is not granted another one', function ()
         ])
         ->assertOk()
         ->assertJsonPath('data.next', 'payment')
-        ->assertJsonPath('data.trial_started', false);
+        ->assertJsonPath('data.trial_started', false)
+        // The third sentence, and the one a lapsed business gets: the past date
+        // puts it on the payment branch rather than the "on your trial" one, so
+        // the wording has to be about paying and not about a trial at all.
+        ->assertJsonPath('message', 'Please complete payment to activate your subscription.');
 
     expect($owner->fresh()->trial_ends_at->isPast())->toBeTrue();
 });

@@ -11,6 +11,7 @@ use App\Http\Resources\Subscription\SubscriptionPlanResource;
 use App\Models\Payment;
 use App\Repositories\Subscription\SubscriptionPlanRepository;
 use App\Services\Subscription\PlanChangeResult;
+use App\Services\Subscription\PlanSelectionResult;
 use App\Services\Subscription\PlanSelectionService;
 use App\Services\SubscriptionTrialSettings;
 use App\Support\Money\Naira;
@@ -126,9 +127,44 @@ class PlanController extends ApiController
             'trial_started' => $selection->trialStarted,
             'trial_ends_at' => $selection->trialEndsAt?->toISOString(),
             'next' => $onTrial ? 'dashboard' : 'payment',
-        ], $onTrial
-            ? "Your {$selection->trialDays}-day free trial has started!"
-            : 'Please complete payment to activate your subscription.');
+        ], $this->selectionMessage($selection, $onTrial));
+    }
+
+    /**
+     * What just happened, said in the caller's words rather than in the
+     * database's.
+     *
+     * `$onTrial` and `$selection->trialStarted` are two different questions and
+     * this used to answer the message with the wrong one. `$onTrial` asks
+     * whether a trial window is **open** — it is what decides `next`, because a
+     * business with a running trial has access and belongs on the dashboard. The
+     * message was keyed on the same value, so it read as though a trial had just
+     * been granted, and *every* plan selection made from inside a live trial
+     * answered "Your 7-day free trial has started!" — including the second and
+     * third selection, and including the case the API itself had just reported
+     * as `trial_started: false`. A trial starts once
+     * ({@see PlanSelectionService::select()}); the copy now says so.
+     *
+     * The middle case is the one that used to be a lie: a trialling business
+     * choosing the plan it will pay for. Nothing started and nothing was paid,
+     * so the sentence has to say what did happen, and end on the thing the owner
+     * has to do — the trial running out is not a renewal, it is the end of
+     * access.
+     */
+    private function selectionMessage(PlanSelectionResult $selection, bool $onTrial): string
+    {
+        if ($selection->trialStarted) {
+            return "Your {$selection->trialDays}-day free trial has started!";
+        }
+
+        if ($onTrial) {
+            // `trialEndsAt` is non-null whenever `$onTrial` is true.
+            return 'Your plan is saved. You are on your free trial until '
+                .$selection->trialEndsAt->format('j M Y')
+                .' — pay before then to keep your stores running.';
+        }
+
+        return 'Please complete payment to activate your subscription.';
     }
 
     /**
