@@ -45,7 +45,7 @@ final class BachsPayoutRail implements PayoutRail
      *
      * Idempotence is the provider's, not ours: registering the same bank twice
      * against the same organisation returns the destination that already exists,
-     * which is why the sweep can call this on every run without accumulating
+     * which is why the send can call this on every attempt without accumulating
      * destinations.
      */
     public function ensureDestination(
@@ -114,7 +114,7 @@ final class BachsPayoutRail implements PayoutRail
      * `amount` is what the destination receives, in naira as a decimal string —
      * Bachs does not take kobo — and the provider's own fee is added on top, so
      * the platform balance has to cover more than the number sent. That is the
-     * reason the sweep may only draw on settled funds: a transfer the balance
+     * reason the send may only draw on settled funds: a transfer the balance
      * cannot cover is refused outright.
      *
      * A `409` is *success*, not failure. It means this exact reference is still

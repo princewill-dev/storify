@@ -60,9 +60,8 @@
               </div>
 
               <p style="margin:0 0 12px;">
-                "Settling" is money {{ config('app.name') }} has collected for you that the payment provider is still
-                clearing. Once it clears it becomes payable automatically, and we send it to your payout bank account
-                without you having to ask.
+                "Settling" is money we have collected for you that is still clearing. Once it has cleared it becomes
+                payable automatically, and we send it to your payout bank account without you having to ask.
               </p>
 
               @php($supportEmail = $c['email'] ?? config('mail.from.address'))

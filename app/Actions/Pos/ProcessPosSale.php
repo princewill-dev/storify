@@ -4,6 +4,7 @@ namespace App\Actions\Pos;
 
 use App\Enums\ProviderFeeBearer;
 use App\Enums\TransactionStatus;
+use App\Jobs\SettlePayouts;
 use App\Models\Customer;
 use App\Models\Order;
 use App\Models\OrderItem;
@@ -246,14 +247,20 @@ final class ProcessPosSale
             return new PosSaleResult($order->load(['items', 'transactions.paymentMethod']));
         });
 
-        // Paid out now, in the same request the sale was taken in, rather than at
-        // the next tick of the payout run. The restrictions, the balance gate and
-        // the reservation are the run's own — see
-        // {@see InstantPayoutService} — and it never throws, so a provider that
-        // cannot be reached leaves the sale payable for the run to pay instead of
-        // failing a sale the cashier has already completed.
+        // Sent now, off this request — the cashier should be back at the next sale
+        // rather than waiting on a provider round trip. The restrictions, the
+        // balance gate and the reservation are the run's own — see
+        // {@see InstantPayoutService} — and the job
+        // re-attempts on `custody.retry_backoff_minutes` before it gives up and tells
+        // the admins, so a provider that cannot be reached leaves the sale payable
+        // rather than failing a sale the cashier has already completed.
+        //
+        // Deliberately outside the transaction above, which is where it already was:
+        // dispatching inside it would put the job row's insert behind the order and
+        // stock writes, and this way the sale is committed and visible to the job
+        // before it ever runs.
         foreach ($collected as $transaction) {
-            app(InstantPayoutService::class)->afterCollection($transaction);
+            SettlePayouts::forSale($transaction);
         }
 
         return $result;

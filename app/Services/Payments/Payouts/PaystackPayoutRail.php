@@ -39,7 +39,7 @@ final class PaystackPayoutRail implements PayoutRail
      * Paystack deduplicates recipients by account number and bank, so a repeated
      * registration returns the recipient that already exists rather than
      * accumulating them. That is load-bearing for the same reason as on Bachs:
-     * the sweep may call this on every run, and a destination is not something we
+     * the send may call this on every attempt, and a destination is not something we
      * want one of per attempt.
      *
      * `name` is required by Paystack and is the recipient's display name in the

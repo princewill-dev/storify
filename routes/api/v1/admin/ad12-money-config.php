@@ -51,9 +51,27 @@ Route::middleware([ForceJsonResponse::class, 'permission:admin.finance', AdminAp
     // three that used to be — list, request, and toggle the automatic sweep —
     // withdrew money from a *per-business account at the provider*, which no
     // longer exists: every payout now moves Storify's own balance to a bank
-    // account, and the only actors are `custody:payouts` on its hourly schedule
-    // and `businesses.auto_payout`. An admin lever over it would be a second way
-    // to move money, which is the shape of bug this whole change is deleting.
+    // account, from one service entered by the queued `SettlePayouts` job. An admin
+    // lever over it would be a second way to move money, which is the shape of bug
+    // this whole change is deleting.
+    //
+    // **The rule, amended (2026-10-16).** The rule is not "no admin route touches
+    // payouts" — it is *no admin route chooses an amount, a destination or a
+    // moment*. `POST admin/payouts/retry` and
+    // `POST admin/businesses/{business}/payouts/retry` (ad19-payout-controls.php)
+    // now exist, and they choose none of the three: they retire the platform's
+    // record of refusals and then dispatch the same `SettlePayouts` job a collected
+    // sale dispatches, sending what the wallet already says is owed to the account
+    // the business already named, for an amount the wallet decides. A business owed
+    // nothing, on hold, or with no bank sends nothing, and every retired refusal is
+    // marked `meta.cancelled_reason = 'payout_retry_authorised'` so the
+    // intervention is legible in the history.
+    //
+    // They have to exist because the retry ceiling added the same day
+    // (`custody.retry_attempts`) stops automatic attempts, and a ceiling with no way
+    // back over it turns a provider's bad afternoon into a permanent stop that only
+    // a shell account can lift. A "pay this business now, for this amount" route
+    // would still be the bug — and still does not exist.
     Route::get('bank-accounts', [BankAccountController::class, 'index'])->name('bank-accounts.index');
     Route::post('bank-accounts', [BankAccountController::class, 'store'])->name('bank-accounts.store');
     Route::put('bank-accounts/{bankAccount}', [BankAccountController::class, 'update'])->name('bank-accounts.update');

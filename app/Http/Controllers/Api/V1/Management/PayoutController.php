@@ -30,7 +30,7 @@ use Illuminate\Http\Request;
  *
  * Tenancy is the same three shapes the rest of the API uses, through
  * {@see TenantGuard}: a payout belongs to a business, and it carries a store only
- * when the sweep wrote it for one. A payout with no store is behind the business
+ * when the send wrote it for one. A payout with no store is behind the business
  * check alone — for a store-assigned staff member that means their store's sales
  * are in a payout they may not be able to open, which is the honest arrangement
  * for a transfer that is not attributable to a store.
@@ -125,8 +125,13 @@ class PayoutController extends ApiController
             // How many sales the amount was drawn from. The list does not carry
             // it — it is a second query per row for a column no list renders.
             'sales_count' => $payout->allocations->count(),
-            // Null when the scheduled sweep asked for it, which is the ordinary
-            // case; a person's name means someone intervened.
+            // Null when the system sent it — the queued settlement a collected sale
+            // dispatches, or an operator's retry. Both are the ordinary case, and
+            // neither asks a person's permission, so this field distinguishes "a
+            // person intervened" from "this was automatic" and not one rail from the
+            // other. A client must not read null as "scheduled": nothing waits for a
+            // schedule any more, so most nulls are sales paid out seconds after they
+            // landed.
             'requested_by' => $payout->requested_by !== null ? (int) $payout->requested_by : null,
         ];
     }

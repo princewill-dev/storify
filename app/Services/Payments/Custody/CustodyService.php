@@ -162,7 +162,7 @@ final class CustodyService
 
         // A sale with no `paid_at` has no settlement window, and stamping null
         // would leave the row matching "not yet credited" forever — the credit
-        // would replay on every pass. Refuse instead.
+        // would replay on every attempt. Refuse instead.
         if ($settleAt === null) {
             Log::warning('custody.sale_without_paid_at', [
                 'transaction_id' => $transaction->id,
@@ -238,7 +238,7 @@ final class CustodyService
         // and nobody could explain.
         //
         // The common case for a till leg is a fee we do not have yet, since the
-        // provider reports it at settlement days later. The sweep in
+        // provider reports it at settlement days later. The promote in
         // {@see promoteSettled()} is what posts it then. Both paths share the
         // entry's idempotency key, so whichever arrives first posts once and the
         // other is a no-op.
@@ -270,7 +270,7 @@ final class CustodyService
      *
      * Idempotent by `promoted_at`, which is stamped in the same transaction that
      * moves the money — so a run interrupted halfway moves some sales and leaves
-     * the rest for the next run, rather than moving any of them twice.
+     * the rest for the next attempt, rather than moving any of them twice.
      *
      * A promotion is a reclassification, never a creation: the business's total is
      * identical before and after. That is what makes it safe for this to run as
@@ -474,8 +474,8 @@ final class CustodyService
      * newer sale that would have fitted. Reaching past it would mean a business's
      * older sale waiting behind its newer one, and on a business that trades
      * steadily in mixed sizes that wait would grow without bound — the queue would
-     * starve from the front. Blocking is self-correcting: the next run reads the
-     * provider again, and the money arrives.
+     * starve from the front. Blocking is self-correcting: the next attempt reads
+     * the provider again, and the money arrives.
      *
      * Sales priced at zero or less are skipped rather than blocking, because there
      * is nothing to fit and nothing to wait for.
@@ -525,7 +525,7 @@ final class CustodyService
      * decides how a business is *charged*; it says nothing about money already
      * collected into Storify's balance, which is what every row here is. A
      * business rolled back with a credit inside its settlement window was
-     * previously dropped by this query — so the credit never matured, the sweep
+     * previously dropped by this query — so the credit never matured, the send
      * never saw a balance, and the money sat in Storify's account with nobody
      * owed it in any table anything reads. `settle_at` being set is the whole
      * evidence needed: only {@see self::recordCollectedSale()} stamps it, and only
@@ -540,7 +540,7 @@ final class CustodyService
             ->whereNull('promoted_at')
             // A credited sale that has since been refunded or charged back is no
             // longer currency the business is owed, so it must not be matured
-            // into a bucket the sweep will pay out of. `unwound_at` is the only
+            // into a bucket the send will pay out of. `unwound_at` is the only
             // marker that can answer this: the credit itself happened, so
             // `settle_at` is set, and `promoted_at` is still null because it was
             // taken back before it matured.
@@ -733,7 +733,7 @@ final class CustodyService
      *
      * Debited at **reservation**, not at confirmation. The window between asking a
      * provider to send money and hearing that it sent it is exactly when a
-     * concurrent sweep would otherwise reserve the same money a second time.
+     * concurrent send would otherwise reserve the same money a second time.
      *
      * `$allowNegative` stays false: a payout must never overdraw. If there is not
      * enough settled money, the right answer is to pay less or wait — never to

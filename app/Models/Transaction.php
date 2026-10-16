@@ -144,7 +144,7 @@ class Transaction extends Model
      * |---|---|
      * | `not_collected` | collected into the wallet is not yet claimed — see below |
      * | `settling` | charged, the provider has not released it to Storify yet |
-     * | `payable` | released and waiting for the next payout run |
+     * | `payable` | released to us and waiting to be sent |
      * | `payout_in_flight` | a payout carrying it is with the provider |
      * | `paid` | the payout carrying it landed |
      * | `refunded` | refunded or charged back; it was never paid, or it was and the wallet was debited back |

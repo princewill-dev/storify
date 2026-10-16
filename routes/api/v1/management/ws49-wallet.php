@@ -15,11 +15,13 @@ use Illuminate\Support\Facades\Route;
 // module number would have put the API face on a file that reads as unrelated
 // work.
 //
-// Read-only, and there is no route here that moves money. Paying a business out
-// is the scheduled sweep's job and it has exactly one trigger; an endpoint that
-// pushed it would be a second way to move money, which is the shape of bug this
-// whole subsystem exists to delete. The same reasoning is why the admin side of
-// this has holds and a queue view but no "run now" — see ad12-money-config.php.
+// Read-only, and there is no route here that moves money. Money leaves the wallet
+// from one service, entered two ways — the queued `SettlePayouts` job a collected
+// sale dispatches, and the operator's retry — both through
+// `InstantPayoutService::settle()` → `PayoutSweepService::sweepBusiness()`; an
+// endpoint that pushed one would be a second way to move money, which is the shape
+// of bug this whole subsystem exists to delete. The same reasoning is why the admin
+// side of this has holds and a queue view but no "run now" — see ad12-money-config.php.
 
 // The money itself, behind the permission the codebase already uses for money.
 // The wallet is business-level, exactly like the dashboard figures and the

@@ -3,6 +3,7 @@
 namespace App\Services\Payments\Custody;
 
 use App\Models\Business;
+use App\Models\Payout;
 use App\Models\PayoutHold;
 use App\Models\Store;
 use App\Support\Money\Naira;
@@ -19,14 +20,21 @@ use Illuminate\Support\Collection;
  * credits. So a business under custody was shown ₦0.00 by every screen it looked at
  * while its real money sat in the wallet.
  *
- * ## It is a read model, and it computes nothing the sweep does not
+ * ## It is a read model, and it computes nothing the send does not
  *
- * Every figure here is either a column on `businesses` or the sweep's own arithmetic
+ * Every figure here is either a column on `businesses` or the send's own arithmetic
  * ({@see PayoutSweepService::payableFor()}) read out loud. That is deliberate: the
  * number a business sees as "what will be sent to my bank" has to be the number the
- * next sweep will actually send, or the dashboard becomes a second, wrong source of
- * truth about money. The per-store breakdown is the same walk, grouped — which is also
- * why it can never sum to more than the payable figure it is drawn from.
+ * send will actually move, or the dashboard becomes a second, wrong source of truth
+ * about money. The per-store breakdown is the same walk, grouped — which is also why
+ * it can never sum to more than the payable figure it is drawn from.
+ *
+ * The one figure that is not "what is waiting" is `in_flight`, and it is here because
+ * the send's arithmetic alone cannot describe a wallet. A payout debits
+ * `available_balance` before the provider is called, so mid-transfer both `payable` and
+ * `available` read zero while real money is moving; a payload built only from those two
+ * tells a business its wallet is empty at the exact moment it should say a transfer is
+ * on its way. See {@see self::inFlightPayload()}.
  *
  * ## Why `balance_source` exists
  *
@@ -57,6 +65,15 @@ final class WalletSummaryService
      * for.
      */
     public const SOURCE_STORE_WALLET = 'store_wallet';
+
+    /**
+     * How many in-flight transfers the operator queue lists.
+     *
+     * One default sweep run's worth, so the cap bites only when something is actually
+     * wrong. The totals beside it are never capped — a truncated list with a truncated
+     * total would understate an incident by exactly the amount that made it one.
+     */
+    private const QUEUE_IN_FLIGHT_LIMIT = 100;
 
     public function __construct(
         private readonly PayoutSweepService $sweep,
@@ -155,11 +172,15 @@ final class WalletSummaryService
             'balance' => Naira::floatFromKobo($pending + $available),
             'balance_kobo' => $pending + $available,
 
-            // **What the next run would actually send**, which is the walk's number
-            // and not the available balance: a store hold withholds that store's
-            // sales, and a wallet with a refund deficit behind it is worth less than
-            // the sales that appear to be behind it. The two are equal in the ordinary
-            // case, and where they differ this is the one that is true.
+            // **What would actually go out**, which is the walk's number and not the
+            // available balance: a store hold withholds that store's sales, and a
+            // wallet with a refund deficit behind it is worth less than the sales that
+            // appear to be behind it. The two are equal in the ordinary case, and where
+            // they differ this is the one that is true.
+            //
+            // Note what is *not* in it: money already inside a transfer. That has left
+            // the wallet, so it is absent here and present in `in_flight` instead, and a
+            // screen that shows only this figure says ₦0 during a send.
             'payable' => Naira::floatFromKobo($payable['payable_kobo']),
             'payable_kobo' => $payable['payable_kobo'],
 
@@ -174,13 +195,20 @@ final class WalletSummaryService
             'unattributed' => Naira::floatFromKobo($payable['unattributed_kobo']),
             'unattributed_kobo' => $payable['unattributed_kobo'],
 
+            // Money that has already left the wallet and is not yet known to have
+            // arrived. The third state a wallet can be in, and the one the payload was
+            // missing: `available` is money we are holding, `in_flight` is money the
+            // bank has been asked for, and `pending` is money the provider has not
+            // settled to us yet.
+            'in_flight' => $this->inFlightPayload($business),
+
             'custody_enabled' => (bool) $business->custody_enabled,
             'auto_payout' => (bool) $business->auto_payout,
 
-            // Why the money is not on its way, in the words the sweep's own report
-            // uses. Null means nothing is stopping it and the next run will send the
-            // payable figure — which is the answer a business is actually after, and
-            // is a different answer from "there is nothing to send".
+            // Why the money is not on its way, in the words the run's own report
+            // uses. Null means nothing is stopping it and the payable figure will go
+            // out — which is the answer a business is actually after, and is a
+            // different answer from "there is nothing to send".
             'blocker' => $blocker,
             'hold' => $hold instanceof PayoutHold ? $this->holdPayload($hold) : null,
 
@@ -233,7 +261,7 @@ final class WalletSummaryService
                     'store_name' => $store->name,
                     'currency' => $currency,
                     'balance_source' => $this->balanceSource($business),
-                    // This store's share of what the next run would send — the walk's
+                    // This store's share of what the send would move — the walk's
                     // own rows, filtered to it. Zero for a store with no matured sales,
                     // which is a different statement from "this store earned nothing";
                     // a held store's zero means its money is in `withheld_kobo` beside
@@ -360,7 +388,7 @@ final class WalletSummaryService
     /**
      * Each store's share of what is payable, plus its hold if it has one.
      *
-     * Built from the plan the sweep would send, not from a second walk with no cap:
+     * Built from the plan the send would move, not from a second walk with no cap:
      * a store's share of a wallet that cannot cover all its sales is not the sum of
      * its sales, and a figure computed the other way would not add up to the number
      * the business is told it is about to receive. A store with nothing attributed
@@ -425,16 +453,147 @@ final class WalletSummaryService
     }
 
     /**
+     * One business's money that is inside a transfer already.
+     *
+     * The figure the wallet could not previously show, and the reason this method
+     * exists at all. A payout debits `available_balance` at
+     * {@see PayoutSweepService::reserve()} — which runs *before* the provider is
+     * called, deliberately, so a second sweep cannot reserve the same money twice. So
+     * from the moment a sale is sent, `available_kobo` and `payable_kobo` both read
+     * zero while a real amount is on its way to a bank. A screen built only from those
+     * two says "nothing here" about money that is moving, which is the single thing a
+     * business opening its wallet wants to know.
+     *
+     * `since` is the oldest transfer's `requested_at`, and the whole list is sent
+     * rather than the total alone, because per-store wallets can have several transfers
+     * moving at once and the client cannot invent the per-transfer detail it is asked
+     * to show. `requested_at` rather than `created_at` because it is the column
+     * {@see PayoutSweepService::reconcile()} schedules on, so "how long has this been
+     * moving" reads back with the system's own clock instead of a second one built on
+     * the client — which is what lets the wallet stop calling a transfer normal once it
+     * has been unanswered too long.
+     *
+     * Two things are deliberately absent. `bank_name`, because the row snapshots a
+     * `bank_code` and not a name, and inventing one would mean reverse-matching a
+     * code that may since have been reassigned — the single-destination case already
+     * has `destination.bank_name` in the same payload, read from the bank on file.
+     * And statuses outside pending/processing, because {@see
+     * PayoutSweepService::fail()} credits the wallet back in the same transaction that
+     * flips the row, so a refused transfer leaves this list and returns to
+     * `payable_kobo` together and the two figures cannot disagree.
+     *
+     * @return array<string, mixed>
+     */
+    private function inFlightPayload(Business $business): array
+    {
+        $inFlight = $this->sweep->inFlightFor($business);
+        $kobo = (int) $inFlight->sum('amount_kobo');
+        $since = $inFlight->first()?->requested_at;
+
+        return [
+            'amount' => Naira::floatFromKobo($kobo),
+            'amount_kobo' => $kobo,
+            'count' => $inFlight->count(),
+            'since' => $since?->toIso8601String(),
+
+            // Whether the oldest of these has gone unanswered longer than a transfer
+            // should take — the reconciler cannot chase a row the provider never gave
+            // an id for, so one can sit here indefinitely and the wallet needs a point
+            // at which it stops promising "usually minutes". Decided here rather than
+            // on the client because the threshold is a policy figure the platform
+            // owns: a business is told a transfer is late, it is not asked to work out
+            // whether it is.
+            'stale' => $since !== null
+                && $since->lt(now()->subHours((int) config('custody.processing_display_hours', 24))),
+
+            'destinations' => $inFlight->map(function (Payout $payout) {
+                $number = (string) $payout->account_number;
+
+                return [
+                    'reference' => $payout->reference,
+                    'amount' => Naira::floatFromKobo((int) $payout->amount_kobo),
+                    'amount_kobo' => (int) $payout->amount_kobo,
+                    'status' => $payout->status,
+                    'bank_code' => $payout->bank_code,
+                    'account_last_four' => strlen($number) <= 4 ? $number : substr($number, -4),
+                    'account_name' => $payout->account_name,
+                    'store_id' => $payout->store_id === null ? null : (int) $payout->store_id,
+                    'requested_at' => $payout->requested_at?->toIso8601String(),
+                    'sent_at' => $payout->sent_at?->toIso8601String(),
+                ];
+            })->values()->all(),
+        ];
+    }
+
+    /**
+     * What the whole platform has moving right now, for the operator queue.
+     *
+     * The totals are whole and only the row list is capped — see
+     * {@see self::QUEUE_IN_FLIGHT_LIMIT} — so an operator reading "38 transfers" is
+     * reading the true figure even when the list below it is short.
+     *
+     * @return array<string, mixed>
+     */
+    private function platformInFlight(): array
+    {
+        $query = $this->sweep->inFlightQuery();
+
+        $kobo = (int) $query->sum('amount_kobo');
+        $count = (int) $query->count();
+
+        $transfers = $query
+            ->with(['business:id,name,business_code'])
+            ->orderBy('requested_at')
+            ->orderBy('id')
+            ->limit(self::QUEUE_IN_FLIGHT_LIMIT)
+            ->get();
+
+        $oldest = $transfers->first()?->requested_at;
+
+        return [
+            'amount' => Naira::floatFromKobo($kobo),
+            'amount_kobo' => $kobo,
+            'count' => $count,
+            'oldest_since' => $oldest?->toIso8601String(),
+            // Same threshold the business's own wallet uses, so an operator and a
+            // business are never looking at the same transfer and disagreeing about
+            // whether it is late.
+            'stale' => $oldest !== null
+                && $oldest->lt(now()->subHours((int) config('custody.processing_display_hours', 24))),
+            'truncated' => $count > $transfers->count(),
+            'transfers' => $transfers->map(fn (Payout $payout) => [
+                'business_id' => (int) $payout->business_id,
+                'business_name' => $payout->business?->name,
+                'business_code' => $payout->business?->business_code,
+                'reference' => $payout->reference,
+                'amount' => Naira::floatFromKobo((int) $payout->amount_kobo),
+                'amount_kobo' => (int) $payout->amount_kobo,
+                'status' => $payout->status,
+                'requested_at' => $payout->requested_at?->toIso8601String(),
+            ])->values()->all(),
+        ];
+    }
+
+    /**
      * The platform-wide view an operator needs: who is owed what, who cannot take it,
-     * and what is held.
+     * what is held, and what is already moving.
      *
-     * Read-only by design, and there is no "run it now" beside it. Money leaves only
-     * from the scheduled sweep, which has exactly one trigger; an endpoint that
-     * pushed it would be a second way to move money — the shape of bug this whole
-     * subsystem exists to delete. What an operator needs during an incident is to
-     * *see* the queue and to place a hold, and both are here.
+     * Read-only by design, and there is no "run it now" beside it. Money leaves the
+     * wallet from one service, entered two ways — the queued job a collected sale
+     * dispatches, and the operator's retry on this console — and both call
+     * {@see PayoutSweepService::sweepBusiness()}, so neither is a second way to move
+     * money and there is no "pay me now" endpoint to build. What an operator needs
+     * during an incident is to *see* the queue and to place a hold, and both are here.
      *
-     * @return array{businesses: array<int, array<string, mixed>>, totals: array<string, mixed>, holds: array<int, array<string, mixed>>}
+     * `in_flight` is the part the queue alone cannot see. `candidates()` lists
+     * businesses holding money, and a business whose money is entirely reserved has
+     * `available_balance` of zero — so it is not a candidate, and a transfer stuck
+     * unanswered by the provider would be invisible on the one screen an operator
+     * opens when a business says its payout never arrived. The rows are capped and
+     * `truncated` says so, because this list can grow to one row per sale during a
+     * provider outage and an unbounded admin payload is its own incident.
+     *
+     * @return array{businesses: array<int, array<string, mixed>>, totals: array<string, mixed>, holds: array<int, array<string, mixed>>, in_flight: array<string, mixed>}
      */
     public function platformQueue(): array
     {
@@ -488,6 +647,7 @@ final class WalletSummaryService
                 'reason' => $hold->reason,
                 'placed_at' => $hold->placed_at?->toISOString(),
             ])->values()->all(),
+            'in_flight' => $this->platformInFlight(),
         ];
     }
 }

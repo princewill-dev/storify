@@ -38,9 +38,9 @@ interface PayoutRail
      * Register a bank account as a payout destination, or return the one that
      * already exists.
      *
-     * **Idempotent by requirement, not by convenience.** The sweep may create a
+     * **Idempotent by requirement, not by convenience.** The send may create a
      * destination for the same business repeatedly — after a processor switch,
-     * after a failure, on every run until one succeeds — so an implementation
+     * after a failure, on every attempt until one succeeds — so an implementation
      * that opened a new destination each time would accumulate them at the
      * provider. Paystack returns the existing recipient for a duplicate account
      * number; Bachs is matched on what comes back.

@@ -114,7 +114,7 @@ final class PaymentGatewayService
      *
      * Which is now the whole of what "registering a payout account" means. There
      * is no account to open at a provider and no destination to submit: the
-     * money is collected into Storify's balance and the sweep pays it out from
+     * money is collected into Storify's balance and the send pays it out from
      * the business's wallet to whichever of the business's own bank accounts is
      * named here — `PayoutSweepService` reads `businesses.payout_bank_id` and
      * nothing else.
@@ -146,7 +146,7 @@ final class PaymentGatewayService
         // have quietly redirected every other store's money.
         //
         // Both halves of that are no longer true. A store has its own wallet —
-        // `custody.per_store_wallets` — and the sweep now pays each destination
+        // `custody.per_store_wallets` — and the send now pays each destination
         // its own transfer, so a store naming its own account names money that
         // *is* separated from every other store's. The store write is allowed
         // now, and gated on the same flag so a store cannot name a bank before
@@ -174,7 +174,7 @@ final class PaymentGatewayService
         // destination the business already had, on a submission that named one,
         // and answer `200` — so a business with a working bank would silently
         // stop being paid, and the reply would say it had just told us where to
-        // send the money. The sweep reads this column and nothing else, so a
+        // send the money. The send reads this column and nothing else, so a
         // silent null here is a business that never gets paid again and has no
         // way to find out why.
         if ($bankId === null) {

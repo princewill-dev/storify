@@ -106,8 +106,8 @@ class PromoteCustodyBalances extends Command
         $this->reportGate($counts['budget_limited'], $gate);
 
         // Never a failure. A sale waiting on a fee the provider has not reported is
-        // a state the catch-up pass exists for, and failing the run would put a red
-        // mark on every hour of every day for something that is working.
+        // a state the catch-up pass exists for, and failing the run would be a red
+        // mark on something that is working.
         return self::SUCCESS;
     }
 
@@ -134,7 +134,7 @@ class PromoteCustodyBalances extends Command
         $this->table(
             ['bucket', 'sales', 'amount (NGN)'],
             [
-                ['matured on next run', $due['matured'], number_format($due['matured_kobo'] / 100, 2)],
+                ['matured, and paid on the next attempt', $due['matured'], number_format($due['matured_kobo'] / 100, 2)],
                 ['awaiting the provider\'s fee', $due['uncredited'], number_format($due['uncredited_kobo'] / 100, 2)],
                 ['still inside their settlement window', $due['settling'], number_format($due['settling_kobo'] / 100, 2)],
             ],
@@ -160,7 +160,7 @@ class PromoteCustodyBalances extends Command
         if ($budgetLimited > 0) {
             $this->warn(sprintf(
                 '%d sale(s) are past their window but the provider has not released the money behind them. '
-                .'They stay payable and mature on a later run; nothing is lost.',
+                .'They stay payable and mature on a later attempt; nothing is lost.',
                 $budgetLimited,
             ));
         }

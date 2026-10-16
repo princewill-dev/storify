@@ -1288,13 +1288,34 @@ test('a provider refusing the send does not count against the destination', func
     expect(Payout::query()->where('status', Payout::STATUS_FAILED)->count())->toBe(3)
         ->and($sweep->destinationIsExhausted($business->fresh()))->toBeFalse();
 
-    // And the fourth run really does go out, rather than being quietly dropped for
-    // being refused three times.
+    // The fourth run is stopped — by the *retry* ceiling, not the destination one,
+    // and the difference is the whole subject of this test. Three refusals is what
+    // `custody.retry_attempts` allows, so the platform stops asking and waits for a
+    // person; what must not happen is the destination being blamed for it, because
+    // the account was never the problem.
+    //
+    // This assertion used to read the other way — "the fourth run really does go
+    // out" — and it was right about the behaviour it described, because there was no
+    // retry ceiling when it was written and a business could be refused forever. That
+    // is the storm the ceiling exists to break, and the cost of breaking it is that a
+    // provider having a long afternoon ends with an alert and a human rather than with
+    // a fourth automatic attempt.
+    $counts = $sweep->sweep();
+
+    expect($counts['exhausted'])->toBe(1)
+        ->and($counts['failed'])->toBe(0)
+        ->and(Payout::query()->count())->toBe(3)
+        ->and($sweep->destinationIsExhausted($business->fresh()))->toBeFalse();
+
+    // And it is not a trapdoor: an operator who has looked retires the refusals, and
+    // the very next run attempts again on a clean count.
+    expect($sweep->clearFailures($business))->toBe(3);
+
     $counts = $sweep->sweep();
 
     expect($counts['failed'])->toBe(1)
         ->and($counts['exhausted'])->toBe(0)
-        ->and(Payout::query()->count())->toBe(4);
+        ->and(Payout::query()->where('status', Payout::STATUS_FAILED)->count())->toBe(1);
 });
 
 test('naming a different bank lifts the ceiling by itself', function () {

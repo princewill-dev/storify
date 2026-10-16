@@ -5,6 +5,7 @@ namespace App\Services\Payments;
 use App\Enums\OrderStatus;
 use App\Enums\ProviderFeeBearer;
 use App\Enums\TransactionStatus;
+use App\Jobs\SettlePayouts;
 use App\Models\Transaction;
 use App\Services\Accounting\LedgerPostingService;
 use App\Services\Digital\DigitalDeliveryService;
@@ -42,7 +43,6 @@ final class PaymentWebhookProcessor
         private readonly LedgerPostingService $ledger,
         private readonly DigitalDeliveryService $digital,
         private readonly CustodyService $custody,
-        private readonly InstantPayoutService $instant,
     ) {}
 
     /**
@@ -73,6 +73,22 @@ final class PaymentWebhookProcessor
         }
 
         if ($this->status($transaction) === TransactionStatus::CONFIRMED->value) {
+            // The payment is recorded. The **payout** may not be, and it is a job of
+            // its own now rather than something this delivery did — so a redelivery is
+            // the cheapest net the platform has, and it is deliberately taken.
+            //
+            // What it catches is the case nothing else can: the settlement job was
+            // never dispatched, because the queue write failed, or because the worker
+            // was not running when it was, or because instant payout was switched off
+            // at that moment. Re-dispatching is safe in every other case, which is what
+            // makes it unconditional — the settlement is idempotent (`settle_at` is the
+            // credit's own proof, and the reservation refuses to overdraw), and a sale
+            // that was not the platform's, or has been taken back, is answered by
+            // {@see InstantPayoutService::afterCollection()}'s guards before any
+            // provider call is made. A genuine duplicate therefore costs one balance
+            // read and sends nothing.
+            SettlePayouts::forSale($transaction);
+
             return ['status' => 'already processed', 'http' => Response::HTTP_OK];
         }
 
@@ -229,17 +245,21 @@ final class PaymentWebhookProcessor
                 // theirs, both posted above.
                 $this->custody->recordCollectedSale($transaction, $driver->code());
 
-                // Then pay it out, now, rather than at the next tick of the run.
+                // Then send it out, on the queue, so this delivery — and the
+                // customer's browser waiting behind it — does not pay for a provider
+                // round trip. The job re-attempts on the schedule in
+                // `custody.retry_backoff_minutes` and alerts the admins when that is
+                // spent, which is what replaced the five-minute run.
                 //
-                // **Which of the two settlement paths pays depends only on which
-                // heard about the payment first, and for one sale only one ever
-                // gets here.** A delivery that arrives after the browser's return
-                // leg finds the row already `CONFIRMED` and returns at the guard
-                // far above; when it arrives first, the return leg's own later
-                // visit finds the same thing and returns the same way. So the
-                // payout is made once, by whichever path was first, and the
-                // return leg makes this call in the same position for the same
-                // reason — see {@see CheckoutPaymentService::verify()}.
+                // **Which of the two paths dispatches depends only on which heard
+                // about the payment first, and for one sale only one of them gets
+                // this far.** A delivery that arrives after the browser's return leg
+                // finds the row already `CONFIRMED` and returns at the guard far
+                // above — which dispatches anyway, for the reason recorded there,
+                // because a payout can be outstanding on a payment that is not. When
+                // this path is the first, the return leg's own later visit finds the
+                // same thing and takes the same route; see
+                // {@see CheckoutPaymentService::verify()}.
                 //
                 // Not gated on the return value of the line above: that asks
                 // whether *this call* did the crediting, while what decides
@@ -248,11 +268,18 @@ final class PaymentWebhookProcessor
                 // that from `settle_at`, the stamp both paths write and only one
                 // can take.
                 //
-                // Never throws: a provider that cannot be reached here leaves the
-                // sale payable and the run pays it on its next pass, which is a
-                // better outcome than failing a delivery and having the payment
-                // redelivered for a business we can still pay.
-                $this->instant->afterCollection($transaction);
+                // Dispatched **after** the transaction above closed, not inside it, so
+                // the payment is committed and visible to the worker before the job
+                // exists. That ordering is the point rather than an accident: a job
+                // that ran against an uncommitted payment would find a transaction it
+                // could not read, and the job's own `handle()` answers a sale it cannot
+                // find by returning rather than by retrying, so it would be dropped
+                // silently. Post-commit, there is nothing to drop.
+                //
+                // `forSale()` is what makes the insert itself harmless either way — a
+                // queue that refuses the row logs and returns rather than failing a
+                // payment the provider has already been told about.
+                SettlePayouts::forSale($transaction);
             }
 
             $order = $transaction->order;

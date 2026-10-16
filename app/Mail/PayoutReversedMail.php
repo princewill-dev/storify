@@ -18,7 +18,7 @@ use Illuminate\Queue\SerializesModels;
  * message has to do three things at once: say the transfer was returned rather
  * than that it never happened, say where the money is now, and be clear that the
  * business is owed it again and will be paid again — because the wallet was
- * credited back the moment the provider told us, and the next sweep is what turns
+ * credited back the moment the provider told us, and another send is what turns
  * that into another transfer.
  *
  * No blame is assigned. The commonest reason is a bank-side recall or a receiving

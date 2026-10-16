@@ -248,7 +248,7 @@ final class PaymentGatewayResolver
         // `auto_payout` rides along here because it is read for the same reason
         // and at the same cost: the screen promises the owner their money is
         // withdrawn automatically, and an admin can switch that off, so the
-        // promise has to come from the column the sweep actually reads —
+        // promise has to come from the column the send actually reads —
         // {@see PayoutSweepService::candidates()}. A missing row — no business —
         // resolves to on, which is the column's own default.
         $businessRow = DB::table('businesses')

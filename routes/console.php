@@ -38,38 +38,31 @@ Schedule::command('rates:fetch')
     ->dailyAt('05:15')
     ->withoutOverlapping();
 
-// Mature collected sales from the pending half of a business's wallet to the
-// payable half, once the provider's balance actually covers them.
+// ## The money path is not on this schedule, and that is deliberate
 //
-// First of the two custody runs, and registered first for the same reason it has
-// always run first: a sale promoted here is a sale the payout run below can send in
-// the same tick. Laravel runs same-minute entries in registration order, so putting
-// this one first is what makes the two-in-one-tick ordering work rather than a
-// coincidence of the clock.
+// There were two custody runs here — `custody:promote` every five minutes and
+// `custody:payouts` every five minutes — and they are gone. Paying a business used
+// to mean waiting for them, which meant a sale collected at 12:05:16 was paid at
+// 12:10 for no reason but our clock.
 //
-// **Five minutes, not an hour, and that is the whole point of the change.** The
-// delay a business felt was three stacked waits — an assumed 48h settlement window,
-// then an hourly promote, then an hourly payout — and the providers were not the
-// slow part. With the window measured against the provider's own balance, the
-// cadence is now the dominant delay, so it stops being an hour.
+// What replaced them is one queued job, `App\Jobs\SettlePayouts`, dispatched by the
+// three paths that collect a sale (the provider's webhook, the storefront's return
+// leg, the POS till). It matures the business's due sales, reads the restrictions and
+// sends, all on a worker rather than on the request thread, and it owns the retry
+// schedule (`custody.retry_backoff_minutes`) and the admin alert when that is spent.
 //
-// This and `custody:payouts` below are the only money-movement sweeps left.
-// There used to be three more here — `connect:payouts`, `connect:requirements`
-// and `connect:payees` — which withdrew from a business's own account at the
-// provider and kept that account's requirements submitted. The accounts do not
-// exist any more, so neither do the runs.
-Schedule::command('custody:promote')
-    // A three-minute lock, not the ten the hourly schedule used: the gap between
-    // runs is now five minutes, and a lock that outlived it would silently skip
-    // ticks rather than delay them.
-    ->everyFiveMinutes()
-    ->withoutOverlapping(3);
-
-// Pay every business Storify collects for out of its own provider balance, then
-// chase every payout that is still unresolved.
+// **Both commands still exist and are still useful, as tools.** `custody:promote`
+// and `custody:payouts` are what an operator reaches for during an incident —
+// `--dry-run` and the formatted report are the point, and nothing calls them on a
+// clock. So: never re-add them here. A second, out-of-band payer racing the job would
+// not double-pay (the reservation refuses to overdraw) but it would make the log
+// unreadable and put a provider call back on somebody's schedule for no benefit.
 //
-// Deliberately *not* guarded by a `when()`: the cheapest way to discover the sweep
-// has stopped is a business asking where its money is.
-Schedule::command('custody:payouts')
-    ->everyFiveMinutes()
-    ->withoutOverlapping(3);
+// The trade this makes, stated rather than hidden: a worker that is not running, or a
+// job whose insert failed, means a sale is credited and payable and nothing sends it.
+// `queue:work` is load-bearing for money now, not just for email.
+//
+// There used to be three more runs here — `connect:payouts`, `connect:requirements`
+// and `connect:payees` — which withdrew from a business's own account at the provider
+// and kept that account's requirements submitted. The accounts do not exist any more,
+// so neither do those runs.

@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\V1\Admin\BusinessWalletController;
 use App\Http\Controllers\Api\V1\Admin\PayoutHoldController;
 use App\Http\Controllers\Api\V1\Admin\PayoutQueueController;
+use App\Http\Controllers\Api\V1\Admin\PayoutRetryController;
 use App\Http\Middleware\AdminApiActivityLogger;
 use App\Http\Middleware\ForceJsonResponse;
 
@@ -28,7 +29,11 @@ use App\Http\Middleware\ForceJsonResponse;
 | exists at all: which admin looked at which business's money is part of the trail,
 | and a logged write beside an unlogged read would be half a story.
 |
-| There is no route that pays anybody. See the note in ad12-money-config.php.
+| **No route here pays anybody**, and `payouts/retry` does not break that rule: it
+| cannot choose an amount, a destination or a moment, and dispatches the same
+| `SettlePayouts` job a collected sale dispatches, which sends only what the wallet
+| already says is owed to the account the business already named. The amended rule
+| and the reasoning are in ad12-money-config.php.
 */
 
 Route::middleware([ForceJsonResponse::class, 'permission:admin.finance', AdminApiActivityLogger::class])->group(function () {
@@ -45,6 +50,25 @@ Route::middleware([ForceJsonResponse::class, 'permission:admin.finance', AdminAp
     // in it is a payout figure, and a platform admin holds the whole bundle
     // anyway.
     Route::get('businesses/{business}/wallet', [BusinessWalletController::class, 'show'])->name('businesses.wallet');
+
+    // The operator's retry, for a business the job has stopped trying to pay.
+    //
+    // `POST` rather than `PUT`: this is not idempotent in the way a put implies —
+    // each press is a fresh attempt at the provider, and pressing twice legitimately
+    // means "I looked, and it still fails". It is deliberately *not* a route that
+    // pays anybody, which is the rule the rest of this file is built on: it clears
+    // the platform's record of refusals and then dispatches the same `SettlePayouts`
+    // job a collected sale dispatches, which sends what the wallet already says is
+    // owed to the account the business already named. See PayoutRetryService and the
+    // amended rule in ad12-money-config.php.
+    Route::post('payouts/retry', [PayoutRetryController::class, 'retryAll'])->name('payouts.retry-all');
+
+    // The same, scoped to one business, for the operator who has just fixed
+    // something specific — a bank that was wrong, a provider that has recovered.
+    // Nested under the business because that is what it acts on, and it sits beside
+    // the wallet read above so the console can offer both from one screen.
+    Route::post('businesses/{business}/payouts/retry', [PayoutRetryController::class, 'retryBusiness'])
+        ->name('businesses.payouts.retry');
 
     Route::get('payout-holds', [PayoutHoldController::class, 'index'])->name('payout-holds.index');
     Route::post('payout-holds', [PayoutHoldController::class, 'store'])->name('payout-holds.store');

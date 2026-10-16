@@ -58,8 +58,8 @@ final class PaymentSettingsService
      * `no_bank` while its bank account sat on the same screen.
      *
      * **Only the first, and that is the whole of the rule.** A business adding a
-     * second account is managing a list, not naming a destination, and the sweep
-     * reads this column within five minutes: letting a later add write it would
+     * second account is managing a list, not naming a destination, and the send
+     * reads this column at send time: letting a later add write it would
      * redirect a live payout to whichever account was added last. Naming a
      * destination among several is a deliberate act with its own place to do it
      * ({@see PaymentGatewayService::setPayoutBank()}), and this is deliberately

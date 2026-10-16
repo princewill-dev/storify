@@ -76,9 +76,8 @@
 
               <p style="margin:0 0 12px;">
                 A returned transfer often means the receiving account could not take the funds rather than that
-                anything is wrong with your details. Because we will simply try again, please check your payout
-                account is the one you want before the next run — otherwise we may send it, have it returned, and
-                send it once more.
+                anything is wrong with your details. We will simply try again, so please check your payout account
+                is the one you want now — otherwise we may send it, have it returned, and send it once more.
               </p>
 
               @php($supportEmail = $c['email'] ?? config('mail.from.address'))

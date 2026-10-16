@@ -10,7 +10,7 @@
 | a negative balance and then chases.
 |
 | So a credit lands in `pending_balance` and only matures into `available_balance` —
-| the one bucket the payout sweep draws on — when it is genuinely payable.
+| the one bucket the send draws on — when it is genuinely payable.
 |
 | **What decides that is a measurement, not a clock.** The provider is asked what it
 | will actually let the platform spend (`PayoutRail::availableBalance()`), and a run
@@ -110,8 +110,8 @@ return [
     |
     | Bachs charges its payout fee **on top** of the amount sent — `total_debited` is
     | the amount plus the fee — so a gate that matured exactly what the balance holds
-    | would leave the sweep trying to send a figure the balance cannot cover, and
-    | Bachs refusing it with `INSUFFICIENT_BALANCE` on every run until commission
+    | would leave the send trying to move a figure the balance cannot cover, and
+    | Bachs refusing it with `INSUFFICIENT_BALANCE` on every attempt until commission
     | accrued again.
     |
     | Generous on purpose, and the asymmetry is what sets it: leaving this much
@@ -123,29 +123,27 @@ return [
     'payout_fee_headroom_kobo' => 10000,
 
     /*
-    | Whether a collected sale is paid out as it is collected, rather than at the
-    | next tick of the two runs.
+    | Whether a collected sale is paid out as it is collected, rather than when
+    | somebody asks for it.
     |
-    | On by default. The runs are every five minutes, and that gap is the only
-    | delay left in the chain once the provider has released the money — Bachs
-    | reports a successful charge in `available_balance` immediately, and the
-    | settlement window above is already nothing for it. So a business that sells
-    | at 12:05:16 waits until 12:10 for no reason but our schedule.
+    | On by default, and it is the switch for the whole money path: with it off,
+    | `SettlePayouts` is dispatched by nobody and a collected sale simply sits in
+    | the wallet until an operator runs `custody:payouts` by hand. There is no
+    | schedule to fall back on, so **off means nothing is sent automatically** —
+    | which is why the deploy notes call this out as a thing that must not be set
+    | to false on the host.
     |
-    | With this on, the settlement path offers the same three steps the run
-    | performs — mature the business's due sales, read the restrictions, send the
-    | payout — from `InstantPayoutService`, in the request that recorded the sale.
-    | Maturation comes first because a hold stops money being sent rather than
-    | changing what the wallet records as owed, which is also how the promote run
-    | already behaves. The runs keep their five-minute cadence and become what
-    | they should always have been: reconciliation, and the net for a provider
-    | that could not be reached while somebody was waiting.
+    | On, the settlement path offers the same three steps the command performs —
+    | mature the business's due sales, read the restrictions, send the payout —
+    | through `InstantPayoutService::settle()`. Maturation comes first because a
+    | hold stops money being sent rather than changing what the wallet records as
+    | owed.
     |
-    | Off, the platform behaves exactly as it did before this existed. It is a
-    | switch rather than a deleted branch because this puts a provider call on the
-    | settlement path, and if that turns out to cost more than it is worth during a
-    | provider incident, paying on the next tick is a worse experience rather than
-    | a broken one.
+    | **The send is queued, not inline.** The request that recorded the sale (the
+    | provider's webhook, the storefront's return leg, the POS till) dispatches the
+    | job and returns; the provider round trip, the retry schedule and the failure
+    | alert all happen on a worker. That keeps checkout fast and is the only reason
+    | `queue:work` has to be running for money to move.
     */
     'instant_payout' => [
         'enabled' => env('CUSTODY_INSTANT_PAYOUT', true),
@@ -161,9 +159,10 @@ return [
     'promote_batch' => 500,
 
     /*
-    | How long a payout may sit in `processing` before the reconciler goes and asks
+    | How long a payout may sit in `processing` before `custody:payouts` will ask
     | the provider what happened to it. An accepted transfer normally resolves in
-    | minutes via webhook; this is for the delivery that never arrived.
+    | minutes via the provider's own webhook, which is now the resolver; this is
+    | for the delivery that never arrived.
     */
     'reconcile_after_minutes' => 30,
 
@@ -173,31 +172,46 @@ return [
     'reconcile_batch' => 100,
 
     /*
-    | How many businesses one payout sweep will pay at a time.
+    | How long an unresolved transfer is shown as ordinary before the wallet starts
+    | saying it is taking longer than usual.
     |
-    | A working-set bound rather than a correctness one: the sweep is idempotent
-    | per business and the next run picks up whatever is left. It exists so the
+    | A display threshold, not a behaviour one: nothing is sent, retried or failed
+    | because of it. It exists because resolving a row needs a provider id to chase,
+    | and a send that timed out before returning one has nothing to chase — so such a
+    | transfer waits on its webhook, and a wallet that kept saying "on its way,
+    | usually minutes" forever would be lying to the only person who can raise it. A
+    | day is far longer than any real transfer of this size and far shorter than the
+    | point at which somebody notices on their own.
+    */
+    'processing_display_hours' => 24,
+
+    /*
+    | How many businesses one send will pay at a time.
+    |
+    | A working-set bound rather than a correctness one: the send is idempotent
+    | per business and a later run picks up whatever is left. It exists so the
     | first run after a weekend of trading does not open one enormous transaction
     | and hold row locks for the duration.
     */
     'payout_batch' => 100,
 
     /*
-    | How many times the sweep will ask the provider to accept the *same* payout
+    | How many times the send will ask the provider to accept the *same* payout
     | destination and be refused, before it stops asking and waits for a person.
     |
     | Only failures the provider attributed to the destination count — a bank code
     | it will not resolve, an account it will not open. Everything else, including
     | the one refusal that is genuinely transient (`INSUFFICIENT_BALANCE` while a
-    | promote batch is still settling), keeps retrying on every run, because that
-    | one fixes itself and stopping would be withholding money a business is owed.
+    | promote batch is still settling), keeps being retried on the schedule below,
+    | because that one fixes itself and stopping would be withholding money a
+    | business is owed.
     |
     | The point is that a destination which cannot work should not be attempted
-    | every hour forever: it burns provider calls, it makes the log unreadable, and
-    | it hides a business that needs somebody to look at it behind a run that
-    | reports a failure every hour until nobody reads them any more. Three is
-    | deliberately small — the money stays in the wallet, visibly owed, and the run
-    | reports it as blocked rather than as failed.
+    | forever: it burns provider calls, it makes the log unreadable, and it hides a
+    | business that needs somebody to look at it behind a stream of failures until
+    | nobody reads them any more. Three is deliberately small — the money stays in
+    | the wallet, visibly owed, and the send reports it as blocked rather than as
+    | failed.
     |
     | Recovery, both of them deliberate: naming a different bank resets the count
     | on its own, because the failures are matched to the destination that was
@@ -205,6 +219,56 @@ return [
     | and a provider that was wrong. Zero or less disables the ceiling.
     */
     'max_destination_failures' => 3,
+
+    /*
+    | How many sends in a row may fail, for any reason, before the platform stops
+    | trying and waits for a person.
+    |
+    | The ceiling above covers the failures the provider blames on the *account*.
+    | This one covers everything else: a provider that is down, a balance that has
+    | not settled, a refusal with a code nobody has seen. Every one of those
+    | returned the money to the wallet, and this is how many times the platform
+    | asks again before it stops.
+    |
+    | **Both ceilings here are the job's own budget.** `SettlePayouts::tries()`
+    | reads this key and the worker enforces it, so the queue giving up and the
+    | business being marked blocked are the same moment — and the last failure
+    | alerts the admins, because from then on only a person moves the money.
+    |
+    | Counted per business and per run of failures rather than per destination,
+    | because a platform problem is not a fact about anybody's bank account. The
+    | window resets itself the moment a send lands, and an operator can reset it by
+    | hand.
+    |
+    | Zero or less disables the ceiling.
+    */
+    'retry_attempts' => (int) env('CUSTODY_PAYOUT_RETRY_ATTEMPTS', 3),
+
+    /*
+    | How long to wait before each of those retries, in minutes, oldest first.
+    |
+    | A growing gap rather than a fixed one, so a provider having a bad minute is
+    | retried quickly and a provider having a bad afternoon is not hammered. The
+    | last value repeats for any failure beyond the end of the list — it is a
+    | schedule for the first few attempts, not a bound on them.
+    |
+    | **Read by the queue worker, not by a loop of ours.** `SettlePayouts::backoff()`
+    | hands these minutes to the worker as seconds, and the worker is what waits
+    | between attempts (`Worker::calculateBackoff()`) — so a payout retry is a real
+    | delayed job rather than a `sleep()` inside a request. The send's own
+    | refusal-backoff reads the same list, which is what keeps the two clocks
+    | agreeing: a business cannot be waiting out one while the job gives up on the
+    | other.
+    |
+    | Overridable as a comma list, and note it is **minutes** where `QUEUE_BACKOFF`
+    | is seconds: `10,30,60` there is ten seconds, and the same string here is ten
+    | minutes. A busy provider is a production fact, and answering it should not
+    | need a deploy.
+    */
+    'retry_backoff_minutes' => array_values(array_filter(array_map(
+        static fn (string $minutes): int => (int) trim($minutes),
+        explode(',', (string) env('CUSTODY_PAYOUT_BACKOFF', '5,30,60')),
+    ), static fn (int $minutes): bool => $minutes > 0)),
 
     /*
     | Whether a collected sale is credited to the store that earned it, or to the
@@ -216,7 +280,7 @@ return [
     | business default when the store names none.
     |
     | **One switch, read in one place.** `CustodyBucket` is the only thing that
-    | reads this, and credit, promote, refund and the sweep all resolve the
+    | reads this, and credit, promote, refund and the send all resolve the
     | bucket through it. They share `transactions.custody_store_id`, which records
     | where a sale's money went, so flipping some of them and not the others would
     | credit to one bucket and settle from another — money stranded on a store

@@ -23,10 +23,10 @@ use Illuminate\Support\Facades\Log;
  * ## What it tells you before you do it
  *
  * How much is sitting behind the hold. A hold is not a wallet operation, so
- * everything collected while it was in force is still there and is paid on the very
- * next sweep — which is the intended behaviour and also the reason this command
- * prints the figure first. Lifting a hold on a business whose balance has been
- * growing for a week is a decision worth making with the number in front of you.
+ * everything collected while it was in force is still there and goes out the moment
+ * it lifts — which is the intended behaviour and also the reason this command prints
+ * the figure first. Lifting a hold on a business whose balance has been growing for a
+ * week is a decision worth making with the number in front of you.
  *
  * ## `--source` is how a suspension is lifted without touching anything else
  *
@@ -109,7 +109,7 @@ class ReleasePayouts extends Command
         ]);
 
         $this->info(sprintf('<info>Lifted</info> %d hold(s).', $released));
-        $this->line('`custody:payouts` pays whatever is now payable on its next run — the promotion window is unchanged.');
+        $this->line('A payout attempt is queued — lifting the hold is what sends, and nothing else would have noticed.');
 
         return self::SUCCESS;
     }
@@ -119,7 +119,7 @@ class ReleasePayouts extends Command
      *
      * Read from the wallet rather than summed from anything, because the wallet is
      * the authority on what is owed: a hold never touched it, so the figure here is
-     * exactly what the next sweep will send.
+     * exactly what the lift is about to send.
      *
      * @param  Collection<int, PayoutHold>  $open
      */

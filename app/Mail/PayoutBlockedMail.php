@@ -13,8 +13,8 @@ use Illuminate\Queue\SerializesModels;
  * The provider has refused this bank account too many times, so we have stopped asking.
  *
  * The one alert in the family that is not about a payment. It exists because of a
- * silent state the sweep would otherwise leave behind: the destination failures
- * have crossed the ceiling, so the sweep no longer attempts this business at all
+ * silent state the job would otherwise leave behind: the destination failures
+ * have crossed the ceiling, so the job no longer attempts this business at all
  * and its balance sits in the wallet accumulating with nothing failing loudly and
  * nothing succeeding. Every other notification here is triggered by something
  * happening; this one is triggered by the system stopping.

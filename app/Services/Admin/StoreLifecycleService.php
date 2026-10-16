@@ -365,7 +365,7 @@ final class StoreLifecycleService
             // Suspending a store withholds *that store's* share and nothing else,
             // which is the agreed behaviour and the reason the store scope exists.
             // The business keeps being charged, keeps being credited for its other
-            // stores, and keeps being paid for them on the next sweep — so a
+            // stores, and keeps being paid for them on the next attempt — so a
             // dispute about one store's orders does not become a business-wide
             // payout outage.
             $this->holds->holdStore(

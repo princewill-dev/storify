@@ -36,7 +36,7 @@ use Illuminate\Support\Facades\Log;
  *
  * ## The cap is the cap
  *
- * `plan()` never plans more than the caller's cap, which the sweep sets to the
+ * `plan()` never plans more than the caller's cap, which the send sets to the
  * business's payable balance. The remainder walk and the balance agree in the
  * ordinary case, but not when a refund taken after a payout has left the wallet
  * negative: the sales still show more unallocated money than the wallet says is
@@ -77,7 +77,7 @@ final class PayoutAllocationService
     /**
      * The sales a payout of at most `$capKobo` would be drawn from.
      *
-     * Returns the plan rather than writing anything: the sweep needs the total
+     * Returns the plan rather than writing anything: the send needs the total
      * *before* it writes the payout row, because the row's amount has to be the
      * amount the walk actually found — see {@see total()}.
      *

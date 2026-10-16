@@ -30,8 +30,8 @@ namespace App\Services\Payments\Payouts;
  *
  * Narrower than the result object it replaced in one other way: that one carried
  * `skipped` — "there was nothing to send, and that is not a failure" — because the
- * sweep it served read a *provider* balance and most accounts were empty most of
- * the time. The sweep that uses these rails reads a wallet Storify holds itself,
+ * send it served read a *provider* balance and most accounts were empty most of
+ * the time. The send that uses these rails reads a wallet Storify holds itself,
  * so it knows before it calls whether there is anything to send. A skip is decided
  * above this layer, and a rail returning one would be answering a question it was
  * not asked.

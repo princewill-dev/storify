@@ -350,7 +350,7 @@ final class BusinessLifecycleService
             // It is a hold rather than a wallet operation, so nothing already
             // owed is touched: the balance stays visible, the business is still
             // collectable, and lifting the suspension on reactivation pays it out
-            // on the next sweep with nothing to undo.
+            // on the next attempt with nothing to undo.
             $this->holds->holdBusiness(
                 $business,
                 'Business suspended: '.$reason,

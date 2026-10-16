@@ -89,7 +89,7 @@ class EnableCustody extends Command
         if ($flipped > 0) {
             $this->newLine();
             $this->info(sprintf('%d business(es) now collect through Storify.', $flipped));
-            $this->line('Their next settled sale is picked up by `custody:promote`, then paid by `custody:payouts`.');
+            $this->line('Their next settled sale is paid out automatically, seconds after the customer pays — nothing to schedule.');
         }
 
         return self::SUCCESS;
@@ -121,7 +121,7 @@ class EnableCustody extends Command
             $notes[] = "payout bank #{$bank->id} has no ".($bank->bank_code === null ? 'bank code' : 'account number');
         } elseif ($payouts->destinationIsExhausted($business)) {
             // The bank is on file and the provider has refused it as many times as
-            // the ceiling allows, so the sweep has stopped asking. Said here because
+            // the ceiling allows, so the send has stopped asking. Said here because
             // this command is run by somebody looking at the business right now, and
             // the alternative is discovering it when the money does not arrive.
             $notes[] = 'the provider keeps refusing its payout bank — run `custody:retry-payouts` '

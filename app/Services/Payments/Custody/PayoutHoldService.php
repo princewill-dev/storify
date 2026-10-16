@@ -2,6 +2,7 @@
 
 namespace App\Services\Payments\Custody;
 
+use App\Jobs\SettlePayouts;
 use App\Models\Business;
 use App\Models\PayoutHold;
 use App\Models\Store;
@@ -34,8 +35,8 @@ use Illuminate\Support\Str;
  *
  * Nothing here reads or writes a balance. A held business is still charged, still
  * credited, still promoted — the money is still counted, still owed, and still
- * visible on its wallet. All that changes is that the sweep skips it, so lifting
- * the hold pays it out on the next tick with nothing to undo. That is also why a
+ * visible on its wallet. All that changes is that the send skips it, so lifting
+ * the hold pays it out with nothing to undo. That is also why a
  * hold cannot strand a `processing` row: the reconciler and the webhook path never
  * consult a hold, so a payout already at the provider still resolves.
  *
@@ -80,7 +81,7 @@ final class PayoutHoldService
     /**
      * Withhold one store's share, and keep paying the business the rest.
      *
-     * The business id is recorded on the row as well as the store id, so the sweep
+     * The business id is recorded on the row as well as the store id, so the send
      * can answer "what is held for this business" in one query rather than by
      * joining through `stores` on every candidate.
      */
@@ -328,7 +329,51 @@ final class PayoutHoldService
             'released_by' => $actor?->id,
         ]);
 
+        $this->resume($scope, $businessId);
+
         return $released;
+    }
+
+    /**
+     * Say that money which was withheld on purpose may now be sent.
+     *
+     * ## Why a lift has to say so
+     *
+     * Lifting a hold is the one thing in the wallet that makes money payable without
+     * a customer paying. It used to be noticed by the five-minute run; the run is
+     * gone, and paying is now driven by a sale being collected — so without this,
+     * the balance that accumulated behind a hold would sit there until the business's
+     * *next* sale, which on a quiet shop is days. The screen would meanwhile tell
+     * them their money is on its way automatically, because it is: just not yet.
+     *
+     * All this does is enqueue the same {@see SettlePayouts} job a sale enqueues. It
+     * sends nothing itself, decides no amount, and is safe to call when there is
+     * nothing owed — the job reads the wallet and finds nothing to do.
+     *
+     * `SCOPE_STORE` wakes the whole business rather than the store, because there is
+     * no per-store job: the send is one per destination, and a business whose other
+     * money was already payable is unaffected by being woken with this one.
+     *
+     * A **system** hold is the platform-wide switch, so it wakes whoever is actually
+     * holding money — {@see PayoutSweepService::candidates()}, the same list the
+     * command used — rather than every business on the platform. It is resolved
+     * through the container rather than injected, because `PayoutSweepService`
+     * depends on this service and a constructor dependency in the other direction
+     * would be a cycle.
+     */
+    private function resume(string $scope, int $businessId): void
+    {
+        if ($scope !== PayoutHold::SCOPE_SYSTEM) {
+            if ($businessId > 0) {
+                SettlePayouts::forBusiness($businessId);
+            }
+
+            return;
+        }
+
+        foreach (app(PayoutSweepService::class)->candidates() as $business) {
+            SettlePayouts::forBusiness((int) $business->id);
+        }
     }
 
     /**

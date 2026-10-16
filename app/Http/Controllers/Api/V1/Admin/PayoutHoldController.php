@@ -29,8 +29,18 @@ use Illuminate\Support\Facades\Log;
  * recorded at `ad12-money-config.php` where the three that used to exist are
  * described: every payout now moves Storify's own balance, and an admin lever that
  * pushed one would be a second way to move money. A hold is a stop. The stop and
- * the *undo* of the stop are the whole surface; when a hold lifts, the next
- * scheduled run pays the business with nothing to reconcile.
+ * the *undo* of the stop are the whole surface; when a hold lifts, the lift itself
+ * queues the same `SettlePayouts` job a collected sale dispatches, and the business
+ * is paid with nothing to reconcile.
+ *
+ * The retry route that now exists next door does not change that, and the
+ * distinction is worth having straight because lifting a hold and pressing retry
+ * are the two obvious ways to unstick a business. A retry re-attempts money the
+ * wallet already says is owed, to the account already named, for an amount the
+ * wallet decides — it conjures nothing. It also cannot cross a hold: the hold is
+ * read by `PayoutSweepService::payoutBlocker()` before any send, so a retry on a
+ * held business returns "on hold" and sends nothing. Lifting the hold is still the
+ * only way past a hold, and pressing retry is not a way around one.
  *
  * Every hold and release writes an `activity_logs` row from inside
  * {@see PayoutHoldService} — subject, reason and actor — so the audit trail is a
@@ -169,7 +179,7 @@ class PayoutHoldController extends ApiController
             'store_id' => (int) $hold->store_id > 0 ? (int) $hold->store_id : null,
             'store_name' => $hold->store?->name,
             // "on this business", "on this store", "on the platform" — one
-            // definition, shared with the sweep's report and the business's own
+            // definition, shared with the run's report and the business's own
             // wallet payload.
             'over' => $hold->describe(),
             'reason' => $hold->reason,

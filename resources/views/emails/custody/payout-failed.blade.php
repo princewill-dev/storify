@@ -73,8 +73,8 @@
 
               <p style="margin:0 0 12px;">
                 If the reason points at your payout account — a wrong number, a name that does not match, an account
-                that cannot receive transfers — updating it in your dashboard is all that is needed, and the next
-                payout run will pick the money up. If the reason is unclear, contact us and we will look at it with you.
+                that cannot receive transfers — updating it in your dashboard is all that is needed, and the money
+                is sent on again automatically. If the reason is unclear, contact us and we will look at it with you.
               </p>
 
               @php($supportEmail = $c['email'] ?? config('mail.from.address'))

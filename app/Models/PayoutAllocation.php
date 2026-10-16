@@ -30,7 +30,7 @@ use Illuminate\Support\Collection;
  * | `released` | the payout did not happen; the money is back in the wallet | no |
  * | `reversed` | the payout landed and was recalled | no |
  *
- * "Claims the sale" is the distinction that matters to the sweep: a sale whose
+ * "Claims the sale" is the distinction that matters to the send: a sale whose
  * net is already spoken for by an open or landed payout must not be counted again
  * when the next payout's amount is worked out, or one sale funds two transfers.
  *

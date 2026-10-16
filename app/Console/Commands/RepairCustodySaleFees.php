@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Jobs\SettlePayouts;
 use App\Models\Transaction;
 use App\Services\Payments\Custody\CustodyService;
 use App\Services\Payments\PaymentWebhookProcessor;
@@ -36,11 +37,13 @@ use Illuminate\Support\Facades\Log;
  * which one applies is the row's own business.
  *
  * On a sale charged through the business's **own** keys, the fee is part of what
- * the business is owed, so writing it is what lets `custody:promote` credit the
- * wallet on its next pass. On a sale **Storify** charged, the business was never
- * waiting on it — that sale is credited the moment it is paid, and the promoter's
- * next pass is a no-op for it — and the fee is our own expense, recognised by
- * {@see CustodyService::promoteSettled()}'s sweep once the figure is on the row.
+ * the business is owed, so writing it is what lets the wallet be credited — which
+ * nothing does on a clock any more, so this command queues the same
+ * {@see SettlePayouts} attempt a sale would. On a sale **Storify** charged, the
+ * business was never waiting on it — that sale is credited the moment it is paid,
+ * and the promotion below is a no-op for it — and the fee is our own expense,
+ * recognised by {@see CustodyService::promoteSettled()}'s sweep once the figure is
+ * on the row, which that same queued attempt runs.
  *
  * Which is why the selection is {@see CustodyService::managedSalesWithNoFee()} and
  * not the wallet's narrower view: a sale we charged is normally *already credited*
@@ -116,6 +119,11 @@ class RepairCustodySaleFees extends Command
         $tally = [];
         $lines = [];
 
+        // Whose wallets this changed. Collected rather than dispatched per row,
+        // because a business with twenty repriced sales is one business to pay —
+        // the job settles everything owed, not one sale.
+        $repriced = [];
+
         foreach ($sales as $transaction) {
             $priced = $this->price($transaction);
             $status = $priced['status'];
@@ -155,6 +163,10 @@ class RepairCustodySaleFees extends Command
                     $tally['priceable']--;
                     $tally['raced'] = ($tally['raced'] ?? 0) + 1;
                 } else {
+                    if ($transaction->business_id !== null) {
+                        $repriced[(int) $transaction->business_id] = true;
+                    }
+
                     Log::info('custody.sale_repriced', [
                         'transaction_id' => $transaction->id,
                         'business_id' => $transaction->business_id,
@@ -181,6 +193,15 @@ class RepairCustodySaleFees extends Command
                 ['id', 'business', 'provider', 'fee', 'net', 'provider fee', $apply ? 'written' : 'would write'],
                 $lines,
             );
+        }
+
+        // Only under `--apply`, and only for the businesses whose rows changed. A
+        // priced sale on a business's own keys is money it was owed and the wallet
+        // had no figure for; writing the fee makes it payable, and nothing is on a
+        // clock to notice that any more. On a Storify-charged sale this is a
+        // harmless no-op — the wallet already knows and the job finds nothing to do.
+        foreach (array_keys($repriced) as $id) {
+            SettlePayouts::forBusiness($id);
         }
 
         $this->report($tally, $sales->count(), $apply);
@@ -287,7 +308,7 @@ class RepairCustodySaleFees extends Command
         if ($priceable > 0) {
             $this->info(
                 $apply
-                    ? 'The next `custody:promote` pass credits whichever of these the business was waiting on, and recognises our own cost on the rest.'
+                    ? 'A payout attempt is queued for each business whose rows changed — whatever is now payable goes out, and our own cost on the rest is recognised on the way through.'
                     : 'Run again with --apply to write their fee and net.'
             );
         }

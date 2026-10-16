@@ -18,16 +18,19 @@ use Illuminate\Http\Request;
  * inside the accounting-integrity JSON, an auditor's screen, while every
  * business-facing screen drew `stores.balance` — a column a collected sale never
  * credits. The figures here come from {@see WalletSummaryService}, which is a read
- * model over the sweep's own arithmetic, so the number a business reads as "what
- * is about to reach my bank" is the number the next run will actually send.
+ * model over the send's own arithmetic, so the number a business reads as "what
+ * goes to my bank" is the number the send would actually move.
  *
  * ## Read-only, deliberately
  *
- * There is no "pay me now" here and there will not be one. Money leaves only from
- * the scheduled sweep, which has exactly one trigger; a button that pushed it
- * would be a second way to move money, and a business that can move its own
- * balance on demand is a business that can be tricked into moving someone else's.
- * The same refusal is recorded on the admin side — see `ad12-money-config.php`.
+ * There is no "pay me now" here and there will not be one. Money leaves the wallet
+ * from one service, entered two ways — the queued `SettlePayouts` job a collected
+ * sale dispatches, and the operator's retry — and both call
+ * `InstantPayoutService::settle()` → `PayoutSweepService::sweepBusiness()`, so
+ * neither is a second way to move money. A button here would be: it would move an
+ * amount on a business's command, and a business that can move its own balance on
+ * demand is a business that can be tricked into moving someone else's. The same
+ * refusal is recorded on the admin side — see `ad12-money-config.php`.
  *
  * The permission is `transactions view`, the one the codebase already uses for
  * money. The wallet is business-level, and so are the dashboard figures behind
@@ -43,7 +46,12 @@ class WalletController extends ApiController
     ) {}
 
     /**
-     * The wallet: what is settling, what is payable, what is held and why.
+     * The wallet: what is settling, what is on its way, what is payable, what is held
+     * and why.
+     *
+     * "On its way" is `in_flight`, and it is not decoration: a transfer debits the
+     * wallet before the provider is called, so without it the screen reads ₦0 payable
+     * at the precise moment money is moving.
      */
     public function show(Request $request): JsonResponse
     {
@@ -91,7 +99,7 @@ class WalletController extends ApiController
 
         return [
             // "Configured" is about the destination being usable at all, which
-            // is the same test the sweep makes: a row with no code or no number
+            // is the same test the send makes: a row with no code or no number
             // is a bank on file that no provider can be told to pay into.
             'configured' => blank($bank->bank_code) === false && blank($bank->account_number) === false,
             'bank_code' => $bank->bank_code,

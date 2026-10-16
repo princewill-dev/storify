@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Jobs\SettlePayouts;
 use App\Services\Payments\Custody\PayoutHoldService;
 use App\Services\Payments\Custody\PayoutSweepService;
 use Illuminate\Console\Command;
@@ -11,25 +12,27 @@ use Illuminate\Support\Facades\Log;
  * Pays every custody business out of Storify's own balance, and chases whatever
  * did not resolve.
  *
- * The second half of collect-and-pay-out, and the half that exists where the
- * connected-account sweep used to: money Storify collected is sitting in its own
- * provider balance, and this is what turns "owed" into "in their bank". A business
- * under custody has no account at the provider to be settled into, so if this does
- * not run, that business is never paid — there is no fallback underneath it.
+ * ## Not on a schedule — this is a tool now
  *
- * ## Why it runs often
+ * **Nothing calls this on a clock.** Paying a business used to be this command's
+ * job, run every five minutes; it is {@see SettlePayouts}'s job now,
+ * dispatched the moment a sale is collected and retried by the worker with the
+ * schedule in `custody.retry_backoff_minutes`. That is what took the wait out of
+ * the chain: a sale collected at 12:05:16 used to be paid at 12:10 for no reason
+ * but the tick.
  *
- * `custody:promote` decides what *may* be paid and, since the provider's own
- * balance became the gate, what is *spendable*; this decides what actually is.
- * Both run every five minutes, promote registered first so a sale it just
- * promoted is one the pass that follows can send. Running it when there is
- * nothing to pay costs one indexed query per pass and moves no money, and running
- * it often is what keeps a business's wait down to the provider's settlement
- * rather than to that plus however long the scheduler felt like waiting.
- * Deliberately not guarded by a `when()`: the cheapest way to find out this has
- * stopped is a business asking where its money is.
+ * So this is for an incident, and it is genuinely good at that: `--dry-run` prints
+ * what is owed, what is payable and what is stopping each one without moving
+ * anything, and a real run pays everybody at once rather than waiting out a queue.
+ * A run is a *manual* one and says so — it attempts through the backoff gap that the
+ * automatic path respects, because a person running this wants to know whether it
+ * works now and one deliberate pass is not a burst.
  *
- * ## It is the only sweep, and it owns reconciliation
+ * **Do not put it back on a schedule.** A second payer racing the job would not
+ * double-pay (the reservation refuses to overdraw) but it would fight the retry
+ * loop for the same money and make the log unreadable.
+ *
+ * ## It is the only sweep, and it owns the manual reconciliation
  *
  * It used to run beside `connect:payouts`, which emptied a business's own account
  * at the provider, on the argument that two rails both being live meant neither
@@ -45,6 +48,14 @@ use Illuminate\Support\Facades\Log;
  * ones whose send never completed — the reference is the idempotency key, so a
  * resend is the same request rather than a second payment.
  *
+ * **This is the only route that asks unprompted.** With the schedule gone, the
+ * automatic resolver for a row stuck in `processing` is the provider's own payout
+ * webhook; a transfer Bachs accepted without returning an id waits for it. The
+ * 24-hour amber state on the business's wallet screen (see
+ * `custody.processing_display_hours`) is what tells them to ask, and this is what an
+ * operator runs when they do. `--skip-reconcile` exists for the case where only the
+ * paying half is wanted.
+ *
  * ## A held business is named, with the reason
  *
  * Payout holds ({@see PayoutHoldService}) are reported as their own count with the
@@ -59,7 +70,7 @@ class SweepCustodyPayouts extends Command
 {
     protected $signature = 'custody:payouts
                             {--dry-run : Report what is owed and payable without sending anything}
-                            {--skip-reconcile : Pay only, and leave unresolved rows for the next run}';
+                            {--skip-reconcile : Pay only, and leave unresolved rows for the next manual run}';
 
     protected $description = 'Pay custody businesses from the internal wallet, and reconcile payouts in flight';
 
@@ -176,12 +187,12 @@ class SweepCustodyPayouts extends Command
             ));
         }
 
-        // A run where every send failed is a failure, so the scheduler's output and
-        // any monitoring on it reflect that. Individual failures beside successes
-        // do not fail the run — those are named in the log, their money is already
-        // back in the wallet, and the next tick retries them. Reconcile failures do
-        // not fail it either: a refusal found on a read-back has already been
-        // handled, and the money is where it belongs.
+        // A run where every send failed is a failure, so a failure exit makes that
+        // visible to whoever ran it. Individual failures beside successes do not
+        // fail the run — those are named in the log, their money is already back in
+        // the wallet, and the next attempt retries them. Reconcile failures do not
+        // fail it either: a refusal found on a read-back has already been handled,
+        // and the money is where it belongs.
         return $counts['failed'] > 0 && $counts['sent'] === 0 ? self::FAILURE : self::SUCCESS;
     }
 

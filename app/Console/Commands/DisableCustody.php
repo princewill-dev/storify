@@ -21,21 +21,20 @@ use Illuminate\Support\Facades\Log;
  * **It does not clear the wallet.** A business rolled back with a settled balance
  * is still owed that money, and zeroing the wallet would keep it.
  *
- * **It does not stop the payout run.** The flag decides how a business is *charged*
+ * **It does not stop payouts.** The flag decides how a business is *charged*
  * and nothing else, so every credit already in the wallet keeps maturing and keeps
- * being paid out on the usual hourly run, and so do the sales collected but not yet
- * credited — the sweep reads whether Storify collected a sale, not whether the
- * business is still being collected for. That is the behaviour an operator needs
- * from a rollback taken during an incident: stop taking new money, and finish
- * honouring what was already taken. It used to be the opposite, with the balance
- * left owing and a line of output telling the operator to pay it by hand — and no
- * tool left to do that with, since the payout console went with the account
- * machinery.
+ * being paid out, and so do the sales collected but not yet credited — the send
+ * reads whether Storify collected a sale, not whether the business is still being
+ * collected for. That is the behaviour an operator needs from a rollback taken
+ * during an incident: stop taking new money, and finish honouring what was already
+ * taken. It used to be the opposite, with the balance left owing and a line of
+ * output telling the operator to pay it by hand — and no tool left to do that with,
+ * since the payout console went with the account machinery.
  *
  * **It does not move money back to the provider.** There is nowhere to move it to
  * — the money is in Storify's own provider balance, which is the platform's
- * account and not the business's. Paying it out is what settles it, and the sweep
- * is what pays it out.
+ * account and not the business's. Paying it out is what settles it, and a queued
+ * settlement is what pays it out.
  *
  * ## What it cannot undo
  *
@@ -122,7 +121,7 @@ class DisableCustody extends Command
             number_format($pending / 100, 2),
             $settling,
         ));
-        $this->line('  The payout sweep is still paying this business, so that money will leave on the usual run.');
+        $this->line('  The settlement path is still paying this business, so the money will leave on the next payout attempt.');
         $this->line('  See docs/custody-migration-runbook.md, "Rolling a business back".');
     }
 }

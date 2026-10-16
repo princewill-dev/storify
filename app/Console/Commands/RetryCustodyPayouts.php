@@ -2,17 +2,18 @@
 
 namespace App\Console\Commands;
 
+use App\Jobs\SettlePayouts;
 use App\Models\Business;
 use App\Services\Payments\Custody\PayoutSweepService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Lets the sweep try a bank again after it has given up on it.
+ * Lets the send try a bank again after it has given up on it.
  *
  * ## Why this has to exist
  *
- * `custody:payouts` stops asking after `config('custody.max_destination_failures')`
+ * The platform stops asking after `config('custody.max_destination_failures')`
  * refusals of the same bank account, because a destination the provider will not
  * register does not become registrable by being offered again, and a business
  * that needs looking at should not look like one that is merely between payouts.
@@ -26,16 +27,18 @@ use Illuminate\Support\Facades\Log;
  * thing that gets done at the wrong moment.
  *
  * So: a person looks at the destination, decides it is right, and says so here.
- * The measured refusals are retired and the next sweep starts from nothing.
+ * The measured refusals are retired and the next attempt starts from nothing.
  *
  * ## It moves no money, and it cannot lose any
  *
  * Every row it touches is a `failed` payout, which already returned its
  * reservation to the wallet when it failed. Nothing is re-sent and nothing is
  * restored — the money has been sitting in `available_balance` the whole time,
- * and the run that follows this one is what pays it. The worst case of running
- * this on a genuinely unusable account is three more refusals to reach the same
- * ceiling again.
+ * and **the job this queues** is what pays it. That job is the part that is not
+ * self-evident: with no five-minute run left to notice an unblocked business, a
+ * clearance that did not also queue an attempt would be an operator retiring a
+ * ceiling and buying nothing. The worst case of running this on a genuinely
+ * unusable account is three more refusals to reach the same ceiling again.
  *
  * Which is also why it takes named businesses rather than sweeping the fleet: the
  * judgement being recorded is about one destination, and there is no version of
@@ -81,7 +84,7 @@ class RetryCustodyPayouts extends Command
         if ($cleared > 0) {
             $this->newLine();
             $this->info(sprintf('%d refusal(s) retired.', $cleared));
-            $this->line('The next `custody:payouts` run will try these banks again from a clean count.');
+            $this->line('A payout attempt is queued — these banks are tried again from a clean count.');
         }
 
         return self::SUCCESS;
@@ -97,7 +100,7 @@ class RetryCustodyPayouts extends Command
 
         if ($bank === null) {
             // Not a failure: there is nothing to clear because nothing was ever
-            // attempted. The sweep's own output already names this business as
+            // attempted. The run's own output already names this business as
             // skipped for having no bank.
             $this->warn("  {$label} has no payout bank on file, so nothing has failed against one.");
 
@@ -134,6 +137,14 @@ class RetryCustodyPayouts extends Command
             'account_number' => (string) $bank->account_number,
             'failures_cleared' => $cleared,
         ]);
+
+        // Retiring the refusals is only half of it now. It used to be enough on its
+        // own, because a run every five minutes would find the business unblocked on
+        // its own; there is no run, so the unblocking has to be said out loud or the
+        // operator has cleared a ceiling and bought nothing. This enqueues the same
+        // job a sale enqueues — the ceiling is measured from the rows just retired, so
+        // the job will find nothing stopping it.
+        SettlePayouts::forBusiness((int) $business->id);
 
         $this->info("<info>{$label}</info>: {$this->plural($cleared)} retired.");
 

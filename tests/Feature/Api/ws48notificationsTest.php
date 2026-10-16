@@ -48,8 +48,9 @@ use Mockery as M;
 | design out is a mail fault swallowing the notification entirely.
 |
 | **A crossing, not a state.** The "we cannot pay you" alert is raised from the
-| failure that crosses the ceiling rather than from the sweep that is now skipping
-| the business, because the sweep runs every five minutes and would re-fire forever.
+| failure that crosses the ceiling rather than from the send that is now skipping
+| the business: the send asks on every attempt, and an alert raised from the asking
+| would re-fire on each one forever.
 */
 
 function pn48Settings(array $attributes): void

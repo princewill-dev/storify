@@ -359,9 +359,9 @@ class EnforcementPreviewController extends ApiController
      * It is still worth counting, because "who can take money we cannot yet hand
      * over" is how a backlog starts. But the question is about **the bank the
      * payout run pays into**, not the provider's own destination record: the
-     * sweep reads `bank_code` and `account_number` off the business and nothing
+     * send reads `bank_code` and `account_number` off the business and nothing
      * else, so anything else asked here would report a business as payable that
-     * the sweep skips. Read the same fields as
+     * the send skips. Read the same fields as
      * {@see PayoutSweepService} for that reason.
      *
      * Null `$bank` means the business never named one. That used to be the

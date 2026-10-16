@@ -15,10 +15,15 @@ use Illuminate\Queue\SerializesModels;
  *
  * The message a business needs to be told rather than left to infer, and the one
  * most likely to provoke a support ticket either way. It leads with what happened
- * to the money — nothing was lost, it is in the wallet, we will try again on the
- * next run — because "your payout failed" on its own reads as money gone, which is
- * the opposite of the truth: the reservation was released the moment the provider
+ * to the money — nothing was lost, it is in the wallet, it will be sent again —
+ * because "your payout failed" on its own reads as money gone, which is the
+ * opposite of the truth: the reservation was released the moment the provider
  * refused, before this mail was written.
+ *
+ * "Sent again" and not "sent on the next run", which is what this used to say. The
+ * money goes back out at whichever comes first — the next sale collected, or the
+ * five-minute run — and neither is a "run" the business has ever heard of, so naming
+ * one invited a question about a schedule that is not theirs to care about.
  *
  * The provider's own words are included when there are any. A business that reads
  * "the account name does not match the account number" fixes it in an afternoon;

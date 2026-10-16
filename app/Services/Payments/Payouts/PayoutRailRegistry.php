@@ -20,7 +20,7 @@ use App\Support\Payments\PaymentGatewayRegistry;
  *
  * **A code absent from this map is an honest refusal, not a fallback.** There is
  * no default rail and no "try them in turn" — paying a business through a
- * provider nobody selected is worse than not paying it, because the next sweep
+ * provider nobody selected is worse than not paying it, because the next attempt
  * would try again through the right one and the business would be paid twice.
  */
 final class PayoutRailRegistry

@@ -2,6 +2,7 @@
 
 namespace App\Services\Payments\Custody;
 
+use App\Jobs\SettlePayouts;
 use App\Models\Business;
 use App\Models\Transaction;
 use Illuminate\Support\Facades\Log;
@@ -17,9 +18,19 @@ use Illuminate\Support\Facades\Log;
  * nothing in `pending_balance` and no `pending_settlements_by_day` — and the
  * settlement window is zero for that provider precisely because the provider's own
  * balance is a better answer than any clock. So after a sale is recorded there is
- * **nothing left to wait for**. The only thing that used to stand between a
- * customer's payment and the business's bank account was the gap between two
- * five-minute cron ticks, which is our latency and nobody else's.
+ * **nothing left to wait for**, and what used to stand between a customer's payment
+ * and the business's bank account was the gap between two five-minute cron ticks:
+ * our latency and nobody else's.
+ *
+ * ## Nothing waits on this
+ *
+ * `afterCollection()` is reached through {@see SettlePayouts}, which runs
+ * on the queue, so the request that collects a sale ends without waiting on a
+ * provider round trip. That job is also the retry — it gives a provider that is down
+ * the schedule in `custody.retry_backoff_minutes` and then alerts the admins, rather
+ * than paying late and silently. **There is no scheduled run any more.** The
+ * five-minute `custody:promote` / `custody:payouts` pair is gone from the scheduler,
+ * and both commands survive only as manual tools for an incident.
  *
  * ## It is not a second way to move money
  *
@@ -29,9 +40,17 @@ use Illuminate\Support\Facades\Log;
  *   pending->available -> {@see CustodyService::promoteForBusiness()}
  *   available->provider -> {@see PayoutSweepService::sweepBusiness()}
  *
- * The cron calls the same three, over every candidate. Nothing here writes a
- * balance or a payout row that the run would not have written; it only gets there
- * sooner. The claims are unchanged and are what make that safe: `promoted_at` and
+ * Those three **are** {@see self::settle()}, the whole of "settle this business
+ * now", and it is the only thing that moves money after a sale — reached two ways,
+ * the queued job and the operator's retry in {@see PayoutRetryService}, so neither
+ * is a second path. `PayoutRetryService` goes through here rather than calling
+ * `sweepBusiness()` itself for a reason worth keeping: `sweepBusiness()` sends what
+ * is already in `available_balance` and never consults the gate, so money a provider
+ * outage left behind in `pending_balance` would be invisible to it and the operator's
+ * button would report success while the business stayed unpaid.
+ *
+ * Nothing here writes a balance or a payout row that the run would not have written;
+ * it only gets there sooner. The claims are what make that safe: `promoted_at` and
  * `settle_at` taken by condition, and a reservation that debits the wallet under a
  * row lock and refuses to overdraw — so a trigger and a run landing on the same
  * business at the same instant cannot pay it twice. The loser finds the claim gone
@@ -57,16 +76,17 @@ use Illuminate\Support\Facades\Log;
  *
  * ## What it does not do
  *
- * It never fails a request. A provider that cannot be reached, a balance that
- * cannot be read or a wallet that refuses the debit are all logged and left to the
- * run, which is the safety net for exactly this: the settlement itself is already
- * committed by the time this is called, and the sale stays payable until something
- * pays it. Turning a slow provider into a failed webhook would have the provider
- * redeliver a payment we have already recorded, to pay a business we can still pay
- * on the next pass.
+ * It never throws. A provider that cannot be reached, a balance that cannot be read
+ * or a wallet that refuses the debit all come back as a status, and the caller
+ * decides what that means — the job retries and alerts; the operator's retry
+ * reports. Throwing would make a provider's bad afternoon the payment request's
+ * problem, and the settlement itself is already committed by the time this is
+ * called: the sale stays payable until something pays it. The job is what turns
+ * "still payable" into "tried again in five minutes", and then into an email to the
+ * admins.
  *
- * `custody.instant_payout.enabled` turns it off without a deploy, and the run then
- * pays on its own schedule exactly as it did before this existed.
+ * `custody.instant_payout.enabled` turns it off without a deploy, and the money then
+ * waits for an operator's retry.
  */
 final class InstantPayoutService
 {
@@ -78,12 +98,18 @@ final class InstantPayoutService
     /**
      * Offer to pay this business for the sale that has just been collected.
      *
+     * The guards are this method's own and settle the business no further: a sale
+     * that is not the platform's, or not yet credited, or already taken back, is
+     * answered here and never reaches the wallet.
+     *
      * Safe to call more than once for one sale, and safe to call for a sale
      * somebody else already settled: `settle_at` is the credit's own proof, so the
      * second caller finds the wallet already credited and lets
-     * {@see PayoutSweepService::sweepBusiness()} answer with nothing to send.
+     * {@see PayoutSweepService::sweepBusiness()} answer with nothing to send. That
+     * is what makes {@see SettlePayouts} safe to hand a sale that has
+     * already been paid, which is what a provider redelivering its webhook does.
      *
-     * @return array{status: string, reason?: string, matured?: int, outcome?: string|null}
+     * @return array{status: string, reason?: string, matured?: int, hold_id?: int|null, measured?: bool, outcome?: array<string, int>}
      */
     public function afterCollection(Transaction $transaction): array
     {
@@ -112,6 +138,47 @@ final class InstantPayoutService
             return ['status' => 'unwound'];
         }
 
+        $result = $this->settle($business);
+
+        if ($result['status'] === 'withheld') {
+            Log::info('custody.payout.instant_withheld', [
+                'transaction_id' => $transaction->id,
+                'business_id' => $business->id,
+                'reason' => $result['reason'],
+                'hold_id' => $result['hold_id'],
+                'matured' => $result['matured'],
+            ]);
+        } else {
+            Log::info('custody.payout.instant', [
+                'transaction_id' => $transaction->id,
+                'business_id' => $business->id,
+                'provider' => $transaction->settlementProviderCode(),
+                'matured' => $result['matured'],
+                'budget_measured' => $result['measured'],
+                'outcome' => $result['outcome'],
+            ]);
+        }
+
+        return $result;
+    }
+
+    /**
+     * Settle this business: mature what may mature, then send what is owed.
+     *
+     * The one place money moves after a sale, whichever asked — the queued job that
+     * runs when a sale is collected, or an operator's retry. Extracted so both go
+     * through it rather than one of them reaching for `sweepBusiness()` alone, which
+     * would send only what is already in `available_balance` and leave a provider
+     * outage's leftovers in `pending_balance` looking like a business that was
+     * already paid.
+     *
+     * Reads no transaction and writes no log: what to make of the answer is the
+     * caller's, and the two callers make different things of it.
+     *
+     * @return array{status: string, reason?: string, matured?: int, hold_id?: int|null, measured?: bool, outcome?: array<string, int>}
+     */
+    public function settle(Business $business): array
+    {
         // Matured first, and **regardless of anything below**. A hold stops money
         // being *sent*; it does not change what the wallet records as owed. The
         // promote run reads no hold either, so a business whose sales stayed in
@@ -129,7 +196,7 @@ final class InstantPayoutService
 
         // **The wallet was written behind this instance's back.** `promoteForBusiness()`
         // credits through each sale's own business instance, so the number this
-        // one is holding is the one from before the credit — and the sweep reads
+        // one is holding is the one from before the credit — and the send reads
         // it to decide whether there is anything to send. Without this it finds
         // an empty wallet and sends nothing, silently, which is the one failure
         // here nobody would notice: no error, no payout, and money that looks
@@ -139,33 +206,29 @@ final class InstantPayoutService
         $restriction = $this->payouts->restrictionFor($business);
 
         if ($restriction !== null) {
-            Log::info('custody.payout.instant_withheld', [
-                'transaction_id' => $transaction->id,
-                'business_id' => $business->id,
+            return [
+                'status' => 'withheld',
                 'reason' => $restriction['code'],
-                'hold_id' => $restriction['hold']?->id,
                 'matured' => $matured,
-            ]);
-
-            return ['status' => 'withheld', 'reason' => $restriction['code'], 'matured' => $matured];
+                'hold_id' => $restriction['hold']?->id,
+            ];
         }
 
         // Run even when this sale matured nothing: a business may already hold
-        // settled money from an earlier sale that the run has not reached, and
-        // this is the moment somebody is watching. It costs nothing when there is
-        // nothing payable — the walk finds no balance and no provider call is
-        // made.
+        // settled money from an earlier sale that nothing has reached, and this is
+        // the moment somebody is watching. It costs nothing when there is nothing
+        // payable — the walk finds no balance and no provider call is made.
         $outcome = $this->payouts->sweepBusiness($business);
 
-        Log::info('custody.payout.instant', [
-            'transaction_id' => $transaction->id,
-            'business_id' => $business->id,
-            'provider' => $transaction->settlementProviderCode(),
+        // `measured` travels with the answer because an unreadable provider and a
+        // business that owes nothing both come back as an empty tally — the send
+        // reports what it sent and never what it could not read — so the caller
+        // that has to decide whether to try again cannot learn it from `outcome`.
+        return [
+            'status' => 'attempted',
             'matured' => $matured,
-            'budget_measured' => $gate['measured'],
+            'measured' => $gate['measured'],
             'outcome' => $outcome,
-        ]);
-
-        return ['status' => 'attempted', 'matured' => $matured, 'outcome' => $outcome];
+        ];
     }
 }

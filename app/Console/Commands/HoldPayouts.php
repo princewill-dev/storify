@@ -30,10 +30,10 @@ use Illuminate\Support\Facades\Log;
  * ## What it does not do
  *
  * It does not stop the business being charged, and it does not touch a balance.
- * Money keeps landing in the wallet and stays visible there; the sweep simply
- * skips it. So a hold is reversible by doing nothing but lifting it — the next run
- * pays everything that accumulated — and a payout already with the provider still
- * resolves, because reconciliation does not read holds.
+ * Money keeps landing in the wallet and stays visible there; the send simply
+ * skips it. So a hold is reversible by doing nothing but lifting it — the queued
+ * attempt pays everything that accumulated — and a payout already with the
+ * provider still resolves, because reconciliation does not read holds.
  *
  * ## With no options it lists, and changes nothing
  *

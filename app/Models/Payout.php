@@ -89,7 +89,7 @@ class Payout extends Model
     }
 
     /**
-     * Null when the sweep asked for this payout, set when a person did.
+     * Null when the job asked for this payout, set when a person did.
      */
     public function requestedBy(): BelongsTo
     {
@@ -119,7 +119,7 @@ class Payout extends Model
      *
      * `requested_at` is stamped here rather than taken from `created_at`: the row
      * can be reserved, sit in `pending` while a slow provider call is retried, and
-     * the question the sweeper asks is when we first tried, not when the row
+     * the question the job asks is when we first tried, not when the row
      * appeared.
      */
     public static function reserve(

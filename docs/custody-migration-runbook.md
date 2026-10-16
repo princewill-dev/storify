@@ -13,7 +13,7 @@ nobody is watching is not.
 > account to drain — the sections that described those are kept below as a record of what
 > was done and why, marked as history where they no longer describe something an operator
 > can run. What an operator still has is the last three sections: the rollback lever, the
-> sweeps, and the numbers to watch.
+> commands that force a payout, and the numbers to watch.
 
 ## What changes, and what does not
 
@@ -36,9 +36,12 @@ was a precondition to the migration and it remains a precondition to operating i
 1. **Legal sign-off** on the above.
 2. The API is **hand-deployed**. `php artisan migrate --force` and `php artisan optimize:clear`
    must have run on the server, or nothing below is live.
-3. `custody:promote` and `custody:payouts` are in the cron schedule
-   (`php artisan schedule:list` shows both). If they are not running, a collected business
-   is never paid — there is no fallback underneath custody.
+3. **A worker is consuming the queue.** Paying a business is a queued job
+   (`App\Jobs\SettlePayouts`, on the `default` queue), so with no `queue:work` running
+   nothing settles at all: a sale is credited and payable and no send is ever attempted.
+   The queue is load-bearing for money, not just for email. `CUSTODY_INSTANT_PAYOUT` must
+   not be `false` (off, a sale simply waits), and the retry budget the worker respects is
+   `CUSTODY_PAYOUT_BACKOFF` — minutes, `5,30,60` by default.
 4. The platform's own credentials are complete in `config/services.php` for whichever
    processor is selected. A business's own keys are never read under custody, so the
    platform's key *is* the rail.
@@ -63,8 +66,8 @@ and needs putting back.
 It **warns** about both of these and does neither of them for you:
 
 - **No payout bank on file**, or a bank row with a blank `bank_code`/`account_number`. The
-  business can sell — Storify simply holds the money — but the sweep will skip it on every
-  pass (five minutes) until an account is named.
+  business can sell — Storify simply holds the money — but the send skips it until an account
+  is named.
 - **A wallet that is not zero**, which is reachable on a business flipped on, off, and on
   again. A rollback does not clear the wallet, so a number that was already there is money
   somebody is still owed.
@@ -90,7 +93,7 @@ On any business you have just put back on the rail, confirm:
    promote run matures it and `custody:payouts --dry-run` lists the business as payable. The
    wait here is the provider's, not ours; if the money is available and still not maturing,
    read the promote run's own output before assuming a bug.
-3. The next `custody:payouts` run pays it, and **the money reaches the bank**. This is the
+3. The queued settlement pays it, and **the money reaches the bank**. This is the
    step that must be seen with your own eyes; everything before it is a number in a table.
 4. Sell something and refund it before payout. The wallet reverses and the books balance.
 5. Sell something, let it pay out, then refund it. `available_balance` goes **negative** —
@@ -116,13 +119,13 @@ It does **not** clear the wallet, and it does **not** move money anywhere. The m
 Storify's own provider balance, which is the platform's account — there is nowhere to move
 it back to. Paying it out is what settles it, and **the payout sweep is what pays it out**:
 
-**The sweep keeps finding this business, and keeps paying it.** The flag decides how a
-business is *charged*; it says nothing about money already taken. Everything in the wallet
-goes on maturing through `custody:promote` and being paid by `custody:payouts` exactly as
-before, and so do sales collected before the rollback that settle afterwards — the sweep asks
-whether *Storify collected the sale*, which is recorded on the transaction, not whether the
-business is still being collected for. So a rollback taken mid-incident does what an operator
-needs from it: no new money is taken, and everything already taken is still honoured.
+**The settlement path keeps finding this business, and keeps paying it.** The flag decides how
+a business is *charged*; it says nothing about money already taken. Everything in the wallet
+goes on maturing and being paid out exactly as before, and so do sales collected before the
+rollback that settle afterwards — the send asks whether *Storify collected the sale*, which is
+recorded on the transaction, not whether the business is still being collected for. So a
+rollback taken mid-incident does what an operator needs from it: no new money is taken, and
+everything already taken is still honoured.
 
 It also cannot undo charges already collected. A business rolled back for an hour has had
 that hour's sales processed by Storify, and will be paid for them out of the wallet.
@@ -131,32 +134,39 @@ A business left rolled back is a business that cannot take payments at all: it i
 collected for, so the platform cannot charge on its behalf, and no other rail exists. The
 enforcement pre-flight (`businesses_awaiting_custody`) is what surfaces them.
 
-## What the sweeps are, and where the money moves
+## Where the money moves, and the commands that force it
 
-Two commands move money, and they are the only two:
+Two commands can pay a business out, and both are **tools** now rather than a schedule. Paying a business
+is a queued job — `App\Jobs\SettlePayouts`, dispatched when a sale is collected, when a payout
+hold lifts, when an operator presses Retry, and by these commands — and this is what an
+operator reaches for during an incident:
 
-| Command | Schedule | What it does |
+| Command | When it runs | What it does |
 |---|---|---|
-| `custody:promote` | every five minutes | Matures settled sales from `pending_balance` to `available_balance` |
-| `custody:payouts` | every five minutes | Pays custody businesses from `available_balance`, and reconciles payouts in flight |
+| `custody:promote` | by hand, or as part of a settlement | Matures settled sales from `pending_balance` to `available_balance` |
+| `custody:payouts` | by hand | Pays custody businesses from `available_balance`, and reconciles payouts in flight |
+
+**Neither is in the cron schedule any more**, and neither should be put back: a second,
+out-of-band payer racing the job would not double-pay (the reservation refuses to overdraw)
+but it would put a provider call back on somebody's clock for no benefit.
 
 Both ran hourly until recently, and the hour was never the providers' doing. Three waits
 stacked: an *assumed* 48h settlement window that nothing measured, then an hourly promote,
 then an hourly payout. A business could wait two days for money the provider had already
-released. The window is now measured against the provider's own balance (below) and the
-cadence is five minutes, which leaves the provider's own settlement as the only delay left
-in the chain.
+released. The window is now measured against the provider's own balance (below), and the
+payout itself is made the moment a sale settles — so the provider's own settlement is the
+only delay left in the chain.
 
-The order is load-bearing: a sale promoted in one tick is a sale the payout in the same tick
-can send. Laravel runs same-minute entries in registration order, so `custody:promote` is
-registered first. Both are `withoutOverlapping(3)` — a five-minute gap behind a longer lock
-would silently *skip* ticks rather than delay them.
+The order is load-bearing even without a schedule: a sale has to be matured before it can be
+sent. The queued settlement does the three steps in that order — mature, read the
+restrictions, send — and `custody:payouts` runs them the same way when an operator reaches for
+it.
 
-**Both are now a net rather than the ordinary path.** A sale is usually paid out in the
-request that settles it — see "Payouts are immediate" below — and the runs exist to catch
-what that missed: a provider that could not be reached, a sale that arrived with no fee
-reported, a balance that could not be read. A run that finds nothing to do is the normal
-state of a healthy platform, not a sign the schedule has stopped working.
+**Both are the net rather than the ordinary path.** A sale is usually paid out as it settles —
+see "Payouts are immediate" below — and the commands exist to catch what that missed: a
+provider that could not be reached, a sale that arrived with no fee reported, a balance that
+could not be read. A run that finds nothing to do is the normal state of a healthy platform,
+not a sign a worker has stopped.
 
 ### The promote run is gated on the provider's balance
 
@@ -181,7 +191,7 @@ An unreadable balance must never be read as zero: a DNS blip is not the provider
 are broke, and treating it as such would freeze every payout on the platform. `default_hours`
 is what makes that fallback slow rather than instant — **do not lower it.** When a run
 withholds sales because the provider has not released the money, it says so: they stay
-payable and mature on a later run, and nothing is lost.
+payable and mature on a later attempt, and nothing is lost.
 
 `custody.balance_gate.enabled` turns the gate off and restores the old clock-only behaviour.
 It is a switch rather than a deleted branch so that an incident can be worked around without
@@ -192,7 +202,7 @@ php artisan custody:promote --dry-run
 ```
 
 Reads the same predicate and the same budget the real run uses, so the table it prints is
-what the next run would move, including when the provider has not funded everything due.
+what a real promotion would move, including when the provider has not funded everything due.
 
 ### The exposure a near-zero window carries
 
@@ -273,7 +283,7 @@ nobody lifts.
 A hold does exactly one thing — it makes `custody:payouts` skip the money — and that is what
 makes it safe. It never clears a wallet, never stops a charge, and never strands a payout
 already with the provider, because reconciliation does not read holds. So lifting it is the
-whole remedy: the next run pays everything that accumulated behind it, with nothing to
+whole remedy: the next attempt pays everything that accumulated behind it, with nothing to
 reverse and nothing to reconcile by hand.
 
 Suspending a business or a store places a hold automatically, and reactivating releases it.
@@ -306,7 +316,7 @@ php artisan custody:retry-payouts "{business_code}"
 Run that once you have looked at the destination and satisfied yourself it is right — the
 ceiling is a guess about the *account* made from what the provider said, and the provider
 can be the one that is wrong. It retires the recorded refusals (marking those payout rows
-`cancelled`) and the next run tries the bank again from a clean count. It moves no money:
+`cancelled`) and the next attempt tries the bank again from a clean count. It moves no money:
 each of those rows returned its reservation to the wallet when it failed, so the money has
 been payable the whole time. Running it on a genuinely unusable account costs three more
 refusals to reach the same ceiling.
@@ -329,14 +339,16 @@ provider, and is not part of this codebase's job.
 
 ## Payouts are immediate
 
-A sale is paid out in the request that settles it. There is no sweep to wait for, and the
-five-minute runs are reconciliation and the net.
+A sale is paid out as it settles. The request that records the sale — the provider's webhook,
+the storefront's return leg, the POS till — dispatches `App\Jobs\SettlePayouts` and returns;
+the send happens on a worker seconds later. There is no five-minute sweep to wait for, and
+what used to be its runs are now the operator's tools.
 
-Nothing about *how* the money moves changed. The same three steps the run performs happen
-inline, through the run's own code — mature the business's due sales, read the restrictions,
-send the payout — so a trigger and a run landing on the same business at the same instant
-cannot pay it twice: the claims (`settle_at`, `promoted_at`, the payout reservation) are the
-same, and the loser finds the claim gone.
+Nothing about *how* the money moves changed. The same three steps happen in that job, through
+`PayoutSweepService`'s own code — mature the business's due sales, read the
+restrictions, send the payout — so a trigger and a manual run landing on the same business at
+the same instant cannot pay it twice: the claims (`settle_at`, `promoted_at`, the payout
+reservation) are the same, and the loser finds the claim gone.
 
 Two settlement paths reach it, and **whichever hears about the payment first is the one that
 pays**:
@@ -363,27 +375,51 @@ the same order. When one is set the payout is not attempted, and no transfer is 
 Maturation happens **first and regardless**: a hold stops money being sent, it does not change
 what the wallet records as owed, and `custody:promote` reads no hold either. So a held
 business's wallet still matures and its screen still shows the money as owed — the hold is
-what stops the send, and lifting it pays on the next `custody:payouts` with nothing to repair.
+what stops the send, and lifting it pays on the next attempt with nothing to repair.
 
 A **store** hold is not on that list: it withholds that store's share and pays the business for
 the rest, immediately.
 
 ### When to turn it off
 
-`custody.instant_payout.enabled` (`CUSTODY_INSTANT_PAYOUT`). Off, the platform behaves exactly
-as it did before this existed: settled in the request, paid on the next five-minute run.
+`custody.instant_payout.enabled` (`CUSTODY_INSTANT_PAYOUT`). Off, nothing is sent as a sale
+settles: the sale is still collected and credited, and it sits payable in the wallet until an
+operator runs `custody:payouts` by hand — there is no schedule to fall back on.
 
 Turn it off when the instant path is costing more than it is worth — a provider incident where
 the extra balance read and transfer on the settlement path are the thing making it worse. It
-is a worse experience and not a broken one, because the sale stays payable and the run sends
-it.
+is a worse experience and not a broken one: the money stays payable in the wallet, and one
+deliberate `custody:payouts` run releases everything that accumulated.
 
 It **never fails a request**. A provider that cannot be reached, a balance that cannot be read,
 a spendable balance that does not cover the sale, a transfer the provider refuses: each is
-logged, the reservation is released, and the sale stays payable for the run. That is
+logged, the reservation is released, and the sale stays payable for a later attempt. That is
 deliberate — the settlement itself is already committed by the time the payout is attempted,
 and turning a slow provider into a failed webhook would have it redeliver a payment we have
 already recorded, to pay a business we can still pay.
+
+### When the provider is down
+
+Payouts do not retry forever. `App\Jobs\SettlePayouts` gets three attempts — the backoff in
+`custody.retry_backoff_minutes` is `5`, then `30`, then `60` minutes, so roughly 95 minutes end
+to end — and then it stops. The money does not leave the wallet: it stays in
+`available_balance`, still showing as owed, and the last failure writes a `failed_jobs` row and
+sends the admin alert email. Nothing is lost and nobody is paid twice; the platform is simply
+waiting for a person.
+
+Once the provider is back, press **Retry** in the admin console (or run `custody:retry-payouts`).
+The buttons are on the admin **Payouts** screen (AD-19): **`Retry`** on a business's row in the
+queue, and **`Retry all failed payouts`** in the header for the whole set. Both queue the attempt
+and neither sends anything inline; that clears the recorded refusals and queues a fresh attempt
+from a clean count — the money has been payable the whole time, so there is nothing to reconstruct.
+
+### `queue:work` is load-bearing for money
+
+A worker is not only for email any more. Every payout — the one made as a sale settles, every
+retry, every hold lifted — runs on the queue, so a stopped worker means **nothing settles at
+all**: sales are still collected and credited, the wallet still shows the money as owed, and no
+send is ever attempted. If payouts have gone quiet platform-wide, the worker is the first thing
+to check.
 
 ## The numbers to watch
 
@@ -395,10 +431,10 @@ already recorded, to pay a business we can still pay.
 | `custody:payouts` → `on hold` | Deliberate: an operator, a suspension, or a rail incident. The holds are listed with their reasons, and the money is in the wallet the whole time. If this line names a business nobody meant to hold, that is the bug. |
 | `custody:payouts` → `held` | The *business's own* switch (`auto_payout`), not an operator's. Only its owner can turn it back on. |
 | `custody:payouts` → `skipped` | Storify is holding money it cannot hand over: no payout bank, or another run took the balance. The first needs chasing. |
-| `custody:payouts` → `blocked` | The provider keeps refusing this business's bank, so the sweep has stopped asking. Fix the destination or run `custody:retry-payouts`; the money is safe in the wallet until then. |
+| `custody:payouts` → `blocked` | The provider keeps refusing this business's bank, so the send has stopped asking. Fix the destination, or press **Retry** on the admin Payouts screen (or run `custody:retry-payouts`); the money is safe in the wallet until then. |
 | `custody:payouts` → `unresolved` | Payouts the provider accepted but never confirmed. Normal briefly; their wallet reservations stay held. |
 | `custody.payout.instant_withheld` | A sale was paid for and the payout was not attempted, with the reason. Expected if a hold or `auto_payout` is off; a run of these for one business is that business's money not moving. |
-| `custody.payout.instant` with `outcome: null` | Nothing was sent for a sale that *was* settled. Read `matured` beside it: zero means the promotion gate held the money back — a provider balance that could not cover it, or one that could not be read — and the run will pick it up. |
+| `custody.payout.instant` with `outcome: null` | Nothing was sent for a sale that *was* settled. Read `matured` beside it: zero means the promotion gate held the money back — a provider balance that could not cover it, or one that could not be read — and a later attempt will pick it up. |
 | `custody.promote.balance_unreadable` | Both the instant path and the run fell back to the clock. Money is still moving, on a window nobody verified. |
 | `ledger:reconcile` | Weekly scan. Under custody it also compares each business's wallet against its `1040 Funds Held by Storify` ledger lines. |
 | Enforcement pre-flight | Two lists an admin works through: `businesses_awaiting_custody` (not on the new rail — an operator's step) and `businesses_cannot_be_paid` (trading happily with no bank named, so the money is accumulating). |

@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\TransactionStatus;
+use App\Jobs\SettlePayouts;
 use App\Models\Business;
 use App\Models\BusinessNotification;
 use App\Models\Order;
@@ -16,6 +17,7 @@ use App\Services\Payments\Custody\PayoutHoldService;
 use App\Services\Payments\Custody\PayoutSweepService;
 use Database\Seeders\SpatiePermissionSeeder;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 
 /*
@@ -37,9 +39,14 @@ use Illuminate\Support\Str;
 | client that renders one number for both is wrong for one of them.
 |
 | **It cannot move money.** Every route here is a read, or a hold — and a hold is a
-| stop. The sweep is still the only thing that pays. That is why the wallet tests
-| assert figures *before* the payout and the payout tests assert them after: the
-| API reports what the money model did, and never does it.
+| stop. Money leaves the wallet from exactly one place,
+| `InstantPayoutService::settle()`, reached two ways: the queued `SettlePayouts` job a
+| collected sale dispatches, and the operator's retry. No route calls it directly, and
+| the only write that comes close — lifting a hold — *enqueues* that job rather than
+| running it, because the money behind the hold becomes payable the moment the hold
+| closes and nothing else would notice. That is why the wallet tests assert figures
+| *before* the payout and the payout tests assert them after. The API reports what the
+| money model did, and never does it.
 */
 
 function w49Token(User $user, string $audience = 'management'): string
@@ -229,6 +236,218 @@ test('the wallet reports what is settling, what is payable and where it is going
         // The model's own accessor, which every other management payload that shows
         // a bank account reads — one masking rule, not a second one here.
         ->and($response->json('data.destination.masked_account_number'))->toBe('012*****89');
+});
+
+test('money already inside a transfer is reported as on its way, not as nothing', function () {
+    // The state the wallet could not describe. A payout debits `available_balance`
+    // before the provider is called, so once a send is out both figures the payload
+    // used to offer — available and payable — are zero, and a screen built from them
+    // alone tells a business its wallet is empty while its money is moving. This is
+    // the block that makes "it is on its way" sayable.
+    w49Platform();
+    w49Settings(['system_payment_processor' => 'bachs']);
+
+    [$owner, $business, $store] = w49Business();
+    w49Funded($business, 100000, $store);
+
+    w49ProviderAccepts();
+    app(PayoutSweepService::class)->sweep();
+
+    $payout = Payout::query()->where('business_id', $business->id)->sole();
+
+    $wallet = $this->withToken(w49Token($owner))
+        ->getJson('/api/v1/management/wallet')
+        ->assertOk()
+        ->json('data.wallet');
+
+    expect($wallet['available_kobo'])->toBe(0)
+        ->and($wallet['payable_kobo'])->toBe(0)
+        ->and($wallet['in_flight']['amount_kobo'])->toBe(100000)
+        ->and($wallet['in_flight']['amount'])->toEqual(1000.0)
+        ->and($wallet['in_flight']['count'])->toBe(1)
+        // Not late yet. The flag exists because a send that timed out before the
+        // provider returned an id has nothing for the reconciler to chase, so a row
+        // can sit `processing` forever and the wallet needs a point at which it stops
+        // promising "usually minutes".
+        ->and($wallet['in_flight']['stale'])->toBeFalse()
+        // `requested_at`, not `created_at`: it is the column the reconciler itself
+        // schedules on, so "how long has this been moving" answers with the system's
+        // own clock rather than a second one the client invents.
+        ->and($wallet['in_flight']['since'])->toBe($payout->requested_at->toIso8601String());
+
+    expect($wallet['in_flight']['destinations'])->toHaveCount(1);
+
+    $destination = $wallet['in_flight']['destinations'][0];
+
+    expect($destination['reference'])->toBe($payout->reference)
+        ->and($destination['amount_kobo'])->toBe(100000)
+        ->and($destination['status'])->toBe(Payout::STATUS_PROCESSING)
+        ->and($destination['bank_code'])->toBe('058')
+        ->and($destination['account_name'])->toBe('Ada Trading Ltd')
+        ->and($destination['sent_at'])->not->toBeNull()
+        ->and($destination)->toHaveKey('store_id')
+        // The last four and nothing more. The full number belongs to the screen that
+        // owns the bank account, and this block is also read through the admin
+        // console — a wider audience than the digits need.
+        ->and($destination['account_last_four'])->toBe('6789')
+        ->and($destination)->not->toHaveKey('account_number')
+        // No bank *name*, because the row snapshots a `bank_code` and not a name;
+        // inventing one would mean reverse-matching a code that may since have been
+        // reassigned. The single-destination case gets the name from `destination`.
+        ->and($destination)->not->toHaveKey('bank_name');
+});
+
+test('a transfer left unanswered past the display window is flagged as taking too long', function () {
+    // Nothing about the money changes here — the transfer is still `processing` and
+    // still reserved. What changes is what the wallet is willing to say about it.
+    w49Platform();
+    w49Settings(['system_payment_processor' => 'bachs']);
+
+    [$owner, $business, $store] = w49Business();
+    w49Funded($business, 100000, $store);
+
+    w49ProviderAccepts();
+    app(PayoutSweepService::class)->sweep();
+
+    $payout = Payout::query()->where('business_id', $business->id)->sole();
+
+    // Straight to the row rather than through the clock: the threshold is a display
+    // policy and the test is about which side of it the payload reports.
+    $payout->forceFill(['requested_at' => now()->subHours(30)])->save();
+
+    $wallet = $this->withToken(w49Token($owner))
+        ->getJson('/api/v1/management/wallet')
+        ->assertOk()
+        ->json('data.wallet');
+
+    expect($wallet['in_flight']['stale'])->toBeTrue()
+        ->and($wallet['in_flight']['amount_kobo'])->toBe(100000)
+        // The threshold does not touch the row: a late transfer is still a transfer,
+        // and failing it here would be inventing an outcome the provider never gave.
+        ->and($payout->fresh()->status)->toBe(Payout::STATUS_PROCESSING);
+});
+
+test('a refused transfer puts the money back and leaves nothing in flight', function () {
+    // The two figures cannot disagree, and that is structural rather than
+    // coincidental: `fail()` credits the wallet back in the same transaction that
+    // flips the row, so a refusal is absent from `in_flight` and present in
+    // `payable` at the same instant.
+    w49Platform();
+    w49Settings(['system_payment_processor' => 'bachs']);
+
+    [$owner, $business, $store] = w49Business();
+    w49Funded($business, 100000, $store);
+
+    Http::fake([
+        'sandbox-api.bachs.io/v1/payouts/destinations' => Http::response(['id' => 'pd_new', 'is_usable' => true]),
+        'sandbox-api.bachs.io/v1/payouts' => Http::response([
+            'code' => 'INSUFFICIENT_BALANCE',
+            'message' => 'Your balance is not enough for this payout.',
+        ], 400),
+    ]);
+
+    app(PayoutSweepService::class)->sweep();
+
+    expect(Payout::query()->where('business_id', $business->id)->sole()->status)->toBe(Payout::STATUS_FAILED);
+
+    $wallet = $this->withToken(w49Token($owner))
+        ->getJson('/api/v1/management/wallet')
+        ->assertOk()
+        ->json('data.wallet');
+
+    expect($wallet['in_flight']['amount_kobo'])->toBe(0)
+        ->and($wallet['in_flight']['count'])->toBe(0)
+        ->and($wallet['in_flight']['destinations'])->toBe([])
+        ->and($wallet['in_flight']['since'])->toBeNull()
+        ->and($wallet['in_flight']['stale'])->toBeFalse()
+        // And the money is owed again, so the next send has something to send.
+        ->and($wallet['available_kobo'])->toBe(100000)
+        ->and($wallet['payable_kobo'])->toBe(100000);
+});
+
+test('a transfer the provider never answered stays in flight, and is not reported as failed', function () {
+    // The one that costs money if it is wrong. An unreachable provider is not a
+    // refusal: the funds may have moved, so the reservation is kept and the row stays
+    // in flight until something resolves it. A wallet that quietly dropped it would
+    // say the money is safe in the balance while it was on its way out the door.
+    w49Platform();
+    w49Settings(['system_payment_processor' => 'bachs']);
+
+    [$owner, $business, $store] = w49Business();
+    w49Funded($business, 100000, $store);
+
+    Http::fake([
+        'sandbox-api.bachs.io/v1/payouts/destinations' => Http::response(['id' => 'pd_new', 'is_usable' => true]),
+        'sandbox-api.bachs.io/v1/payouts' => Http::response('upstream is down', 503),
+    ]);
+
+    app(PayoutSweepService::class)->sweep();
+
+    $wallet = $this->withToken(w49Token($owner))
+        ->getJson('/api/v1/management/wallet')
+        ->assertOk()
+        ->json('data.wallet');
+
+    expect($wallet['in_flight']['amount_kobo'])->toBe(100000)
+        ->and($wallet['in_flight']['count'])->toBe(1)
+        // Reserved and unknown, so there is nothing owed back and nothing payable.
+        ->and($wallet['available_kobo'])->toBe(0)
+        ->and($wallet['payable_kobo'])->toBe(0);
+});
+
+test('per-store wallets report each store\'s transfer separately', function () {
+    // Why `destinations` is a list rather than a total: with per-store wallets on, one
+    // business's money can be in more than one transfer at once, and a screen asked to
+    // show where each is going cannot invent the rows it was not sent.
+    w49Platform();
+    w49Settings(['system_payment_processor' => 'bachs']);
+    config(['custody.per_store_wallets' => true]);
+
+    [$owner, $business, $store] = w49Business();
+
+    $second = Store::create([
+        'user_id' => $owner->id,
+        'business_id' => $business->id,
+        'name' => 'Store '.fake()->unique()->numerify('####'),
+        'slug' => 'w49-'.fake()->unique()->numerify('######'),
+        'status' => Store::STATUS_ACTIVE,
+        'payment_mode' => 'manual',
+    ]);
+
+    // The second store needs an account of **its own**, and that is the point rather
+    // than scene-setting: destinations are grouped by bank, so two stores sharing the
+    // business default are one transfer and the `destinations` list would hold a
+    // single row — a true answer to a question this test is not asking. Two banks is
+    // what makes one business's money sit in two transfers at once.
+    $ownBank = StoreBank::create([
+        'business_id' => $business->id,
+        'bank_name' => 'Zenith Bank',
+        'bank_code' => '057',
+        'account_number' => '9876543210',
+        'account_name' => 'Ada Trading Ltd',
+    ]);
+
+    $second->forceFill(['payout_bank_id' => $ownBank->id])->save();
+
+    w49Funded($business, 60000, $store);
+    w49Funded($business, 40000, $second);
+
+    w49ProviderAccepts();
+    app(PayoutSweepService::class)->sweep();
+
+    $wallet = $this->withToken(w49Token($owner))
+        ->getJson('/api/v1/management/wallet')
+        ->assertOk()
+        ->json('data.wallet');
+
+    expect($wallet['in_flight']['count'])->toBe(2)
+        ->and($wallet['in_flight']['amount_kobo'])->toBe(100000)
+        ->and($wallet['in_flight']['amount'])->toEqual(1000.0)
+        ->and($wallet['in_flight']['destinations'])->toHaveCount(2)
+        // Oldest first, so `since` is the one that has been moving longest and the
+        // client can show the age of the transfer that actually matters.
+        ->and($wallet['in_flight']['since'])->toBe($wallet['in_flight']['destinations'][0]['requested_at'])
+        ->and(collect($wallet['in_flight']['destinations'])->sum('amount_kobo'))->toBe(100000);
 });
 
 test('a store hold withholds that store\'s share and still reports the rest as payable', function () {
@@ -977,6 +1196,13 @@ test('an admin reads a business\'s wallet from the same block the business sees'
     foreach ([
         'currency', 'balance_source', 'pending_kobo', 'available_kobo', 'balance_kobo',
         'payable_kobo', 'withheld_kobo', 'unattributed_kobo', 'custody_enabled', 'auto_payout',
+        // Money that is neither pending nor available nor payable — it has left the
+        // wallet and the provider has not confirmed it. The one figure on this block
+        // that can be wrong without either side noticing: a business whose money is
+        // entirely in flight reads as owed nothing, so an operator and a business
+        // both seeing an empty wallet is exactly the agreement that hides a stuck
+        // transfer. Same computation, so it is compared the same way.
+        'in_flight',
     ] as $key) {
         expect($console['wallet'][$key])->toBe($mine[$key]);
     }
@@ -1113,17 +1339,27 @@ test('nothing on the payout control surface starts a payout', function () {
     $token = w49Token($admin, 'admin');
 
     // Every route that could move money by hand is gone, and the shape of the
-    // absence is worth pinning. The sweep has exactly one trigger — the scheduler —
-    // so a route that reached it would be a second way to move money, which is a
-    // second way to move it twice. Asserted rather than trusted because this is the
-    // kind of route that gets added by accident, and the accident reads as help.
+    // absence is worth pinning. There is one thing that sends money —
+    // `InstantPayoutService::settle()`, reached by the queued job a sale dispatches
+    // and by the operator's retry — and no route reaches it directly, so a route
+    // that did would be a second way to move money, which is a second way to move it
+    // twice. Asserted rather than trusted because this is the kind of route that
+    // gets added by accident, and the accident reads as help.
     $this->withToken($token)->postJson('/api/v1/admin/payout-queue')->assertStatus(405);
     $this->withToken($token)->postJson('/api/v1/admin/payout-queue/run')->assertNotFound();
     $this->withToken($token)->postJson('/api/v1/admin/payouts')->assertNotFound();
     $this->withToken($token)->postJson('/api/v1/admin/custody/sweep')->assertNotFound();
 
-    // The one write the surface has is a stop, and stopping is not moving: the
-    // wallet is untouched, the provider is never called, and no transfer exists.
+    // `Queue::fake()` is load-bearing here and not tidiness. The test suite runs the
+    // sync driver, so a job dispatched below would execute *inside this request* and
+    // call the provider from it — which would make the assertion underneath fail for
+    // a reason that does not exist in production, where the same dispatch is an
+    // `INSERT` into `jobs` and nothing else. Faking the queue is what lets this test
+    // ask the question it means to ask: what does the *request* do.
+    Queue::fake();
+
+    // The one write the surface has is a stop, and stopping is not moving: the wallet
+    // is untouched, the provider is never called, and no transfer exists.
     $holdId = $this->withToken($token)
         ->postJson('/api/v1/admin/payout-holds', [
             'scope' => 'store',
@@ -1134,6 +1370,15 @@ test('nothing on the payout control surface starts a payout', function () {
         ->json('data.hold.id');
 
     $this->withToken($token)->deleteJson('/api/v1/admin/payout-holds/'.$holdId)->assertOk();
+
+    // Lifting a hold *is* allowed to resume paying, and this is the line between the
+    // two: it enqueues the same job a collected sale enqueues and sends nothing
+    // itself. The money behind the hold became payable the moment the hold closed,
+    // and nothing else would ever have noticed.
+    Queue::assertPushed(
+        SettlePayouts::class,
+        fn (SettlePayouts $job): bool => $job->businessId === (int) $business->id,
+    );
 
     Http::assertNothingSent();
 

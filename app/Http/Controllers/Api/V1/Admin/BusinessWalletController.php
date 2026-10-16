@@ -17,7 +17,7 @@ use Illuminate\Http\Request;
  * The business console is where an operator answers "what does this business
  * think we owe it, and where is that money", and until this endpoint there was no
  * way to ask: `BusinessResource` carries `can_connect_own_gateway` and nothing
- * about money, the platform queue lists only businesses the sweep would consider,
+ * about money, the platform queue lists only businesses the job would consider,
  * and the wallet itself was readable only through the management API — which
  * answers as the business, with its tenancy rules, and cannot be called on
  * somebody else's behalf.
@@ -30,9 +30,20 @@ use Illuminate\Http\Request;
  * console answers "and did it arrive" without a second screen.
  *
  * **Read-only.** Nothing here pays, and nothing here lifts a hold: the holds
- * routes next door place and release, and the scheduled sweep is still the only
- * thing that moves money. A console action that pushed a transfer would be the
- * second way to move money this whole subsystem exists to delete.
+ * routes next door place and release. Money leaves the wallet from one service,
+ * entered two ways — the queued `SettlePayouts` job a collected sale dispatches,
+ * and the operator's retry — both through `InstantPayoutService::settle()` →
+ * `PayoutSweepService::sweepBusiness()`, and this console only reads what they did:
+ * `in_flight` included, which is how an operator sees a transfer a business says
+ * never arrived. A console action that pushed one would be the second way to move
+ * money this whole subsystem exists to delete.
+ *
+ * The console draws a **Retry** beside this read, and it posts to
+ * `PayoutRetryController`, not here — the same separation as the wallet figure,
+ * which this controller only reports. That route is deliberately not a payout: it
+ * chooses no amount, destination or moment, and dispatches the same `SettlePayouts`
+ * job a collected sale dispatches, which sends what the wallet above already says
+ * is owed. The amended rule is at `ad12-money-config.php`.
  *
  * Open holds are *not* repeated here. They carry their own ids, sources and
  * placement records, and `GET admin/payout-holds` already returns exactly that

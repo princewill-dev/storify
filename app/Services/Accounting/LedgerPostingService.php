@@ -679,7 +679,7 @@ class LedgerPostingService
      * provider's fee has already been deducted from our balance by the provider
      * itself — so it is a liability that is settled the instant it is recognised,
      * posted by {@see postCustodyProviderFeeSettled()} and never left sitting. The
-     * business's share is the one that lingers, until the payout run debits 2300
+     * business's share is the one that lingers, until the payout debits 2300
      * back out.
      *
      * For a sale **we** charged, 2210 is not credited at all, because there is
@@ -707,7 +707,7 @@ class LedgerPostingService
      *
      * Note what the fee's *timing* does to that sum: for a sale we charged, 1030
      * stands higher than the two credits under it by the fee until the recognition
-     * entry lands (see the sweep in {@see \App\Services\Payments\Custody\CustodyService::promoteSettled()}),
+     * entry lands (see the promote in {@see \App\Services\Payments\Custody\CustodyService::promoteSettled()}),
      * and that gap is work still to do rather than a drift to chase.
      *
      * **`$netKobo` is checked, not trusted.** It arrives from the wallet, which is

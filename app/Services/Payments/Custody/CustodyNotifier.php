@@ -55,7 +55,7 @@ use Illuminate\Support\Str;
  * the database one and has no guaranteed worker, and a money alert that might sit
  * in a table forever is worse than a slow one: a business that is told late is
  * inconvenienced, a business that is never told asks its bank. The cost is that a
- * slow SMTP server slows the sweep, which is bounded by the mail transport's own
+ * slow SMTP server slows the send, which is bounded by the mail transport's own
  * timeout rather than by a queue.
  */
 final class CustodyNotifier
@@ -88,12 +88,10 @@ final class CustodyNotifier
             level: BusinessNotification::LEVEL_SUCCESS,
             title: 'Payment received — '.$amount,
             body: sprintf(
-                '%s was added to your %s wallet%s. It is held until %s confirms the payment has settled, '
+                '%s was added to your wallet%s. It is held while the payment finishes clearing, '
                 .'then it becomes payable and is sent to your bank automatically.',
                 $amount,
-                config('app.name'),
                 $this->storeSuffix($transaction),
-                config('app.name'),
             ),
             subject: $transaction,
             amountKobo: $netKobo,
@@ -186,8 +184,8 @@ final class CustodyNotifier
      *
      * The `:attempt` on the key is the one key here that is not about identity.
      * Events keyed on the payout's reference are single, but a failure is not: a
-     * business is refused, fixes nothing, and is refused again on the next run, and
-     * those are two things it needs to be told. The attempt number is how many
+     * business is refused, fixes nothing, and is refused again on the next attempt,
+     * and those are two things it needs to be told. The attempt number is how many
      * failures this destination has already recorded, so the key changes when the
      * *reason to write* changes and not before.
      */
@@ -215,7 +213,7 @@ final class CustodyNotifier
                 $amount,
                 $bankName ?? 'your bank account',
                 $this->lastFour((string) $payout->account_number),
-                $reason !== null && $reason !== '' ? ' The provider said: '.$reason : '',
+                $reason !== null && $reason !== '' ? ' Reason: '.$reason : '',
             ),
             subject: $payout,
             amountKobo: (int) $payout->amount_kobo,
@@ -264,12 +262,11 @@ final class CustodyNotifier
             level: BusinessNotification::LEVEL_CRITICAL,
             title: 'Payout returned — '.$amount,
             body: sprintf(
-                'A transfer of %s to %s was sent back to %s after it had left. The money is in your wallet '
+                'A transfer of %s to %s was sent back after it had landed. The money is in your wallet '
                 .'again and we will send it again automatically.%s',
                 $amount,
                 $bankName ?? 'your bank account',
-                config('app.name'),
-                $reason !== null && $reason !== '' ? ' The provider said: '.$reason : '',
+                $reason !== null && $reason !== '' ? ' Reason: '.$reason : '',
             ),
             subject: $payout,
             amountKobo: (int) $payout->amount_kobo,
@@ -292,13 +289,13 @@ final class CustodyNotifier
     }
 
     /**
-     * The provider has refused this payout bank too many times, so the sweep has
-     * stopped trying.
+     * The provider has refused this payout bank too many times, so we have stopped
+     * trying.
      *
-     * Raised from the failure that crosses the ceiling rather than from the sweep,
-     * and that placement is the whole reason it is tellable: the sweep runs every
-     * five minutes and would re-fire this on every pass, while the crossing is a
-     * single moment. Keyed on the destination rather than the payout, because the
+     * Raised from the failure that crosses the ceiling rather than from the send,
+     * and that placement is the whole reason it is tellable: the send would
+     * re-fire this on every attempt, while the crossing is a single moment. Keyed on
+     * the destination rather than the payout, because the
      * thing that is blocked is the bank account and the payout that happened to
      * cross the line is not the subject.
      */
@@ -316,15 +313,14 @@ final class CustodyNotifier
             title: 'Action needed — we cannot send your payouts',
             body: sprintf(
                 'We have tried to send money to %s ending %s %d times and your bank has refused it each time, '
-                .'so we have stopped trying. %s is holding %s for you and it cannot be paid out until the '
+                .'so we have stopped trying. %s is still in your wallet and cannot be sent until the '
                 .'account is corrected.%s',
                 $bank?->bank_name ?? 'your payout account',
                 $this->lastFour((string) $payout->account_number),
                 $attempts,
-                config('app.name'),
                 $this->money($business->walletBalance(), $currency),
                 $payout->failure_reason !== null && $payout->failure_reason !== ''
-                    ? ' The provider said: '.$payout->failure_reason
+                    ? ' Reason: '.$payout->failure_reason
                     : '',
             ),
             subject: $business,

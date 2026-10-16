@@ -52,6 +52,35 @@ use Illuminate\Support\Str;
  * time out, release, and send again — paying a business twice for one debt, with
  * nothing in the system recording that it happened. See {@see TransferOutcome}.
  *
+ * ## A refusal is retried, and then it stops
+ *
+ * Releasing the reservation puts the money straight back in `available_balance`,
+ * so a refusal needs no retry machinery to be tried again — the next attempt
+ * simply finds the balance payable and reserves a fresh row. That is the whole
+ * of the retry, and it is why there is no queue of retries anywhere: the wallet
+ * *is* the queue.
+ *
+ * Left there it never stopped. A provider that was down, a balance that had not
+ * settled, a refusal with a code nobody had seen — each was re-attempted on the
+ * next five-minute run for as long as the condition lasted, with nothing counting
+ * them and nobody told. Two ceilings now bound it, and they answer different
+ * questions:
+ *
+ * | Ceiling | Counts | Answers |
+ * |---|---|---|
+ * | {@see self::destinationIsExhausted()} | refusals attributed to the account | "is this bank unusable" |
+ * | {@see self::retriesExhausted()} | every refusal, since money last landed | "is sending to this business working at all" |
+ *
+ * Between the two, {@see self::backoffUntil()} spaces the attempts out on
+ * `custody.retry_backoff_minutes` — shortest first, so a provider having a bad
+ * minute is retried quickly and one having a bad afternoon is not hammered.
+ *
+ * What happens at either ceiling is the same, and it is deliberately *nothing*:
+ * sends stop, the money stays in the wallet, `payoutBlocker()` says why on every
+ * surface that asks, and a person decides. Sends resume by themselves when a send
+ * lands — both counts are windows since the last `paid`, so success empties them —
+ * or when an operator clears the record through {@see self::clearFailures()}.
+ *
  * ## It pays the whole balance, and it cannot overdraw
  *
  * The amount is `available_balance`, which never includes a sale the provider has
@@ -69,7 +98,7 @@ use Illuminate\Support\Str;
  * look unallocated, and "we paid ₦50, which was part of that order" is an answer
  * the payout row alone cannot give.
  *
- * ## It is the only rail, and it is reached three ways
+ * ## It is the only rail, and it is reached four ways
  *
  * `connect:payouts` used to run beside this, paying a business's connected
  * account out of the provider's own per-business balance. Both the account and
@@ -79,14 +108,16 @@ use Illuminate\Support\Str;
  *
  * | Entered by | Finishes |
  * |---|---|
- * | {@see self::sweep()} — the schedule | money that became payable since the last run |
- * | {@see self::reconcile()} — the schedule | a row whose send never returned, or whose webhook never arrived |
+ * | {@see self::sweep()} — the manual console command | money that became payable since the last run |
+ * | {@see self::sweepBusiness()} — {@see InstantPayoutService}, in the request that collects a sale | a sale that has just landed, so it does not wait for the next tick |
+ * | {@see self::reconcile()} — the manual console command | a row whose send never returned, or whose webhook never arrived |
  * | {@see self::applyPayoutWebhook()} — the provider | a row whose outcome the provider reports directly |
  *
- * The three deliberately meet in the same private methods. `settle()` claims its
- * row by condition precisely because two of them can be looking at it at the same
- * moment, and the ledger keys are what make the second arrival a no-op rather
- * than a second posting.
+ * The four deliberately meet in the same private methods — `sweepBusiness()` is what
+ * both the run and the instant path call, so the instant attempt is an extra *entry*
+ * and not an extra rail. `settle()` claims its row by condition precisely because two
+ * of them can be looking at it at the same moment, and the ledger keys are what make
+ * the second arrival a no-op rather than a second posting.
  */
 final class PayoutSweepService
 {
@@ -106,6 +137,45 @@ final class PayoutSweepService
      * @see config('custody.max_destination_failures')
      */
     private const DESTINATION_FAILURES = ['destination_unusable', 'destination_error'];
+
+    /**
+     * The blockers that mean sending has *stopped*, as opposed to *being held*.
+     *
+     * The distinction is who the problem belongs to, and it decides who gets told.
+     * `destination_exhausted` and `retries_exhausted` are both the sweep giving up
+     * after failures, which no business can see the cause of and no business can
+     * fix alone — so they go to the operators. `hold`, `auto_payout_off`, `no_bank`
+     * and `bank_incomplete` stop sending too, but they are a state the business (or
+     * an operator acting on it) already put itself in, on purpose, and no attempt
+     * has failed because of them; alerting on those would send an operator to a
+     * page where there is nothing wrong.
+     *
+     * @see self::tellPlatformIfStalled()
+     */
+    public const STALLING_BLOCKERS = ['destination_exhausted', 'retries_exhausted'];
+
+    /**
+     * The blockers an operator's "try again" is allowed to act on.
+     *
+     * A superset of {@see self::STALLING_BLOCKERS}, and it has to be a separate
+     * constant rather than the same one, because the two lists answer two different
+     * questions. That one asks *"should a human be told about this business?"*, and
+     * its answer is deliberately narrow. This asks *"is a send worth attempting
+     * again?"*, and the answer has to include a blocker the other one has never
+     * heard of: {@see PlatformPayoutNotifier::SETTLEMENT_FAILED}, which the queued
+     * job raises when the provider was never reached and no ceiling is in force at
+     * all.
+     *
+     * They were one list until it mattered. Filtering the batch retry on
+     * `STALLING_BLOCKERS` meant the retry-all button skipped exactly the businesses
+     * the job's alert had just named — an email saying "tell somebody" beside a
+     * button that ignored them.
+     *
+     * Holds, a switched-off `auto_payout` and a missing bank stay out of both: those
+     * are states a person put the business in, no attempt failed because of them, and
+     * retrying would be a provider call that could not possibly send.
+     */
+    public const RETRYABLE_BLOCKERS = ['destination_exhausted', 'retries_exhausted', 'settlement_failed'];
 
     /**
      * Provider statuses that mean the transfer landed.
@@ -137,6 +207,7 @@ final class PayoutSweepService
         private readonly PayoutAllocationService $allocations,
         private readonly PayoutHoldService $holds,
         private readonly CustodyNotifier $notifier,
+        private readonly PlatformPayoutNotifier $platform,
     ) {}
 
     /**
@@ -267,6 +338,17 @@ final class PayoutSweepService
             return ['code' => 'destination_exhausted', 'label' => 'provider keeps refusing this bank'];
         }
 
+        // After the destination ceiling, because when both have tripped the
+        // destination is the more useful thing to be told: it names something the
+        // business can change, where this one is a platform problem it cannot.
+        //
+        // Checked here rather than only in the sweep, so that every surface reading
+        // this figure already agrees: the wallet, the dry run, the console and the
+        // sweep all ask this one method what is stopping a payment.
+        if ($this->retriesExhausted($business)) {
+            return ['code' => 'retries_exhausted', 'label' => 'we could not send your last payouts'];
+        }
+
         return null;
     }
 
@@ -377,10 +459,9 @@ final class PayoutSweepService
 
         // Reserved and still in flight: the money has left the wallet but has not
         // yet left the provider's balance, so it is spoken for twice if this does
-        // not subtract it.
-        $inFlight = (int) Payout::query()
-            ->whereIn('status', [Payout::STATUS_PENDING, Payout::STATUS_PROCESSING])
-            ->sum('amount_kobo');
+        // not subtract it. Platform-wide here, because the number being protected
+        // is the platform's own balance.
+        $inFlight = (int) $this->inFlightQuery()->sum('amount_kobo');
 
         $headroom = (int) config('custody.payout_fee_headroom_kobo', 0);
 
@@ -389,6 +470,54 @@ final class PayoutSweepService
             'floor' => null,
             'measured' => true,
         ];
+    }
+
+    /**
+     * Transfers that have left the wallet and have been neither confirmed nor refused.
+     *
+     * `pending` is a row reserved but not yet answered for; `processing` is one the
+     * provider accepted, or one it never answered at all. Both mean the same thing to
+     * every reader: the amount is out of `available_balance` and is not yet known to
+     * have arrived, so nobody may spend it again.
+     *
+     * A public predicate rather than the private sum this used to be, because there
+     * are two readers with two scopes. {@see promotionGate()} counts every business
+     * at once, to price what the platform can still afford to mature. The wallet
+     * wants one business's transfers, to say that money is moving — and a private
+     * sum inside the gate left the wallet screen unable to say that at all, showing
+     * ₦0 payable with nothing about the ₦X already on its way.
+     *
+     * `failed` and `cancelled` are outside this on purpose: both credit the wallet
+     * back, so the money is spendable again, and counting them would subtract it
+     * from `payable` a second time.
+     */
+    public function inFlightQuery(): Builder
+    {
+        return Payout::query()
+            ->whereIn('status', [Payout::STATUS_PENDING, Payout::STATUS_PROCESSING]);
+    }
+
+    /**
+     * One business's in-flight transfers, oldest first.
+     *
+     * Oldest first because the caller's question is usually "how long has this been
+     * moving" — the wallet reads the first row's `requested_at` to decide whether a
+     * transfer has gone unconfirmed long enough to stop calling it normal — and a
+     * newest-first order would answer with the one row guaranteed to look young.
+     *
+     * Ordered by `id` as well as by `requested_at`: two transfers requested by the
+     * same instant would otherwise come back in whatever order the engine chose, and
+     * the wallet's "since" would move between reads.
+     *
+     * @return Collection<int, Payout>
+     */
+    public function inFlightFor(Business $business): Collection
+    {
+        return $this->inFlightQuery()
+            ->where('business_id', $business->id)
+            ->orderBy('requested_at')
+            ->orderBy('id')
+            ->get();
     }
 
     /**
@@ -484,7 +613,7 @@ final class PayoutSweepService
      * that the account is unusable, and only a person can tell the two apart. So
      * the refusals it counted are retired — marked `cancelled`, the status for a
      * row that moved no money and will not be attempted again as it stands — and
-     * the next run sizes the destination up again from nothing.
+     * the next attempt sizes the destination up again from nothing.
      *
      * Cancelling the *rows* rather than storing a "cleared" flag is what keeps the
      * recovery honest: the count is a count of rows, so clearing it has to mean
@@ -495,7 +624,7 @@ final class PayoutSweepService
      *
      * The money was never touched: a `failed` payout has already had its
      * reservation released, so there is nothing to restore and nothing to re-send.
-     * What resumes is the *next* sweep, which sees a destination with no failures
+     * What resumes is the *next* attempt, which sees a destination with no failures
      * against it.
      *
      * @return int the number of rows retired
@@ -547,6 +676,207 @@ final class PayoutSweepService
     }
 
     /**
+     * How many sends in a row this business has had refused, for any reason.
+     *
+     * The sibling of {@see self::destinationFailures()}, and the difference between
+     * them is the question each answers. That one asks "is this bank account the
+     * problem", and counts only the refusals the provider attributed to the
+     * account. This one asks "is sending to this business working at all", and
+     * counts every refusal — an outage, an unreadable balance, a code nobody has
+     * seen before.
+     *
+     * Every one of those used to be re-attempted on the next run with nothing
+     * counting them, so a business behind a provider outage grew a new `failed` row
+     * every five minutes for as long as the outage lasted. Nothing measured it and
+     * nobody was told, which is the failure this exists to make countable.
+     *
+     * Scoped by *business* rather than by destination on purpose: a provider that is
+     * down is not a fact about anybody's bank account, and charging it to the
+     * account would stop the transfer to a destination that is perfectly good.
+     *
+     * `since the last payout that landed` is what makes the count self-clearing. A
+     * send that succeeds empties the window, so a business that fails twice and then
+     * succeeds is back to zero with nothing having to reset it.
+     */
+    public function consecutiveFailures(Business $business): int
+    {
+        return $this->failureQuery($business)->count();
+    }
+
+    /**
+     * Whether this business has failed enough times in a row to stop being tried.
+     *
+     * Reaching this is not a verdict on the business or its bank: it means the
+     * platform has asked three times and not been answered, and asking a fourth
+     * automatically is how an outage turns into a retry storm. Sends resume when a
+     * send lands, or when an operator says the destination and the provider are both
+     * worth another go — see {@see self::clearFailures()}.
+     */
+    public function retriesExhausted(Business $business): bool
+    {
+        $ceiling = $this->retryAttempts();
+
+        if ($ceiling <= 0) {
+            return false;
+        }
+
+        return $this->consecutiveFailures($business) >= $ceiling;
+    }
+
+    /**
+     * When the next attempt at this business is due, or null if one is due now.
+     *
+     * Returned as a moment rather than as a boolean because both callers want the
+     * moment: the sweep asks whether it has arrived, and a console saying "next try
+     * at 14:20" is a better sentence than "not yet". Null covers every case where
+     * there is nothing to wait for — no failures recorded, a disabled backoff, or a
+     * failure count past the end of a schedule that only means to pace the first few.
+     *
+     * Null is *not* "may be sent": a business that has exhausted its retries is
+     * gated by {@see self::payoutBlocker()}, which outranks this. The two are read
+     * together — the backoff paces the attempts that are still allowed, and the
+     * ceiling decides whether there are any.
+     */
+    public function backoffUntil(Business $business): ?CarbonInterface
+    {
+        $failures = $this->consecutiveFailures($business);
+
+        if ($failures <= 0) {
+            return null;
+        }
+
+        $schedule = $this->retryBackoffMinutes();
+
+        if ($schedule === []) {
+            return null;
+        }
+
+        // Read through the model rather than as a raw `max()`, so `failed_at` comes
+        // back as a date the way every other reader of that column gets it.
+        $lastFailedAt = $this->failureQuery($business)->latest('failed_at')->value('failed_at');
+
+        if (! $lastFailedAt instanceof CarbonInterface) {
+            return null;
+        }
+
+        // The gap belongs to the attempt that is about to be made, so the first
+        // refusal is followed by the shortest wait and each further one by a longer.
+        // Past the end of the list the last gap repeats: a schedule for the first
+        // few attempts, not a bound on them.
+        $delay = $schedule[min($failures, count($schedule)) - 1];
+
+        return $lastFailedAt->addMinutes($delay);
+    }
+
+    /** Whether this business's next attempt is still in the future. */
+    public function awaitingBackoff(Business $business): bool
+    {
+        $until = $this->backoffUntil($business);
+
+        return $until !== null && now()->lt($until);
+    }
+
+    /**
+     * Retire every refusal on this business's record, whatever caused it.
+     *
+     * The operator's lever, and the reason it is wider than
+     * {@see self::clearDestinationFailures()}: that one is a judgement about a bank
+     * account and clears only the rows that blame one. This one is a judgement about
+     * a *provider incident* — the destination was fine, the platform was not — and
+     * so has to clear the refusals that named no account at all, which are exactly
+     * the ones with no other way to be cleared.
+     *
+     * Both ceilings read the same rows through different filters, so clearing them
+     * here resets both at once. That is the point of retiring rows rather than
+     * storing a "cleared" flag, and it is the same reasoning as the destination
+     * version: a count of rows can only be honestly reset by making the rows stop
+     * saying what they said.
+     *
+     * No money moves. A `failed` payout has already had its reservation released, so
+     * the balance is already whole; what resumes is the next attempt, which is a
+     * separate decision the caller makes.
+     *
+     * @return int the number of rows retired
+     */
+    public function clearFailures(Business $business): int
+    {
+        $cleared = 0;
+
+        foreach ($this->failureQuery($business)->get() as $payout) {
+            // Claimed by condition, like every other transition on this table: a row
+            // that stopped being `failed` between the read and the write — a late
+            // webhook settling it — is left exactly as it now is.
+            $claimed = Payout::query()
+                ->whereKey($payout->id)
+                ->where('status', Payout::STATUS_FAILED)
+                ->update(['status' => Payout::STATUS_CANCELLED]);
+
+            if ($claimed === 0) {
+                continue;
+            }
+
+            $cleared++;
+
+            // Through the model rather than the update above, because `meta` is cast
+            // and the query builder would write a hand-encoded string.
+            $payout->refresh();
+            $payout->forceFill([
+                'meta' => array_merge($payout->meta ?? [], [
+                    'cancelled_reason' => 'payout_retry_authorised',
+                    'cancelled_at' => now()->toIso8601String(),
+                ]),
+            ])->save();
+
+            Log::warning('custody.payout.failures_cleared', [
+                'payout_id' => $payout->id,
+                'business_id' => $business->id,
+                'failure_code' => $payout->failure_code,
+            ]);
+        }
+
+        return $cleared;
+    }
+
+    /**
+     * Every refusal on this business's record since money last reached it.
+     *
+     * One definition with four readers — the ceiling that stops the attempts, the
+     * backoff that paces them, the alert that reports them, and the operator lever
+     * that clears them — so a count and its reset can never be about different sets
+     * of rows.
+     *
+     * Deliberately not scoped to a destination, and deliberately not filtered by
+     * failure code. That is what makes it the complement of
+     * {@see self::destinationFailureQuery()}: whatever that one leaves out is what
+     * this one is for.
+     *
+     * @return Builder<Payout>
+     */
+    private function failureQuery(Business $business)
+    {
+        $lastPaidAt = Payout::query()
+            ->where('business_id', $business->id)
+            ->where('status', Payout::STATUS_PAID)
+            ->max('created_at');
+
+        return Payout::query()
+            ->where('business_id', $business->id)
+            ->where('status', Payout::STATUS_FAILED)
+            ->when($lastPaidAt !== null, fn ($query) => $query->where('created_at', '>', $lastPaidAt));
+    }
+
+    private function retryAttempts(): int
+    {
+        return (int) config('custody.retry_attempts', 3);
+    }
+
+    /** @return array<int, int> the gaps in minutes, oldest first */
+    private function retryBackoffMinutes(): array
+    {
+        return (array) config('custody.retry_backoff_minutes', []);
+    }
+
+    /**
      * The refusals that count against the destination this business names now.
      *
      * One definition, two users — the ceiling counts these rows and the recovery
@@ -593,11 +923,11 @@ final class PayoutSweepService
     /**
      * Pay every business that can be paid.
      *
-     * @return array{sent: int, held: int, on_hold: int, skipped: int, failed: int, exhausted: int}
+     * @return array{sent: int, held: int, on_hold: int, skipped: int, failed: int, exhausted: int, backoff: int}
      */
     public function sweep(): array
     {
-        $counts = ['sent' => 0, 'held' => 0, 'on_hold' => 0, 'skipped' => 0, 'failed' => 0, 'exhausted' => 0];
+        $counts = ['sent' => 0, 'held' => 0, 'on_hold' => 0, 'skipped' => 0, 'failed' => 0, 'exhausted' => 0, 'backoff' => 0];
         $context = $this->context();
 
         if ($context === null) {
@@ -611,7 +941,7 @@ final class PayoutSweepService
             // business whose whole balance is behind store holds. Counted as
             // nothing rather than as `skipped`, because `skipped` reads as
             // "another run took the money".
-            foreach ($this->sweepBusiness($business, $context) as $outcome => $count) {
+            foreach ($this->sweepBusiness($business, $context, ignoreBackoff: true) as $outcome => $count) {
                 $counts[$outcome] += $count;
             }
         }
@@ -638,6 +968,7 @@ final class PayoutSweepService
      *   auto_payout_off       -> held      the business stopped it
      *   no_bank/bank_incomplete -> skipped nothing to send to
      *   destination_exhausted -> exhausted the ceiling, so nothing was attempted
+     *   retries_exhausted     -> exhausted the other ceiling, for the same reason
      *
      * A **store** hold is deliberately absent from both. It withholds that store's
      * share and pays the business for the rest — see {@see self::payableFor()} —
@@ -656,7 +987,7 @@ final class PayoutSweepService
         $count = match ($blocker['code']) {
             'hold' => 'on_hold',
             'auto_payout_off' => 'held',
-            'destination_exhausted' => 'exhausted',
+            'destination_exhausted', 'retries_exhausted' => 'exhausted',
             default => 'skipped',
         };
 
@@ -673,7 +1004,7 @@ final class PayoutSweepService
     }
 
     /**
-     * Pay one business, if it may be paid.
+     * Pay this business everything it is owed, one transfer per destination.
      *
      * The whole of {@see self::sweep()} for a single row, so that a sale can be
      * paid out the moment it is collected rather than at the next tick without
@@ -684,17 +1015,14 @@ final class PayoutSweepService
      *
      * Called with no context by {@see InstantPayoutService}, which has already
      * read the provider's balance for the promotion gate and would rather not ask
-     * twice.
+     * twice — and that is the only caller that leaves `$ignoreBackoff` alone, for
+     * the reason given at the gate itself.
      *
      * @param  array{provider: string, rail: PayoutRail, credentials: GatewayCredentials}|null  $context
-     * @return string|null one of `sweep()`'s tally keys, or null when there is nothing to count
-     */
-    /**
-     * Pay this business everything it is owed, one transfer per destination.
-     *
+     * @param  bool  $ignoreBackoff  attempt even if the last refusal is still inside its gap — for a person, not for a clock
      * @return array<string, int> the tallies to add to the run's report
      */
-    public function sweepBusiness(Business $business, ?array $context = null): array
+    public function sweepBusiness(Business $business, ?array $context = null, bool $ignoreBackoff = false): array
     {
         $context ??= $this->context();
 
@@ -708,6 +1036,46 @@ final class PayoutSweepService
             $this->reportRestriction($business, $restriction);
 
             return [$restriction['count'] => 1];
+        }
+
+        // Waiting out the gap after a refusal.
+        //
+        // Checked after the restriction, so a business that is blocked by a hold or
+        // a ceiling is reported as blocked rather than as merely waiting. Deliberately
+        // *not* a blocker of its own: a hold and a ceiling each name something a person
+        // has to act on, where this resolves itself on the clock and the business can
+        // do nothing about it — so the run reports it and the wallet stays quiet. A
+        // one-off provider blip that succeeds on the retry therefore never reaches the
+        // business's screen at all.
+        //
+        // It applies to the instant path too, which is the point: a sale collected
+        // during the gap waits with everything else, rather than being the one way to
+        // slip a send past the backoff.
+        //
+        // ## Why a caller can ask it to be ignored
+        //
+        // The gap is a throttle on *automatic* attempts, and what it throttles is the
+        // failure ceiling rather than the provider: without it, three sales collected
+        // in the thirty seconds a provider is having a bad minute become three
+        // refusals, which is `retries_exhausted`, which blocks a business that would
+        // have been paid by the retry after its backoff. So it stays on the automatic
+        // path — {@see InstantPayoutService::settle()}, reached by the queued job,
+        // which has the worker's own `backoff()` on top of it.
+        //
+        // It is wrong for a person, though. `custody:payouts` is run *because* somebody
+        // wants to know whether it works now, and a run that answers `backoff` has
+        // told them nothing they could not already see on the wallet. One deliberate
+        // run is not a burst, so {@see self::sweep()} passes `$ignoreBackoff` — and the
+        // operator's retry does not need to, because it retires the failures the gap
+        // is measured from before it asks.
+        if (! $ignoreBackoff && $this->awaitingBackoff($business)) {
+            Log::info('custody.payout.backoff', [
+                'business_id' => $business->id,
+                'failures' => $this->consecutiveFailures($business),
+                'next_attempt_at' => $this->backoffUntil($business)?->toIso8601String(),
+            ]);
+
+            return ['backoff' => 1];
         }
 
         $destinations = $this->payableDestinations($business);
@@ -816,6 +1184,17 @@ final class PayoutSweepService
                 'available_kobo' => (int) $business->available_balance,
                 'bank_code' => (string) $bank?->bank_code,
                 'ceiling' => $this->maxDestinationFailures(),
+            ]);
+
+            return;
+        }
+
+        if ($restriction['code'] === 'retries_exhausted') {
+            Log::warning('custody.payout.retries_exhausted', [
+                'business_id' => $business->id,
+                'available_kobo' => (int) $business->available_balance,
+                'failures' => $this->consecutiveFailures($business),
+                'ceiling' => $this->retryAttempts(),
             ]);
 
             return;
@@ -1204,7 +1583,7 @@ final class PayoutSweepService
      * Returns null and fails the payout when the provider will not accept the
      * destination. That releases the reservation, and it is safe to: no money has
      * moved, and a destination is not a transfer. The business keeps its balance
-     * and the next sweep tries again once somebody fixes the account.
+     * and the next queued attempt tries again once somebody fixes the account.
      *
      * @param  array{provider: string, rail: PayoutRail, credentials: GatewayCredentials}  $context
      */
@@ -1379,13 +1758,55 @@ final class PayoutSweepService
         // And if this refusal is the one that crossed the ceiling, the business is
         // told something different and more urgent: the sweep has stopped asking,
         // and money is now accumulating that nothing will send. Checked *here*
-        // rather than in {@see self::sweep()} on purpose — the sweep runs every
-        // five minutes, so a check there would re-fire on every pass and the
-        // crossing, which is the one moment worth a message, would be
-        // indistinguishable from the silence that follows it.
+        // rather than in {@see self::sweep()} on purpose — a check there would
+        // re-fire on every pass and the crossing, which is the one moment worth a
+        // message, would be indistinguishable from the silence that follows it.
         if ($this->destinationIsExhausted($business)) {
             $this->notifier->destinationBlocked($business, $payout, $this->destinationFailures($business));
         }
+
+        $this->tellPlatformIfStalled($business, $payout);
+    }
+
+    /**
+     * Tell the operators, when this refusal has stopped sending rather than delayed it.
+     *
+     * The business is told about a refusal by {@see CustodyNotifier}, and was told
+     * about a crossing ceiling by the branch above. Neither of those is addressed to
+     * anyone who can act on a *platform* problem: `INSUFFICIENT_BALANCE` from a
+     * settling batch, a provider having an afternoon, a code nobody has seen — all
+     * of them exhaust the retry ceiling, all of them stop a business being paid, and
+     * until this existed the only route to a person was the business complaining to
+     * support.
+     *
+     * ## Why it asks {@see self::payoutBlocker()} instead of counting
+     *
+     * The check is "is this business blocked now", read from the one method every
+     * other surface reads, and not "did this attempt cross the number". A number
+     * would be wrong in a case that is easy to reach: with the destination ceiling
+     * set below the retry ceiling, the destination trips first, the sends stop, and
+     * the retry count freezes below its own — so a crossing test would never fire
+     * and the stall would be silent. Asking the blocker cannot miss either ceiling,
+     * and cannot drift from what the wallet shows the business.
+     *
+     * ## Why this fires once and needs no dedupe key
+     *
+     * Because the blockers it accepts are exactly the ones that stop the failures
+     * that call it. Nothing sends, so nothing fails, so this is not reached again
+     * until an operator clears the ceiling — which is the moment they should be told
+     * a second time. A hold, or a missing bank, is deliberately *not* among the
+     * accepted codes: those are a business's own state, no attempt failed because of
+     * them, and they are already reported where the business can see them.
+     */
+    private function tellPlatformIfStalled(Business $business, Payout $payout): void
+    {
+        $blocker = $this->payoutBlocker($business);
+
+        if ($blocker === null || ! in_array($blocker['code'], self::STALLING_BLOCKERS, true)) {
+            return;
+        }
+
+        $this->platform->payoutsStalled($business, $payout, $blocker, $this->consecutiveFailures($business));
     }
 
     /**
