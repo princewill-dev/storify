@@ -2,7 +2,6 @@
 
 namespace App\Models;
 
-use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -23,8 +22,6 @@ class SubscriptionPlan extends Model
         'interval_count',
         'is_active',
         'is_default',
-        'is_trial',
-        'trial_days',
         'features',
         'entitlements',
         'tier',
@@ -35,7 +32,6 @@ class SubscriptionPlan extends Model
         'amount' => 'decimal:2',
         'is_active' => 'boolean',
         'is_default' => 'boolean',
-        'is_trial' => 'boolean',
         'features' => 'array',
         // What this plan grants, keyed by
         // {@see \App\Support\Plans\EntitlementRegistry}. Null is a meaningful
@@ -89,33 +85,5 @@ class SubscriptionPlan extends Model
     public function scopeDefault(Builder $query): Builder
     {
         return $query->where('is_default', true);
-    }
-
-    /**
-     * Scope a query to only include trial plans.
-     */
-    public function scopeTrial(Builder $query): Builder
-    {
-        return $query->where('is_trial', true);
-    }
-
-    /**
-     * Determine if the plan is a free trial.
-     */
-    public function isTrial(): bool
-    {
-        return $this->is_trial;
-    }
-
-    /**
-     * Calculate when the trial expires if a business starts it now.
-     */
-    public function getTrialExpiresAt(): ?Carbon
-    {
-        if (! $this->is_trial || ! $this->trial_days) {
-            return null;
-        }
-
-        return now()->addDays($this->trial_days);
     }
 }

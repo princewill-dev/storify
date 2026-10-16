@@ -3,7 +3,6 @@
 use App\Mail\StoreReactivated;
 use App\Mail\StoreSuspended;
 use App\Models\DeliveryRoute;
-use App\Models\KycApplication;
 use App\Models\Order;
 use App\Models\ServiceCharge;
 use App\Models\Store;

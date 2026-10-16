@@ -21,8 +21,10 @@ use Illuminate\Http\Request;
  * rather than cloned:
  *
  *  - the modals rendered `is_trial` / `trial_days` but the validator dropped
- *    them, so the fields never persisted; they are accepted, required-for-trial
- *    and stored here;
+ *    them, so the fields never persisted. Both are now gone rather than
+ *    accepted: they described a per-plan trial the platform does not have, and
+ *    a field on the form is an invitation to believe in it. The trial is one
+ *    platform setting — see the `retire_per_plan_trials` migration;
  *  - a plan's subscriptions FK cascades, so a plan delete erases its
  *    subscription rows. The guard covers pending and suspended rows too (a
  *    pending subscription is mid-checkout — deleting its plan would break the

@@ -131,11 +131,16 @@ test('a trial grants the plan the owner picked, enterprise included', function (
         ->and($entitlements->limit(EntitlementRegistry::STORES))->toBeNull();
 });
 
-test('a trial that never picked a plan falls back to the platform default', function () {
-    // The ordinary state of a business in its first week, and not a corner case.
-    // Answering "no entitlements" here would take away the stores a trial exists
-    // to let somebody try.
-    $default = ws51Plan([
+test('a trial is the whole platform, whatever plan is or is not chosen', function () {
+    // It used to resolve through a plan — the owner's pick, or the platform
+    // default when they had not picked. That made the trial a demonstration of
+    // the entry tier at the exact moment somebody is deciding whether the
+    // product is worth paying for, and made "what do I get?" depend on a choice
+    // they had not made yet.
+    //
+    // A default plan exists here and is deliberately ignored: the trial is not
+    // measured against it.
+    ws51Plan([
         'name' => 'Default',
         'is_default' => true,
         'entitlements' => [EntitlementRegistry::STORES => 5, EntitlementRegistry::OWN_GATEWAY => false],
@@ -146,8 +151,12 @@ test('a trial that never picked a plan falls back to the platform default', func
     $entitlements = Entitlements::for($business->fresh());
 
     expect($entitlements->source())->toBe(Entitlements::SOURCE_TRIAL)
-        ->and($entitlements->plan()->id)->toBe($default->id)
-        ->and($entitlements->limit(EntitlementRegistry::STORES))->toBe(5);
+        // No plan, because nothing about a trial is a plan.
+        ->and($entitlements->plan())->toBeNull()
+        // Every cap lifted, including the one the default plan sets at five.
+        ->and($entitlements->limit(EntitlementRegistry::STORES))->toBeNull()
+        // And the toggle that default switches off.
+        ->and($entitlements->allows(EntitlementRegistry::OWN_GATEWAY))->toBeTrue();
 });
 
 test('no plan and no live trial entitles a business to nothing', function () {

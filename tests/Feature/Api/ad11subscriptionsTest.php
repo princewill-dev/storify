@@ -166,7 +166,6 @@ test('the status filter covers every row status and the legacy trial value is no
     $admin = ad11SuperAdmin();
     [, $business] = createBusinessOwner();
     $plan = ad11Plan();
-    $trialPlan = ad11Plan(['name' => 'Free Trial', 'is_trial' => true, 'trial_days' => 14]);
 
     $active = ad11Subscription($business, $plan);
     $pending = ad11Subscription($business, $plan, ['status' => Subscription::STATUS_PENDING, 'starts_at' => null, 'expires_at' => null]);
@@ -174,8 +173,9 @@ test('the status filter covers every row status and the legacy trial value is no
     $expired = ad11Subscription($business, $plan, ['status' => Subscription::STATUS_EXPIRED, 'expires_at' => now()->subMonth()]);
     $cancelled = ad11Subscription($business, $plan, ['status' => Subscription::STATUS_CANCELLED, 'cancelled_at' => now()]);
     // Legacy's filter offered `trial`, but no row ever carried that status.
-    // Here the value matches a trial-plan subscription or the metadata flag.
-    $trial = ad11Subscription($business, $trialPlan);
+    // Trial-ness is the subscription's own metadata flag — it used to read a
+    // per-plan trial template as well, which no plan was ever flagged with and
+    // which the platform does not have.
     $flagged = ad11Subscription($business, $plan, ['metadata' => ['trial' => true]]);
 
     foreach (['active' => $active, 'pending' => $pending, 'suspended' => $suspended, 'expired' => $expired, 'cancelled' => $cancelled] as $status => $subscription) {
@@ -184,9 +184,8 @@ test('the status filter covers every row status and the legacy trial value is no
     }
 
     $trialResponse = ad11Get($this, $admin, 'subscriptions?status=trial');
-    $trialResponse->assertOk()->assertJsonPath('meta.total', 2);
-    expect(collect($trialResponse->json('data'))->pluck('id')->sort()->values()->all())
-        ->toBe(collect([$trial->id, $flagged->id])->sort()->values()->all());
+    $trialResponse->assertOk()->assertJsonPath('meta.total', 1);
+    expect(collect($trialResponse->json('data'))->pluck('id')->all())->toBe([$flagged->id]);
 
     $counts = ad11Get($this, $admin, 'subscriptions')->json('meta.status_counts');
     expect($counts['active'])->toBe(1)
@@ -194,8 +193,8 @@ test('the status filter covers every row status and the legacy trial value is no
         ->and($counts['suspended'])->toBe(1)
         ->and($counts['expired'])->toBe(1)
         ->and($counts['cancelled'])->toBe(1)
-        ->and($counts['trial'])->toBe(2)
-        ->and($counts['all'])->toBe(7)
+        ->and($counts['trial'])->toBe(1)
+        ->and($counts['all'])->toBe(6)
         // Trial is a facet of its own — a trial row is never double-counted
         // under its row status, so every bucket sums to `all` and each pill
         // returns exactly the rows it advertises.
@@ -224,7 +223,7 @@ test('plans list exposes trial fields, subscription counters and delete-ability'
     [, $business] = createBusinessOwner();
 
     $busy = ad11Plan(['name' => 'Busy Plan', 'sort_order' => 1]);
-    $free = ad11Plan(['name' => 'Idle Plan', 'sort_order' => 2, 'is_trial' => true, 'trial_days' => 7]);
+    $free = ad11Plan(['name' => 'Idle Plan', 'sort_order' => 2]);
     ad11Subscription($business, $busy, ['status' => Subscription::STATUS_ACTIVE]);
     ad11Subscription($business, $busy, ['status' => Subscription::STATUS_EXPIRED, 'expires_at' => now()->subMonth()]);
 
@@ -238,9 +237,10 @@ test('plans list exposes trial fields, subscription counters and delete-ability'
         ->and($busyRow['plan_code'])->not->toBeNull();
 
     $freeRow = collect($response->json('data'))->firstWhere('name', 'Idle Plan');
-    expect($freeRow['is_trial'])->toBeTrue()
-        ->and($freeRow['trial_days'])->toBe(7)
-        ->and($freeRow['can_delete'])->toBeTrue();
+    expect($freeRow['can_delete'])->toBeTrue()
+        // The per-plan trial template is retired, so neither field is on the row.
+        ->and($freeRow)->not->toHaveKey('is_trial')
+        ->and($freeRow)->not->toHaveKey('trial_days');
 
     // Legacy's trial fields were rendered but never persisted — they are
     // filterable and returned here.
@@ -260,8 +260,6 @@ test('a plan is created with kobo amounts, parsed features and persisted trial f
         'interval_count' => 3,
         'is_active' => true,
         'is_default' => false,
-        'is_trial' => true,
-        'trial_days' => 14,
         'features' => [' 5 stores ', '', 'Priority support'],
         'sort_order' => 4,
     ]);
@@ -272,8 +270,6 @@ test('a plan is created with kobo amounts, parsed features and persisted trial f
     expect((string) $plan->amount)->toBe('15000.50')
         ->and($plan->currency)->toBe('NGN')
         ->and($plan->interval_count)->toBe(3)
-        ->and($plan->is_trial)->toBeTrue()
-        ->and($plan->trial_days)->toBe(14)
         ->and($plan->features)->toBe(['5 stores', 'Priority support']);
 
     expect($response->json('data.plan.amount_kobo'))->toBe(1500050)
@@ -291,16 +287,12 @@ test('a plan is created with kobo amounts, parsed features and persisted trial f
         'name' => 'Bad', 'amount' => 10, 'currency' => 'NGN', 'interval' => 'fortnightly', 'interval_count' => 1,
     ])->assertStatus(422)->assertJsonValidationErrors('interval');
 
-    // is_trial without trial_days is refused — the legacy field must be real.
-    ad11Post($this, $admin, 'subscription-plans', [
-        'name' => 'Bad trial', 'amount' => 10, 'currency' => 'NGN', 'interval' => 'monthly', 'interval_count' => 1, 'is_trial' => true,
-    ])->assertStatus(422)->assertJsonValidationErrors('trial_days');
-
-    // A trial template cannot become the platform default.
-    ad11Post($this, $admin, 'subscription-plans', [
-        'name' => 'Bad default', 'amount' => 10, 'currency' => 'NGN', 'interval' => 'monthly', 'interval_count' => 1,
-        'is_trial' => true, 'trial_days' => 7, 'is_default' => true,
-    ])->assertStatus(422)->assertJsonValidationErrors('is_default');
+    // Two refusals used to sit here, both about the per-plan trial template: a
+    // trial flag without trial days, and a trial plan claiming the default.
+    // Neither field exists any more — the trial is one platform setting and no
+    // plan was ever flagged — so there is nothing to refuse.
+    //
+    // What is worth keeping is the third: a plan cannot be created priceless.
 
     ad11Post($this, $admin, 'subscription-plans', [
         'name' => 'Priceless', 'currency' => 'NGN', 'interval' => 'monthly', 'interval_count' => 1,

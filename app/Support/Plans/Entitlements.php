@@ -91,10 +91,20 @@ final class Entitlements
             return self::none();
         }
 
-        return new self(
-            $owner->selectedPlan ?? SubscriptionPlan::query()->active()->default()->first(),
-            self::SOURCE_TRIAL,
-        );
+        // A live trial is the whole platform, and it is deliberately not
+        // resolved through a plan any more.
+        //
+        // It used to be a trial *of a plan* — the entitlements of whatever the
+        // owner had picked, which meant the entry tier unless they had thought
+        // to choose the top one. That made the trial a demonstration of the
+        // cheapest slice of the product at the exact moment somebody is
+        // deciding whether the product is worth paying for, and it made
+        // "what do I get?" depend on a choice they had not made yet.
+        //
+        // It is also the honest reading of what a trial is. Every plan stays
+        // selectable throughout — nothing here decides what they may buy — and
+        // the plan only starts to govern anything once it is paid for.
+        return new self(null, self::SOURCE_TRIAL);
     }
 
     /**
@@ -357,6 +367,20 @@ final class Entitlements
         // defaults below with nothing stored, which is deliberate — see the
         // class docblock. `SOURCE_NONE` is the distinction that matters, not
         // "the plan is null".
+        // A live trial: every toggle on, every cap lifted.
+        //
+        // Nothing is stored for it, because nothing about it is a plan — the
+        // owner may not have chosen one at all, and choosing is what the trial
+        // exists to let them do. `null` for a limit is the registry's own
+        // spelling of unlimited; `array_key_exists` in `limit()` is what keeps
+        // that distinct from a cap of zero.
+        if ($this->source === self::SOURCE_TRIAL) {
+            return $this->effective = array_map(
+                static fn (array $definition): mixed => $definition['type'] === EntitlementRegistry::TYPE_LIMIT ? null : true,
+                EntitlementRegistry::all(),
+            );
+        }
+
         if ($this->plan === null && $this->source === self::SOURCE_NONE) {
             return $this->effective = array_map(
                 static fn (array $definition): mixed => $definition['type'] === EntitlementRegistry::TYPE_LIMIT ? 0 : false,

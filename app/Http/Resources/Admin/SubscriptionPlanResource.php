@@ -58,8 +58,6 @@ final class SubscriptionPlanResource extends JsonResource
             'tier' => (int) $plan->tier,
             'is_active' => (bool) $plan->is_active,
             'is_default' => (bool) $plan->is_default,
-            'is_trial' => (bool) $plan->is_trial,
-            'trial_days' => $plan->trial_days !== null ? (int) $plan->trial_days : null,
             'sort_order' => (int) $plan->sort_order,
             'subscriptions_count' => (int) ($plan->subscriptions_count ?? 0),
             'active_subscriptions_count' => (int) ($plan->active_subscriptions_count ?? 0),

@@ -30,7 +30,7 @@ final class SubscriptionRepository
         return Subscription::query()
             ->with([
                 'business:id,name,business_code,status',
-                'subscriptionPlan:id,name,plan_code,amount,currency,interval,interval_count,is_trial',
+                'subscriptionPlan:id,name,plan_code,amount,currency,interval,interval_count',
             ])
             ->when($term !== '', fn (Builder $query) => $query->where(function (Builder $inner) use ($term) {
                 $inner->whereHas('business', fn (Builder $business) => $business->where('name', 'like', "%{$term}%"))
@@ -88,28 +88,29 @@ final class SubscriptionRepository
     }
 
     /**
-     * Trial-ness can be recorded in two places: a trial-plan template
-     * (`is_trial`) or the metadata flag. Both are read here, as everywhere.
+     * Trial-ness is the metadata flag, and only that.
+     *
+     * It used to be `plan.is_trial OR metadata->trial`. The first half was the
+     * per-plan trial template, which the platform never actually had and which
+     * no plan row ever set; the second half is never written. So this facet has
+     * matched nothing since it shipped, and it now says so with one condition
+     * rather than two — the half that is at least capable of being true.
      */
     private function trialConstraint(Builder $query): Builder
     {
-        return $query->whereHas('subscriptionPlan', fn (Builder $plan) => $plan->where('is_trial', true))
-            ->orWhere('metadata->trial', true);
+        return $query->where('metadata->trial', true);
     }
 
     /**
-     * The complement of `trialConstraint()`, written out rather than negated:
-     * `NOT (plan.is_trial OR json_extract(metadata, '$.trial') = true)` is NULL
-     * — and so drops the row — whenever `metadata` is null, while a bucket must
-     * keep every non-trial row.
+     * The complement, written out rather than negated: `NOT json_extract(...) = true`
+     * is NULL — and so drops the row — whenever `metadata` is null, while a
+     * bucket must keep every non-trial row.
      */
     private function nonTrialConstraint(Builder $query): Builder
     {
-        return $query
-            ->whereDoesntHave('subscriptionPlan', fn (Builder $plan) => $plan->where('is_trial', true))
-            ->where(function (Builder $inner) {
-                $inner->whereNull('metadata->trial')
-                    ->orWhereNot('metadata->trial', true);
-            });
+        return $query->where(function (Builder $inner) {
+            $inner->whereNull('metadata->trial')
+                ->orWhereNot('metadata->trial', true);
+        });
     }
 }

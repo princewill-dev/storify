@@ -2,9 +2,9 @@
 
 use App\Enums\OrderStatus;
 use App\Enums\TransactionStatus;
+use App\Http\Requests\Management\BulkOrderActionRequest;
 use App\Mail\OrderStatusUpdatedMail;
 use App\Models\ActivityLog;
-use App\Http\Requests\Management\BulkOrderActionRequest;
 use App\Models\Business;
 use App\Models\Customer;
 use App\Models\Order;

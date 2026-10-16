@@ -25,7 +25,6 @@ final class SubscriptionPlanRepository
     {
         return SubscriptionPlan::query()
             ->active()
-            ->where('is_trial', false)
             ->orderBy('sort_order')
             ->orderBy('amount')
             ->get();
@@ -39,7 +38,6 @@ final class SubscriptionPlanRepository
     {
         return SubscriptionPlan::query()
             ->active()
-            ->where('is_trial', false)
             ->find($planId);
     }
 

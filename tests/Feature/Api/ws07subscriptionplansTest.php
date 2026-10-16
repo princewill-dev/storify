@@ -22,7 +22,6 @@ function ws07Plan(array $attributes = []): SubscriptionPlan
         'interval' => 'monthly',
         'interval_count' => 1,
         'is_active' => true,
-        'is_trial' => false,
         'features' => ['Sell online', 'POS'],
         'sort_order' => 1,
     ], $attributes));
@@ -46,8 +45,12 @@ test('the plans endpoint groups plans and computes the yearly saving', function 
     ws07Plan(['name' => 'Starter', 'amount' => 5000, 'interval' => 'monthly', 'sort_order' => 1]);
     ws07Plan(['name' => 'Growth', 'amount' => 10000, 'interval' => 'monthly', 'sort_order' => 2]);
     ws07Plan(['name' => 'Annual', 'amount' => 48000, 'interval' => 'yearly', 'sort_order' => 3, 'is_default' => true]);
+    // Only inactive still hides a plan. There was a second row here — a plan
+    // flagged `is_trial`, which the catalogue excluded as an internal trial
+    // template — and the platform never had such a thing: the trial is one
+    // platform setting, no plan has ever been flagged, and the field described a
+    // model that does not exist. It is retired; see the migration.
     ws07Plan(['name' => 'Legacy', 'amount' => 1000, 'is_active' => false]);
-    ws07Plan(['name' => 'Trial plan', 'amount' => 0, 'is_trial' => true]);
 
     $response = $this->withToken(ws07Token($owner))->getJson('/api/v1/management/subscription/plans');
 
@@ -65,8 +68,7 @@ test('the plans endpoint groups plans and computes the yearly saving', function 
         ->assertJsonCount(1, 'data.yearly')
         ->assertJsonCount(3, 'data.plans');
 
-    expect(array_column($response->json('data.plans'), 'name'))->not->toContain('Legacy')
-        ->not->toContain('Trial plan');
+    expect(array_column($response->json('data.plans'), 'name'))->not->toContain('Legacy');
 });
 
 test('the plans endpoint reports an empty catalogue and trial settings', function () {

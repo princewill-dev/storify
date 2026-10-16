@@ -11,7 +11,7 @@ use Illuminate\Validation\Rule;
  * The filter set the list has always accepted: `q` over the business or plan
  * name, `per_page`, and the status pills. `trial` is accepted alongside the
  * five row statuses because trial-ness never lives on `status` — it is either
- * a plan flagged `is_trial` or a subscription metadata flag — so the filter
+ * the subscription's own metadata flag — so the filter
  * treats it as a facet of its own and the counts agree with the pills.
  */
 final class ListSubscriptionsRequest extends FormRequest

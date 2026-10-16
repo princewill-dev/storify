@@ -137,8 +137,6 @@ final class SubscriptionPlanService
             // consumers (early-access activation) — being default implies active.
             'is_active' => $isDefault || (bool) ($data['is_active'] ?? true),
             'is_default' => $isDefault,
-            'is_trial' => (bool) ($data['is_trial'] ?? false),
-            'trial_days' => ($data['is_trial'] ?? false) ? (int) $data['trial_days'] : null,
             'features' => $this->features($data['features'] ?? []),
             'sort_order' => (int) ($data['sort_order'] ?? 0),
             'entitlements' => $this->entitlements($data, $existing),
@@ -219,8 +217,6 @@ final class SubscriptionPlanService
             'interval_count' => (int) $plan->interval_count,
             'is_active' => (bool) $plan->is_active,
             'is_default' => (bool) $plan->is_default,
-            'is_trial' => (bool) $plan->is_trial,
-            'trial_days' => $plan->trial_days !== null ? (int) $plan->trial_days : null,
             'sort_order' => (int) $plan->sort_order,
             // Audited because it is the field with the widest blast radius on
             // this form: an edit here changes what every business subscribed to

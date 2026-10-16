@@ -42,7 +42,6 @@ final class SubscriptionPlanResource extends JsonResource
             'interval_label' => self::intervalLabel($plan),
             'features' => $plan->features ?? [],
             'is_default' => (bool) $plan->is_default,
-            'trial_days' => $plan->trial_days !== null ? (int) $plan->trial_days : null,
             'sort_order' => (int) $plan->sort_order,
         ];
     }

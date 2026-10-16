@@ -21,13 +21,13 @@ use Illuminate\Http\JsonResponse;
  * if another process writes them; the list still renders them.)
  *
  * Improve on legacy: the `trial` value the legacy filter offered never existed
- * as a row status — trials live on `users.trial_ends_at`, and a plan flagged
- * `is_trial` is a template every checkout path excludes. Here `trial` filters
- * on the two places trial-ness can actually be recorded: a trial-plan template
- * or the metadata flag. Trial rows are a facet of their own: they are excluded
- * from the five status buckets — in the filter and in `status_counts` alike —
- * so every pill returns exactly the number of rows printed on it and the
- * counts partition `all`.
+ * as a row status — trials live on `users.trial_ends_at`, and a subscription is
+ * trial-nessed by its own `metadata.trial` flag. It used to read a per-plan
+ * trial template as well; that concept is retired, because the platform never
+ * had one. Trial rows are a facet of their own: they are excluded from the five
+ * status buckets — in the filter and in `status_counts` alike — so every pill
+ * returns exactly the number of rows printed on it and the counts partition
+ * `all`.
  *
  * The controller keeps the HTTP shape only — status codes, message strings,
  * the envelope and pagination meta. Validation lives in

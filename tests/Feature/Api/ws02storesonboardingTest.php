@@ -288,7 +288,7 @@ test('a second store may reuse the support contact the first one took', function
     // default. So the first store takes it and the second arrives carrying
     // exactly the same details — the ordinary case, which a `unique` rule the
     // vendor model left behind refused with "already been taken".
-    [$owner] = createBusinessOwner(['kyc' => 'none', 
+    [$owner] = createBusinessOwner(['kyc' => 'none',
         'trial_ends_at' => now()->addWeek(),
         'email' => 'hello@codycafe.ng',
         'phone' => '08030000000',
@@ -355,7 +355,7 @@ test('store creation is closed to unverified owners and users without the permis
 });
 
 test('the create form options carry the defaults, banks and staff — and no currency list', function () {
-    [$owner, $business] = createBusinessOwner(['kyc' => 'none', 
+    [$owner, $business] = createBusinessOwner(['kyc' => 'none',
         'trial_ends_at' => now()->addWeek(),
         'phone' => '08031112222',
     ]);
@@ -395,7 +395,7 @@ test('the create form is not prefilled with the owner, and offers no payout pick
     // called "Ade" unless somebody cleared it; and `users.location` in a
     // business-address field, asking for the second time on one screen for the
     // address the store's own field had been filled from.
-    [$owner] = createBusinessOwner(['kyc' => 'none', 
+    [$owner] = createBusinessOwner(['kyc' => 'none',
         'trial_ends_at' => now()->addWeek(),
         'name' => 'Ade Balogun',
         'location' => '12 Clifford Street, Lagos',

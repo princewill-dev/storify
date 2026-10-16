@@ -21,8 +21,10 @@ use Illuminate\Validation\Rule;
  * Two legacy defects are fixed here rather than cloned:
  *
  *  - the legacy modals rendered `is_trial` / `trial_days` but the validator
- *    dropped them, so the fields never persisted; both are accepted, and
- *    `trial_days` is required whenever `is_trial` is true.
+ *    dropped them, so the fields never persisted. Both are gone: they described
+ *    a per-plan trial the platform does not have — the trial is one platform
+ *    setting — and the field on the form invited exactly the reading it got.
+ *    See the `retire_per_plan_trials` migration.
  *  - `amount_kobo` (the house unit) and a decimal `amount` are both accepted
  *    but at least one is required, so a plan can never be created priceless.
  *
@@ -56,8 +58,6 @@ final class SubscriptionPlanRequest extends FormRequest
             'interval_count' => ['required', 'integer', 'min:1', 'max:60'],
             'is_active' => ['sometimes', 'boolean'],
             'is_default' => ['sometimes', 'boolean'],
-            'is_trial' => ['sometimes', 'boolean'],
-            'trial_days' => ['nullable', 'integer', 'min:1', 'max:365', Rule::requiredIf(fn () => $this->boolean('is_trial'))],
             'features' => ['nullable', 'array', 'max:30'],
             'features.*' => ['nullable', 'string', 'max:255'],
             'sort_order' => ['sometimes', 'integer', 'min:0', 'max:100000'],
@@ -96,15 +96,6 @@ final class SubscriptionPlanRequest extends FormRequest
                     return;
                 }
 
-                // A trial-plan template can never be the platform default:
-                // every checkout path excludes `is_trial` plans and the
-                // early-access redemption action activates the *active
-                // default* plan, so a trial default would silently break
-                // redemption.
-                if ($this->boolean('is_trial') && $this->boolean('is_default')) {
-                    $validator->errors()->add('is_default', 'A trial plan cannot be the default plan.');
-                }
-
                 $this->refuseTypedAnnualAmount($validator);
             },
         ];
@@ -123,7 +114,7 @@ final class SubscriptionPlanRequest extends FormRequest
      */
     private function refuseTypedAnnualAmount(Validator $validator): void
     {
-        if ($this->input('interval') !== 'yearly' || $this->boolean('is_trial')) {
+        if ($this->input('interval') !== 'yearly') {
             return;
         }
 
@@ -176,7 +167,6 @@ final class SubscriptionPlanRequest extends FormRequest
 
         return SubscriptionPlan::query()
             ->where('tier', (int) $tier)
-            ->where('is_trial', false)
             ->where('interval', 'monthly')
             ->orderBy('id')
             ->first();

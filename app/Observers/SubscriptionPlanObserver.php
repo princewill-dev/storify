@@ -58,8 +58,7 @@ class SubscriptionPlanObserver
 
     public function saved(SubscriptionPlan $plan): void
     {
-        // A trial plan is not part of the ladder and carries no annual twin.
-        if ($plan->is_trial || ! in_array($plan->interval, self::PAIRED_INTERVALS, true)) {
+        if (! in_array($plan->interval, self::PAIRED_INTERVALS, true)) {
             return;
         }
 
@@ -108,7 +107,6 @@ class SubscriptionPlanObserver
     {
         return SubscriptionPlan::query()
             ->where('tier', $plan->tier)
-            ->where('is_trial', false)
             ->whereIn('interval', self::PAIRED_INTERVALS)
             ->where('interval', '!=', $plan->interval)
             ->orderBy('id')

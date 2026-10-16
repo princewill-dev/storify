@@ -62,7 +62,6 @@ final class SubscriptionResource extends JsonResource
                 'interval' => $plan->interval,
                 'interval_count' => (int) $plan->interval_count,
                 'interval_label' => $this->intervalLabel($plan->interval, (int) $plan->interval_count),
-                'is_trial' => (bool) $plan->is_trial,
             ] : null,
             'started_with' => [
                 'coupon_code' => data_get($subscription->metadata, 'coupon_code'),
@@ -73,14 +72,12 @@ final class SubscriptionResource extends JsonResource
     }
 
     /**
-     * Trial-ness can be recorded in two places: a trial-plan template
-     * (`is_trial`) or the metadata flag. The filter, the counts and this
-     * payload all read both.
+     * The metadata flag, and only that — see the note on the repository's
+     * `trialConstraint()`. The per-plan half was never set by anything.
      */
     private function isTrial(Subscription $subscription): bool
     {
-        return (bool) ($subscription->subscriptionPlan?->is_trial
-            || data_get($subscription->metadata, 'trial', false));
+        return (bool) data_get($subscription->metadata, 'trial', false);
     }
 
     /**

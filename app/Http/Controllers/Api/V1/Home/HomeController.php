@@ -130,7 +130,6 @@ class HomeController extends ApiController
     private function plans(): Collection
     {
         return SubscriptionPlan::active()
-            ->where('is_trial', false)
             ->orderBy('sort_order')
             ->get();
     }
