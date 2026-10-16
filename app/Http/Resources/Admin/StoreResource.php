@@ -61,7 +61,7 @@ class StoreResource extends JsonResource
             // not run the walk), so the column can say "in wallet" rather than a
             // number that is not money.
             'balance_source' => $this->walletBlock['balance_source']
-                ?? WalletSummaryService::sourceFor($store->business),
+                ?? WalletSummaryService::sourceForStore($store->business),
             'wallet' => $this->walletBlock,
             'business' => $store->business?->name,
             'business_id' => $store->business_id,

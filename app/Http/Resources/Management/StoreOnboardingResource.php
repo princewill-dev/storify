@@ -63,7 +63,7 @@ final class StoreOnboardingResource extends JsonResource
             // collected, so without this the onboarding list showed a custody
             // business ₦0.00 for a store it had just started selling on.
             'balance_source' => $this->walletBlock['balance_source']
-                ?? WalletSummaryService::SOURCE_STORE,
+                ?? WalletSummaryService::sourceForStore($store->business),
             'wallet' => $this->walletBlock,
             'payment_mode' => $store->payment_mode,
             'description' => $store->description,

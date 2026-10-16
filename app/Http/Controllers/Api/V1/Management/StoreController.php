@@ -93,7 +93,7 @@ class StoreController extends ApiController
             // A store with no business row cannot be under custody, so the legacy
             // figure is the honest answer rather than a guess at the other one.
             'balance_source' => $store->business !== null
-                ? $this->wallet->balanceSource($store->business)
+                ? WalletSummaryService::sourceForStore($store->business)
                 : WalletSummaryService::SOURCE_STORE,
             'wallet' => $walletBlocks[$store->id] ?? null,
             'payment_mode' => $store->payment_mode,

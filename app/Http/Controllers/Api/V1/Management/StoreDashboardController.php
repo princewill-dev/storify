@@ -275,7 +275,7 @@ class StoreDashboardController extends ApiController
             // business most expects its money. Kept in step with `StoreController`
             // so the list row and the store shell cannot disagree.
             'balance_source' => $business !== null
-                ? $this->wallet->balanceSource($business)
+                ? WalletSummaryService::sourceForStore($business)
                 : WalletSummaryService::SOURCE_STORE,
             'wallet' => $business !== null
                 ? $this->wallet->storeWalletBlock($business, $store)

@@ -45,6 +45,19 @@ final class WalletSummaryService
     /** The money is in `stores.balance`, credited by the provider's own settlement. */
     public const SOURCE_STORE = 'store';
 
+    /**
+     * The money is in `stores.pending_balance` / `available_balance` — this
+     * store's own custody wallet.
+     *
+     * A third answer because there are three places money can be, now that a
+     * store can hold its own takings as well as having the own-gateway balance
+     * `store` names. Reading `store` for a custody store would draw the money
+     * the business already has at its own provider; reading `wallet` would draw
+     * the business's, which under this regime holds only what no store accounts
+     * for.
+     */
+    public const SOURCE_STORE_WALLET = 'store_wallet';
+
     public function __construct(
         private readonly PayoutSweepService $sweep,
         private readonly PayoutHoldService $holds,
@@ -83,6 +96,31 @@ final class WalletSummaryService
         return $business !== null && (bool) $business->custody_enabled
             ? self::SOURCE_WALLET
             : self::SOURCE_STORE;
+    }
+
+    /**
+     * The same question, asked about a *store*.
+     *
+     * Diverges from {@see sourceFor()} only once stores hold their own wallets.
+     * Before that a store of a custody business is paid from the business's
+     * wallet and the two answers are the same; after it, the store's money is on
+     * the store and pointing the screen at the business would show it a figure
+     * that is not its own.
+     *
+     * Kept as a separate method rather than folded into `sourceFor()` because
+     * the *business's* wallet block is still `wallet` under the flag — the two
+     * callers genuinely want different answers, and one method returning both
+     * would have to be told which caller it had.
+     */
+    public static function sourceForStore(?Business $business): string
+    {
+        if ($business === null || ! (bool) $business->custody_enabled) {
+            return self::SOURCE_STORE;
+        }
+
+        return config('custody.per_store_wallets', false)
+            ? self::SOURCE_STORE_WALLET
+            : self::SOURCE_WALLET;
     }
 
     /**
@@ -279,6 +317,28 @@ final class WalletSummaryService
      */
     public function storeWalletBlock(Business $business, Store $store): array
     {
+        // Under per-store wallets the store's own columns are where its money is,
+        // so the block reports those. The two keys keep their names: a caller
+        // reads them as "the figures for the scope `balance_source` names", which
+        // is what they have always been — and renaming them would break every
+        // client for a change of meaning they do not have to make.
+        if (config('custody.per_store_wallets', false) && $business->custody_enabled) {
+            return [
+                'store_id' => (int) $store->id,
+                'store_name' => $store->name,
+                'currency' => (string) config('custody.currency', 'NGN'),
+                'balance_source' => self::SOURCE_STORE_WALLET,
+                'attributed' => 0.0,
+                'attributed_kobo' => 0,
+                'withheld' => 0.0,
+                'withheld_kobo' => 0,
+                'business_pending_kobo' => (int) $store->pending_balance,
+                'business_available_kobo' => (int) $store->available_balance,
+                'held' => false,
+                'hold_reason' => null,
+            ];
+        }
+
         $blocks = $this->storeBlocks($business);
 
         return $blocks[(int) $store->id] ?? [
