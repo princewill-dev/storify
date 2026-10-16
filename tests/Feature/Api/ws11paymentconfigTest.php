@@ -286,8 +286,8 @@ test('the paystack bank list is proxied for the add-account modal', function () 
         ->assertJsonCount(1, 'data.banks');
 });
 
-test('the first bank becomes primary and switches bank transfer on for the business and its store', function () {
-    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+test('the first bank becomes primary, is where the money is paid, and switches bank transfer on', function () {
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
     $store = ws11Store($owner);
 
     $response = $this->withToken(ws11Token($owner))
@@ -300,7 +300,18 @@ test('the first bank becomes primary and switches bank transfer on for the busin
         ])
         ->assertCreated();
 
-    expect($response->json('data.bank.is_primary'))->toBeTrue();
+    expect($response->json('data.bank.is_primary'))->toBeTrue()
+        ->and($response->json('data.bank.is_payout'))->toBeTrue();
+
+    // **The setup step's promise, kept.** "Connect your bank account. You will
+    // receive your payouts here." — this is the write behind that sentence, and
+    // before the consolidation it recorded `is_primary` alone. A business that
+    // named its account here had money collected that the sweep would not send,
+    // because `PayoutSweepService` reads `businesses.payout_bank_id` and nothing
+    // else. Asserted here rather than in a test of its own because this is the
+    // wizard's exact call: the first account, added against a store.
+    $bank = StoreBank::where('business_id', $owner->business_id)->sole();
+    expect((int) $business->refresh()->payout_bank_id)->toBe((int) $bank->id);
 
     $bankTransfer = PaymentMethod::where('code', 'bank_transfer')->firstOrFail();
 
@@ -319,6 +330,70 @@ test('the first bank becomes primary and switches bank transfer on for the busin
         ->where('store_id', $store->id)
         ->where('payment_method_id', $bankTransfer->id)
         ->exists())->toBeTrue();
+});
+
+test('a second account does not move where the money is paid', function () {
+    // The redirect guard. Only the *first* account names a destination, because
+    // that is the one moment "the account" and "the destination" cannot
+    // disagree. A later add is a business managing a list, and the sweep reads
+    // this column within five minutes — so a second add that wrote it would
+    // send a live payout to whichever account was added last.
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+
+    $this->withToken(ws11Token($owner))
+        ->postJson('/api/v1/management/payment-settings/bank-accounts', [
+            'bank_code' => '058',
+            'bank_name' => 'GTBank',
+            'account_number' => '0123456789',
+            'account_name' => 'ACME LTD',
+        ])
+        ->assertCreated();
+
+    $first = StoreBank::where('business_id', $owner->business_id)->sole();
+
+    $this->withToken(ws11Token($owner))
+        ->postJson('/api/v1/management/payment-settings/bank-accounts', [
+            'bank_code' => '011',
+            'bank_name' => 'First Bank',
+            'account_number' => '9876543210',
+            'account_name' => 'ACME LTD',
+        ])
+        ->assertCreated();
+
+    expect((int) $business->refresh()->payout_bank_id)->toBe((int) $first->id);
+
+    $banks = collect($this->withToken(ws11Token($owner))
+        ->getJson('/api/v1/management/payment-settings')
+        ->assertOk()
+        ->json('data.banks'));
+
+    expect($banks)->toHaveCount(2)
+        ->and($banks->where('is_payout', true))->toHaveCount(1)
+        ->and($banks->firstWhere('is_payout', true)['id'])->toBe($first->id);
+});
+
+test('adding an account to a business that already holds one does not fill an empty destination', function () {
+    // The `$isFirst` line, pinned from the other side. A business with accounts
+    // on file and no destination — the state every business the consolidation
+    // migration exists for was in — is not fixed by adding another account. It
+    // would have to pick among the ones it already has, which is the redirect
+    // the test above refuses, so the rule stays "the first one" and the repair
+    // is the migration's job.
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+
+    ws11Bank($owner, ['account_number' => '0111111111', 'is_primary' => true]);
+    ws11Bank($owner, ['account_number' => '0222222222']);
+
+    $this->withToken(ws11Token($owner))
+        ->postJson('/api/v1/management/payment-settings/bank-accounts', [
+            'bank_code' => '011',
+            'bank_name' => 'First Bank',
+            'account_number' => '9876543210',
+            'account_name' => 'ACME LTD',
+        ])
+        ->assertCreated();
+
+    expect($business->refresh()->payout_bank_id)->toBeNull();
 });
 
 test('setting another bank primary clears the previous one', function () {
@@ -362,24 +437,36 @@ test('a bank account can be renamed and promoted through the update endpoint', f
     expect($first->fresh()->is_primary)->toBeFalse();
 });
 
-test('the primary bank cannot be deleted and a secondary one can', function () {
+test('deleting the primary promotes the oldest remaining account', function () {
+    // The refusal that used to live here said "set another account as primary
+    // first" — a screen that stopped existing when the console merged "make this
+    // primary" into "Paid into". So the row the console offered a Remove button
+    // for was one the API would not remove, with no way for the reader to
+    // comply. The rule the refusal protected is kept, by promoting instead.
     [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
 
     $primary = ws11Bank($owner, ['is_primary' => true, 'account_number' => '0111111111']);
-    $secondary = ws11Bank($owner, ['is_primary' => false, 'account_number' => '0222222222']);
+    $second = ws11Bank($owner, ['is_primary' => false, 'account_number' => '0222222222']);
+    $third = ws11Bank($owner, ['is_primary' => false, 'account_number' => '0333333333']);
 
     $this->withToken(ws11Token($owner))
         ->deleteJson("/api/v1/management/payment-settings/bank-accounts/{$primary->id}")
-        ->assertStatus(422)
-        ->assertJsonPath('message', 'Cannot delete the primary bank account. Set another account as primary first.');
-
-    expect($primary->fresh())->not->toBeNull();
-
-    $this->withToken(ws11Token($owner))
-        ->deleteJson("/api/v1/management/payment-settings/bank-accounts/{$secondary->id}")
         ->assertOk();
 
-    expect(StoreBank::find($secondary->id))->toBeNull();
+    expect(StoreBank::find($primary->id))->toBeNull();
+
+    // The oldest survivor, not the newest: the flag is the default *transfer*
+    // account, and the account that has been there longest is the least
+    // surprising answer for a reader who was never asked about the flag.
+    expect($second->fresh()->is_primary)->toBeTrue()
+        ->and($third->fresh()->is_primary)->toBeFalse();
+
+    // And a business is never left with accounts and no default at all.
+    $this->withToken(ws11Token($owner))
+        ->deleteJson("/api/v1/management/payment-settings/bank-accounts/{$second->id}")
+        ->assertOk();
+
+    expect($third->fresh()->is_primary)->toBeTrue();
 });
 
 test('the bank account a business is paid into cannot be deleted', function () {

@@ -158,27 +158,30 @@ class PaymentSettingsController extends ApiController
     }
 
     /**
-     * The primary account cannot be deleted (legacy store-bank rule, applied
-     * to business accounts too): a storefront must always have a payout
-     * account to fall back to, so the owner has to promote another first.
+     * Any account but the one the money is paid into.
      *
-     * The account named as where sales are paid into cannot be deleted either,
-     * and for a harder reason. The provider holds it as a subaccount's
-     * settlement bank, and the row here is the only record of which of the
-     * business's accounts that is; deleting it would leave the business with
-     * money going to an account it can no longer see, and — because the pointer
-     * is what names a destination — would silently send it back through the
-     * setup step as though it had never answered. Changing where the money goes
-     * is a deliberate act with its own place to do it, not a side effect of
-     * tidying up a list of bank accounts.
+     * **The account named as where sales are paid into cannot be deleted.** The
+     * row here is the only record of the business's destination: removing it
+     * while `businesses.payout_bank_id` still names it would leave the business
+     * with a pointer to a row that is gone — `nullOnDelete` clears the column,
+     * so the destination would silently become "none" on a submission that read
+     * as tidying up a list, and the money would wait with nothing saying why.
+     * Changing where it goes is a deliberate act with its own place to do it —
+     * "Pay into this" on another row, or naming the account the whole list
+     * already offers — and the refusal names it.
+     *
+     * **The primary account can be deleted**, and deleting it promotes the
+     * oldest survivor ({@see PaymentSettingsService::deleteBankAccount()}). It
+     * used to be refused here, with "set another account as primary first" — a
+     * screen that stopped existing when the console merged "make this primary"
+     * into "Paid into". That left a row the console offered a Remove button for
+     * and the API would not remove, with no way for the reader to comply. The
+     * rule the refusal was protecting — a business always has a default account
+     * — is kept, by promoting instead of refusing.
      */
     public function destroyBankAccount(Request $request, StoreBank $bank): JsonResponse
     {
         $this->tenantGuard->authorizeBusiness($bank, $this->user($request), self::ACCESS_DENIED_BANK);
-
-        if ($bank->is_primary) {
-            return $this->error('Cannot delete the primary bank account. Set another account as primary first.', 422);
-        }
 
         if ($this->isPayoutBank($request, $bank)) {
             return $this->error('Cannot delete the bank account your sales are paid into. Choose another account to be paid into first.', 422);

@@ -1,12 +1,20 @@
 <?php
 
+use App\Enums\TransactionStatus;
+use App\Models\Order;
+use App\Models\Payout;
+use App\Models\Setting;
 use App\Models\Store;
 use App\Models\StoreBank;
+use App\Models\Transaction;
 use App\Models\User;
+use App\Services\Payments\Custody\CustodyService;
+use App\Services\Payments\Custody\PayoutSweepService;
 use Database\Seeders\PaymentMethodSeeder;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
 
 /*
 | WS-40 — the bank account a business is paid into.
@@ -59,6 +67,59 @@ function pb40NoProvider(): void
 {
     Http::swap(new Factory);
     Http::fake();
+}
+
+function pb40Settings(array $attributes): void
+{
+    $settings = Setting::query()->first() ?? Setting::query()->create(['company_name' => 'Storify']);
+    $settings->update($attributes);
+}
+
+/**
+ * A collected sale through the store, matured into `available_balance`.
+ *
+ * Built through the wallet's own writer rather than by seeding the column, so
+ * the end-to-end test below starts from money that arrived the way a real
+ * business's does — which is the only kind the sweep has anything to say about,
+ * since the plan it pays from is a walk over these rows.
+ */
+function pb40Funded(User $owner, Store $store, int $kobo): Transaction
+{
+    $order = Order::create([
+        'business_id' => $owner->business_id,
+        'store_id' => $store->id,
+        'order_number' => 'PB40-'.strtoupper(Str::random(10)),
+        'subtotal' => $kobo / 100,
+        'total' => $kobo / 100,
+    ]);
+
+    $sale = Transaction::create([
+        'reference' => 'PB40-TXN-'.Str::random(12),
+        'business_id' => $owner->business_id,
+        'order_id' => $order->id,
+        'amount' => $kobo / 100,
+        'currency' => 'NGN',
+        'status' => TransactionStatus::CONFIRMED,
+        'paid_at' => now(),
+        'fee_kobo' => 0,
+        'platform_fee_kobo' => 0,
+        'metadata' => ['payment_mode' => 'platform_managed', 'leg_method' => 'bachs'],
+    ]);
+
+    $custody = app(CustodyService::class);
+
+    $custody->recordCollectedSale($sale, 'bachs');
+    $custody->promoteSettled();
+
+    return $sale->fresh();
+}
+
+function pb40ProviderAccepts(): void
+{
+    Http::fake([
+        'sandbox-api.bachs.io/v1/payouts/destinations' => Http::response(['id' => 'pd_new', 'is_usable' => true]),
+        'sandbox-api.bachs.io/v1/payouts' => Http::response(['id' => 'pay_1', 'status' => 'pending']),
+    ]);
 }
 
 beforeEach(function () {
@@ -378,4 +439,126 @@ test('a store belonging to another business cannot be named at all', function ()
         ->assertJsonValidationErrors('store_id');
 
     expect($theirs->fresh()->payout_bank_id)->toBeNull();
+});
+
+test('the consolidation fills a destination for the businesses the setup step left without one', function () {
+    // The repair, run against the class directly. `artisan migrate` would skip
+    // it — the migration is already recorded as run for the test database — and
+    // this test would then pass without executing a line.
+    $migration = fn () => require database_path(
+        'migrations/2026_10_16_000004_consolidate_payout_banks.php'
+    );
+
+    // The shape this exists for: the wizard wrote one account and flagged it,
+    // and `businesses.payout_bank_id` was never told.
+    [, $named] = createBusinessOwner();
+    $account = StoreBank::factory()->create(['business_id' => $named->id]);
+
+    // Already answered — by the payout-account endpoint, or by an earlier run of
+    // this migration. A repair must not move a destination a business chose,
+    // even to another of its own accounts.
+    [, $answered] = createBusinessOwner();
+    $chosen = StoreBank::factory()->create(['business_id' => $answered->id]);
+    $answered->forceFill(['payout_bank_id' => $chosen->id])->save();
+
+    // Never named an account at all. Untouched: the wallet's banner is the
+    // honest answer for this business until it does.
+    [, $solventless] = createBusinessOwner();
+
+    // Accounts on file and none of them flagged. Nothing requires a flagged row
+    // to exist — `is_primary` is a plain column with a plain index — so the
+    // ordering has to answer this too, rather than falling through to a second
+    // `no_bank` for a business that named three accounts.
+    [, $unflagged] = createBusinessOwner();
+    $older = StoreBank::factory()->create(['business_id' => $unflagged->id, 'is_primary' => false]);
+    StoreBank::factory()->create(['business_id' => $unflagged->id, 'is_primary' => false]);
+
+    // Two flagged rows, which no constraint forbids and concurrent
+    // `PATCH .../primary` calls can produce. The tiebreak is what makes the
+    // answer the same on every run rather than whichever row the engine read
+    // first.
+    [, $doubleFlagged] = createBusinessOwner();
+    $lower = StoreBank::factory()->create(['business_id' => $doubleFlagged->id, 'is_primary' => true]);
+    StoreBank::factory()->create(['business_id' => $doubleFlagged->id, 'is_primary' => true]);
+
+    $migration()->up();
+
+    expect((int) $named->refresh()->payout_bank_id)->toBe((int) $account->id)
+        ->and((int) $answered->refresh()->payout_bank_id)->toBe((int) $chosen->id)
+        ->and($solventless->refresh()->payout_bank_id)->toBeNull()
+        ->and((int) $unflagged->refresh()->payout_bank_id)->toBe((int) $older->id)
+        ->and((int) $doubleFlagged->refresh()->payout_bank_id)->toBe((int) $lower->id);
+
+    // Idempotent, and — the part that matters — not an overwriter: a business
+    // that named a different one of its own accounts after the first run keeps
+    // it, and a second run fills nothing that a business has since unpicked.
+    $later = StoreBank::factory()->create(['business_id' => $named->id, 'is_primary' => false]);
+    $named->forceFill(['payout_bank_id' => $later->id])->save();
+
+    $migration()->up();
+
+    expect((int) $named->refresh()->payout_bank_id)->toBe((int) $later->id)
+        ->and((int) $unflagged->refresh()->payout_bank_id)->toBe((int) $older->id);
+});
+
+test('the account a business names through the setup step is the one the sweep pays', function () {
+    // The whole bug, end to end: a business that answered the wizard's question
+    // held collected money that nothing would ever send, and its wallet said
+    // `no_bank` while its bank account sat on the same screen. Both halves are
+    // asserted here — the banner goes, and the money moves — because either one
+    // alone would have been true all along.
+    pb40Settings(['system_payment_processor' => 'bachs']);
+    config([
+        'services.bachs.api_key' => 'sk_sandbox_platform1234',
+        'services.bachs.webhook_secret' => 'whsec_platform',
+    ]);
+
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()], ['auto_payout' => true]);
+
+    $business->forceFill(['custody_enabled' => true, 'custody_enabled_at' => now()])->save();
+
+    $store = pb40Store($owner);
+
+    pb40Funded($owner, $store, 120_000);
+
+    $sweep = app(PayoutSweepService::class);
+
+    // Where the report started: money collected, matured, and unpayable.
+    expect($sweep->payoutBlocker($business->refresh()))->toMatchArray(['code' => 'no_bank']);
+
+    // The wizard's exact call. No store: the setup step names an account for the
+    // business, and the first one is the business's own default.
+    Http::swap(new Factory);
+    Http::fake();
+
+    $this->withToken(pb40Token($owner))
+        ->postJson('/api/v1/management/payment-settings/bank-accounts', [
+            'bank_code' => '058',
+            'bank_name' => 'GTBank',
+            'account_number' => '0123456789',
+            'account_name' => 'ACME LTD',
+        ])
+        ->assertCreated();
+
+    // Naming an account resolves no bank and registers no destination: the only
+    // thing that changed is which row the payout column names.
+    Http::assertNothingSent();
+
+    $bank = StoreBank::where('business_id', $business->id)->sole();
+
+    expect($sweep->payoutBlocker($business->refresh()))->toBeNull();
+
+    pb40ProviderAccepts();
+
+    $sweep->sweep();
+
+    $payout = Payout::where('business_id', $business->id)->sole();
+
+    expect((int) $payout->payout_bank_id)->toBe((int) $bank->id)
+        ->and($payout->account_number)->toBe('0123456789')
+        ->and((int) $payout->amount_kobo)->toBe(120_000)
+        // The money left with the transfer that carries it. The sale came
+        // through the store, so the store's wallet is the bucket it sat in —
+        // drawn down in the same transaction as the payout row.
+        ->and((int) $store->refresh()->available_balance)->toBe(0);
 });

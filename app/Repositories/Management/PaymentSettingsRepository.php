@@ -112,6 +112,43 @@ class PaymentSettingsRepository
         StoreBank::where('business_id', $businessId)->update(['is_primary' => false]);
     }
 
+    /**
+     * The oldest account a business still holds — the one promoted when the
+     * primary is removed.
+     *
+     * Oldest rather than "any": the flag is the default *transfer* account, and
+     * promoting the account that has been there longest is the least surprising
+     * answer for a reader who was never asked about the flag at all.
+     */
+    public function oldestBankId(int $businessId): ?int
+    {
+        $id = StoreBank::where('business_id', $businessId)->orderBy('id')->value('id');
+
+        return $id === null ? null : (int) $id;
+    }
+
+    /**
+     * Name the account a business's money is paid into, if it has not named one.
+     *
+     * Conditional rather than a plain write, because this is the one column that
+     * decides where a person's money lands. Two first-account submissions racing
+     * — a double-tapped save is enough, the same race `bankAccountExists()` and
+     * the insert already have — must not leave the loser overwriting the
+     * winner's choice a second later. `whereNull` makes the database the
+     * arbiter, and the return value says which of the two happened rather than
+     * guessing.
+     *
+     * Written through the query builder so `businesses.updated_at` does not move:
+     * nothing about the business changed, one pointer was set.
+     */
+    public function setPayoutBankIfUnset(int $businessId, int $bankId): bool
+    {
+        return DB::table('businesses')
+            ->where('id', $businessId)
+            ->whereNull('payout_bank_id')
+            ->update(['payout_bank_id' => $bankId]) > 0;
+    }
+
     public function deleteBank(StoreBank $bank): void
     {
         $bank->delete();

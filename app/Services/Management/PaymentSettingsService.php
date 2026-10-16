@@ -48,6 +48,27 @@ final class PaymentSettingsService
      * too, but only on the business pivot. The store pivot follows when the
      * caller picked a store.
      *
+     * **And the business's first account is where its money is paid.** The
+     * setup step that asks for it reads "Connect your bank account. You will
+     * receive your payouts here.", and until this line existed that was copy the
+     * write did not honour: `is_primary` went to the bank-transfer rail while
+     * `businesses.payout_bank_id` — the column `PayoutSweepService` reads and
+     * nothing else does — stayed null. So a business that named an account in
+     * the wizard held money that nothing would ever send, and its wallet said
+     * `no_bank` while its bank account sat on the same screen.
+     *
+     * **Only the first, and that is the whole of the rule.** A business adding a
+     * second account is managing a list, not naming a destination, and the sweep
+     * reads this column within five minutes: letting a later add write it would
+     * redirect a live payout to whichever account was added last. Naming a
+     * destination among several is a deliberate act with its own place to do it
+     * ({@see PaymentGatewayService::setPayoutBank()}), and this is deliberately
+     * not it.
+     *
+     * Not gated on the store scope. The first account a business puts on file is
+     * the account it named, whether or not the caller also assigned it to a
+     * store, and a store-scoped first add is still the business's only account.
+     *
      * @param  array<string, mixed>  $data
      */
     public function addBankAccount(int $businessId, array $data, ?Store $store): StoreBank
@@ -64,6 +85,10 @@ final class PaymentSettingsService
                 'is_primary' => $isFirst,
                 'is_verified' => true,
             ]);
+
+            if ($isFirst) {
+                $this->repository->setPayoutBankIfUnset($businessId, (int) $bank->getKey());
+            }
 
             $this->syncBankTransferMethod($businessId);
 
@@ -104,13 +129,35 @@ final class PaymentSettingsService
      * would otherwise keep offering transfers with nowhere to send them. The
      * stores it served are captured first, and the method is stripped only
      * from those left with no account at all.
+     *
+     * **Removing the primary promotes the oldest surviving account**, rather
+     * than leaving the business with none. The flag decides which account the
+     * bank-transfer rail advertises, and the console no longer offers a way to
+     * set it — that was merged into "Paid into" — so a business that removed
+     * the flagged account would otherwise hold a set of accounts none of which
+     * is the default, with no screen that could say otherwise. Promoted here,
+     * inside the same transaction as the delete, so the flag is never observably
+     * absent.
      */
     public function deleteBankAccount(StoreBank $bank, int $businessId): void
     {
         DB::transaction(function () use ($bank, $businessId) {
             $storeIds = $this->repository->storeIdsServedByBank($bank, $businessId);
+            $wasPrimary = (bool) $bank->is_primary;
 
             $this->repository->deleteBank($bank);
+
+            if ($wasPrimary) {
+                $nextId = $this->repository->oldestBankId($businessId);
+
+                if ($nextId !== null) {
+                    $next = $this->repository->findBank($nextId);
+
+                    if ($next !== null) {
+                        $this->repository->updateBank($next, ['is_primary' => true]);
+                    }
+                }
+            }
 
             $method = $this->repository->findPaymentMethodByCode('bank_transfer');
 

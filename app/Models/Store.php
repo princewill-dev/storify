@@ -173,11 +173,6 @@ class Store extends Model
             ->withPivot('is_active')->withTimestamps();
     }
 
-    public function primaryBank()
-    {
-        return $this->hasOne(StoreBank::class, 'business_id', 'business_id')->where('is_primary', true);
-    }
-
     public function deliveryRoutes(): HasMany
     {
         return $this->hasMany(DeliveryRoute::class);
