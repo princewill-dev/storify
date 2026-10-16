@@ -8,10 +8,6 @@
 </head>
 <body style="margin:0;padding:0;background:#f6f7fb;font-family:Arial,Helvetica,sans-serif;color:#111827;">
   @php($c = is_array($company ?? null) ? $company : (array) ($company ?? []))
-  @php($amount = number_format($amountKobo / 100, 2))
-  @php($pending = number_format($pendingKobo / 100, 2))
-  @php($available = number_format($availableKobo / 100, 2))
-  @php($total = number_format(($pendingKobo + $availableKobo) / 100, 2))
   <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
     <tr>
       <td align="center" style="padding:24px;">
@@ -29,40 +25,40 @@
               <h2 style="margin:0 0 12px;font-size:18px;">Payment received</h2>
               <p style="margin:0 0 12px;">Hello {{ $user->name }},</p>
               <p style="margin:0 0 16px;">
-                A payment for <strong>{{ $business->name }}</strong>{{ $storeName ? ' at '.$storeName : '' }} has been
-                collected and your share has been added to your {{ config('app.name') }} wallet.
+                A new payment has been made on your store. Here is the information. Please check your dashboard for
+                more info.
               </p>
 
               <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:12px 14px;margin-bottom:16px;">
-                <div style="font-weight:600;margin-bottom:6px;">Your share</div>
-                <div style="font-size:22px;font-weight:700;">{{ $currency }} {{ $amount }}</div>
-                @if($reference)
-                  <div style="color:#6b7280;font-size:12px;margin-top:4px;">Transaction reference: {{ $reference }}</div>
-                @endif
-              </div>
-
-              <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:12px 14px;margin-bottom:16px;">
-                <div style="font-weight:600;margin-bottom:6px;">Your wallet now</div>
+                <div style="font-weight:600;margin-bottom:6px;">Payment details</div>
+                <div style="font-size:22px;font-weight:700;margin-bottom:6px;">{{ $amount }}</div>
                 <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="font-size:14px;">
-                  <tr>
-                    <td style="padding:3px 0;">Settling (not yet payable)</td>
-                    <td style="padding:3px 0;text-align:right;">{{ $currency }} {{ $pending }}</td>
-                  </tr>
-                  <tr>
-                    <td style="padding:3px 0;">Payable to your bank</td>
-                    <td style="padding:3px 0;text-align:right;">{{ $currency }} {{ $available }}</td>
-                  </tr>
-                  <tr>
-                    <td style="padding:6px 0 0;border-top:1px solid #e5e7eb;font-weight:600;">Wallet total</td>
-                    <td style="padding:6px 0 0;border-top:1px solid #e5e7eb;text-align:right;font-weight:600;">{{ $currency }} {{ $total }}</td>
-                  </tr>
+                  @if($fee)
+                    <tr>
+                      <td style="padding:3px 0;color:#6b7280;">Processing fee</td>
+                      <td style="padding:3px 0;text-align:right;">{{ $fee }}</td>
+                    </tr>
+                  @endif
+                  @if($storeName)
+                    <tr>
+                      <td style="padding:3px 0;color:#6b7280;">Store</td>
+                      <td style="padding:3px 0;text-align:right;">{{ $storeName }}</td>
+                    </tr>
+                  @endif
+                  @if($reference)
+                    <tr>
+                      <td style="padding:3px 0;color:#6b7280;">Reference</td>
+                      <td style="padding:3px 0;text-align:right;">{{ $reference }}</td>
+                    </tr>
+                  @endif
+                  @if($date)
+                    <tr>
+                      <td style="padding:3px 0;color:#6b7280;">Date</td>
+                      <td style="padding:3px 0;text-align:right;">{{ $date }}</td>
+                    </tr>
+                  @endif
                 </table>
               </div>
-
-              <p style="margin:0 0 12px;">
-                "Settling" is money we have collected for you that is still clearing. Once it has cleared it becomes
-                payable automatically, and we send it to your payout bank account without you having to ask.
-              </p>
 
               @php($supportEmail = $c['email'] ?? config('mail.from.address'))
               @if($supportEmail)

@@ -196,7 +196,30 @@ test('a collected sale tells the business once, by record and by mail', function
         ->and(str_contains($notice->body, $store->name))->toBeTrue()
         ->and(Str::contains($notice->body, 'NGN 1,000.00'))->toBeTrue();
 
-    Mail::assertSent(WalletCreditedMail::class, 1);
+    // Rendered, not merely delivered. `Mail::fake()` records a mailable without
+    // building it, so a notifier that passed the wrong figures — the net where the
+    // gross belongs — or a template reading a property the mailable never passes
+    // would satisfy every other assertion in this file and fail in production.
+    Mail::assertSent(WalletCreditedMail::class, function (WalletCreditedMail $mail) {
+        $html = $mail->render();
+
+        return str_contains($html, 'NGN 1,000.00')
+            && str_contains($html, 'Payment details')
+            // Zero fee on this fixture, so the row is absent rather than
+            // printing "Processing fee NGN 0.00".
+            && ! str_contains($html, 'Processing fee')
+            // And no word of the split, the wallet or the clearing behind it.
+            && ! str_contains($html, 'share')
+            && ! str_contains($html, 'wallet');
+    });
+
+    $mail = Mail::sent(WalletCreditedMail::class)->sole();
+
+    // The gross — what the customer paid — and not the net, which on this fixture
+    // happens to be the same number, so the assertion is about the argument the
+    // notifier chose rather than about the arithmetic.
+    expect($mail->amount)->toBe('NGN 1,000.00')
+        ->and($mail->fee)->toBeNull();
 });
 
 test('a sale delivered twice — a replayed webhook — is announced once', function () {
@@ -313,7 +336,10 @@ test('a refused payout is announced with the provider\'s own words, and the mone
         // Nothing was lost: the reservation was released and the wallet credited
         // before this mail was written, so the mail's claim and the wallet agree.
         ->and($business->fresh()->available_balance)->toBe(90000)
-        ->and($notice->body)->toContain('back in your')
+        // The reassurance, in the words a business reads rather than the words
+        // the wallet is kept in: "back in your wallet" is our vocabulary.
+        ->and($notice->body)->toContain('Nothing was lost')
+        ->and($notice->body)->not->toContain('wallet')
         ->and($notice->emailed_at)->not->toBeNull();
 
     Mail::assertSent(PayoutFailedMail::class, 1);
@@ -445,27 +471,31 @@ test('every custody mail renders, with the money it is about on it', function ()
 
     $credited = (new WalletCreditedMail(
         user: $owner,
-        business: $business,
-        amountKobo: 150000,
-        currency: 'NGN',
-        pendingKobo: 150000,
-        availableKobo: 0,
+        amount: 'NGN 1,500.00',
+        fee: 'NGN 50.00',
         storeName: $store->name,
         reference: $sale->reference,
+        date: 'Tue, Oct 14, 2025 3:04 PM',
     ))->render();
 
     expect($credited)
         ->toContain('NGN 1,500.00')
         ->toContain($store->name)
-        // The half of the wallet the money is in, which is the claim a business
-        // checks against the dashboard.
-        ->toContain('Settling')
-        ->toContain('Storify');
+        ->toContain('Processing fee')
+        ->toContain('NGN 50.00')
+        ->toContain('Storify')
+        // The change itself, guarded: the first mail a business gets says what
+        // happened and nothing about the split, the wallet or the clearing behind
+        // it. These negatives are what a future edit has to get past.
+        ->not->toContain('share')
+        ->not->toContain('wallet')
+        ->not->toContain('Settling')
+        ->not->toContain('payable');
 
     // Marked `paid` so the paid mail renders the state it is written for.
     $payout->forceFill(['status' => Payout::STATUS_PAID, 'paid_at' => now()])->save();
 
-    $paid = (new PayoutPaidMail($owner, $business, $payout->fresh(), 0, 'Guaranty Trust Bank'))->render();
+    $paid = (new PayoutPaidMail($owner, $business, $payout->fresh(), 'Guaranty Trust Bank'))->render();
 
     expect($paid)
         ->toContain('NGN 1,500.00')
@@ -475,19 +505,24 @@ test('every custody mail renders, with the money it is about on it', function ()
         // number in it is a number sitting in a mailbox forever. The last four are
         // what a person checks against their statement.
         ->toContain('6789')
-        ->not->toContain('0123456789');
+        ->not->toContain('0123456789')
+        ->not->toContain('wallet');
 
-    $failed = (new PayoutFailedMail($owner, $business, $payout->fresh(), 150000, 'Guaranty Trust Bank'))->render();
+    $failed = (new PayoutFailedMail($owner, $business, $payout->fresh(), 'Guaranty Trust Bank'))->render();
 
     expect($failed)
         ->toContain('NGN 1,500.00')
-        ->toContain('back in your');
+        // Still the reassurance the mail exists for, in words that name nothing
+        // the business does not have to think about.
+        ->toContain('Nothing has been lost')
+        ->not->toContain('wallet');
 
-    $reversed = (new PayoutReversedMail($owner, $business, $payout->fresh(), 150000, 'Guaranty Trust Bank'))->render();
+    $reversed = (new PayoutReversedMail($owner, $business, $payout->fresh(), 'Guaranty Trust Bank'))->render();
 
     expect($reversed)
         ->toContain('NGN 1,500.00')
-        ->toContain('still owed this money');
+        ->toContain('still owed this money')
+        ->not->toContain('wallet');
 
     $blocked = (new PayoutBlockedMail(
         user: $owner,
@@ -508,5 +543,9 @@ test('every custody mail renders, with the money it is about on it', function ()
         ->toContain('Account cannot receive transfers.')
         ->toContain('Ada Trading Ltd')
         ->toContain('6789')
-        ->not->toContain('0123456789');
+        ->not->toContain('0123456789')
+        // The one mail that keeps the figure still keeps it without the word:
+        // "Waiting to be paid to you" is the business's money, not a wallet entry.
+        ->toContain('Waiting to be paid to you')
+        ->not->toContain('wallet');
 });

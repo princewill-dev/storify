@@ -19,6 +19,10 @@ use Illuminate\Support\Carbon;
  * mailable carries the destination as the payout recorded it rather than as the
  * business currently names it — the transfer went to the account that was on the
  * row, and if that has since changed, saying so is the whole value of the message.
+ *
+ * It no longer prints what the wallet holds afterwards. That figure was the
+ * business's own money explained back to it in the third person, and the payout is
+ * what this mail is about.
  */
 class PayoutPaidMail extends Mailable
 {
@@ -28,7 +32,6 @@ class PayoutPaidMail extends Mailable
         public User $user,
         public Business $business,
         public Payout $payout,
-        public int $walletRemainingKobo,
         public ?string $bankName = null,
     ) {
         $this->company = $this->companyDetails();
@@ -45,7 +48,6 @@ class PayoutPaidMail extends Mailable
             ->with([
                 'company' => (object) $this->company,
                 'amount' => number_format((int) $this->payout->amount_kobo / 100, 2),
-                'remaining' => number_format($this->walletRemainingKobo / 100, 2),
                 'bankName' => $this->bankName,
                 'bankCode' => $this->payout->bank_code,
                 // Named `accountNumberMasked` rather than `accountNumber`, so the

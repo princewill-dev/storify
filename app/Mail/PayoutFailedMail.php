@@ -37,7 +37,6 @@ class PayoutFailedMail extends Mailable
         public User $user,
         public Business $business,
         public Payout $payout,
-        public int $walletBalanceKobo,
         public ?string $bankName = null,
     ) {
         $this->company = $this->companyDetails();
@@ -54,7 +53,6 @@ class PayoutFailedMail extends Mailable
             ->with([
                 'company' => (object) $this->company,
                 'amount' => number_format((int) $this->payout->amount_kobo / 100, 2),
-                'wallet' => number_format($this->walletBalanceKobo / 100, 2),
                 'bankName' => $this->bankName,
                 'bankCode' => $this->payout->bank_code,
                 'reason' => $this->payout->failure_reason,

@@ -33,7 +33,7 @@
 
               <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:12px 14px;margin-bottom:16px;">
                 <div style="font-weight:600;margin-bottom:4px;">You are still owed this money.</div>
-                <div>It is back in your {{ config('app.name') }} wallet and will be sent again automatically.</div>
+                <div>It is safe and will be sent again automatically.</div>
               </div>
 
               <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:12px 14px;margin-bottom:16px;">
@@ -68,11 +68,6 @@
                   <div style="white-space:pre-wrap;">{{ $reason }}</div>
                 </div>
               @endif
-
-              <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:12px 14px;margin-bottom:16px;">
-                <div style="font-weight:600;margin-bottom:6px;">Your wallet now</div>
-                <div style="font-size:18px;font-weight:700;">{{ $currency }} {{ $wallet }}</div>
-              </div>
 
               <p style="margin:0 0 12px;">
                 A returned transfer often means the receiving account could not take the funds rather than that

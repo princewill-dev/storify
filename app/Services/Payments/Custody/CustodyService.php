@@ -259,7 +259,7 @@ final class CustodyService
         // failures, and a notification that cannot be written is the notification
         // channel's problem rather than a reason to un-credit a business that has
         // been paid.
-        $this->notifier->walletCredited($transaction, $netKobo);
+        $this->notifier->walletCredited($transaction);
 
         return true;
     }

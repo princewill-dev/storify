@@ -28,7 +28,7 @@
 
               <div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:6px;padding:12px 14px;margin-bottom:16px;">
                 <div style="font-weight:600;margin-bottom:4px;">Nothing has been lost.</div>
-                <div>The money is back in your {{ config('app.name') }} wallet and we will try again automatically.</div>
+                <div>The money is safe and we will try again automatically.</div>
               </div>
 
               <p style="margin:0 0 16px;">
@@ -66,15 +66,10 @@
                 </div>
               @endif
 
-              <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:12px 14px;margin-bottom:16px;">
-                <div style="font-weight:600;margin-bottom:6px;">Your wallet now</div>
-                <div style="font-size:18px;font-weight:700;">{{ $currency }} {{ $wallet }}</div>
-              </div>
-
               <p style="margin:0 0 12px;">
-                If the reason points at your payout account — a wrong number, a name that does not match, an account
+                If the reason points at your bank account — a wrong number, a name that does not match, an account
                 that cannot receive transfers — updating it in your dashboard is all that is needed, and the money
-                is sent on again automatically. If the reason is unclear, contact us and we will look at it with you.
+                is sent again automatically. If the reason is unclear, contact us and we will look at it with you.
               </p>
 
               @php($supportEmail = $c['email'] ?? config('mail.from.address'))

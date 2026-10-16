@@ -14,6 +14,7 @@ use App\Models\Payout;
 use App\Models\StoreBank;
 use App\Models\Transaction;
 use App\Models\User;
+use App\Support\Money\Naira;
 use Illuminate\Contracts\Mail\Mailable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Log;
@@ -61,13 +62,19 @@ use Illuminate\Support\Str;
 final class CustodyNotifier
 {
     /**
-     * A collected sale's share landed in the wallet.
+     * A customer paid — the business's first word of it.
      *
      * Written from {@see CustodyService::recordCollectedSale()} after the credit
-     * and after the `settle_at` claim, so the figures on it are the wallet's state
-     * once the money is in it.
+     * and after the `settle_at` claim. The credit is what triggers it; it is not
+     * what the message is about. Nothing here names a wallet, a share, a clearing
+     * period or a bank: a shopkeeper is told a payment landed, given the facts of
+     * it, and pointed at the dashboard.
+     *
+     * The figure is the **gross** — what the customer paid. It is the only number
+     * that pairs honestly with a processing fee printed beneath it, and the same
+     * fee the transaction list already shows as `processing_fee`.
      */
-    public function walletCredited(Transaction $transaction, int $netKobo): ?BusinessNotification
+    public function walletCredited(Transaction $transaction): ?BusinessNotification
     {
         $business = $transaction->business;
 
@@ -76,7 +83,9 @@ final class CustodyNotifier
         }
 
         $currency = (string) ($transaction->currency ?: config('custody.currency', 'NGN'));
-        $amount = $this->money($netKobo, $currency);
+        $grossKobo = Naira::koboFromRounded($transaction->amount);
+        $amount = $this->money($grossKobo, $currency);
+        $feeKobo = $transaction->processingFeeKobo();
 
         return $this->notify(
             business: $business,
@@ -88,13 +97,12 @@ final class CustodyNotifier
             level: BusinessNotification::LEVEL_SUCCESS,
             title: 'Payment received — '.$amount,
             body: sprintf(
-                '%s was added to your wallet%s. It is held while the payment finishes clearing, '
-                .'then it becomes payable and is sent to your bank automatically.',
+                'A new payment of %s was made%s. Please check your dashboard for more info.',
                 $amount,
                 $this->storeSuffix($transaction),
             ),
             subject: $transaction,
-            amountKobo: $netKobo,
+            amountKobo: $grossKobo,
             currency: $currency,
             metadata: [
                 // The sale's own reference, so the alert can be opened. The row
@@ -102,20 +110,28 @@ final class CustodyNotifier
                 // screens address a sale by its reference — an id the SPA has no
                 // route for is an alert that can be read and not followed.
                 'reference' => (string) $transaction->reference,
+                // The wallet's state at the moment of the credit. Not printed any
+                // more — the split is ours to run, not theirs to read — but this is
+                // the machine record of what the credit did, and the money tests
+                // read it.
                 'available_kobo' => (int) $business->available_balance,
                 'pending_kobo' => (int) $business->pending_balance,
                 'balance_kobo' => $business->walletBalance(),
                 'settle_at' => $transaction->settle_at?->toIso8601String(),
+                // The same accessor the dashboard prints, so an alert and the screen
+                // it points at cannot disagree about what was taken.
+                'processing_fee_kobo' => $feeKobo,
             ],
             mail: fn (User $user) => new WalletCreditedMail(
                 user: $user,
-                business: $business,
-                amountKobo: $netKobo,
-                currency: $currency,
-                pendingKobo: (int) $business->pending_balance,
-                availableKobo: (int) $business->available_balance,
+                amount: $amount,
+                // Omitted rather than shown as zero. A platform-bearing sale has no
+                // fee to report, and "Processing fee NGN 0.00" is a line that
+                // explains nothing; null is the honest absence.
+                fee: $feeKobo !== null && $feeKobo > 0 ? $this->money($feeKobo, $currency) : null,
                 storeName: $this->storeName($transaction),
                 reference: (string) $transaction->reference,
+                date: $transaction->paid_at?->toDayDateTimeString(),
             ),
         );
     }
@@ -173,7 +189,6 @@ final class CustodyNotifier
                 user: $user,
                 business: $business,
                 payout: $payout,
-                walletRemainingKobo: $business->walletBalance(),
                 bankName: $bankName,
             ),
         );
@@ -208,8 +223,8 @@ final class CustodyNotifier
             level: BusinessNotification::LEVEL_WARNING,
             title: 'Payout could not be sent — '.$amount,
             body: sprintf(
-                'We tried to send %s to %s ending %s and it was refused. Nothing was lost: the money is back in '
-                .'your wallet and we will try again automatically.%s',
+                'We tried to send %s to %s ending %s and it was refused. Nothing was lost: the money is safe '
+                .'and we will try again automatically.%s',
                 $amount,
                 $bankName ?? 'your bank account',
                 $this->lastFour((string) $payout->account_number),
@@ -224,13 +239,14 @@ final class CustodyNotifier
                 'failure_reason' => $payout->failure_reason,
                 'attempt' => $attempt,
                 'bank_code' => $payout->bank_code,
+                // Kept although nothing prints it: the record of what the refusal
+                // left in the wallet is what a reconciliation reads.
                 'wallet_balance_kobo' => $business->walletBalance(),
             ],
             mail: fn (User $user) => new PayoutFailedMail(
                 user: $user,
                 business: $business,
                 payout: $payout,
-                walletBalanceKobo: $business->walletBalance(),
                 bankName: $bankName,
             ),
         );
@@ -262,8 +278,8 @@ final class CustodyNotifier
             level: BusinessNotification::LEVEL_CRITICAL,
             title: 'Payout returned — '.$amount,
             body: sprintf(
-                'A transfer of %s to %s was sent back after it had landed. The money is in your wallet '
-                .'again and we will send it again automatically.%s',
+                'A transfer of %s to %s was sent back after it had landed. The money is safe and we will send '
+                .'it again automatically.%s',
                 $amount,
                 $bankName ?? 'your bank account',
                 $reason !== null && $reason !== '' ? ' Reason: '.$reason : '',
@@ -282,7 +298,6 @@ final class CustodyNotifier
                 user: $user,
                 business: $business,
                 payout: $payout,
-                walletBalanceKobo: $business->walletBalance(),
                 bankName: $bankName,
             ),
         );
@@ -313,7 +328,7 @@ final class CustodyNotifier
             title: 'Action needed — we cannot send your payouts',
             body: sprintf(
                 'We have tried to send money to %s ending %s %d times and your bank has refused it each time, '
-                .'so we have stopped trying. %s is still in your wallet and cannot be sent until the '
+                .'so we have stopped trying. %s is waiting to be sent to you and will go as soon as the '
                 .'account is corrected.%s',
                 $bank?->bank_name ?? 'your payout account',
                 $this->lastFour((string) $payout->account_number),
@@ -494,10 +509,17 @@ final class CustodyNotifier
         return $store?->name;
     }
 
+    /**
+     * Where the payment landed, as a clause: "…was made at Ada Store."
+     *
+     * Its only caller is {@see self::walletCredited()}, so the wording is free to
+     * be the plain one — the notification names the store the way a shopkeeper
+     * would, rather than explaining that the sale arrived through an order.
+     */
     private function storeSuffix(Transaction $transaction): string
     {
         $name = $this->storeName($transaction);
 
-        return $name !== null ? ' from your order at '.$name : '';
+        return $name !== null ? ' at '.$name : '';
     }
 }

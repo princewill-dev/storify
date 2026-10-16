@@ -36,7 +36,7 @@
                 <div style="font-weight:600;margin-bottom:6px;">Waiting to be paid to you</div>
                 <div style="font-size:22px;font-weight:700;">{{ $currency }} {{ $wallet }}</div>
                 <div style="color:#6b7280;font-size:12px;margin-top:4px;">
-                  Held in your {{ config('app.name') }} wallet. It will be sent as soon as this is fixed.
+                  This will be sent to you as soon as this is fixed.
                 </div>
               </div>
 
@@ -73,7 +73,7 @@
 
               <p style="margin:0 0 12px;">
                 Once you have updated it, reply to this email or contact our team so we can confirm the new account
-                and restart your payouts. Until then, no money will leave your wallet.
+                and restart your payouts. Until then, nothing will be sent.
               </p>
 
               @php($supportEmail = $c['email'] ?? config('mail.from.address'))

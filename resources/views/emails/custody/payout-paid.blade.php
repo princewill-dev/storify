@@ -26,8 +26,8 @@
               <h2 style="margin:0 0 12px;font-size:18px;">Payout sent</h2>
               <p style="margin:0 0 12px;">Hello {{ $user->name }},</p>
               <p style="margin:0 0 16px;">
-                We have sent a payout from your {{ config('app.name') }} wallet for
-                <strong>{{ $business->name }}</strong>. The money has left us and is on its way to your bank.
+                We have sent a payout for <strong>{{ $business->name }}</strong>. The money is on its way to
+                your bank.
               </p>
 
               <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:12px 14px;margin-bottom:16px;">
@@ -68,15 +68,10 @@
                 </table>
               </div>
 
-              <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:12px 14px;margin-bottom:16px;">
-                <div style="font-weight:600;margin-bottom:6px;">Left in your wallet</div>
-                <div style="font-size:18px;font-weight:700;">{{ $currency }} {{ $remaining }}</div>
-              </div>
-
               <p style="margin:0 0 12px;">
-                How long it takes to appear is up to your bank, not to us — most transfers land within minutes, but
-                some banks hold incoming credits until the next working day. Quote the reference above if you need to
-                ask them about it.
+                How quickly it appears is up to your bank. Most transfers land within minutes; some banks hold
+                incoming credits until the next working day. Quote the reference above if you need to ask them
+                about it.
               </p>
 
               @php($supportEmail = $c['email'] ?? config('mail.from.address'))
