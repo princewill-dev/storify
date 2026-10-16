@@ -12,6 +12,7 @@ use App\Services\Payments\Data\GatewayCredentials;
 use App\Services\Payments\Payouts\PayoutDestinationRef;
 use App\Services\Payments\Payouts\PayoutRail;
 use App\Services\Payments\Payouts\PayoutRailRegistry;
+use App\Services\Payments\Payouts\ProviderPayload;
 use App\Services\Payments\Payouts\TransferOutcome;
 use App\Services\Subscription\PlatformBillingGateway;
 use App\Support\Payments\SystemProcessor;
@@ -500,6 +501,200 @@ final class PayoutSweepService
                 'headroom' => $headroom,
             ],
         ];
+    }
+
+    /**
+     * How much more the provider would have to be holding to cover everything owed.
+     *
+     * **The reconciliation number.** A positive answer means the wallets record money
+     * owed to businesses that the provider's balance does not contain — the platform's
+     * books and the provider's disagree, and no amount of waiting changes that. Every
+     * business on the platform is gated off behind it, including businesses whose own
+     * provider settled perfectly well, so it is not a payment problem and pressing
+     * Retry will not touch it.
+     *
+     * It reads `liability` alone and **not** the four-term budget, and the omission of
+     * `headroom` is the whole care in this method. The budget nets off the fee reserve
+     * because the platform must not spend down to a figure that leaves nothing for the
+     * fee — but the fee reserve is not a debt to anybody. Folding it in here would
+     * report a provider holding exactly what it owes, and nothing more, as a platform
+     * that is short: a much more alarming claim than the facts support, made on the
+     * number an operator would then go and reconcile against.
+     *
+     * Returns zero when the gate could not measure at all. An unreadable provider is
+     * an unknown rather than a shortfall, and every caller here checks `measured`
+     * first for exactly that reason.
+     *
+     * @param  array<string, mixed>  $gate  {@see self::promotionGate()}'s answer
+     */
+    public function gateShortfallKobo(array $gate): int
+    {
+        $components = is_array($gate['components'] ?? null) ? $gate['components'] : null;
+
+        if ($components === null) {
+            return 0;
+        }
+
+        return max(
+            0,
+            (int) ($components['liability'] ?? 0) - (int) ($components['available'] ?? 0),
+        );
+    }
+
+    /**
+     * Whether the provider's balance could fund a payout at all right now.
+     *
+     * The question a caller asks before deciding that "nothing matured" means
+     * *wait*. There are two ways a budget comes back empty and they need opposite
+     * responses: the provider holds the money and it simply has not been released
+     * into this sale yet, which clears itself; or the provider does not hold it,
+     * which never clears itself.
+     *
+     * Deliberately not "is the shortfall zero", because a third state passes that
+     * test and is not benign either: a provider holding **exactly** what it owes, and
+     * not a naira more, cannot send anything — the fee is charged on top, so a
+     * transfer drawn against a balance that is already fully committed is refused for
+     * insufficient funds. It is not a reconciliation problem, but it is not a wait
+     * either, and an operator should hear about it.
+     *
+     * So the test is the budget itself, plus one escape: **a platform that owes
+     * nothing is not short of anything**, however little the provider is holding. That
+     * is the everyday shape of a settlement lag on a quiet day — the charge is on its
+     * way, no wallet claims it yet, and the right answer is to say nothing and look
+     * again later.
+     *
+     * @param  array<string, mixed>  $gate  {@see self::promotionGate()}'s answer
+     */
+    public function gateCanFundPayout(array $gate): bool
+    {
+        $components = is_array($gate['components'] ?? null) ? $gate['components'] : null;
+
+        if ($components === null) {
+            // Unmeasurable, which is the caller's to interpret — see `measured`. Not
+            // a statement about money either way.
+            return false;
+        }
+
+        if ((int) ($components['liability'] ?? 0) <= 0) {
+            return true;
+        }
+
+        return (int) ($gate['budget'] ?? 0) > 0;
+    }
+
+    /**
+     * Why a settlement produced no transfer, named precisely enough to act on.
+     *
+     * Lives here, beside {@see self::promotionGate()} whose four figures it reads,
+     * because two very different readers ask it the same question: the queued job,
+     * which puts the answer in the operator's alert, and the instant payout, which
+     * puts it on the sale's own log line. Both are looking at the same stall and
+     * both would otherwise be re-deriving a cause from the same four numbers, one
+     * of them getting it subtly wrong.
+     *
+     * **Not one reason but five, and they call for opposite things.** A provider
+     * that has not released a customer's money yet resolves itself; a refusal at the
+     * bank needs a person; a provider whose balance is short of what the platform
+     * owes across every business will not move however many times anything comes
+     * back, and is a reconciliation problem rather than a payment one. An operator
+     * deciding whether to press Retry now or to wait is choosing between those, and
+     * this is the only place that knows which they are looking at.
+     *
+     * The strings land inside `PayoutNotSentException`'s message and in the admin
+     * alert, so each is a clause rather than a sentence: lowercase, no full stop.
+     *
+     * @param  array<string, mixed>  $summary  the wallet read model, as the caller read it
+     * @param  array<string, mixed>  $gate  `promotionGate()`'s answer, empty when absent
+     */
+    public function stallReason(bool $refused, array $summary, array $gate): string
+    {
+        if ($refused) {
+            return 'the provider refused the transfer';
+        }
+
+        // Payable and unsent: the walk found money it was willing to send and no
+        // transfer came of it — a destination the bank refused, or a provider that
+        // could not be reached. Different from everything below, which is about
+        // money that never became payable in the first place.
+        if ((int) ($summary['payable_kobo'] ?? 0) > 0) {
+            return 'money was payable to this business and the send did not move it';
+        }
+
+        // Nothing payable, so the sale is still in `pending_balance`: it was due to
+        // mature and did not. From here on the gate's own terms are the answer.
+        if (($gate['measured'] ?? false) !== true) {
+            return 'the provider\'s balance could not be read, so a fresh sale is inside the conservative settlement window';
+        }
+
+        $components = is_array($gate['components'] ?? null) ? $gate['components'] : [];
+        $available = (int) ($components['available'] ?? 0);
+        $liability = (int) ($components['liability'] ?? 0);
+        $shortfall = $this->gateShortfallKobo($gate);
+
+        // Nothing owed anywhere: no wallet claims any part of the provider's
+        // balance, so a sale that did not mature is simply a charge that has not
+        // been released yet. The ordinary wait, on a platform where nothing is
+        // wrong, and the commonest way to arrive here.
+        //
+        // Asked **first**, and it has to be, for two reasons. On a quiet platform
+        // this is where every zero-budget sale lands, and any check ordered above it
+        // would report the fee reserve as a shortfall — alarming an operator about
+        // the headroom on the most ordinary day the platform has. And it is asked on
+        // `liability` alone rather than on both figures, because a provider holding
+        // money that no wallet claims is the same answer: there is money, and none
+        // of it is this sale's yet.
+        if ($liability <= 0) {
+            return 'the provider is not holding a released balance for these sales yet';
+        }
+
+        // The provider is holding less than the wallets say is owed. Named with all
+        // three figures, because this is the one stall of the five that the reader
+        // cannot act on from the sentence alone: it needs reconciling, and the size
+        // of the gap is where that starts.
+        if ($shortfall > 0) {
+            return sprintf(
+                'the provider holds %s but the platform owes %s across all businesses, %s short',
+                $this->money($available),
+                $this->money($liability),
+                $this->money($shortfall),
+            );
+        }
+
+        // Holding money, solvent, and the budget still came back empty — so what the
+        // provider holds is already committed: to the wallets this very subtraction
+        // just counted, to transfers in flight, or to the fee reserve. Nothing is
+        // missing, but nothing is free either, and the money this sale is waiting for
+        // will not appear until something else moves.
+        return sprintf(
+            'the provider\'s balance is already spoken for — %s held, %s owed, the rest reserved for transfers and fees',
+            $this->money($available),
+            $this->money($liability),
+        );
+    }
+
+    /** Kobo as a bare naira figure, for prose the operator reads. */
+    private function money(int $kobo): string
+    {
+        return 'NGN '.number_format($kobo / 100, 2);
+    }
+
+    /**
+     * The last four digits of an account number, or null when there are none.
+     *
+     * Enough to let a business and an operator agree they are looking at the same
+     * transfer, and not enough to be worth keeping out of a log file. The full
+     * number is on the payout row already; this is the copy that is allowed to
+     * travel.
+     */
+    private function lastFour(?string $accountNumber): ?string
+    {
+        $digits = preg_replace('/\D/', '', (string) $accountNumber);
+
+        if (! is_string($digits) || strlen($digits) < 4) {
+            return null;
+        }
+
+        return substr($digits, -4);
     }
 
     /**
@@ -1597,6 +1792,41 @@ final class PayoutSweepService
             'sent_at' => now(),
         ])->save();
 
+        // ---------------------------------------------------------------
+        // The request, and then the provider's answer to it
+        // ---------------------------------------------------------------
+        //
+        // Two lines per attempt, and they are the pair that answers the question
+        // everything else in this file only implies: *did the provider receive a
+        // payout request, and what did it say back?* Until now the log recorded
+        // what the platform decided — reserved, accepted, failed — and nothing that
+        // could be held against the provider's own dashboard. So the first thing
+        // anybody asked when a transfer was missing there was the one thing no line
+        // could answer, and the search moved to the provider's API logs.
+        //
+        // **`requesting` is logged before the call, not after it.** A request that
+        // leaves and never comes back is the case where the pair matters most: with
+        // only an after-the-fact line, a connection that hung and was killed leaves
+        // no trace at all, and "we never sent it" and "we sent it and nobody heard"
+        // are the two possibilities that need opposite responses. Logged first,
+        // every attempt has a beginning; `custody.payout.acknowledged` is its end,
+        // and an attempt with a beginning and no end is a request still out there.
+        //
+        // Neither line carries the account number or the account name. The last four
+        // digits and the provider's own destination id are enough to recognise a
+        // transfer in either system, and enough is what this gets — see
+        // {@see ProviderPayload} for why the full body is not safe to put here.
+        Log::info('custody.payout.requesting', [
+            'payout_id' => $payout->id,
+            'reference' => $payout->reference,
+            'business_id' => $payout->business_id,
+            'provider' => $context['provider'],
+            'amount_kobo' => (int) $payout->amount_kobo,
+            'attempt' => (int) $payout->attempts,
+            'destination_id' => (string) $destination->id,
+            'account_last_four' => $this->lastFour($payout->account_number),
+        ]);
+
         try {
             $outcome = $context['rail']->send(
                 $context['credentials'],
@@ -1610,14 +1840,49 @@ final class PayoutSweepService
             // before whatever this was, so it is unresolved rather than refused.
             // The reference makes a later retry the same request, and the
             // reconciler is what resolves it.
+            // Paired with the `requesting` line above: this one appearing without a
+            // `custody.payout.acknowledged` after it is what a request that left and
+            // was never answered looks like, and it is the reason `requesting` is
+            // written first. The message is ours, so it is not scrubbed — but it is
+            // capped, because a client library's exception can be very long.
             Log::error('custody.payout.send_threw', [
                 'payout_id' => $payout->id,
                 'reference' => $payout->reference,
-                'error' => $e->getMessage(),
+                'business_id' => $payout->business_id,
+                'provider' => $context['provider'],
+                'error' => ProviderPayload::scrubText($e->getMessage()),
+                'exception' => $e::class,
             ]);
 
             $outcome = TransferOutcome::indeterminate($e->getMessage());
         }
+
+        // The provider's answer, as it gave it. `ack` is the response body with
+        // every field that could identify a person or their bank stripped out —
+        // and it is logged even when empty, because Bachs answering `{}` and Bachs
+        // answering nothing at all are different facts about the same request.
+        //
+        // `outcome` is ours and `provider_status` is theirs, kept side by side
+        // rather than mapped onto each other: ours is what we did about it, theirs
+        // is the word the provider's own dashboard will be showing, and a support
+        // call is two people reading those two words off two screens.
+        Log::info('custody.payout.acknowledged', [
+            'payout_id' => $payout->id,
+            'reference' => $payout->reference,
+            'business_id' => $payout->business_id,
+            'provider' => $context['provider'],
+            'amount_kobo' => (int) $payout->amount_kobo,
+            'attempt' => (int) $payout->attempts,
+            'outcome' => $outcome->outcome,
+            'provider_status' => $outcome->providerStatus,
+            'transfer_id' => $outcome->transferId,
+            'failure_code' => $outcome->failureCode,
+            // A provider's refusal sentence frequently quotes the account holder's
+            // name or their account number, so the shapes are scrubbed out of it
+            // before it is written here.
+            'message' => ProviderPayload::scrubText($outcome->message),
+            'ack' => $outcome->raw === [] ? null : ProviderPayload::redact($outcome->raw),
+        ]);
 
         return $this->apply($payout, $outcome);
     }
@@ -1792,7 +2057,13 @@ final class PayoutSweepService
             'business_id' => $payout->business_id,
             'amount_kobo' => (int) $payout->amount_kobo,
             'failure_code' => $code,
-            'failure_reason' => $reason,
+            // The provider's own sentence, which is where a bank name, an account
+            // holder or an account number most often comes back to us — so the log
+            // copy is scrubbed. The row keeps the unscrubbed text, deliberately:
+            // the row is the record of what actually happened, and an operator
+            // acting on a refusal needs the provider's real words, not the version
+            // cleaned up for a log file.
+            'failure_reason' => ProviderPayload::scrubText($reason),
         ]);
 
         if (! $business instanceof Business) {

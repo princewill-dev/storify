@@ -276,9 +276,15 @@ final class BachsPayoutRail implements PayoutRail
      * which does carry the reference (`data.reference`, null only when none was
      * supplied, and we always supply one).
      *
-     * Statuses are `pending`, `processing`, `completed`, `failed`. The first three
-     * all mean the provider still has it and the money may yet move, so they all
-     * come back `accepted` and it is the caller that decides whether to keep
+     * **Statuses are `processing`, `completed`, `failed`.** Not `pending` — a
+     * transfer does not begin there, and the fallback below only says `pending`
+     * for a body that arrived without a status at all. Observed end to end
+     * against the live API: a ₦300 transfer read `processing` on acceptance and
+     * `completed` fourteen seconds later, with `total_debited` the amount plus
+     * Bachs' flat ₦50 fee.
+     *
+     * `processing` means the provider still has it and the money may yet move, so
+     * it comes back `accepted` and it is the caller that decides whether to keep
      * waiting. Only `failed` — with a `failure_reason` — is a refusal.
      */
     public function lookUp(

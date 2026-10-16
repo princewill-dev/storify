@@ -181,8 +181,12 @@ function pq57Provider(int $availableKobo = 50000000, int $payoutStatus = 200): v
             'pending_settlements_by_day' => [],
         ]),
         'sandbox-api.bachs.io/v1/payouts/destinations' => Http::response(['id' => 'pd_new', 'is_usable' => true]),
+        // `processing`, not `pending`: Bachs has no `pending` status for a
+        // transfer. It answers `processing` on acceptance and `completed` when
+        // the money lands — read off the live API, so a fixture that says
+        // `pending` is testing a provider that does not exist.
         'sandbox-api.bachs.io/v1/payouts' => $payoutStatus === 200
-            ? Http::response(['id' => 'pay_1', 'status' => 'pending'])
+            ? Http::response(['id' => 'pay_1', 'status' => 'processing'])
             : Http::response(['message' => 'Transfer declined'], $payoutStatus),
     ]);
 }
@@ -193,6 +197,7 @@ function pq57Run(int $businessId): void
     (new SettlePayouts($businessId))->handle(
         app(InstantPayoutService::class),
         app(WalletSummaryService::class),
+        app(PayoutSweepService::class),
     );
 }
 
@@ -320,7 +325,7 @@ test('money the provider never moved is retried even when nothing was refused', 
     Http::fake([
         'sandbox-api.bachs.io/v1/balances' => Http::response(['message' => 'Bad gateway'], 502),
         'sandbox-api.bachs.io/v1/payouts/destinations' => Http::response(['id' => 'pd_new', 'is_usable' => true]),
-        'sandbox-api.bachs.io/v1/payouts' => Http::response(['id' => 'pay_1', 'status' => 'pending']),
+        'sandbox-api.bachs.io/v1/payouts' => Http::response(['id' => 'pay_1', 'status' => 'processing']),
     ]);
 
     pq57Credited($business, 100000, $store);
@@ -913,16 +918,17 @@ test('a provider holding nothing is named as a settlement, not as a lost transfe
 });
 
 test('a balance spoken for elsewhere is named differently from a provider that has not paid', function () {
-    // Read, holding money, and short anyway — the platform's own liabilities have
-    // consumed the provider's balance. Also worth retrying, and worth retrying for
-    // a different reason: it clears when the other money leaves, not when the
-    // provider settles. Two incidents, two sentences, one retry.
+    // Read, holding money, and committed anyway — the provider holds exactly what
+    // the platform owes it and not a naira more, so the fee reserve leaves nothing
+    // to send with. Worth retrying, and for a different reason than a settlement
+    // lag: it clears when the other money moves, not when the provider settles.
+    // Two incidents, two sentences, one retry.
     pq57Platform();
     pq57Settings(['system_payment_processor' => 'bachs']);
 
     [, $business, $store] = pq57Business();
 
-    // Holding ₦100 and owing ₦1,000 — the provider is readable and has money, and
+    // Holding ₦100 and owing ₦100 — the provider is readable and has money, and
     // the money is not this business's.
     pq57Provider(10000);
 
@@ -948,7 +954,103 @@ test('a balance spoken for elsewhere is named differently from a provider that h
 
     expect($other->id)->not->toBe($business->id)
         ->and($caught)->toBeInstanceOf(PayoutNotSentException::class)
-        ->and($caught->reason)->toBe('the provider\'s available balance is short of what the platform owes across all businesses');
+        ->and($caught->reason)->toBe(
+            'the provider\'s balance is already spoken for — NGN 100.00 held, NGN 100.00 owed, '
+            .'the rest reserved for transfers and fees',
+        );
+});
+
+test('a platform whose wallets overstate the provider names the shortfall in naira', function () {
+    // The production shape, and the fault this vocabulary was widened for. Bachs
+    // answers truthfully with what it holds; the wallets record several times that
+    // as owed. Nothing about the state improves with time, every business is gated
+    // off behind it, and the sentence has to carry the size of the gap — it is the
+    // one stall of the five an operator cannot act on from the words alone.
+    pq57Platform();
+    pq57Settings(['system_payment_processor' => 'bachs']);
+
+    [, $business, $store] = pq57Business();
+
+    // Holding ₦1,382.15, and — across wallets the platform has already credited —
+    // owing ₦11,434.18.
+    pq57Provider(138215);
+
+    $other = Business::create([
+        'user_id' => createBusinessOwner()[0]->id,
+        'name' => 'Overstated PQ57 Trader',
+        'status' => 'active',
+    ]);
+
+    $other->forceFill(['available_balance' => 1143418])->save();
+
+    pq57Credited($business, 110250, $store);
+
+    Log::spy();
+
+    $caught = null;
+
+    try {
+        pq57Run((int) $business->id);
+    } catch (PayoutNotSentException $e) {
+        $caught = $e;
+    }
+
+    expect($caught)->toBeInstanceOf(PayoutNotSentException::class)
+        ->and($caught->reason)->toBe(
+            'the provider holds NGN 1,382.15 but the platform owes NGN 11,434.18 across all businesses, '
+            .'NGN 10,052.03 short',
+        );
+
+    // The two figures that make the line actionable, on the retry log as well as in
+    // the alert: `provider_can_fund` is what stopped the job waiting quietly, and
+    // `shortfall_kobo` is the amount to reconcile.
+    Log::shouldHaveReceived('warning')
+        ->withArgs(fn (string $message, array $context = []) => $message === 'custody.payout.retry'
+            && ($context['provider_can_fund'] ?? null) === false
+            && ($context['shortfall_kobo'] ?? null) === 1005203
+            && ($context['gate']['available'] ?? null) === 138215
+            && ($context['gate']['liability'] ?? null) === 1143418)
+        ->atLeast()->once();
+});
+
+test('a provider that cannot fund a payout is not waited on quietly', function () {
+    // The routing half of the same fault, and the reason the figures alone were not
+    // enough. Before this, a shortfall produced the identical record to a settlement
+    // lag and took the identical path: the job stood itself down and re-checked in
+    // an hour, then four, then twelve, and only then told anybody — by which point
+    // seventeen hours of an operator's chance to reconcile it had gone.
+    pq57Platform();
+    pq57Settings(['system_payment_processor' => 'bachs']);
+
+    [, $business, $store] = pq57Business();
+
+    pq57Provider(138215);
+
+    $other = Business::create([
+        'user_id' => createBusinessOwner()[0]->id,
+        'name' => 'Overstated PQ57 Trader',
+        'status' => 'active',
+    ]);
+
+    $other->forceFill(['available_balance' => 1143418])->save();
+
+    pq57Credited($business, 110250, $store);
+
+    Queue::fake();
+
+    $caught = null;
+
+    try {
+        pq57Run((int) $business->id);
+    } catch (PayoutNotSentException $e) {
+        $caught = $e;
+    }
+
+    // A real queue that could have deferred — and no deferral was queued, because
+    // this stall is not a wait.
+    expect($caught)->toBeInstanceOf(PayoutNotSentException::class);
+
+    Queue::assertNotPushed(SettlePayouts::class, fn (SettlePayouts $job): bool => $job->lagAttempt > 0);
 });
 
 test('a provider that cannot be read is named as the settlement window, not as a refusal', function () {
@@ -1089,7 +1191,7 @@ test('the first re-check is an hour out, and the last one twelve', function () {
     $third = new SettlePayouts((int) $business->id, null, 2);
 
     Queue::fake();
-    $second->handle(app(InstantPayoutService::class), app(WalletSummaryService::class));
+    $second->handle(app(InstantPayoutService::class), app(WalletSummaryService::class), app(PayoutSweepService::class));
 
     Queue::assertPushed(
         SettlePayouts::class,
@@ -1098,7 +1200,7 @@ test('the first re-check is an hour out, and the last one twelve', function () {
     );
 
     Queue::fake();
-    $third->handle(app(InstantPayoutService::class), app(WalletSummaryService::class));
+    $third->handle(app(InstantPayoutService::class), app(WalletSummaryService::class), app(PayoutSweepService::class));
 
     Queue::assertPushed(
         SettlePayouts::class,
@@ -1132,6 +1234,7 @@ test('when the settlement wait runs out, a person is told', function () {
         (new SettlePayouts((int) $business->id, null, $spent))->handle(
             app(InstantPayoutService::class),
             app(WalletSummaryService::class),
+            app(PayoutSweepService::class),
         );
     } catch (PayoutNotSentException $e) {
         $caught = $e;
@@ -1201,6 +1304,7 @@ test('an operator retry starts the patience over', function () {
     (new SettlePayouts((int) $business->id))->handle(
         app(InstantPayoutService::class),
         app(WalletSummaryService::class),
+        app(PayoutSweepService::class),
     );
 
     // First quiet look, an hour out — the chain restarted rather than continuing.
@@ -1278,4 +1382,281 @@ test('a business that is owed nothing at all is still not a candidate', function
 
     expect(collect($queue['businesses'])->pluck('id')->all())
         ->not->toContain((int) $business->id);
+});
+
+// ---------------------------------------------------------------------------
+// What the provider was sent, and what it said back
+// ---------------------------------------------------------------------------
+//
+// The user-visible gap this closes: a business's money had not moved, its log
+// showed the platform deciding not to send (a zero promotion budget), and nothing
+// anywhere recorded whether a payout request had reached the provider at all. The
+// provider's own dashboard — the first place anybody looks — said no such request
+// existed, and no line here could confirm or deny it.
+
+test('a payout request and the provider\'s answer to it are both logged', function () {
+    pq57Platform();
+    pq57Settings(['system_payment_processor' => 'bachs']);
+
+    [, $business, $store] = pq57Business();
+
+    // Deliberately *not* `pq57Provider()`: `Http::fake()` merges stubs rather
+    // than replacing them, and the earlier registration for the same URL wins —
+    // so calling the shared template here and then overriding it below silently
+    // keeps the template's two-key body and the test asserts against a response
+    // nobody wrote.
+    //
+    // The acceptance body, as Bachs actually shapes it: an envelope around the
+    // payout, carrying the destination it was drawn against — account number,
+    // account holder, the lot.
+    Http::fake([
+        'sandbox-api.bachs.io/v1/balances' => Http::response([
+            'account_id' => 'org_pq57',
+            'balances' => [['currency' => 'NGN', 'available_balance' => '500000.00', 'pending_balance' => '0.00']],
+        ]),
+        'sandbox-api.bachs.io/v1/payouts/destinations' => Http::response(['id' => 'pd_new', 'is_usable' => true]),
+        'sandbox-api.bachs.io/v1/payouts' => Http::response([
+            'id' => 'pay_ack_1',
+            'reference' => 'ack-reference',
+            'status' => 'processing',
+            'amount' => '1000.00',
+            'currency' => 'NGN',
+            'destination' => [
+                'id' => 'pd_new',
+                'account_number' => '0123456789',
+                'account_name' => 'ADA OKONKWO',
+                'bank_code' => '058',
+            ],
+            'customer' => ['email' => 'ada@example.com', 'phone' => '08031234567'],
+        ]),
+    ]);
+
+    pq57Credited($business, 100000, $store);
+
+    Log::spy();
+
+    pq57Run((int) $business->id);
+
+    // The request, before it went out. Its presence is what makes a missing answer
+    // legible: an attempt with a start and no acknowledgement is a request that is
+    // still out there, which is a different fact from one that was never made.
+    Log::shouldHaveReceived('info')
+        ->withArgs(fn (string $message, array $context = []) => $message === 'custody.payout.requesting'
+            && ($context['reference'] ?? null) === ($context['reference'] ?? '')
+            && ($context['amount_kobo'] ?? null) === 100000
+            && ($context['provider'] ?? null) === 'bachs'
+            && ($context['attempt'] ?? null) === 1
+            // Four digits, which is what a support call can match on, and not a
+            // digit more.
+            && ($context['account_last_four'] ?? null) === '6789'
+            && ! str_contains(json_encode($context), '0123456789'))
+        ->atLeast()->once();
+
+    // And the answer, carrying the provider's own status — the words its dashboard
+    // will be showing — beside ours.
+    Log::shouldHaveReceived('info')
+        ->withArgs(function (string $message, array $context = []): bool {
+            if ($message !== 'custody.payout.acknowledged') {
+                return false;
+            }
+            $encoded = json_encode($context);
+
+            return ($context['outcome'] ?? null) === 'accepted'
+                && ($context['provider_status'] ?? null) === 'processing'
+                && ($context['transfer_id'] ?? null) === 'pay_ack_1'
+                // The acknowledgement body is there…
+                && ($context['ack']['id'] ?? null) === 'pay_ack_1'
+                && ($context['ack']['status'] ?? null) === 'processing'
+                && ($context['ack']['amount'] ?? null) === '1000.00'
+                // …and every field that could name a person or their account is not.
+                && ($context['ack']['destination']['account_number'] ?? null) === '[redacted]'
+                && ($context['ack']['destination']['account_name'] ?? null) === '[redacted]'
+                // `customer` is scrubbed whole rather than field by field — the
+                // block is a person, and a nested walk of it would only be a longer
+                // way of saying the same thing.
+                && ($context['ack']['customer'] ?? null) === '[redacted]'
+                // The bank code is not a person and is not scrubbed — an operator
+                // checking whether the money went to the right bank needs it.
+                && ($context['ack']['destination']['bank_code'] ?? null) === '058'
+                && ! str_contains((string) $encoded, '0123456789')
+                && ! str_contains((string) $encoded, 'ADA OKONKWO')
+                && ! str_contains((string) $encoded, 'ada@example.com')
+                && ! str_contains((string) $encoded, '08031234567');
+        })
+        ->atLeast()->once();
+});
+
+test('a refusal is acknowledged with the provider\'s own code and a scrubbed sentence', function () {
+    pq57Platform();
+    pq57Settings(['system_payment_processor' => 'bachs']);
+
+    [, $business, $store] = pq57Business();
+
+    Http::fake([
+        'sandbox-api.bachs.io/v1/balances' => Http::response([
+            'account_id' => 'org_pq57',
+            'balances' => [['currency' => 'NGN', 'available_balance' => '500000.00', 'pending_balance' => '0.00']],
+        ]),
+        'sandbox-api.bachs.io/v1/payouts/destinations' => Http::response(['id' => 'pd_new', 'is_usable' => true]),
+        // Bachs' refusal prose is the shape that quotes the account back at us,
+        // which is exactly why it cannot go to the log as it arrived.
+        'sandbox-api.bachs.io/v1/payouts' => Http::response([
+            'code' => 'ACCOUNT_NAME_MISMATCH',
+            'message' => 'The account name for 0123456789 does not match. Contact ada@example.com or 08031234567.',
+        ], 422),
+    ]);
+
+    pq57Credited($business, 100000, $store);
+
+    Log::spy();
+
+    try {
+        pq57Run((int) $business->id);
+    } catch (PayoutNotSentException) {
+        // The refusal is the job's own retry, which is not what this test is about.
+    }
+
+    // The provider answered and refused, so this is the fast path — an incident,
+    // not a wait.
+    Log::shouldHaveReceived('info')
+        ->withArgs(fn (string $message, array $context = []): bool => $message === 'custody.payout.acknowledged'
+            && ($context['outcome'] ?? null) === 'refused'
+            && ($context['failure_code'] ?? null) === 'ACCOUNT_NAME_MISMATCH'
+            && ! str_contains((string) $context['message'], '0123456789')
+            && ! str_contains((string) $context['message'], 'ada@example.com')
+            && ! str_contains((string) $context['message'], '08031234567'))
+        ->atLeast()->once();
+
+    // The scrubbing is the log's, not the record's. The row keeps the provider's
+    // real words, because an operator acting on a refusal needs them.
+    $payout = Payout::query()->where('business_id', $business->id)->latest('id')->first();
+
+    expect($payout->failure_reason)->toContain('0123456789')
+        ->and($payout->failure_code)->toBe('ACCOUNT_NAME_MISMATCH');
+});
+
+test('a provider that accepts nothing and says nothing is still acknowledged', function () {
+    // Bachs answering an empty body and Bachs not answering at all are different
+    // facts about the same request — "it took it and told us nothing" versus "we
+    // never heard" — and the acknowledgement line has to be able to say which.
+    pq57Platform();
+    pq57Settings(['system_payment_processor' => 'bachs']);
+
+    [, $business, $store] = pq57Business();
+
+    Http::fake([
+        'sandbox-api.bachs.io/v1/balances' => Http::response([
+            'account_id' => 'org_pq57',
+            'balances' => [['currency' => 'NGN', 'available_balance' => '500000.00', 'pending_balance' => '0.00']],
+        ]),
+        'sandbox-api.bachs.io/v1/payouts/destinations' => Http::response(['id' => 'pd_new', 'is_usable' => true]),
+        'sandbox-api.bachs.io/v1/payouts' => Http::response([], 200),
+    ]);
+
+    pq57Credited($business, 100000, $store);
+
+    Log::spy();
+
+    pq57Run((int) $business->id);
+
+    Log::shouldHaveReceived('info')
+        ->withArgs(fn (string $message, array $context = []): bool => $message === 'custody.payout.acknowledged'
+            && ($context['outcome'] ?? null) === 'accepted'
+            && ($context['transfer_id'] ?? null) === null
+            && array_key_exists('ack', $context)
+            && $context['ack'] === null)
+        ->atLeast()->once();
+});
+
+test('a payout that never reaches the provider says so, and why', function () {
+    // The line that was missing when this was reported. No request appears in the
+    // provider's dashboard, and the log's own record of the sale — matured: 0,
+    // outcome: [] — is equally consistent with three unrelated causes. The cause is
+    // named on the sale's own line now, in the same words the alert uses, so the
+    // first thing anybody reads answers the question they came with.
+    pq57Platform();
+    pq57Settings(['system_payment_processor' => 'bachs']);
+
+    [, $business, $store] = pq57Business();
+
+    pq57Provider(138215);
+
+    $other = Business::create([
+        'user_id' => createBusinessOwner()[0]->id,
+        'name' => 'Overstated PQ57 Trader',
+        'status' => 'active',
+    ]);
+
+    $other->forceFill(['available_balance' => 1143418])->save();
+
+    $sale = pq57Credited($business, 110250, $store);
+
+    Log::spy();
+
+    // Entered the way production enters it — through the sale, which is what the
+    // webhook, the storefront return leg and the till all dispatch — rather than
+    // through `settle()` directly. The line this asserts on belongs to that path.
+    app(InstantPayoutService::class)->afterCollection($sale);
+
+    Log::shouldHaveReceived('info')
+        ->withArgs(fn (string $message, array $context = []): bool => $message === 'custody.payout.instant'
+            && ($context['matured'] ?? null) === 0
+            && ($context['outcome'] ?? null) === []
+            && ($context['nothing_sent'] ?? null) === 'the provider holds NGN 1,382.15 but the platform '
+                .'owes NGN 11,434.18 across all businesses, NGN 10,052.03 short'
+            && ($context['shortfall_kobo'] ?? null) === 1005203)
+        ->atLeast()->once();
+
+    // And no request was made. The absence is the assertion: before this change the
+    // only way to establish it was to go and look in the provider's dashboard.
+    Http::assertNotSent(fn ($request): bool => str_ends_with($request->url(), '/v1/payouts'));
+});
+
+test('a settlement lag says nothing was sent for the ordinary reason', function () {
+    // The other side of the same line, and the one that must not be described as a
+    // shortfall: the provider is readable, owes nothing to anybody, and has simply
+    // not released this charge yet. It fixes itself, and the log should read like
+    // it.
+    pq57Platform();
+    pq57Settings(['system_payment_processor' => 'bachs']);
+
+    [, $business, $store] = pq57Business();
+
+    pq57Provider(0);
+
+    $sale = pq57Credited($business, 100000, $store);
+
+    Log::spy();
+
+    app(InstantPayoutService::class)->afterCollection($sale);
+
+    Log::shouldHaveReceived('info')
+        ->withArgs(fn (string $message, array $context = []): bool => $message === 'custody.payout.instant'
+            && ($context['nothing_sent'] ?? null) === 'the provider is not holding a released balance for these sales yet'
+            && ($context['shortfall_kobo'] ?? null) === 0)
+        ->atLeast()->once();
+});
+
+test('a send that goes through says nothing about nothing being sent', function () {
+    // The null that keeps a grep honest: `nothing_sent` is present on every sale
+    // line, so only a value distinguishes a stall from a payout that worked.
+    pq57Platform();
+    pq57Settings(['system_payment_processor' => 'bachs']);
+
+    [, $business, $store] = pq57Business();
+
+    pq57Provider();
+
+    $sale = pq57Credited($business, 100000, $store);
+
+    Log::spy();
+
+    app(InstantPayoutService::class)->afterCollection($sale);
+
+    Log::shouldHaveReceived('info')
+        ->withArgs(fn (string $message, array $context = []): bool => $message === 'custody.payout.instant'
+            && array_key_exists('nothing_sent', $context)
+            && $context['nothing_sent'] === null
+            && ($context['outcome']['sent'] ?? null) === 1)
+        ->atLeast()->once();
 });

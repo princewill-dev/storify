@@ -176,6 +176,25 @@ class PromoteCustodyBalances extends Command
                 $this->money($gate['components']['headroom']),
                 $this->money((int) $gate['budget']),
             ));
+
+            // Said as its own line, and said loudly, because it is the one reading
+            // of the four figures above that an operator must not mistake for the
+            // ordinary wait. A provider holding less than the wallets say is owed
+            // is not slow, it is short: every business on the platform is gated
+            // off by it, no amount of time clears it, and the arithmetic that
+            // follows from it — which businesses' balances add up to the
+            // liability — is a reconciliation job rather than a payout one.
+            $shortfall = app(PayoutSweepService::class)->gateShortfallKobo($gate);
+
+            if ($shortfall > 0) {
+                $this->warn(sprintf(
+                    'The wallets say %s is owed but the provider holds %s — %s short. '
+                    .'Nothing will mature until that is reconciled, for any business.',
+                    $this->money($gate['components']['liability']),
+                    $this->money($gate['components']['available']),
+                    $this->money($shortfall),
+                ));
+            }
         }
 
         if ($budgetLimited > 0) {

@@ -149,6 +149,27 @@ final class InstantPayoutService
                 'matured' => $result['matured'],
             ]);
         } else {
+            $gate = is_array($result['gate'] ?? null) ? $result['gate'] : [];
+            $outcome = is_array($result['outcome'] ?? null) ? $result['outcome'] : [];
+
+            // Nothing matured and nothing was sent, which is the state that reads
+            // as a mystery: the customer paid, the sale is in the wallet, and no
+            // transfer exists anywhere. The four figures say what the gate was
+            // working from, but they are a subtraction, and an operator asking
+            // "why did no request reach the provider" should not have to perform
+            // it. So the cause is named here, in the same words the admin alert
+            // uses — one classifier, one vocabulary, whichever surface somebody
+            // happens to be reading.
+            //
+            // Only when the send genuinely did nothing. A refused transfer has its
+            // own line (`custody.payout.acknowledged`, then `custody.payout.failed`)
+            // and a payable-but-unmoved one is a different fact again; labelling
+            // either of those as "nothing to send" would be wrong in exactly the
+            // case somebody is reading carefully.
+            $nothingSent = $outcome === [] && (int) $result['matured'] === 0
+                ? $this->payouts->stallReason(false, ['payable_kobo' => 0], $gate)
+                : null;
+
             // `gate` is the terms the promotion budget was computed from, and it is
             // logged on the *success* path too — not only when something goes wrong.
             // A sale that matured nothing and sent nothing looks identical here
@@ -162,9 +183,19 @@ final class InstantPayoutService
                 'provider' => $transaction->settlementProviderCode(),
                 'matured' => $result['matured'],
                 'budget_measured' => $result['measured'],
-                'budget_kobo' => $result['gate']['budget'] ?? null,
-                'gate' => $result['gate']['components'] ?? null,
-                'outcome' => $result['outcome'],
+                'budget_kobo' => $gate['budget'] ?? null,
+                'gate' => $gate['components'] ?? null,
+                'outcome' => $outcome,
+
+                // Null when a transfer did happen, so a grep for a non-null value
+                // finds exactly the sales nothing was sent for.
+                'nothing_sent' => $nothingSent,
+
+                // How far the wallets overstate what the provider actually holds.
+                // Zero on a healthy platform and on the ordinary settlement lag;
+                // positive means money is recorded as owed that never arrived, and
+                // no amount of waiting will clear it.
+                'shortfall_kobo' => $this->payouts->gateShortfallKobo($gate),
             ]);
         }
 

@@ -89,6 +89,16 @@ use Throwable;
  * The two clocks are separate lists because the thing being waited for has a
  * different order of magnitude: minutes for a provider to come back, hours for money
  * to settle.
+ *
+ * **And two more states wearing the same disguise.** A sale also stays in
+ * `pending_balance` when the provider cannot fund a payout at all — because the
+ * wallets claim more than the provider actually holds, or because what it holds is
+ * already fully committed to other payouts and the fee. The record is identical to a
+ * settlement lag; the correct response is the opposite. Neither clears with time,
+ * every sale behind them is gated off, and waiting only delays the reconciliation.
+ * Those are *not* quiet — the quiet path is conditioned on
+ * {@see PayoutSweepService::gateCanFundPayout()}, so they take the fast clock and
+ * reach `failed()` and an operator.
  */
 final class SettlePayouts implements ShouldQueue
 {
@@ -234,8 +244,11 @@ final class SettlePayouts implements ShouldQueue
         return array_values(array_map(static fn ($gap): int => max(1, (int) $gap) * 60, $minutes));
     }
 
-    public function handle(InstantPayoutService $instant, WalletSummaryService $wallet): void
-    {
+    public function handle(
+        InstantPayoutService $instant,
+        WalletSummaryService $wallet,
+        PayoutSweepService $sweep,
+    ): void {
         $business = Business::query()->find($this->businessId);
 
         // The business is gone. There is nobody to pay and nobody to tell.
@@ -298,28 +311,47 @@ final class SettlePayouts implements ShouldQueue
         // The provider was read, it refused nothing, nothing was payable, and a sale
         // is sitting in `pending_balance`. That is a charge the provider has recorded
         // but not yet released — it settles on its own schedule and the money becomes
-        // sendable with no action from anybody. The identical record is produced by a
-        // platform balance that other businesses' money has already spoken for, which
-        // also clears itself, just less predictably.
+        // sendable with no action from anybody.
         //
-        // Neither is a reason to spend three attempts inside the hour and email an
+        // That is not a reason to spend three attempts inside the hour and email an
         // operator. The whole point of the retry budget is that reaching its end means
         // something needs a person; spending it on a payment that was never sendable
         // makes the alert routine, and a routine alert is one nobody reads on the day
         // it means something.
         //
-        // The four conditions are deliberately narrow. `refused` covers a refusal and
+        // ---------------------------------------------------------------
+        // …and the states that look exactly like it and are not
+        // ---------------------------------------------------------------
+        //
+        // A sale can also sit in `pending_balance` while the provider cannot fund
+        // anything at all — because the platform's wallets claim more than the
+        // provider's balance contains, or because what it holds is already fully
+        // committed. **Those are the shapes this must not wait out.** Nothing about
+        // either improves with time, every sale behind them is gated off, and left on
+        // the quiet clock this would have reported nothing for seventeen hours and
+        // then complained in the wrong terms — having told nobody while an operator
+        // still had a chance to reconcile it.
+        //
+        // So "the provider could actually send something" is a condition of the quiet
+        // path, not an afterthought. It is read by the sweep, from the same four
+        // figures the reason is composed from, so the decision to stay quiet and the
+        // sentence explaining the eventual alert can never disagree about which state
+        // this was.
+        //
+        // The five conditions are deliberately narrow. `refused` covers a refusal and
         // a transfer still inside its own backoff window; `measured !== true` covers a
         // provider that could not be read, which is the provider being *down* and is
-        // exactly what the fast clock is for; and `payable_kobo === 0` excludes the
-        // case where the walk was willing to send and sent nothing, which is trouble
-        // whatever the reason.
+        // exactly what the fast clock is for; `$fundable` excludes a provider that
+        // cannot pay anybody; and `payable_kobo === 0` excludes the case where the
+        // walk was willing to send and sent nothing, which is trouble whatever the
+        // reason.
         $waitingOnProvider = ! $refused
             && ($result['measured'] ?? false) === true
+            && $sweep->gateCanFundPayout($gate)
             && (int) ($summary['payable_kobo'] ?? 0) === 0
             && (int) ($summary['pending_kobo'] ?? 0) > 0;
 
-        if ($waitingOnProvider && $this->recheckLater()) {
+        if ($waitingOnProvider && $this->recheckLater($gate)) {
             return;
         }
 
@@ -347,12 +379,21 @@ final class SettlePayouts implements ShouldQueue
             // already known.
             'budget_kobo' => $gate['budget'] ?? null,
             'gate' => $gate['components'] ?? null,
+
+            // Whether the provider could have funded a payout at all, which is the
+            // single figure that separates the two stalls this line has to
+            // distinguish. False means the balance is short or fully committed and
+            // the money will not move on its own, however many times this comes
+            // back; true means it is only a matter of what has been released yet.
+            'provider_can_fund' => $sweep->gateCanFundPayout($gate),
+            'shortfall_kobo' => $sweep->gateShortfallKobo($gate),
+
             'outcome' => $result['outcome'] ?? null,
         ]);
 
         throw new PayoutNotSentException(
             $business,
-            $this->stallReason($refused, $summary, $gate),
+            $sweep->stallReason($refused, $summary, $gate),
             $attempt,
             $this->tries(),
         );
@@ -384,8 +425,10 @@ final class SettlePayouts implements ShouldQueue
      * Returns false when the chain is spent, which is not a failure: the business has
      * had every check this platform is willing to make quietly, and the caller's throw
      * is what turns that into a person being told.
+     *
+     * @param  array<string, mixed>  $gate  the terms the quiet decision was made on
      */
-    private function recheckLater(): bool
+    private function recheckLater(array $gate): bool
     {
         // **A queue that cannot defer cannot re-check.** On the `sync` driver
         // `later()` ignores its delay and runs the job inline, so a re-check would
@@ -423,6 +466,16 @@ final class SettlePayouts implements ShouldQueue
             'check' => $this->lagAttempt + 1,
             'of' => count($schedule),
             'next_check_in_minutes' => $minutes,
+
+            // The figures that decided this was the quiet path rather than an
+            // alert. A quiet line that says only "waiting" is unfalsifiable: it
+            // reads the same for money the provider is about to release and for a
+            // platform that is short and will never release it. The terms are what
+            // let somebody reading back through the log tell which of the two this
+            // actually was, hours later, without reproducing the arithmetic against
+            // provider state that has since moved.
+            'budget_kobo' => $gate['budget'] ?? null,
+            'gate' => $gate['components'] ?? null,
         ]);
 
         try {
@@ -445,60 +498,6 @@ final class SettlePayouts implements ShouldQueue
 
             return false;
         }
-    }
-
-    /**
-     * Why the money did not move, named precisely enough to act on.
-     *
-     * The string lands inside the exception's message and in the admin alert, so it
-     * is a clause rather than a sentence: lowercase, no full stop, readable in the
-     * parentheses of `Payout for business #12 was not sent (…) — attempt 1 of 3.`
-     *
-     * **Not one reason but four, and they call for opposite things.** The previous
-     * single string — "the money never left the wallet" — was true of all of them
-     * and therefore told nobody anything. A provider that has not released a
-     * customer's money yet resolves itself; a refusal at the bank needs a person; a
-     * balance that another business's stranded money is sitting on will not move
-     * however many times this job comes back. An operator reading the alert is
-     * deciding which of those they are looking at, and this is the only place that
-     * knows.
-     *
-     * @param  array<string, mixed>  $summary  the wallet read model, as the caller read it
-     * @param  array<string, mixed>  $gate  `promotionGate()`'s answer, empty when absent
-     */
-    private function stallReason(bool $refused, array $summary, array $gate): string
-    {
-        if ($refused) {
-            return 'the provider refused the transfer';
-        }
-
-        // Payable and unsent: the walk found money it was willing to send and no
-        // transfer came of it — a destination the bank refused, or a provider that
-        // could not be reached. Different from everything below, which is about
-        // money that never became payable in the first place.
-        if ((int) ($summary['payable_kobo'] ?? 0) > 0) {
-            return 'money was payable to this business and the send did not move it';
-        }
-
-        // Nothing payable, so the sale is still in `pending_balance`: it was due to
-        // mature and did not. From here on the gate's own terms are the answer.
-        if (($gate['measured'] ?? false) !== true) {
-            return 'the provider\'s balance could not be read, so a fresh sale is inside the conservative settlement window';
-        }
-
-        $components = is_array($gate['components'] ?? null) ? $gate['components'] : [];
-
-        // Read, and holding nothing: the customer's charge has arrived but the
-        // provider has not settled it, so there is genuinely nothing to send yet.
-        // The case the retry exists for, and the one that fixes itself.
-        if ((int) ($components['available'] ?? 0) <= 0) {
-            return 'the provider is not holding a released balance for these sales yet';
-        }
-
-        // Read, holding money, and the gate still came back empty — so the
-        // platform's spendable balance is already accounted for by what it owes
-        // elsewhere, by transfers already in flight, or by the fee headroom.
-        return 'the provider\'s available balance is short of what the platform owes across all businesses';
     }
 
     /**
