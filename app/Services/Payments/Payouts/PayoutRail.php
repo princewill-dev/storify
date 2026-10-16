@@ -35,15 +35,48 @@ interface PayoutRail
     public function code(): string;
 
     /**
+     * The banks this provider can pay to, in its own code space.
+     *
+     * **This is what makes a processor switch possible at all.** A bank code is
+     * only meaningful inside the list it came from, so translating one provider's
+     * code into another's requires asking the other for its list — there is no
+     * shared numbering to lean on, and the two disagree on exactly the banks a
+     * Nigerian shop is most likely to use.
+     *
+     * Each entry is `['code' => string, 'name' => string, 'nibss' => string|null]`:
+     * the code a payout takes, the name this provider uses, and the NIBSS number
+     * where it exposes one separately. `nibss` matters because Bachs numbers 94 of
+     * its 286 banks differently from NIBSS while keeping the NIBSS number in its own
+     * field, and without it those entries would be unreachable from a code that
+     * came from Paystack.
+     *
+     * **`nibss` is nullable and `code` and `name` are not.** A row missing either
+     * is dropped by the caller rather than guessed at.
+     *
+     * Returns an empty array when the provider cannot be asked — never a partial
+     * list, and never a throw. A caller that read "could not ask" as "has no banks"
+     * would refuse every payout account on the platform for the length of a DNS
+     * blip, which is the same failure mode {@see availableBalance()} guards against.
+     *
+     * @return array<int, array{code: string, name: string, nibss: string|null}>
+     */
+    public function banks(GatewayCredentials $credentials): array;
+
+    /**
      * Register a bank account as a payout destination, or return the one that
      * already exists.
      *
-     * **Idempotent by requirement, not by convenience.** The send may create a
-     * destination for the same business repeatedly — after a processor switch,
-     * after a failure, on every attempt until one succeeds — so an implementation
-     * that opened a new destination each time would accumulate them at the
-     * provider. Paystack returns the existing recipient for a duplicate account
-     * number; Bachs is matched on what comes back.
+     * **Treat this as creating something, not as finding it.** The obvious reading
+     * — that a provider recognises an account it has already been given and hands
+     * back the same destination — is documented by both providers and was measured
+     * false on Bachs: three identical registrations returned three different ids.
+     * So an implementation that is called repeatedly accumulates destinations at
+     * the provider, and the guard against that belongs to the caller rather than
+     * here.
+     *
+     * That guard is to call this **once, when a business names its payout account**,
+     * and store the id against that account. Nothing on the payout path registers a
+     * destination; the send is handed one that already exists.
      */
     public function ensureDestination(
         GatewayCredentials $credentials,

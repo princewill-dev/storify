@@ -32,6 +32,79 @@ final class BachsPayoutRail implements PayoutRail
     }
 
     /**
+     * `GET /v1/payouts/banks` — the codes Bachs will accept on a destination.
+     *
+     * Wrapped in `banks` rather than returned bare, and that is read defensively
+     * along with a `data` envelope: a provider that moves the list into an envelope
+     * should not silently look like a provider with no banks, which is the one
+     * answer the caller treats as a refusal to pay anyone.
+     *
+     * `nibss_bank_code` is carried through even though `code` is what a payout
+     * takes, because they differ on 94 of the 286 rows and the NIBSS number is
+     * frequently the one that matches a code from another provider.
+     *
+     * @return array<int, array{code: string, name: string, nibss: string|null}>
+     */
+    public function banks(GatewayCredentials $credentials): array
+    {
+        try {
+            $response = BachsApi::client($credentials)
+                ->get(BachsApi::baseUrl().'/payouts/banks');
+        } catch (\Throwable $e) {
+            Log::warning('bachs.payout.banks_unreachable', ['error' => $e->getMessage()]);
+
+            return [];
+        }
+
+        if (! $response->successful()) {
+            Log::warning('bachs.payout.banks_refused', ['status' => $response->status()]);
+
+            return [];
+        }
+
+        $body = $response->json() ?? [];
+        $rows = $body['banks'] ?? $body['data']['banks'] ?? $body['data'] ?? [];
+
+        if (! is_array($rows)) {
+            Log::warning('bachs.payout.banks_unreadable', ['keys' => array_keys($body)]);
+
+            return [];
+        }
+
+        $banks = [];
+
+        foreach ($rows as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+
+            $code = $row['code'] ?? null;
+            $name = $row['name'] ?? null;
+
+            if (! is_string($code) && ! is_int($code)) {
+                continue;
+            }
+
+            if (! is_string($name) || trim($name) === '') {
+                continue;
+            }
+
+            $nibss = $row['nibss_bank_code'] ?? null;
+
+            $banks[] = [
+                // As a string, because that is how it is compared and how Bachs
+                // ends up receiving it — a numeric-string key is a JSON number to
+                // PHP, and Bachs answers that with a 400 rather than a payout.
+                'code' => (string) $code,
+                'name' => trim($name),
+                'nibss' => is_string($nibss) && $nibss !== '' ? $nibss : null,
+            ];
+        }
+
+        return $banks;
+    }
+
+    /**
      * `POST /v1/payouts/destinations`, on the platform's own organisation.
      *
      * **No `X-Account-Id`, and the empty string is what guarantees it.** The
@@ -43,10 +116,21 @@ final class BachsPayoutRail implements PayoutRail
      * defeats that fallback rather than relying on the platform credentials
      * happening not to have an id today.
      *
-     * Idempotence is the provider's, not ours: registering the same bank twice
-     * against the same organisation returns the destination that already exists,
-     * which is why the send can call this on every attempt without accumulating
-     * destinations.
+     * **Not idempotent, whatever the provider's documentation implies.** Three
+     * identical registrations of the same account were measured against the live
+     * API and returned three different destination ids, so a caller that registers
+     * on every attempt accumulates a destination each time. The guard against that
+     * is ours, not Bachs': the destination is registered once when the business
+     * names the account and the id is stored against it.
+     *
+     * **A wrong bank code is accepted, and the account name is no proof it was
+     * right.** Registering an Opay account number with GTBank's `058` returns
+     * `200`, `approved`, `is_usable: true`, and the correct account holder's name —
+     * because the name resolves from the account number and the code plays no part
+     * in it. So `is_usable` here says the account exists, not that it exists at the
+     * bank we named, and this rail cannot be used to validate a bank code. That is
+     * why the code is matched against Bachs' own list before it ever reaches here;
+     * see {@see BankDirectory}.
      */
     public function ensureDestination(
         GatewayCredentials $credentials,
@@ -69,7 +153,11 @@ final class BachsPayoutRail implements PayoutRail
         } catch (\Throwable $e) {
             Log::error('bachs.payout.destination_unreachable', ['error' => $e->getMessage()]);
 
-            return PayoutDestinationRef::refused('Bachs could not be reached to register this bank account.');
+            // Indeterminate, not refused. The request may have arrived before the
+            // connection dropped, and Bachs does not deduplicate — so a
+            // registration reported as refused here could have created a
+            // destination that nobody knows about.
+            return PayoutDestinationRef::indeterminate('Bachs could not be reached to register this bank account.');
         }
 
         $body = $response->json() ?? [];
@@ -95,7 +183,11 @@ final class BachsPayoutRail implements PayoutRail
         if (! is_string($id) || $id === '') {
             Log::error('bachs.payout.destination_without_id', ['keys' => array_keys($body)]);
 
-            return PayoutDestinationRef::refused(
+            // The destination was created and we cannot name it — the worst case
+            // for an "indeterminate", and still not a refusal. Saying the bank
+            // account was rejected because we lost the reply would be a lie about
+            // the business's account.
+            return PayoutDestinationRef::indeterminate(
                 'Bachs registered the bank account but did not return its id. It has been logged.',
                 $body,
             );

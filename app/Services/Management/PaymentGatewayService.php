@@ -4,8 +4,10 @@ namespace App\Services\Management;
 
 use App\Models\Business;
 use App\Models\Store;
+use App\Models\StoreBank;
 use App\Models\User;
 use App\Services\ActivityRecorder;
+use App\Services\Payments\Payouts\PayoutBankResolver;
 use App\Services\Subscription\PlatformBillingGateway;
 use App\Support\Payments\CredentialCipher;
 use App\Support\Payments\GatewayGrant;
@@ -46,6 +48,8 @@ use Illuminate\Validation\ValidationException;
  */
 final class PaymentGatewayService
 {
+    public function __construct(private readonly PayoutBankResolver $payoutBanks) {}
+
     /**
      * @param  array<string, mixed>  $config
      */
@@ -181,6 +185,25 @@ final class PaymentGatewayService
             throw ValidationException::withMessages([
                 'account_number' => 'We could not match those details to an account on your business. Add the bank account first, then choose it from your list.',
             ]);
+        }
+
+        // **This is the moment the account becomes a destination for real money**,
+        // so it is the moment to find out whether the provider can actually pay
+        // into it — the same rule the setup step applies to a business's first
+        // account, applied again here because a business can repoint at any of its
+        // accounts later. Without it the first account is checked and every
+        // subsequent repoint is not, which is the same class of bug as not checking
+        // at all, arriving later and harder to connect to anything.
+        //
+        // Read from the answer already on file rather than asked again. The account
+        // was resolved when it was added, so asking here would register a *second*
+        // destination at Bachs — which does not deduplicate — every time a business
+        // changed which of its accounts pays out. And a business naming its own
+        // account is not a moment to depend on a provider being reachable.
+        $bankRow = StoreBank::query()->find($bankId);
+
+        if ($bankRow !== null) {
+            $this->payoutBanks->guardStored($bankRow);
         }
 
         // The store's own column when a store was named, the business's

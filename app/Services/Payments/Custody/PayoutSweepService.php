@@ -9,6 +9,9 @@ use App\Models\Store;
 use App\Models\StoreBank;
 use App\Services\Accounting\LedgerPostingService;
 use App\Services\Payments\Data\GatewayCredentials;
+use App\Services\Payments\Payouts\BankDirectory;
+use App\Services\Payments\Payouts\PayoutBankResolution;
+use App\Services\Payments\Payouts\PayoutBankResolver;
 use App\Services\Payments\Payouts\PayoutDestinationRef;
 use App\Services\Payments\Payouts\PayoutRail;
 use App\Services\Payments\Payouts\PayoutRailRegistry;
@@ -209,6 +212,8 @@ final class PayoutSweepService
         private readonly PayoutHoldService $holds,
         private readonly CustodyNotifier $notifier,
         private readonly PlatformPayoutNotifier $platform,
+        private readonly PayoutBankResolver $payoutBanks,
+        private readonly BankDirectory $directory,
     ) {}
 
     /**
@@ -1083,6 +1088,197 @@ final class PayoutSweepService
     }
 
     /**
+     * Close out every payout that has not finished, without sending anything.
+     *
+     * ## Why this exists
+     *
+     * A payout row is a claim on money: the reservation is taken off the wallet and
+     * the sales behind it are committed, and nothing but a terminal status gives
+     * either of them back. So a row left open is money the business is owed, sitting
+     * outside the balance they can see, holding the promotion budget down and making
+     * whichever business owns it look blocked — for as long as it is open.
+     *
+     * The rows this is for are the ones written while the payout path was broken,
+     * plus the ones a sweep that no longer runs would have carried. They are not
+     * going to be sent and never were; the only thing left to decide about them is
+     * how they end.
+     *
+     * This is a one-time clear-up and must never become a payout path: it sends
+     * nothing, asks no provider anything, and its whole job is to put the rows it
+     * finds into a terminal state honestly.
+     *
+     * ## What each status means here
+     *
+     * - **`pending`** — reserved and never handed to a provider. The money is
+     *   certainly still ours, so it is credited back and the sales are released:
+     *   byte for byte the treatment {@see self::fail()} gives a refusal, without the
+     *   notification, because a business is told a payout failed and this is not
+     *   that.
+     * - **`failed`** — already had its reservation released by {@see self::fail()},
+     *   so no money moves and only the row lingers. Closed for exactly the reason
+     *   {@see self::clearFailures()} closes one: so the retry ceiling, the backoff
+     *   and the admin alert stop counting it as something that happened.
+     * - **`processing`** — **left alone unless asked for.** It *was* handed to a
+     *   provider, and the provider has not said what became of it. Crediting the
+     *   money back is releasing a reservation on a transfer that may still land,
+     *   which pays the business twice and is worse than leaving the row open. Its
+     *   real routes out are the provider's webhook and {@see self::reconcile()}.
+     *   `$includeProcessing` overrides this for an operator who has confirmed with
+     *   the provider that the transfer is gone.
+     *
+     * ## The quiet window, and the race it is for
+     *
+     * {@see self::dispatch()} does not claim a row before it calls the provider: it
+     * stamps `sent_at` and then makes the request. So a `pending` row can be
+     * mid-send while this runs — and closing one of those credits its money back
+     * *and* lets the transfer land, which pays the business twice.
+     *
+     * `$quiescentMinutes` excludes any row touched inside that many minutes, which
+     * is the cheapest way to not step on a worker that is sending right now: a row
+     * being dispatched has just had `sent_at` written. Zero disables the guard, for
+     * a caller that knows nothing is running — the tests do.
+     *
+     * @param  Business|null  $business  limit to one business, or null for all
+     * @param  bool  $includeProcessing  also close rows already handed to a provider
+     * @param  int  $quiescentMinutes  skip rows touched more recently than this
+     * @return array{closed: int, restored_kobo: int, by_status: array<string, int>}
+     */
+    public function closeOutstanding(
+        ?Business $business = null,
+        bool $includeProcessing = false,
+        int $quiescentMinutes = 0,
+    ): array {
+        $closed = 0;
+        $restoredKobo = 0;
+        $byStatus = [];
+
+        foreach ($this->closeableQuery($business, $includeProcessing, $quiescentMinutes)->get() as $payout) {
+            $was = $this->closeOut($payout);
+
+            if ($was === null) {
+                continue;
+            }
+
+            $closed++;
+            $byStatus[$was] = ($byStatus[$was] ?? 0) + 1;
+
+            // What went back to wallets, which is the number an operator most wants
+            // off this command: a `failed` row restores nothing because it already
+            // did.
+            if ($was !== Payout::STATUS_FAILED) {
+                $restoredKobo += (int) $payout->amount_kobo;
+            }
+        }
+
+        return [
+            'closed' => $closed,
+            'restored_kobo' => $restoredKobo,
+            'by_status' => $byStatus,
+        ];
+    }
+
+    /**
+     * The rows {@see self::closeOutstanding()} would act on.
+     *
+     * Public and shared with the command so the list an operator approves and the
+     * list that gets closed are the same rows by construction — a preview built
+     * from its own query is how a destructive command ends up doing something the
+     * person who said yes never saw.
+     *
+     * @return Builder<Payout>
+     */
+    public function closeableQuery(
+        ?Business $business = null,
+        bool $includeProcessing = false,
+        int $quiescentMinutes = 0,
+    ): Builder {
+        $statuses = [Payout::STATUS_PENDING, Payout::STATUS_FAILED];
+
+        if ($includeProcessing) {
+            $statuses[] = Payout::STATUS_PROCESSING;
+        }
+
+        return Payout::query()
+            ->whereIn('status', $statuses)
+            ->when($business !== null, fn (Builder $query) => $query->where('business_id', $business->id))
+            ->when(
+                $quiescentMinutes > 0,
+                fn (Builder $query) => $query->where('updated_at', '<=', now()->subMinutes($quiescentMinutes)),
+            )
+            ->orderBy('id');
+    }
+
+    /**
+     * One payout, closed out and its money given back where it is certainly ours.
+     *
+     * @return string|null the status it was closed from, or null when it was not
+     *                     ours to close
+     */
+    private function closeOut(Payout $payout): ?string
+    {
+        $was = (string) $payout->status;
+
+        // Claimed by condition, and by the status we actually read rather than by
+        // the set we asked for: a row that stopped being `pending` between the read
+        // and this write — a late webhook settling it — is left exactly as it now
+        // is. Same shape as every other transition on this table.
+        $claimed = Payout::query()
+            ->whereKey($payout->id)
+            ->where('status', $was)
+            ->update(['status' => Payout::STATUS_CANCELLED]);
+
+        if ($claimed === 0) {
+            return null;
+        }
+
+        // Only for a row that never reached the provider. A `failed` row has had
+        // this done to it already, and doing it twice would invent money the
+        // provider never sent.
+        $restore = $was !== Payout::STATUS_FAILED;
+
+        $business = $payout->business;
+
+        if ($restore && $business instanceof Business) {
+            $this->wallet->restoreRefusedPayout($business, (int) $payout->amount_kobo);
+        }
+
+        if ($restore) {
+            // The sales are owed again, so the attribution stops claiming them —
+            // after the wallet credit, like `fail()`, so the money is back before
+            // the record says the claim is gone.
+            $this->allocations->release($payout);
+        }
+
+        // Through the model rather than the update above, because `meta` is cast
+        // and the query builder would write a hand-encoded string.
+        $payout->refresh();
+        $payout->forceFill([
+            'meta' => array_merge($payout->meta ?? [], [
+                'cancelled_reason' => 'outstanding_close_out',
+                'cancelled_at' => now()->toIso8601String(),
+                // Kept because the interesting question about a closed row is
+                // always "closed from where", and the column it was closed from no
+                // longer says.
+                'cancelled_from' => $was,
+            ]),
+        ])->save();
+
+        Log::warning('custody.payout.closed_out', [
+            'payout_id' => $payout->id,
+            'reference' => $payout->reference,
+            'business_id' => $payout->business_id,
+            'from_status' => $was,
+            'amount_kobo' => (int) $payout->amount_kobo,
+            // Whether this call is the one that moved money. The difference between
+            // a row that gave a business its balance back and one that only stopped
+            // counting against it, which is the whole substance of the command.
+            'restored' => $restore,
+        ]);
+
+        return $was;
+    }
+
+    /**
      * Every refusal on this business's record since money last reached it.
      *
      * One definition with four readers — the ceiling that stops the attempts, the
@@ -1888,17 +2084,41 @@ final class PayoutSweepService
     }
 
     /**
-     * The destination to send to, registered on first use and reused after.
+     * The destination to send to, taken from what the platform already knows.
      *
-     * Read from the row rather than the business, because a payout already in
-     * flight has to keep going where it was reserved for even if the business
-     * changes its bank in the meantime — the row is the snapshot, and this is one
-     * of the two places that depends on it.
+     * ## Where it comes from, and why it is not created here
+     *
+     * The business named this account once, and the destination was registered
+     * against it *then* — see {@see PayoutBankResolver} — because registering here
+     * is what made this the slowest and most wrong part of a payout:
+     *
+     * - **Wrong**, because the code on the row is a *Paystack* code, since the
+     *   bank picker is Paystack's list, and Bachs numbers the same institutions
+     *   differently. Handing it over untranslated is what made an Opay or
+     *   Moniepoint account unpayable, with the failure filed as a provider fault.
+     * - **Slow**, because `ensureDestination()` creates a destination rather than
+     *   finding one — Bachs returned three different ids for three identical
+     *   registrations — so every payout row added another one at the provider.
+     *
+     * So this reads. The row for the provider paying *right now* is the one that
+     * answers, which is what makes a processor switch need nothing from the
+     * business: `$context['provider']` is read per send from the platform's
+     * selected processor.
+     *
+     * ## The fallback, and why it is not a refusal
+     *
+     * An account named before any of this existed has no row, and a business
+     * holding money must not be stopped by our own migration backlog. So when
+     * there is nothing recorded, the code is translated here and the destination
+     * registered once — and then recorded, so the next payout takes the fast path.
+     *
+     * Read from the payout row rather than the business throughout, because a
+     * payout already in flight has to keep going where it was reserved for even if
+     * the business changes its bank in the meantime.
      *
      * Returns null and fails the payout when the provider will not accept the
      * destination. That releases the reservation, and it is safe to: no money has
-     * moved, and a destination is not a transfer. The business keeps its balance
-     * and the next queued attempt tries again once somebody fixes the account.
+     * moved, and a destination is not a transfer.
      *
      * @param  array{provider: string, rail: PayoutRail, credentials: GatewayCredentials}  $context
      */
@@ -1908,11 +2128,74 @@ final class PayoutSweepService
             return PayoutDestinationRef::registered((string) $payout->destination_id, true);
         }
 
+        $bank = $this->payoutBank($payout);
+
+        // The registration made when the business named this account, for the
+        // provider that is paying now. `is_usable` is passed through rather than
+        // assumed: Bachs reports it, and a destination it considers unusable will
+        // refuse the transfer later.
+        if ($bank !== null) {
+            $stored = $this->payoutBanks->stored($bank, $context['provider']);
+
+            if (filled($stored?->destination_id)) {
+                return PayoutDestinationRef::registered(
+                    (string) $stored->destination_id,
+                    $stored->is_usable ?? true,
+                );
+            }
+        }
+
+        // The number we hold for this account, in whichever provider's space it was
+        // written in. The payout row carries its own snapshot, so this works for a
+        // payout reserved before `payout_bank_id` existed as well as for one whose
+        // bank account has since been deleted.
+        $held = $bank !== null ? (string) $bank->bank_code : (string) $payout->bank_code;
+
+        $code = $held;
+
+        if ($bank !== null) {
+            $translated = $this->directory->codeFor(
+                $context['rail'],
+                $context['credentials'],
+                (string) $bank->bank_code,
+                (string) $bank->bank_name,
+            );
+
+            // A translation is an improvement on the number we hold, never a
+            // condition for sending.
+            //
+            // Null here covers two things — this provider does not list the bank,
+            // and we could not read the provider's list at all — and neither is a
+            // reason to stop a payout. Falling back to the number we hold is what
+            // the platform did before any of this existed, and the provider's own
+            // refusal is a better answer than ours would be: it arrives with the
+            // provider's words, and it is a refusal we can quote.
+            //
+            // Failing the payout instead would strand a business's money on our own
+            // uncertainty, and in the unreadable case it would turn one provider
+            // having an afternoon into nobody on the platform being paid. The bank
+            // that genuinely cannot be paid is stopped where it costs nothing —
+            // {@see PayoutBankResolver::guardDefault()} refuses the account as it is
+            // added and {@see PayoutBankResolver::guardStored()} refuses it as it is
+            // chosen, both before anything is owed.
+            if ($translated !== null) {
+                $code = $translated;
+            } else {
+                Log::info('custody.payout.destination_untranslated', [
+                    'payout_id' => $payout->id,
+                    'reference' => $payout->reference,
+                    'provider' => $context['provider'],
+                    'bank_code' => $held,
+                    'bank_name' => $bank->bank_name,
+                ]);
+            }
+        }
+
         try {
             $destination = $context['rail']->ensureDestination(
                 $context['credentials'],
                 (string) $payout->account_number,
-                (string) $payout->bank_code,
+                $code,
                 $payout->account_name,
                 $this->currency(),
             );
@@ -1932,7 +2215,34 @@ final class PayoutSweepService
             return null;
         }
 
+        // Recorded so this is the last time it is registered. Failing to record it
+        // is not worth failing the payout over — the money is on its way and the
+        // cost of not knowing is one more registration next time.
+        if ($bank !== null && filled($destination->id)) {
+            (new PayoutBankResolution(
+                provider: $context['provider'],
+                bankCode: $code,
+                destinationId: $destination->id,
+                usable: $destination->usable,
+            ))->store($bank);
+        }
+
         return $destination;
+    }
+
+    /**
+     * The `store_banks` row this payout was reserved against, if it still exists.
+     *
+     * Null for a payout reserved before `payout_bank_id` was written, and for one
+     * whose account has since been deleted. Both are the fallback path rather than
+     * an error: the payout row carries its own snapshot of the code and number, and
+     * nothing here needs the business's current list.
+     */
+    private function payoutBank(Payout $payout): ?StoreBank
+    {
+        $id = $payout->payout_bank_id;
+
+        return $id === null ? null : StoreBank::query()->find((int) $id);
     }
 
     /**

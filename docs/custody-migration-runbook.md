@@ -460,6 +460,94 @@ all**: sales are still collected and credited, the wallet still shows the money 
 send is ever attempted. If payouts have gone quiet platform-wide, the worker is the first thing
 to check.
 
+## The one-time clear-up
+
+Two commands, both for history rather than for running the platform: one repairs the bank codes
+already on file, the other closes out the payouts left open by the breakage. Run them in this
+order — the first is what makes the *next* payout go out with the right number, and the second
+gives back the money that was reserved against sends nothing was ever going to make.
+
+Both are safe to run with a worker going, and neither moves money to a provider.
+
+### 1. Work out every stored bank account's code at each provider
+
+A business names its bank once, out of the picker — which is Paystack's list, and its code is what
+`store_banks` holds. Payouts leave through whichever processor is selected, which numbers the same
+institutions differently: Opay is `999992` at Paystack and `305` at Bachs, PalmPay `999991` versus
+`100033`, Moniepoint `50515` versus `090405`. Legacy banks agree by luck (Zenith `057`, GTB `058`);
+the fintechs do not, and a shop banking with Opay is the likeliest merchant on the platform. That
+mismatch is what made payouts fail with `BANK_NOT_PAYABLE`, which the platform then filed as a
+provider fault.
+
+```bash
+php artisan custody:resolve-payout-banks            # what it would do, and writes nothing
+php artisan custody:resolve-payout-banks --apply
+```
+
+Accounts named *after* this change are worked out as they are created, so this is a repair for the
+backlog. `--business={id}` and `--provider={code}` narrow it.
+
+Per account per provider the run reports one of:
+
+| | |
+|---|---|
+| `resolved` | registered at the provider and payable; the code may have been translated |
+| `would-resolve` | a dry run worked the code out; nothing was registered |
+| `unchanged` | already resolved and payable — the provider is not asked again, deliberately |
+| `refused` | this provider cannot pay that bank. The business needs a different account |
+| `unchecked` | the provider could not be reached, or answered with no banks at all. Run it again |
+
+An answer that came back empty is `unchecked` and not `refused`: both providers carry hundreds of
+banks, so a list with none in it means we failed to read the list, not that the business's bank has
+been withdrawn. Said the other way round — `refused` is the only outcome worth telling a business
+about, and it is only ever reached from a list that actually arrived.
+
+**`--apply` registers a destination at the provider**, which is the point — it also stops the
+accumulation of a new destination on every single payout, because Bachs does not deduplicate and
+the registration now happens once per account. An account already resolved is left alone rather
+than re-registered, including under `--provider`. For the same reason, a business pointing at a
+*different* one of its own accounts is checked against the row already on file rather than by asking
+the provider again.
+
+On each row: a non-null `failure_reason` with `is_usable` false is the provider's own refusal, and
+`is_usable` null with a reason is our failure to get an answer. Only the first says anything about
+the business's bank, so it is the only one a business is ever shown.
+
+The command never deletes a row. An account whose bank cannot be resolved keeps its row with the
+reason on it: a missing row cannot be told apart from one nobody has got to yet, which is the state
+this exists to end. To force an account to be re-checked, delete its `payout_bank_codes` row first —
+that is deliberate, because re-registering at Bachs creates a second destination.
+
+### 2. Close out the payouts that nothing is going to send
+
+A payout row is a claim on money — the reservation comes off the wallet and the sales behind it are
+committed, and only the row reaching a terminal status gives either back. So a row left open is
+money the business cannot see, holding the promotion budget down and making it look blocked, and
+once the queue has used its three attempts and alerted, nothing else will ever move it.
+
+```bash
+php artisan custody:close-outstanding-payouts                 # lists them and asks first
+php artisan custody:close-outstanding-payouts --force         # for a scripted run
+```
+
+| Status | What the command does |
+|---|---|
+| `pending` | reserved and never handed to a provider — closes it and **credits the money back to the wallet** |
+| `failed` | already had its money back — closes the row so it stops counting against the business |
+| `processing` | **left alone.** Its money may still be in flight |
+
+`processing` is the one that matters. That row *was* given to a provider, and closing it credits the
+business for a transfer that may still land — they would be paid twice, by us. Those rows are listed
+and left open, and their route out is the provider's webhook or `custody:payouts`, which asks the
+provider what became of them. `--include-processing` overrides it, once you have confirmed with the
+provider that the transfer is gone.
+
+`--older-than=5` (the default) skips anything touched in the last five minutes, because a row being
+sent right now has just been stamped as sent: closing that one would credit the money back while the
+transfer goes out anyway. `--older-than=0` disables the guard — only for a run you know is quiet.
+
+Both commands are idempotent. Running either twice moves no money the second time.
+
 ## The numbers to watch
 
 | Where | What it means |

@@ -7,6 +7,7 @@ use App\Models\Store;
 use App\Models\StoreBank;
 use App\Models\User;
 use App\Repositories\Management\PaymentSettingsRepository;
+use App\Services\Payments\Payouts\PayoutBankResolver;
 use App\Support\Payments\GatewayGrant;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -26,7 +27,10 @@ use Illuminate\Validation\ValidationException;
  */
 final class PaymentSettingsService
 {
-    public function __construct(private readonly PaymentSettingsRepository $repository) {}
+    public function __construct(
+        private readonly PaymentSettingsRepository $repository,
+        private readonly PayoutBankResolver $payoutBanks,
+    ) {}
 
     /**
      * The platform's payment-method row for a code. A missing row means the
@@ -73,9 +77,41 @@ final class PaymentSettingsService
      */
     public function addBankAccount(int $businessId, array $data, ?Store $store): StoreBank
     {
-        return DB::transaction(function () use ($businessId, $data, $store) {
-            $isFirst = ! $this->repository->businessHasBanks($businessId);
+        $isFirst = ! $this->repository->businessHasBanks($businessId);
 
+        // How each payout provider sees this account, worked out **before**
+        // anything is written, because a refusal has to stop the write rather than
+        // arrive after the account already exists. Two things follow from the
+        // ordering, and both matter: the account is never created and then
+        // deleted, and the check runs outside the transaction so a provider round
+        // trip is not holding one open.
+        //
+        // Worked out for every rail rather than only the one in use, so that a
+        // processor switch needs nothing from the business — see
+        // {@see \App\Services\Payments\Payouts\PayoutBankResolver}.
+        // Unsaved, and it stays that way: only its bank name, code, account number
+        // and account name are read. It exists so the resolution and the guard can
+        // talk about "this account" before there is a row for one.
+        $candidate = new StoreBank([
+            'bank_name' => $data['bank_name'],
+            'bank_code' => $data['bank_code'],
+            'account_number' => $data['account_number'],
+            'account_name' => $data['account_name'],
+        ]);
+
+        $resolutions = $this->payoutBanks->resolveAll($candidate);
+
+        // **Only the first account is held to this.** The first is the one that
+        // becomes the payout destination, so a provider that cannot pay into it is
+        // a real problem; a later account is a row on a list, and `store_banks` is
+        // also where customer bank transfers are collected — so refusing to record
+        // an account because it cannot be paid *out* to would break collecting
+        // *into* it, which is a different question entirely.
+        if ($isFirst) {
+            $this->payoutBanks->guardDefault($candidate, $resolutions);
+        }
+
+        $bank = DB::transaction(function () use ($businessId, $data, $store, $isFirst, $resolutions) {
             $bank = $this->repository->createBank([
                 'business_id' => $businessId,
                 'bank_name' => $data['bank_name'],
@@ -90,6 +126,11 @@ final class PaymentSettingsService
                 $this->repository->setPayoutBankIfUnset($businessId, (int) $bank->getKey());
             }
 
+            // Written inside the transaction with the account they are about: a
+            // row describing an account that was rolled back would be a record of
+            // a destination that does not exist.
+            $this->payoutBanks->persist($bank, $resolutions);
+
             $this->syncBankTransferMethod($businessId);
 
             if ($store !== null) {
@@ -98,6 +139,8 @@ final class PaymentSettingsService
 
             return $bank;
         });
+
+        return $bank;
     }
 
     /**

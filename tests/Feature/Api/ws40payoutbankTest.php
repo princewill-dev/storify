@@ -3,6 +3,7 @@
 use App\Enums\TransactionStatus;
 use App\Models\Order;
 use App\Models\Payout;
+use App\Models\PayoutBankCode;
 use App\Models\Setting;
 use App\Models\Store;
 use App\Models\StoreBank;
@@ -173,6 +174,77 @@ test('it does not require an entity type or a terms acceptance', function () {
     // them costs nothing, and refusing would break its owner for a field the
     // server has stopped caring about.
     expect((int) $business->refresh()->payout_bank_id)->toBe((int) $bank->id);
+});
+
+test('repointing at an account the provider has refused is refused, with the reason on file', function () {
+    // The check the setup step makes on the first account, made again on every
+    // repoint — a business can change which of its accounts pays out at any time,
+    // and without this the first account is checked and every later one is not.
+    pb40Settings(['system_payment_processor' => 'bachs']);
+    pb40NoProvider();
+
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    $bank = StoreBank::factory()->create(['business_id' => $business->id]);
+
+    // The verdict as the provider's own refusal stores it: nothing payable, and
+    // `is_usable` false — which is the whole of the difference between a provider
+    // saying no and our never having got an answer.
+    PayoutBankCode::query()->create([
+        'store_bank_id' => $bank->id,
+        'provider' => 'bachs',
+        'bank_code' => null,
+        'destination_id' => null,
+        'is_usable' => false,
+        'failure_reason' => 'Bachs cannot pay into an account at Sparkle Microfinance Bank.',
+        'resolved_at' => now(),
+    ]);
+
+    $this->withToken(pb40Token($owner))
+        ->putJson('/api/v1/management/payment-gateways/bachs/payout-account', [
+            'store_bank_id' => $bank->id,
+        ])
+        ->assertStatus(422)
+        ->assertJsonPath('errors.store_bank_id.0', 'Bachs cannot pay into an account at Sparkle Microfinance Bank.');
+
+    expect($business->refresh()->payout_bank_id)->toBeNull();
+
+    // Read off the row, not asked again: re-resolving here would register a second
+    // destination at Bachs, which does not deduplicate, every time a business
+    // pointed at a different one of its accounts.
+    Http::assertNothingSent();
+});
+
+test('repointing at an account we never got an answer about is allowed', function () {
+    // The other half of the same discrimination. `Bachs cannot pay this` and `we
+    // could not ask Bachs` both leave the row unusable and both carry a sentence,
+    // and only the first may stop a business choosing its own account — treating
+    // the second as a refusal would let one provider's outage decide where every
+    // business on the platform is allowed to be paid.
+    pb40Settings(['system_payment_processor' => 'bachs']);
+    pb40NoProvider();
+
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    $bank = StoreBank::factory()->create(['business_id' => $business->id]);
+
+    PayoutBankCode::query()->create([
+        'store_bank_id' => $bank->id,
+        'provider' => 'bachs',
+        'bank_code' => null,
+        'destination_id' => null,
+        'is_usable' => null,
+        'failure_reason' => 'We could not reach Bachs to check this bank.',
+        'resolved_at' => now(),
+    ]);
+
+    $this->withToken(pb40Token($owner))
+        ->putJson('/api/v1/management/payment-gateways/bachs/payout-account', [
+            'store_bank_id' => $bank->id,
+        ])
+        ->assertOk();
+
+    expect((int) $business->refresh()->payout_bank_id)->toBe((int) $bank->id);
+
+    Http::assertNothingSent();
 });
 
 test('typed details are matched back to the row holding them, so a pointer exists', function () {
@@ -540,11 +612,21 @@ test('the account a business names through the setup step is the one the sweep p
         ])
         ->assertCreated();
 
-    // Naming an account resolves no bank and registers no destination: the only
-    // thing that changed is which row the payout column names.
-    Http::assertNothingSent();
-
     $bank = StoreBank::where('business_id', $business->id)->sole();
+
+    // Naming an account is now where the provider is asked what it calls this
+    // bank, so this is no longer a pass that touches no provider at all — but the
+    // fake above answers the provider's bank list with nothing, and an empty answer
+    // is a list we did not get rather than a bank that cannot be paid. So nothing
+    // was registered, there being no code to register with, and the account was
+    // still written: our own failed read is not a reason to tell a business its
+    // bank is unusable.
+    Http::assertNotSent(fn ($request) => str_contains($request->url(), '/payouts/destinations'));
+
+    expect(PayoutBankCode::query()
+        ->where('store_bank_id', $bank->id)
+        ->whereNotNull('destination_id')
+        ->count())->toBe(0);
 
     expect($sweep->payoutBlocker($business->refresh()))->toBeNull();
 

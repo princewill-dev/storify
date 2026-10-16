@@ -15,6 +15,19 @@ namespace App\Services\Payments\Payouts;
  * a destination the provider considers unusable will refuse the transfer later —
  * better to know at registration than after a payout run. Null means the provider
  * said nothing, which is not the same as "no".
+ *
+ * ## Refused and indeterminate are not the same answer
+ *
+ * The same distinction {@see TransferOutcome} draws, for the same reason. A
+ * refused destination is the provider saying no — a wrong account number, a bank
+ * it cannot pay — and that answer will not change by asking again. An
+ * indeterminate one is the provider saying *nothing*: a connection that dropped,
+ * a 5xx, a body without an id. It may well have registered the destination, and
+ * asking again in five minutes is exactly what should happen.
+ *
+ * Collapsing the two is what turns a provider outage into a platform that tells
+ * every business its bank account is unacceptable, and it is why the flag exists
+ * rather than being inferred from a message string.
  */
 final class PayoutDestinationRef
 {
@@ -26,6 +39,7 @@ final class PayoutDestinationRef
         public readonly ?bool $usable = null,
         public readonly ?string $message = null,
         public readonly array $raw = [],
+        public readonly bool $indeterminate = false,
     ) {}
 
     /**
@@ -49,6 +63,21 @@ final class PayoutDestinationRef
     public static function refused(string $message, array $raw = []): self
     {
         return new self(null, null, $message, $raw);
+    }
+
+    /**
+     * We did not get an answer, so we do not know whether the destination exists.
+     *
+     * Carries no id for the same reason a refusal does not: nothing may be sent to
+     * a destination we cannot name. What separates it from a refusal is that the
+     * caller must not read it as a verdict about the account — and must not fail a
+     * business's payout account on the strength of it.
+     *
+     * @param  array<string, mixed>  $raw
+     */
+    public static function indeterminate(string $message, array $raw = []): self
+    {
+        return new self(null, null, $message, $raw, true);
     }
 
     public function ok(): bool

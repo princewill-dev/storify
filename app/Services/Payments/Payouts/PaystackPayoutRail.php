@@ -34,6 +34,82 @@ final class PaystackPayoutRail implements PayoutRail
     }
 
     /**
+     * `GET /bank` — the codes Paystack will accept on a transfer recipient.
+     *
+     * **This list is where the platform's stored bank codes come from**, because
+     * it is what the business picks a bank out of. Which means a code in
+     * `store_banks` is a Paystack code by construction, and every other rail has
+     * to translate it into its own space before it can be used; that translation is
+     * {@see BankDirectory}'s job.
+     *
+     * `code` is what a transfer takes and `longcode` is the NIBSS number, which is
+     * the reverse of Bachs' naming for the same two facts. `longcode` is used as
+     * the cross-provider key for that reason — it is the one number both providers
+     * agree on, where they agree at all.
+     *
+     * @return array<int, array{code: string, name: string, nibss: string|null}>
+     */
+    public function banks(GatewayCredentials $credentials): array
+    {
+        try {
+            $response = PaystackApi::client($credentials)
+                ->get(PaystackApi::baseUrl().'/bank', ['country' => 'nigeria']);
+        } catch (\Throwable $e) {
+            Log::warning('paystack.payout.banks_unreachable', ['error' => $e->getMessage()]);
+
+            return [];
+        }
+
+        $body = $response->json() ?? [];
+
+        if (! $response->successful() || ! ($body['status'] ?? false)) {
+            Log::warning('paystack.payout.banks_refused', [
+                'status' => $response->status(),
+                'message' => $body['message'] ?? null,
+            ]);
+
+            return [];
+        }
+
+        $rows = $body['data'] ?? [];
+
+        if (! is_array($rows)) {
+            Log::warning('paystack.payout.banks_unreadable', ['keys' => array_keys($body)]);
+
+            return [];
+        }
+
+        $banks = [];
+
+        foreach ($rows as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+
+            $code = $row['code'] ?? null;
+            $name = $row['name'] ?? null;
+
+            if (! is_string($code) && ! is_int($code)) {
+                continue;
+            }
+
+            if (! is_string($name) || trim($name) === '') {
+                continue;
+            }
+
+            $long = $row['longcode'] ?? null;
+
+            $banks[] = [
+                'code' => (string) $code,
+                'name' => trim($name),
+                'nibss' => is_string($long) && $long !== '' ? $long : null,
+            ];
+        }
+
+        return $banks;
+    }
+
+    /**
      * `POST /transferrecipient`.
      *
      * Paystack deduplicates recipients by account number and bank, so a repeated
@@ -41,6 +117,11 @@ final class PaystackPayoutRail implements PayoutRail
      * accumulating them. That is load-bearing for the same reason as on Bachs:
      * the send may call this on every attempt, and a destination is not something we
      * want one of per attempt.
+     *
+     * **Unverified, and not relied on.** Bachs' documentation makes the same claim
+     * and it is measurably false there — three identical registrations returned
+     * three ids — so the caller stores the destination id rather than counting on
+     * this to hold.
      *
      * `name` is required by Paystack and is the recipient's display name in the
      * dashboard — the account name as the business gave it. It is sent when we
@@ -68,7 +149,7 @@ final class PaystackPayoutRail implements PayoutRail
         } catch (\Throwable $e) {
             Log::error('paystack.payout.recipient_unreachable', ['error' => $e->getMessage()]);
 
-            return PayoutDestinationRef::refused('Paystack could not be reached to register this bank account.');
+            return PayoutDestinationRef::indeterminate('Paystack could not be reached to register this bank account.');
         }
 
         $body = $response->json() ?? [];
