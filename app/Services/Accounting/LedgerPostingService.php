@@ -976,10 +976,15 @@ class LedgerPostingService
      * and it assumes **the provider returns its fee to us when a charge is
      * refunded**. The books assumed the same before this change — the fee used to
      * be reversed as part of the collection entry — so this preserves the
-     * assumption rather than introducing it. If the provider in fact keeps its fee
-     * on a refund, this line is wrong and Storify's cost should stand instead;
-     * it is the one thing to confirm against the provider before trusting a
-     * refund's platform-side books.
+     * assumption rather than introducing it, and it is deliberately left standing
+     * on it: a business's refunds mostly go back out of its own bank rather than
+     * through us, so a refund on this path is the exception rather than the rule,
+     * and these books stay consistent with the ones already written.
+     *
+     * If the provider turns out to keep its fee on a platform-processed refund,
+     * the cost should stand instead and this second `reverseByKey()` goes — the
+     * two behaviours are one call apart, and nothing else in the method depends
+     * on it.
      *
      * **Both a refund and a chargeback post this.** They are the same movement on
      * our books: money we took in goes back out, we stop holding the business's
