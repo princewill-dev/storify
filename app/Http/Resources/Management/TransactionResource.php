@@ -41,11 +41,14 @@ class TransactionResource extends JsonResource
             'id' => $transaction->id,
             'reference' => $transaction->reference,
             'amount' => (float) $transaction->amount,
-            // Everything taken out before the money landed, as one figure: the
-            // provider's charge plus our commission. Named for what the business
-            // experiences, not for its two parts — `fee_kobo` and
-            // `platform_fee_kobo` still hold those separately on the row, and
-            // Storify's own books still show them apart.
+            // Everything taken out before the money landed, as one figure. Named
+            // for what the business experiences, not for its parts — and what
+            // those parts are depends on the sale: both the provider's charge and
+            // our commission on a sale charged through the business's own keys,
+            // our commission alone on one Storify charged for it, where the
+            // provider's charge is our own cost and is not the business's to pay.
+            // Either way the row holds them separately (`fee_kobo`,
+            // `platform_fee_kobo`) and Storify's own books show them apart.
             'processing_fee' => $processingFee !== null ? Naira::floatFromKobo($processingFee) : null,
             // Deprecated alias, byte-for-byte the same figure. Both SPAs read
             // `fee` today and this change removes what it used to mean — the

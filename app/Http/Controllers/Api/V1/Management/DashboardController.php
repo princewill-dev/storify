@@ -123,13 +123,17 @@ class DashboardController extends ApiController
     }
 
     /**
-     * The provider's fee plus our commission, summed over whatever the given
+     * What these sales took out of the business, summed over whatever the given
      * confirmed-transaction query already scopes to, in naira.
+     *
+     * Through the model's one expression rather than a copy of it — see
+     * {@see Transaction::processingFeeSumSql()}, which is also what the
+     * transactions totals bar and the widgets repository sum with.
      */
     private function processingFeeNaira(Builder $query): float
     {
         $row = $query
-            ->selectRaw('COALESCE(SUM(fee_kobo), 0) + COALESCE(SUM(platform_fee_kobo), 0) as fee_kobo')
+            ->selectRaw(Transaction::processingFeeSumSql().' as fee_kobo')
             ->first();
 
         return round(Naira::floatFromKobo((int) round((float) ($row->fee_kobo ?? 0))), 2);

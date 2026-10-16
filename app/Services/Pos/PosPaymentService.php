@@ -236,10 +236,11 @@ final class PosPaymentService
 
         // The provider's own charge is dropped here on purpose. The till is the
         // business's client, not its accountant: on a leg the platform processed,
-        // the provider's fee is taken off the money before it reaches us, and it
-        // belongs on the transaction row rather than in a cashier's screen. It is
-        // read at initialize and written there, not carried through a cashier's
-        // status poll.
+        // the provider's fee is Storify's own cost — taken from our balance at the
+        // provider before the money reaches us, and never a deduction the
+        // business is shown. It belongs on the transaction row as our cost
+        // record rather than in a cashier's screen, and it is read at initialize
+        // and written there, not carried through a cashier's status poll.
         return [
             'paid' => $leg['paid'],
             'pending' => $leg['pending'],
@@ -372,9 +373,11 @@ final class PosPaymentService
      *
      * @param  array<int, array<string, mixed>>  $payments  the validated legs
      * @return array<string, int> empty. Kept as a return value, and kept in
-     *                            `ProcessPosSale`'s signature, because a leg the
-     *                            platform processed would have a provider fee to
-     *                            hand over and no path produces one today.
+     *                            `ProcessPosSale`'s signature, from when a leg's
+     *                            provider fee was threaded through this call from
+     *                            the initialize step. Nothing produces one today:
+     *                            the fee is read off the checkout's own
+     *                            verification and written to the row.
      *
      * @throws DomainException on the first gateway leg with no reference
      */

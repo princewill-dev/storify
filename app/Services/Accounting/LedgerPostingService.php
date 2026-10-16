@@ -346,40 +346,59 @@ class LedgerPostingService
      *
      * Structurally different from {@see postPaymentReceived()} and deliberately
      * so. There, the whole gross becomes an asset we hold — a store balance and
-     * a clearing account that clears to our bank. Here **nothing is ours**: the
-     * money lands in the business's own provider account, already reduced by the
-     * provider's processing fee and by our commission, and we never hold a naira
-     * of it.
+     * a clearing account that clears to our bank. Here **nothing is ours**: what
+     * lands in the business's account at the provider is the business's own
+     * share, and we never hold a naira of it.
      *
-     * So the business's books take the net as an asset and the two fees as
+     * So the business's books take the net as an asset and its own deductions as
      * expenses, and the entry balances against the receivable the order already
      * raised:
      *
-     *     Dr 1030 Payment Gateway Clearing   net   (their balance at the provider)
-     *     Dr 5500 Processing Fee             fee   (both fees, combined)
+     *     Dr 1030 Payment Gateway Clearing   net         (their balance at the provider)
+     *     Dr 5500 Processing Fee             processing  (their deductions, combined)
      *     Cr 1100 Accounts Receivable      gross
      *
      * Under custody the shape is identical and only the asset moves — `1040 Funds
      * Held by Storify` in place of `1030` — because the business is still owed the
-     * same net, still pays the same combined fee, and still had the same receivable
-     * when it sold. The one thing that changed is who is holding the money while it
+     * same net, still pays the same fee, and still had the same receivable when it
+     * sold. The one thing that changed is who is holding the money while it
      * waits, and that is the one line that differs. The platform's own side of a
      * collected sale is a separate entry: {@see postCustodyCollection()}.
      *
-     * Both fees land on 5500 as one line, because to the business they are the
-     * same kind of thing — the cost of taking this payment — and that is how it
-     * is presented to them everywhere else. Splitting them would need a
-     * chart-of-accounts entry for "platform fees", which is a reporting
-     * distinction rather than a bookkeeping one, and which would tell the
-     * business what our margin is on every sale it makes. The split is recorded
-     * rather than posted: `fee_kobo` and `platform_fee_kobo` on the transaction.
+     * ## What lands on 5500 depends on who paid the provider
      *
-     * The share that `platform_fee` settles to **us** is a separate entry on the
-     * platform's own books — see {@see postPlatformCommissionEarned()}.
+     * This used to be the provider's charge and our commission together, because
+     * both came off the business's money and to the business they are the same
+     * kind of thing — the cost of taking this payment. For a sale charged on the
+     * business's **own** keys that is still exactly true, and it is still posted
+     * that way.
+     *
+     * For a sale **we** charged, only our commission is on these books. The
+     * provider's charge came out of our balance rather than the business's, so it
+     * is our own cost of doing business and appears nowhere the business can see
+     * it — one line, `5500 Processing Fee`, holding the commission alone. That
+     * the two were ever presented as one number, without saying which provider
+     * was being paid for, is what made a correct sum look like an overcharge.
+     *
+     * Our margin is still not itemised to the business, and does not need to be:
+     * for a sale we charged there is nothing left on these books *but* our
+     * commission, so there is no second cost to confuse it with.
+     *
+     * The provider's charge on a sale we charged is posted on the platform's own
+     * books instead — {@see postCustodyProviderFeeSettled()} — and the share that
+     * `platform_fee` settles to **us** is {@see postPlatformCommissionEarned()}.
+     * The split is also recorded on the row, as `fee_kobo` and
+     * `platform_fee_kobo`, which is what the backfill and the repair commands
+     * read.
+     *
+     * `$providerFeeKobo` is not a parameter, on purpose. The row is where the fee
+     * was just written, and a caller passing its own number could put the
+     * provider's charge back onto a business's books — the one thing this entry
+     * must never do again. Read from the row, the figure cannot disagree with
+     * itself.
      */
     public function postManagedPaymentReceived(
         Transaction $transaction,
-        int $providerFeeKobo,
         int $commissionKobo,
         ?int $userId = null,
         bool $custody = false,
@@ -395,6 +414,13 @@ class LedgerPostingService
         if (! $businessId) {
             return null;
         }
+
+        // Taken off the business's share only when the business bore it. Zero for
+        // a sale we charged, which is what makes the line below our commission
+        // alone.
+        $providerFeeKobo = $transaction->providerFeeBearer()->isBusiness()
+            ? (int) ($transaction->fee_kobo ?? 0)
+            : 0;
 
         // Clamped rather than trusted: a provider reporting a fee larger than
         // the sale would otherwise post a negative asset and a credit that does
@@ -415,14 +441,17 @@ class LedgerPostingService
             'contact_id' => $contactId,
         ]];
 
-        // One line for both fees, because that is what the business was charged
-        // and what it now sees on the transaction: a single processing fee. This
+        // One line for whatever the business was actually charged, because that
+        // is what it now sees on the transaction: a single processing fee. This
         // used to post two debits to the same account with different
         // descriptions, which made the ledger the only place the split was
         // visible — and put Storify's margin in front of the business on its own
-        // books. The split is not lost: it is on the transaction row, as
-        // `fee_kobo` and `platform_fee_kobo`, and in full on our own books via
-        // {@see postPlatformCommissionEarned()}.
+        // books.
+        //
+        // Which is also why splitting it again would be wrong now: for a sale we
+        // charged, the only thing left in this figure *is* our margin, so a
+        // second line would itemise it. What replaces the old two-line posting is
+        // not a finer breakdown but a smaller total.
         $processingFeeKobo = $providerFeeKobo + $commissionKobo;
 
         if ($processingFeeKobo > 0) {
@@ -477,19 +506,17 @@ class LedgerPostingService
      * {@see postPlatformCommissionEarned()}, on the platform's own books. Neither
      * is a reversal of the other; they are two parties' views of one deduction.
      *
-     * **Bachs' own processing fee is not posted here, and cannot be.** Bachs
-     * deducts it when the charge settles — days after the till closed the sale —
-     * and at the moment this row is written no number for it exists anywhere. It
-     * is the one part of a managed sale's cost that this ledger books late rather
-     * than at the sale, and it leaves that much more in 1030 until it is
-     * recognised.
+     * **Bachs' own processing fee is not posted here, and does not belong here.**
+     * Bachs deducts it from *our* balance when the charge settles — days after
+     * the till closed the sale — and at the moment this row is written no number
+     * for it exists anywhere. It is Storify's own cost of doing business on a
+     * managed leg, so it is a platform expense and never reaches a business's
+     * books at all: the business's deduction is our commission alone.
      *
-     * The line is described as a processing fee rather than a commission even
-     * though it carries only our share today, because that is the only name the
-     * business is given for this cost anywhere — the account it lands on, the
-     * column on the transaction, the CSV. When the provider's charge is
-     * recognised later it posts under the same description, and the two lines
-     * together are the fee the business was actually charged.
+     * The line is described as a processing fee rather than a commission because
+     * that is the only name the business is given for this cost anywhere — the
+     * account it lands on, the column on the transaction, the CSV — and because
+     * it is what the business was in fact charged.
      */
     public function postManagedCommissionExpense(
         Transaction $transaction,
@@ -637,25 +664,51 @@ class LedgerPostingService
      *
      * The entry that did not exist before this change, because the arrangement it
      * describes did not exist: money that is in our provider balance, that we did
-     * not earn, and that we owe to somebody:
+     * not earn, and that we owe to somebody.
+     *
+     * For a sale charged on the business's **own** keys — and for every sale
+     * posted before this rule changed — there are three claims on the one charge,
+     * and they leave at three different times:
      *
      *     Dr 1030 Payment Gateway Clearing      gross
      *       Cr 2300 Funds Held for Businesses     net
      *       Cr 4020 Service Charge Income         commission
      *       Cr 2210 Provider Fees Payable         provider fee
      *
-     * Three credits because there are three different claims on the one charge and
-     * they leave at three different times. The commission is ours the moment the
-     * sale happens and stays on 4020. The provider's fee has already been deducted
-     * from our balance by the provider itself — so it is a liability that is settled
-     * the instant it is recognised, posted by
-     * {@see postCustodyProviderFeeSettled()} and never left sitting. The business's
-     * share is the one that lingers, until the payout run debits 2300 back out.
+     * The commission is ours the moment the sale happens and stays on 4020. The
+     * provider's fee has already been deducted from our balance by the provider
+     * itself — so it is a liability that is settled the instant it is recognised,
+     * posted by {@see postCustodyProviderFeeSettled()} and never left sitting. The
+     * business's share is the one that lingers, until the payout run debits 2300
+     * back out.
      *
-     * The identity `2300 = 1030 − 2210 − 4020` therefore holds on the platform's
-     * books at all times, and the check that the books close is simply that 1030
-     * ends each day at exactly the commission plus the unsettled fee. If it does
-     * not, the wallet and the journal have drifted apart.
+     * For a sale **we** charged, 2210 is not credited at all, because there is
+     * nobody to owe it to:
+     *
+     *     Dr 1030 Payment Gateway Clearing      gross
+     *       Cr 2300 Funds Held for Businesses     net   (= gross − commission)
+     *       Cr 4020 Service Charge Income         commission
+     *
+     * The provider is taking its charge out of a balance that is already ours, so
+     * it is our own expense and not a liability to the business. It is recognised
+     * on 5510 by the same {@see postCustodyProviderFeeSettled()}, which brings 1030
+     * down by it exactly as the old 2210 posting did.
+     *
+     * ## The identity, on both rules
+     *
+     * `1030 = 2300 + 4020 − 5510`
+     *
+     * The clearing account is what the businesses are owed, plus what we earned,
+     * less the provider's charges we have recognised as our own. A legacy sale
+     * contributes its fee through 2300 (already net of it) and a sale under the
+     * new rule through 5510, and both come out the same — which is why one
+     * identity still describes the whole ledger. If it does not hold, the wallet
+     * and the journal have drifted apart.
+     *
+     * Note what the fee's *timing* does to that sum: for a sale we charged, 1030
+     * stands higher than the two credits under it by the fee until the recognition
+     * entry lands (see the sweep in {@see \App\Services\Payments\Custody\CustodyService::promoteSettled()}),
+     * and that gap is work still to do rather than a drift to chase.
      *
      * **`$netKobo` is checked, not trusted.** It arrives from the wallet, which is
      * the thing that actually owes the business money, and the entry is built from
@@ -703,10 +756,23 @@ class LedgerPostingService
             return null;
         }
 
-        $providerFeeKobo = max(0, (int) ($transaction->fee_kobo ?? 0));
+        // The provider's charge is a claim on *this* charge only when the business
+        // paid it. Read from the row, so a sale we charged cannot have it put back
+        // on a business's books here.
+        $bearer = $transaction->providerFeeBearer();
+        $providerFeeKobo = $bearer->isBusiness() ? max(0, (int) ($transaction->fee_kobo ?? 0)) : 0;
         $commissionKobo = $transaction->platformFeeKobo();
 
-        $expectedNet = Transaction::netKoboFor($grossKobo, $providerFeeKobo, $commissionKobo);
+        // The exact expression `Transaction::netKobo()`, bearer included and the
+        // raw nullable fee passed through rather than the clamped one — a
+        // platform-bearing row's answer does not depend on the fee at all, and a
+        // business-bearing row's is null until the provider reports it.
+        $expectedNet = Transaction::netKoboFor(
+            $grossKobo,
+            $transaction->fee_kobo !== null ? (int) $transaction->fee_kobo : null,
+            $commissionKobo,
+            $bearer,
+        );
 
         if ($expectedNet !== $netKobo) {
             throw new \RuntimeException(sprintf(
@@ -763,7 +829,10 @@ class LedgerPostingService
     /**
      * The provider has taken its fee out of Storify's balance.
      *
-     *     Dr 2210 Provider Fees Payable   fee
+     * For a sale the business paid the provider on — and every sale posted before
+     * the rule changed — this settles a liability:
+     *
+     *     Dr 2210 Provider Fees Payable    fee
      *     Cr 1030 Payment Gateway Clearing fee
      *
      * Posted when the provider reports its charge, which for a card payment is at
@@ -772,9 +841,25 @@ class LedgerPostingService
      * liability against a clearing balance that still appears to hold it — which
      * is the honest picture, not an error.
      *
+     * For a sale **we** charged there was never a liability, because the provider
+     * is taking the money out of a balance that is already ours:
+     *
+     *     Dr 5510 Provider Processing Fees  fee
+     *     Cr 1030 Payment Gateway Clearing  fee
+     *
+     * Same size, same account on the credit side, and the other way round in
+     * meaning: this recognises a cost we incurred rather than a debt we settled.
+     * The gap it closes is identical — 1030 holds the full gross while our balance
+     * at the provider is already short by this much.
+     *
+     * Which of the two it is comes off the row, like every other rule a sale is
+     * under.
+     *
      * Keyed on the transaction rather than on a provider reference: a sale has
      * exactly one provider fee, whatever the provider chooses to call it, and the
-     * row is the one identifier both sides share.
+     * row is the one identifier both sides share. That key is also what makes it
+     * safe to call from two directions — at collection, when the fee is already
+     * known, and from the promote sweep for a fee learned afterwards.
      */
     public function postCustodyProviderFeeSettled(
         Transaction $transaction,
@@ -790,7 +875,9 @@ class LedgerPostingService
 
         $lines = [
             [
-                'account_key' => 'provider_fees_payable',
+                'account_key' => $transaction->providerFeeBearer()->isBusiness()
+                    ? 'provider_fees_payable'
+                    : 'provider_processing_fees',
                 'debit' => $providerFeeKobo,
                 'store_id' => $storeId,
                 'description' => $description,
@@ -869,7 +956,7 @@ class LedgerPostingService
      *
      *     Dr 2300 Funds Held for Businesses   net
      *     Dr 4020 Service Charge Income       commission
-     *     Dr 2210 Provider Fees Payable       fee
+     *     Dr 2210 Provider Fees Payable       fee        (own-keys sales)
      *     Cr 1030 Payment Gateway Clearing    gross
      *
      * — which is {@see postCustodyCollection()} backwards, and is written as a
@@ -877,6 +964,22 @@ class LedgerPostingService
      * can never drift apart. A hand-written pair is how a fee line gets dropped
      * from one direction only, and the resulting difference sits on the platform's
      * clearing balance until somebody notices a business was paid too much.
+     *
+     * **And the fee's own entry is reversed alongside it.** For a sale we charged,
+     * the provider's fee was posted as a separate entry
+     * ({@see postCustodyProviderFeeSettled()}) rather than inside the collection,
+     * so reversing the collection alone would leave 1030 short by the fee and 5510
+     * carrying a cost for a charge that was given back. Both are reversed here,
+     * together, so the two halves of one refund cannot come apart.
+     *
+     * That second reversal is a no-op on a sale whose fee entry was never posted,
+     * and it assumes **the provider returns its fee to us when a charge is
+     * refunded**. The books assumed the same before this change — the fee used to
+     * be reversed as part of the collection entry — so this preserves the
+     * assumption rather than introducing it. If the provider in fact keeps its fee
+     * on a refund, this line is wrong and Storify's cost should stand instead;
+     * it is the one thing to confirm against the provider before trusting a
+     * refund's platform-side books.
      *
      * **Both a refund and a chargeback post this.** They are the same movement on
      * our books: money we took in goes back out, we stop holding the business's
@@ -890,9 +993,9 @@ class LedgerPostingService
      * duplicating the other.
      *
      * Idempotent by key, so a redelivered `dispute.updated` and a refund on the
-     * same sale cannot post the reversal twice. `$newKey` is passed in so the two
-     * callers can be distinguished in the journal, which is the only place that
-     * difference is ever legible.
+     * same sale cannot post the reversal twice — each of the two keys is claimed
+     * once. `$newKey` is passed in so the two callers can be distinguished in the
+     * journal, which is the only place that difference is ever legible.
      */
     public function postCustodyCollectionReturned(
         Transaction $transaction,
@@ -900,13 +1003,25 @@ class LedgerPostingService
         ?string $newKey = null,
         ?int $userId = null,
     ): ?JournalEntry {
-        return $this->reverseByKey(
+        $reversal = $this->reverseByKey(
             null,
             'managed:collect:txn:'.$transaction->id,
             'Collection returned '.$reference,
             $newKey ?? ('custody_return:txn:'.$transaction->id),
             $userId,
         );
+
+        if ($reversal) {
+            $this->reverseByKey(
+                null,
+                'managed:provider_fee:txn:'.$transaction->id,
+                'Provider fee returned '.$reference,
+                'custody_return_fee:txn:'.$transaction->id,
+                $userId,
+            );
+        }
+
+        return $reversal;
     }
 
     /**

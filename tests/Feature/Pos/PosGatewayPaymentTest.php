@@ -1175,20 +1175,22 @@ test('a gateway leg records what the provider was asked to charge, in its own un
 
 /*
 |--------------------------------------------------------------------------
-| A managed leg, and the fee the wallet needs to price it
+| A managed leg, and the fee that is Storify's own
 |--------------------------------------------------------------------------
 |
 | None of this is reachable from `/checkout` any more — see the section above
 | for why it is kept anyway — but the money rules it states are the reason the
-| section above has to hold. A business under custody cannot be paid out of a
-| sale that carries no provider fee: the wallet's share is
-| `gross - fee - commission`, and crediting it without the middle term would
-| either understate the debt or invent one.
+| section above has to hold.
 |
-| So the figure the checkout used to fetch has to reach the transaction row, or
-| a custody business selling at the till is never owed its money at all. It
-| arrives through `providerFees`, and these two tests are where that contract
-| is written down.
+| A leg the platform charged is a leg Storify is merchant of record for: the
+| provider takes its fee out of Storify's balance, so the business's share is
+| `gross - commission` and nothing else. The provider's fee is still fetched —
+| `providerFees`, handed over by the checkout — but it is fetched for *our*
+| books, as a cost we have incurred, and it never reaches the business's.
+|
+| That is what these two tests now say: the same sale, priced and unpriced, is
+| credited the same amount either way, and the difference between the two is
+| only whether our own cost is on the books yet.
 */
 
 test('a managed leg records the provider charge and credits the custody wallet', function () {
@@ -1207,29 +1209,44 @@ test('a managed leg records the provider charge and credits the custody wallet',
     $transaction = Transaction::where('reference', $reference)->sole();
 
     expect($transaction->fee_kobo)->toBe(1500)
+        ->and($transaction->providerFeeBearer()->value)->toBe('platform')
         ->and($transaction->platform_fee_kobo)->toBe(2500)
-        ->and($transaction->net_kobo)->toBe(96000)
+        // ₦1,000 less our ₦25. Paystack's ₦15 is Storify's cost, so the business
+        // is not ₦15 short of what it sold for.
+        ->and($transaction->net_kobo)->toBe(97500)
         // The store's own balance is untouched: this money is not in the
         // business's provider account, it is in Storify's.
         ->and((int) $store->fresh()->balance)->toBe(0)
         // And it is owed — in `pending`, because the provider has not settled
         // it to us yet, which is the whole reason the bucket exists.
-        ->and((int) $business->fresh()->pending_balance)->toBe(96000)
+        ->and((int) $business->fresh()->pending_balance)->toBe(97500)
         ->and((int) $business->fresh()->available_balance)->toBe(0)
         ->and($transaction->settle_at)->not->toBeNull();
 
-    // The ledger moved with the wallet, and it says what we are holding.
+    // The ledger moved with the wallet, and it says what we are holding. No
+    // `2210` line: this sale raised no payable to the provider, because the
+    // provider is taking the fee out of a balance that is already ours.
     $entry = JournalEntry::where('idempotency_key', 'managed:collect:txn:'.$transaction->id)->sole();
 
     expect(pgLines($entry))->toBe([
         '1030:dr' => 100000,
-        '2300:cr' => 96000,
+        '2300:cr' => 97500,
         '4020:cr' => 2500,
-        '2210:cr' => 1500,
+    ]);
+
+    // Our own cost, on our own books, the moment the fee is known. It is an
+    // expense rather than a settlement of a liability, and it credits the same
+    // clearing account — which was debited the full ₦1,000 while the provider
+    // is only ever going to hand over ₦985.
+    $feeEntry = JournalEntry::where('idempotency_key', 'managed:provider_fee:txn:'.$transaction->id)->sole();
+
+    expect(pgLines($feeEntry))->toBe([
+        '5510:dr' => 1500,
+        '1030:cr' => 1500,
     ]);
 });
 
-test('a managed leg the provider did not price waits rather than guessing', function () {
+test('a managed leg the provider did not price is credited anyway, and the cost lands later', function () {
     [, $business, $staff, $store, $product] = pgContext();
     pgPlatformProcessor(2.5);
     $business = pgCustody($business);
@@ -1238,9 +1255,11 @@ test('a managed leg the provider did not price waits rather than guessing', func
     $reference = 'POS_MANAGED_UNPRICED';
 
     // No fee is handed over, because the provider said nothing about what it
-    // charged. The sale itself still goes through — the customer paid, and the
-    // shop has goods out of the door. What is withheld is the number we would
-    // owe.
+    // charged. That used to be a reason to credit nothing: the wallet's share
+    // was `gross - fee - commission`, and the middle term was missing. It is no
+    // longer a reason at all, because on a sale Storify charged that term is
+    // not the business's — so the same ₦975 is owed here as on the priced leg
+    // above, and it is credited on the same terms.
     pgExecuteSale($store, $staff, $product, [
         ['method' => 'paystack', 'amount' => 1000, 'reference' => $reference],
     ], [], key: 'pg-custody-unpriced-leg');
@@ -1248,13 +1267,17 @@ test('a managed leg the provider did not price waits rather than guessing', func
     $transaction = Transaction::where('reference', $reference)->sole();
 
     expect($transaction->status)->toBe(TransactionStatus::CONFIRMED)
-        // Both null, not zero: null is "not known", and a zero would be a claim
-        // that Paystack charged nothing.
+        // Still null, and still not zero: null is "not known", and a zero would
+        // be a claim that Paystack charged nothing.
         ->and($transaction->fee_kobo)->toBeNull()
-        ->and($transaction->net_kobo)->toBeNull()
-        ->and($transaction->settle_at)->toBeNull()
-        ->and((int) $business->fresh()->pending_balance)->toBe(0)
-        // Which is the state `creditAwaitingSales()` comes back for, and the
-        // reason the sale is not quietly credited at gross minus commission.
-        ->and(JournalEntry::where('idempotency_key', 'managed:collect:txn:'.$transaction->id)->exists())->toBeFalse();
+        // But the business's figure does not wait on it, which is the whole
+        // change: identical to the priced leg, credited just as promptly.
+        ->and($transaction->net_kobo)->toBe(97500)
+        ->and($transaction->settle_at)->not->toBeNull()
+        ->and((int) $business->fresh()->pending_balance)->toBe(97500)
+        ->and(JournalEntry::where('idempotency_key', 'managed:collect:txn:'.$transaction->id)->exists())->toBeTrue()
+        // What waits is *our* side. Until the provider says what it charged
+        // there is nothing to recognise, and the promote sweep picks it up off
+        // the row once it does.
+        ->and(JournalEntry::where('idempotency_key', 'managed:provider_fee:txn:'.$transaction->id)->exists())->toBeFalse();
 });

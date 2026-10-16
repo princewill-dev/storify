@@ -3,6 +3,7 @@
 namespace App\Services\Payments;
 
 use App\Enums\OrderStatus;
+use App\Enums\ProviderFeeBearer;
 use App\Enums\TransactionStatus;
 use App\Models\Transaction;
 use App\Services\Accounting\LedgerPostingService;
@@ -128,7 +129,14 @@ final class PaymentWebhookProcessor
             // question being asked here.
             $custody = $managed;
 
-            DB::transaction(function () use ($transaction, $verification, $feesMinor, $managed, $commissionKobo) {
+            // Who paid the provider's own charge, written where the sale is
+            // settled so no later reader has to re-derive it from a connection
+            // that may have been re-pointed since. For a sale we processed on the
+            // business's behalf that is us: the provider takes its fee out of
+            // our balance, so the fee must not come off the business's net.
+            $bearer = $managed ? ProviderFeeBearer::PLATFORM : ProviderFeeBearer::BUSINESS;
+
+            DB::transaction(function () use ($transaction, $verification, $feesMinor, $managed, $commissionKobo, $bearer) {
                 $amountMinor = Naira::koboFromRounded($transaction->amount);
 
                 $transaction->update([
@@ -137,18 +145,19 @@ final class PaymentWebhookProcessor
                     'gateway_reference' => $verification->providerId,
                     'gateway_response' => $verification->raw,
                     'fee_kobo' => $feesMinor,
-                    // Both fees come off, because both were taken before the
-                    // money landed: the provider's charge and our commission,
-                    // which the provider split off at source. Subtracting only
-                    // the provider's fee — which is what this did — reported a
-                    // bank balance larger than the business received.
-                    // The column, filled from `$commissionKobo` — which is the
-                    // column where it exists and the charge-time metadata key
-                    // where it does not. So settling a sale charged before the
-                    // column existed writes it into the column on the way past,
-                    // rather than waiting for the backfill.
+                    'provider_fee_bearer' => $bearer,
+                    // What comes off the business's net depends on that bearer.
+                    // On its own keys, both fees do — the provider's charge and
+                    // our commission, both taken before the money landed.
+                    // On ours, only the commission does: the provider's charge is
+                    // our cost, and subtracting it here is what made a business
+                    // pay for a provider it never chose.
+                    // `platform_fee_kobo` is the column where it exists and the
+                    // charge-time metadata key where it does not, so settling a
+                    // sale charged before the column existed writes it into the
+                    // column on the way past rather than waiting for the backfill.
                     'platform_fee_kobo' => $managed ? $commissionKobo : null,
-                    'net_kobo' => Transaction::netKoboFor($amountMinor, $feesMinor, $commissionKobo),
+                    'net_kobo' => Transaction::netKoboFor($amountMinor, $feesMinor, $commissionKobo, $bearer),
                     'metadata' => array_merge($transaction->metadata ?? [], [
                         'webhook_received' => true,
                     ]),
@@ -186,12 +195,14 @@ final class PaymentWebhookProcessor
             });
 
             if ($managed) {
-                // The business's side — net asset, both fees as expenses — and
-                // ours, the commission we were paid. Two entries, two sets of
-                // books, and neither touches a balance we hold.
+                // The business's side — net asset, our commission as its expense
+                // — and ours, the commission we were paid. Two entries, two sets
+                // of books, and neither touches a balance we hold. The provider's
+                // own fee is ours now, and the method reads it off the row rather
+                // than taking it as an argument, so no caller can put it back on
+                // a business's books by passing the wrong number.
                 $this->ledger->safe(fn () => $this->ledger->postManagedPaymentReceived(
                     $transaction,
-                    (int) ($feesMinor ?? 0),
                     $commissionKobo,
                     custody: $custody,
                 ));

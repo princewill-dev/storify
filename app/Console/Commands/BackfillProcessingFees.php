@@ -22,8 +22,17 @@ use Illuminate\Console\Command;
  *
  * What it will not do, at any setting: touch `amount`, `currency`, `fee_kobo`,
  * `status` or `paid_at`; invent a commission that was never recorded; write a
- * net for a row whose provider fee is unknown; or post, amend or delete a
- * journal entry. It is a repair of two derived columns, and nothing else.
+ * net for a business-bearing row whose provider fee is unknown; or post, amend
+ * or delete a journal entry. It is a repair of two derived columns, and nothing
+ * else.
+ *
+ * **No historical net moves.** Every row that exists when this ships is
+ * `business`-bearing — the column's own default — so each one is recomputed by
+ * exactly the arithmetic it was written under. The bearer only changes the
+ * answer for rows written after the rule changed, and those already carry the
+ * right net, so the comparison below finds nothing to correct. That is the test
+ * to run before `--apply`: a dry run must report zero net corrections on the
+ * historical set.
  */
 class BackfillProcessingFees extends Command
 {
@@ -75,7 +84,14 @@ class BackfillProcessingFees extends Command
                 // own keys, whose net was never wrong, is not rewritten at all.
                 $providerFee = $transaction->fee_kobo !== null ? (int) $transaction->fee_kobo : null;
 
-                if ($providerFee === null) {
+                // Every row this command was written for is a `business` row, and
+                // reproduces its old net exactly. A `platform` row is one Storify
+                // charged, where the provider's fee is not part of what the
+                // business is owed — so its net is computable whether or not the
+                // fee has arrived, and the null branch below must not hold it back.
+                $bearer = $transaction->providerFeeBearer();
+
+                if ($providerFee === null && $bearer->isBusiness()) {
                     // A till sale the provider has not settled yet. There is no
                     // net to write and no honest way to guess one.
                     if ($transaction->isPlatformManaged()) {
@@ -86,6 +102,7 @@ class BackfillProcessingFees extends Command
                         Naira::koboFromRounded($transaction->amount),
                         $providerFee,
                         $updates['platform_fee_kobo'] ?? $transaction->platformFeeKobo(),
+                        $bearer,
                     );
 
                     if ($expected !== $transaction->net_kobo) {

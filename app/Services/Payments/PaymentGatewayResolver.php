@@ -498,9 +498,10 @@ final class PaymentGatewayResolver
      * The third condition on `$custody`, and the same kind of fact as the other
      * two. The wallet, the platform's custody accounts and the payout rail are
      * denominated in one currency, so a sale collected in another is a sale whose
-     * figures cannot be written down anywhere — the business's share is
-     * `amount − provider fee − commission`, where on a converted charge the first
-     * term is the store's currency and the other two are the wallet's. The
+     * figures cannot be written down anywhere — the business's share is the
+     * charge less our commission (and, where the business bears it, the
+     * provider's fee), and on a converted charge the amount is in the store's
+     * currency while the deductions are the wallet's. The
      * customer would pay, the money would land in Storify's balance, and the
      * business's credit would be the store's number read as naira — short by the
      * rate, or enormous, depending on which side of the naira the currency sits.

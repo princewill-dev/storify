@@ -112,12 +112,16 @@ final class DashboardWidgetsRepository
     }
 
     /**
-     * The provider's fee plus our commission, over confirmed rows, in naira.
+     * What these rows took out of the business, over confirmed rows, in naira.
+     *
+     * The rule is per row, so it is expressed once — {@see
+     * Transaction::processingFeeSumSql()} — rather than built here, where a second
+     * copy would drift from the totals bar's and from each other's.
      */
     private function processingFeeNaira(Builder $confirmed, ?Carbon $from = null, ?Carbon $to = null): float
     {
         $query = $confirmed->clone()
-            ->selectRaw('COALESCE(SUM(fee_kobo), 0) + COALESCE(SUM(platform_fee_kobo), 0) as fee_kobo');
+            ->selectRaw(Transaction::processingFeeSumSql().' as fee_kobo');
 
         if ($from !== null && $to !== null) {
             $query->whereBetween('created_at', [$from, $to]);

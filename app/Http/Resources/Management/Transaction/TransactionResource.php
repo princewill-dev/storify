@@ -24,7 +24,9 @@ use Illuminate\Http\Resources\Json\JsonResource;
  * `fee` became `processing_fee` here too, and `net` is now derived rather than
  * read from the column, so this slice cannot offer a second, older answer to
  * "what did the customer pay and what reached the bank" than the WS-18 slice
- * does. Nothing routes to it today — `ws18-transactions.php` re-registers every
+ * does. Both figures come from the model's bearer-aware methods, so what the
+ * fee holds follows the same rule here as there: our commission alone on a sale
+ * Storify charged, both fees on one the business charged on its own keys. Nothing routes to it today — `ws18-transactions.php` re-registers every
  * URI the thin controller declared — which is precisely why it is worth keeping
  * in step: a payload left carrying the previous meaning is a trap for whoever
  * reconnects it.

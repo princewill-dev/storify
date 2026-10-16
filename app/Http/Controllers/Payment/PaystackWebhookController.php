@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Payment;
 
 use App\Enums\OrderStatus;
+use App\Enums\ProviderFeeBearer;
 use App\Enums\TransactionStatus;
 use App\Http\Controllers\Controller;
 use App\Models\PaymentMethod;
@@ -127,11 +128,16 @@ class PaystackWebhookController extends Controller
                         'gateway_reference' => $data->id ?? null,
                         'gateway_response' => $data,
                         'fee_kobo' => $feesKobo,
+                        // The business's own Paystack keys: Paystack takes its
+                        // fee from the business's account, so the business bears
+                        // it, now as before. Stated rather than defaulted so the
+                        // row says which rule it is under.
+                        'provider_fee_bearer' => ProviderFeeBearer::BUSINESS,
                         // Via the shared rule rather than an inline subtraction.
                         // Zero on this path today — these are the business's own
                         // Paystack keys, with no commission — but a copy of the
                         // expression here is a copy that can drift again.
-                        'net_kobo' => Transaction::netKoboFor($amountKobo, $feesKobo, $commissionKobo),
+                        'net_kobo' => Transaction::netKoboFor($amountKobo, $feesKobo, $commissionKobo, ProviderFeeBearer::BUSINESS),
                         'metadata' => array_merge($transaction->metadata ?? [], [
                             'webhook_received' => true,
                             'webhook_data' => $data,

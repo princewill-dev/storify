@@ -72,6 +72,17 @@ class TransactionController extends ApiController
             $data['fee'] = $processingFee !== null ? Naira::floatFromKobo($processingFee) : null;
             $net = $transaction->netKobo();
             $data['net'] = $net !== null ? Naira::floatFromKobo($net) : null;
+            // Storify's own cost of taking this payment, which is no longer part
+            // of what the business is shown. The provider's charge out of *our*
+            // balance on a sale we processed; zero on one the business charged
+            // through its own keys, because there the business pays it.
+            //
+            // Safe to expose here and not in the business API because this
+            // payload is built inline from the model rather than through
+            // Management\TransactionResource — the business's API cannot reach
+            // this field, which is the property that matters for it.
+            $data['provider_fee'] = Naira::floatFromKobo(max(0, (int) ($transaction->fee_kobo ?? 0)));
+            $data['provider_fee_bearer'] = $transaction->providerFeeBearer()->value;
             $data['customer'] = $transaction->order?->customer?->full_name;
             $data['gateway_response'] = $transaction->gateway_response;
         }

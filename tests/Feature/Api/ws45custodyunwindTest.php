@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\ProviderFeeBearer;
 use App\Enums\TransactionStatus;
 use App\Models\Business;
 use App\Models\JournalEntry;
@@ -102,6 +103,16 @@ function cu45Sale(Business $business, array $attributes = []): Transaction
         'paid_at' => now(),
         'fee_kobo' => 5000,
         'platform_fee_kobo' => 6250,
+        // A **pre-cutover** collected sale, stated rather than defaulted into.
+        // It is `platform_managed` because Storify did charge it, but the
+        // provider's fee came off the business's money then, so every figure in
+        // this file is the legacy arithmetic: net = ₦2,500 − ₦50 − ₦62.50. That
+        // is the rule a row written before the bearer column existed still
+        // carries, and the reconciliation through credit, promotion, payout and
+        // refund has to keep holding for those rows. The column's own default
+        // would say the same thing quietly; spelling it out is what stops a
+        // later reader assuming this fixture is the shape a new sale has.
+        'provider_fee_bearer' => ProviderFeeBearer::BUSINESS,
         'metadata' => ['payment_mode' => 'platform_managed', 'leg_method' => 'bachs'],
     ], $attributes));
 }
@@ -574,7 +585,7 @@ test('the wallet and the account that records it agree through the whole life of
     // place, and with only one it is supposed to disagree, which is the next
     // test.
     $custody->recordCollectedSale($transaction, 'bachs');
-    $ledger->postManagedPaymentReceived($transaction->fresh(), 5000, 6250, null, true);
+    $ledger->postManagedPaymentReceived($transaction->fresh(), 6250, null, true);
 
     expect($reports->integrity($business->id)['custody'])->toMatchArray([
         'pending' => 238750,
@@ -649,7 +660,7 @@ test('a managed sale is not counted against the store wallet', function () {
     // difference on every managed sale the platform ever processed.
     $transaction = cu45Sale($business);
 
-    app(LedgerPostingService::class)->postManagedPaymentReceived($transaction, 5000, 6250, null, false);
+    app(LedgerPostingService::class)->postManagedPaymentReceived($transaction, 6250, null, false);
 
     expect(cu45WalletRow(app(LedgerReportService::class)->integrity($business->id), $store))
         ->toMatchArray(['wallet' => 0, 'ledger' => 0, 'difference' => 0]);

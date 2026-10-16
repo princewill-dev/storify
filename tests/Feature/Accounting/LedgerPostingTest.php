@@ -111,8 +111,13 @@ test('setup creates chart of accounts mappings and periods idempotently', functi
     $setup = app(LedgerSetupService::class);
     $setup->ensureForBusiness($business->id);
 
-    expect(LedgerAccount::where('business_id', $business->id)->count())->toBe(28)
-        ->and(LedgerMapping::where('business_id', $business->id)->count())->toBe(23)
+    // 29 accounts and 24 mappings since `5510 Provider Processing Fees` joined
+    // the template for the provider's own charge on a sale Storify collected.
+    // The template is a superset instantiated per scope, so that account lands on
+    // every business's chart as well and simply never carries a line — which is
+    // the shape `2210`, `2300` and `1040` have always had here.
+    expect(LedgerAccount::where('business_id', $business->id)->count())->toBe(29)
+        ->and(LedgerMapping::where('business_id', $business->id)->count())->toBe(24)
         ->and(FiscalPeriod::where('business_id', $business->id)->count())->toBe(12);
 });
 
@@ -130,7 +135,7 @@ test('platform books can be posted independently of tenant books', function () {
     expect($entry)->not->toBeNull()
         ->and($entry->business_id)->toBeNull()
         ->and($entry->isBalanced())->toBeTrue()
-        ->and(LedgerAccount::whereNull('business_id')->count())->toBe(28);
+        ->and(LedgerAccount::whereNull('business_id')->count())->toBe(29);
 });
 
 test('a pos sale posts a balanced ledger entry with revenue split', function () {

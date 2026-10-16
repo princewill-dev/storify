@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\ProviderFeeBearer;
 use App\Enums\TransactionStatus;
 use App\Support\Money\Naira;
 use App\Support\Payments\PaymentGatewayRegistry;
@@ -37,6 +38,10 @@ class Transaction extends Model
         'fee_kobo',
         'net_kobo',
         'platform_fee_kobo',
+        // Whose money the provider's own fee came out of. Written at the same
+        // lines that write `fee_kobo`, from the same managed/own-keys flag —
+        // see the migration for why this is a column and not a cutover date.
+        'provider_fee_bearer',
         // When a collected sale's share becomes payable, when it was actually
         // moved from pending to available, and when it was given back to the
         // customer. Written by the custody wallet, and only for sales Storify
@@ -58,6 +63,7 @@ class Transaction extends Model
         'fee_kobo' => 'integer',
         'net_kobo' => 'integer',
         'platform_fee_kobo' => 'integer',
+        'provider_fee_bearer' => ProviderFeeBearer::class,
     ];
 
     protected static function boot()
@@ -314,27 +320,88 @@ class Transaction extends Model
     }
 
     /**
+     * Whose money the provider's own processing fee came out of.
+     *
+     * Null reads as `BUSINESS`, and that is the fail-safe direction rather than
+     * a convenience: it is the true answer for every row written before the
+     * column existed and for a row this process has not refreshed, so an unread
+     * attribute preserves history instead of re-ruling on it.
+     */
+    public function providerFeeBearer(): ProviderFeeBearer
+    {
+        $bearer = $this->provider_fee_bearer;
+
+        return $bearer instanceof ProviderFeeBearer
+            ? $bearer
+            : (ProviderFeeBearer::tryFrom((string) $bearer) ?? ProviderFeeBearer::BUSINESS);
+    }
+
+    /**
      * Everything taken out of this sale before it reached the business, in kobo.
      *
-     * The provider's fee *and* our commission, as one figure — which is how the
-     * business experiences it and how its ledger books it, both on one line.
-     * The two stay distinguishable on the row (`fee_kobo` against
-     * `platform_fee_kobo`) and on our own books; they are not presented to the
-     * business as two separate costs.
+     * Which fees those are depends on who bore the provider's charge:
      *
-     * Null, not zero, when the provider's fee is not known yet: a POS managed leg
-     * is written when the till closes the sale, and the provider does not report
-     * its charge until it settles days later. Returning the commission alone
-     * would be understating the fee, and returning zero would be claiming there
-     * was none.
+     * - **The business did** (its own keys, or any sale before this rule): the
+     *   provider's fee *and* our commission, as one figure — which is how the
+     *   business experiences it and how its ledger books it, both on one line.
+     *   The two stay distinguishable on the row (`fee_kobo` against
+     *   `platform_fee_kobo`) and on our own books; they are not presented to the
+     *   business as two separate costs.
+     * - **Storify did** (Storify charged on its own credentials): our commission
+     *   alone. The provider's charge is Storify's own expense, is not part of
+     *   what the business was asked to pay for, and never appears on its books.
+     *
+     * Null, not zero, when the provider's fee is not known yet — and only for a
+     * business-bearing sale. A POS managed leg is written when the till closes
+     * the sale, and the provider does not report its charge until it settles days
+     * later. Returning the commission alone would be understating the fee, and
+     * returning zero would be claiming there was none. A platform-bearing sale
+     * has no such gap: nothing it owes to the business is waiting on the
+     * provider's number.
      */
     public function processingFeeKobo(): ?int
     {
+        if (! $this->providerFeeBearer()->isBusiness()) {
+            return $this->platformFeeKobo();
+        }
+
         if ($this->fee_kobo === null) {
             return null;
         }
 
         return max(0, (int) $this->fee_kobo) + $this->platformFeeKobo();
+    }
+
+    /**
+     * The SQL twin of {@see processingFeeKobo()}, for summing it over rows.
+     *
+     * It lives here, beside the PHP rule, so the two cannot drift apart. Every
+     * business-facing total is built from this one expression — the transactions
+     * list's totals bar, the CSV, the dashboard cards — and a copy of it in each
+     * of those places would eventually disagree with the others about what a
+     * business was charged, which is the kind of disagreement that shows up as a
+     * support ticket rather than as a test failure.
+     *
+     * The `CASE` is the whole of the rule. A row explicitly charged under the new
+     * one contributes our commission alone; **everything else** — a row on the
+     * business's own keys, a row written before the column existed, a value
+     * nobody anticipated — contributes both fees, exactly as it always did.
+     * Failing towards the old rule is the only safe direction here: it can
+     * overstate a deduction a historical sale genuinely had, where the other way
+     * would tell a business it was owed money nobody had taken.
+     *
+     * Qualifies its columns, because this string is pasted into queries on other
+     * tables' behalf and an unqualified `fee_kobo` would be ambiguous the first
+     * time anything joins to a table that has one.
+     */
+    public static function processingFeeSumSql(): string
+    {
+        return sprintf(
+            "COALESCE(SUM(CASE WHEN transactions.provider_fee_bearer = '%s' "
+            .'THEN COALESCE(transactions.platform_fee_kobo, 0) '
+            .'ELSE COALESCE(transactions.fee_kobo, 0) + COALESCE(transactions.platform_fee_kobo, 0) END), 0)',
+            ProviderFeeBearer::PLATFORM->value,
+        );
     }
 
     /**
@@ -348,8 +415,10 @@ class Transaction extends Model
      * backfill. Both are computed by {@see netKoboFor()}, so they cannot
      * disagree once it has run.
      *
-     * Null when the provider's fee is unknown — see {@see processingFeeKobo()}.
-     * A partial subtraction is a wrong number; an absent one is an honest gap.
+     * Null when the provider's fee is unknown and it is needed to answer — see
+     * {@see processingFeeKobo()}. A partial subtraction is a wrong number; an
+     * absent one is an honest gap. Only a business-bearing sale can have that
+     * gap: Storify's own fee never bounds what a business is owed.
      */
     public function netKobo(): ?int
     {
@@ -357,6 +426,7 @@ class Transaction extends Model
             Naira::koboFromRounded($this->amount),
             $this->fee_kobo !== null ? (int) $this->fee_kobo : null,
             $this->platformFeeKobo(),
+            $this->providerFeeBearer(),
         );
     }
 
@@ -368,9 +438,26 @@ class Transaction extends Model
      * not reading what was persisted. Four call sites used to carry their own
      * copy of `max(0, $amount - $fee)` and every one of them silently omitted the
      * commission, which is why it lives in one place now.
+     *
+     * `$bearer` is required rather than defaulted, deliberately. Defaulting it
+     * would let a call site that nobody updated go on applying the old rule —
+     * understating a business's share by the provider's fee, on every sale, with
+     * no error to notice. Required makes a missed site loud.
      */
-    public static function netKoboFor(int $grossKobo, ?int $providerFeeKobo, int $platformFeeKobo = 0): ?int
-    {
+    public static function netKoboFor(
+        int $grossKobo,
+        ?int $providerFeeKobo,
+        int $platformFeeKobo,
+        ProviderFeeBearer $bearer,
+    ): ?int {
+        // Storify bears the provider's fee, so it is not part of the business's
+        // share — and, checked before the null guard below, an unreported fee is
+        // no reason to refuse an answer. That ordering is what lets a managed
+        // sale be credited the moment it is paid instead of days later.
+        if (! $bearer->isBusiness()) {
+            return max(0, $grossKobo - max(0, $platformFeeKobo));
+        }
+
         if ($providerFeeKobo === null) {
             return null;
         }

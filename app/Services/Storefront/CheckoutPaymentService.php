@@ -4,6 +4,7 @@ namespace App\Services\Storefront;
 
 use App\Enums\InitializationMode;
 use App\Enums\OrderStatus;
+use App\Enums\ProviderFeeBearer;
 use App\Enums\TransactionStatus;
 use App\Models\Order;
 use App\Models\PaymentMethod;
@@ -347,22 +348,32 @@ final class CheckoutPaymentService
             // it was charged.
             $custody = $managed;
 
-            DB::transaction(function () use ($transaction, $order, $verification, $managed, $commissionKobo) {
+            // Who paid the provider's own charge. Must agree with the webhook's
+            // reading of the same sale, for the reason the `$custody` comment
+            // above gives: only one of the two paths settles a given sale, but
+            // either may be the one that does.
+            $bearer = $managed ? ProviderFeeBearer::PLATFORM : ProviderFeeBearer::BUSINESS;
+
+            DB::transaction(function () use ($transaction, $order, $verification, $managed, $commissionKobo, $bearer) {
                 $transaction->update([
                     'status' => TransactionStatus::CONFIRMED->value,
                     'gateway_reference' => $verification->providerId,
                     'gateway_response' => $verification->raw,
                     'paid_at' => now(),
                     'fee_kobo' => $verification->feesMinor,
+                    'provider_fee_bearer' => $bearer,
                     // This path never wrote a net at all, so a payment settled
                     // by the customer's own return trip rather than by webhook
                     // showed an empty Net forever. Same rule as the webhook's:
-                    // both fees off, or nothing when the provider's is unknown.
+                    // on the business's own keys both fees come off and nothing
+                    // is written when the provider's is unknown; on ours only the
+                    // commission does, and it is known before the charge is.
                     'platform_fee_kobo' => $managed ? $commissionKobo : null,
                     'net_kobo' => Transaction::netKoboFor(
                         Naira::koboFromRounded($transaction->amount),
                         $verification->feesMinor,
                         $commissionKobo,
+                        $bearer,
                     ),
                 ]);
 
@@ -398,7 +409,6 @@ final class CheckoutPaymentService
             if ($managed) {
                 $this->ledger->safe(fn () => $this->ledger->postManagedPaymentReceived(
                     $transaction,
-                    (int) ($verification->feesMinor ?? 0),
                     $commissionKobo,
                     custody: $custody,
                 ));

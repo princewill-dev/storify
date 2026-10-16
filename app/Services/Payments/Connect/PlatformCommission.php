@@ -10,11 +10,14 @@ use Illuminate\Support\Facades\Log;
  * Storify's cut of a sale it processes on a business's behalf.
  *
  * Two parts, both admin-set on the Payment Methods screen: a percentage and a
- * flat amount. It covers **Storify's commission only** — the payment provider's
- * own processing fee is the provider's, varies by payment method (a card and a
- * bank transfer do not cost the same), and is deducted at source before we see
- * anything. Folding it into this number would make our margin a function of
- * which method the customer happened to pick.
+ * flat amount. It covers **Storify's commission only**. The payment provider's
+ * own processing fee is *Storify's* cost, not the business's — we are merchant of
+ * record and the provider takes its charge out of our balance before we see the
+ * money, which is why it appears as `5510 Provider Processing Fees` on our books
+ * and nowhere on the business's. This number is the whole of what a business is
+ * charged for taking the payment. Folding the provider's fee into it would make
+ * our margin a function of which method the customer happened to pick, and would
+ * put a cost the business never chose onto a line it can see.
  *
  * The percentage is held as **basis points** — hundredths of a percent, so
  * `2.50%` is `250` — because the column is a decimal and comparing floats for a

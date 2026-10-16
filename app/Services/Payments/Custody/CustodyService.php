@@ -2,6 +2,7 @@
 
 namespace App\Services\Payments\Custody;
 
+use App\Enums\ProviderFeeBearer;
 use App\Models\Business;
 use App\Models\Store;
 use App\Models\Transaction;
@@ -59,14 +60,22 @@ final class CustodyService
      * guard is one `if` away from being edited, and this one cannot be: a credited
      * sale carries its own proof.
      *
-     * **A sale whose provider fee is not yet known is not credited at all.** The
-     * business's share is `gross − provider fee − commission`, and the middle term
-     * is not always there when the sale is written: a provider that reports its own
-     * charge only when the charge settles leaves the row unpriced for days. Crediting
-     * the commission alone would understate the debt, and crediting the gross would
-     * overstate it by a fee that is coming. Neither is recoverable by a later
-     * correction a business would ever see, so the sale waits, and
-     * `custody:promote` reports how many are waiting.
+     * **A sale whose provider fee is not yet known is not credited at all — unless
+     * that fee is not the business's problem.** The business's share is
+     * `gross − provider fee − commission`, and on a sale charged through the
+     * business's own keys the middle term is not always there when the sale is
+     * written: a provider that reports its own charge only when the charge settles
+     * leaves the row unpriced for days. Crediting the commission alone would
+     * understate the debt, and crediting the gross would overstate it by a fee that
+     * is coming. Neither is recoverable by a later correction a business would ever
+     * see, so those sales wait, and `custody:promote` reports how many are waiting.
+     *
+     * A sale **Storify** charged has no middle term — the provider's fee is our own
+     * cost and comes out of our balance, not the business's — so the business's
+     * share is known the moment the sale is paid, and this credits it there and
+     * then. Which of the two a sale is, is read off the row's own
+     * `provider_fee_bearer`, which is what decides whether the missing fee is a
+     * reason to wait.
      *
      * @param  string|null  $providerCode  the provider, where the caller knows it better than the row does
      * @return bool whether the wallet was credited
@@ -217,6 +226,28 @@ final class CustodyService
         // silently un-credited is not.
         $this->ledger->safe(fn () => $this->ledger->postCustodyCollection($transaction, $netKobo));
 
+        // And, when the provider has already said what its charge was, our own side
+        // of it. Both the business's share and the commission are the same either
+        // way — this only decides whether that fee is recognised now or by the
+        // sweep below, which is why it is not a condition on any figure the
+        // business sees.
+        //
+        // Ordered *after* the collection entry on purpose: that one debits the full
+        // gross to clearing, and recognising the fee first would take clearing below
+        // zero for the length of one entry — a figure a reconciliation would find
+        // and nobody could explain.
+        //
+        // The common case for a till leg is a fee we do not have yet, since the
+        // provider reports it at settlement days later. The sweep in
+        // {@see promoteSettled()} is what posts it then. Both paths share the
+        // entry's idempotency key, so whichever arrives first posts once and the
+        // other is a no-op.
+        if ($transaction->fee_kobo !== null && (int) $transaction->fee_kobo > 0) {
+            $providerFeeKobo = (int) $transaction->fee_kobo;
+
+            $this->ledger->safe(fn () => $this->ledger->postCustodyProviderFeeSettled($transaction, $providerFeeKobo));
+        }
+
         // Told, after the money and after the claim. Both orderings matter: the
         // credit is committed before the message says it happened (so the message
         // is never about money that then failed to arrive), and the hook is past
@@ -271,6 +302,13 @@ final class CustodyService
         // that arrived late is the normal case for a POS leg, and without this pass
         // the sale would sit uncredited forever with nothing reporting it.
         $counts['uncredited'] = $this->creditAwaitingSales();
+
+        // Then our own side of the provider's charge, for the sales the pass above
+        // cannot reach — money the business is already owed, and a cost we have
+        // already incurred. Not reported through the array below: nothing about a
+        // business's balance changes, and a count in a run summary is a promise
+        // somebody will have to keep. It is logged instead.
+        $this->recogniseProviderFees();
 
         $due = $this->dueQuery($floor)
             ->orderBy('id')
@@ -518,6 +556,12 @@ final class CustodyService
      * between settlement and the provider's fee arriving would otherwise leave
      * them uncredited forever.
      *
+     * Since the provider's fee became Storify's own cost, only a sale charged on
+     * the business's **own** keys can be waiting here for its fee, and this set
+     * drains to nothing as those age out. A sale Storify charged is credited
+     * immediately and never appears — see {@see creditAwaitingSales()}, whose
+     * predicate is the one that decides.
+     *
      * @return Builder<Transaction>
      */
     private function awaitingFeeQuery(): Builder
@@ -535,21 +579,36 @@ final class CustodyService
     }
 
     /**
-     * The sales that settled with no provider fee on them — the half that
-     * {@see creditAwaitingSales()} cannot reach.
+     * The collected sales whose provider fee we have not learned yet — settled or
+     * not.
      *
-     * `creditAwaitingSales()` selects `whereNotNull('fee_kobo')`, which is right:
-     * it credits and nothing else. This is the other half of the same predicate —
-     * `whereNull('fee_kobo')` — exposed so the one command that can close the gap
-     * asks the same question this service does rather than rebuilding it and
-     * drifting. A sale is here because a writer refused to price it, and it stays
-     * here until something reads the provider's charge and writes the fee.
+     * This is the other half of {@see awaitingFeeQuery()}: that one plus
+     * `whereNotNull('fee_kobo')` is what {@see creditAwaitingSales()} credits, and
+     * this one with the fee still missing is what cannot be credited yet. But it
+     * is deliberately **not** the same predicate minus a clause, because the
+     * question it answers is a different one.
+     *
+     * `awaitingFeeQuery()` asks "which sales can the wallet not credit yet", and
+     * so requires them uncredited. This asks "which sales cost us something we have
+     * not written down", which has nothing to do with the wallet: a sale Storify
+     * charged is credited the moment it is paid, days before the provider says
+     * what its charge was, so it is never uncredited and would never be found
+     * through that predicate — while its fee is exactly the expense this set is
+     * about.
+     *
+     * Read by the one command that can close that gap (`custody:repair-sale-fees`),
+     * so the question is asked here rather than rebuilt there and left to drift.
      *
      * @return Builder<Transaction>
      */
-    public function salesAwaitingFee(): Builder
+    public function managedSalesWithNoFee(): Builder
     {
-        return $this->awaitingFeeQuery()->whereNull('fee_kobo');
+        return Transaction::query()
+            ->where('metadata->payment_mode', 'platform_managed')
+            ->whereNull('fee_kobo')
+            ->whereNotNull('paid_at')
+            ->whereIn('status', ['confirmed', 'paid'])
+            ->whereNull('unwound_at');
     }
 
     /**
@@ -568,12 +627,23 @@ final class CustodyService
      * a support ticket, so an unpriced sale waits rather than being approximated —
      * and something has to come back for it.
      *
+     * A sale whose fee never needs to be known before it is credited — one Storify
+     * charged, where the fee is our own cost — is credited on the spot and never
+     * reaches this pass. See the predicate below.
+     *
      * @return int how many are still unpriced after this pass
      */
     private function creditAwaitingSales(): int
     {
         $awaiting = $this->awaitingFeeQuery()
-            ->whereNotNull('fee_kobo')
+            // The old rule is welded into this predicate, and it has to be said out
+            // loud what is left of it: a fee is required to credit a sale only when
+            // the business's share depends on one. On a sale Storify charged it does
+            // not, so waiting for it would strand money the business is already owed
+            // — for days, on a till leg — for a number that is not part of the sum.
+            ->where(fn ($query) => $query
+                ->where('provider_fee_bearer', ProviderFeeBearer::PLATFORM->value)
+                ->orWhereNotNull('fee_kobo'))
             ->orderBy('id')
             ->limit((int) config('custody.promote_batch', 500))
             ->get();
@@ -583,6 +653,79 @@ final class CustodyService
         }
 
         return $this->awaitingFeeQuery()->count();
+    }
+
+    /**
+     * Our own expense, once the provider says what it charged.
+     *
+     * A sale Storify charged is credited the moment it is paid — its fee is not
+     * part of what the business is owed — so the fee arrives afterwards, on its own,
+     * with nothing about the business waiting on it. This is what recognises it
+     * when it does; {@see recordCollectedSale()} handles the case where the provider
+     * had already reported it by the time the sale was credited.
+     *
+     * Both go through one entry under one idempotency key
+     * (`managed:provider_fee:txn:{id}`), so the two cannot double-post and a
+     * replayed run posts nothing.
+     *
+     * Only the platform's own books are touched. A sale the business paid the
+     * provider on has its fee inside the collection entry, where it already was,
+     * and nothing here needs to find it.
+     *
+     * ## Why it is found by the entry's key and not by a marker column
+     *
+     * `provider_fee_recognised_at` on the transaction would be a second record of
+     * something the journal already states, and the two would eventually disagree —
+     * a row stamped as recognised with no entry, or an entry with no stamp. The key
+     * that makes the posting idempotent is the same key that answers "has it been
+     * posted", so the journal is asked directly. {@see LedgerReportService::integrity()}
+     * finds unposted transactions the same way.
+     */
+    private function recogniseProviderFees(): int
+    {
+        $candidates = Transaction::query()
+            ->where('provider_fee_bearer', ProviderFeeBearer::PLATFORM->value)
+            ->whereNotNull('fee_kobo')
+            ->where('fee_kobo', '>', 0)
+            // Only a sale the wallet actually collected: that is what put the full
+            // gross into clearing, and the entry this posts credits clearing back
+            // out of it. Without the guard it would recognise a cost against an
+            // account that was never debited for the sale.
+            ->whereNotNull('settle_at')
+            // A refunded sale's fee entry was reversed with its collection
+            // ({@see LedgerPostingService::postCustodyCollectionReturned()}). The
+            // reversal is a new entry under its own key rather than a deletion, so
+            // the check below would still find the original and skip — this says so
+            // directly rather than leaving it to an accident of key naming.
+            ->whereNull('unwound_at')
+            // The same currency guard the wallet and the collection entry apply.
+            // A converted sale's figures are the store's own, and clearing was
+            // never debited in the custody currency for it.
+            ->whereRaw('UPPER(currency) = ?', [strtoupper((string) config('custody.currency', 'NGN'))])
+            ->whereNotExists(function ($query) {
+                $query->select(DB::raw(1))
+                    ->from('journal_entries')
+                    ->whereColumn(
+                        'journal_entries.idempotency_key',
+                        DB::raw("CONCAT('managed:provider_fee:txn:', transactions.id)"),
+                    );
+            })
+            ->orderBy('id')
+            ->limit((int) config('custody.promote_batch', 500))
+            ->get();
+
+        foreach ($candidates as $transaction) {
+            $this->ledger->safe(fn () => $this->ledger->postCustodyProviderFeeSettled(
+                $transaction,
+                (int) $transaction->fee_kobo,
+            ));
+        }
+
+        if ($candidates->isNotEmpty()) {
+            Log::info('custody.provider_fees_recognised', ['transactions' => $candidates->count()]);
+        }
+
+        return $candidates->count();
     }
 
     /**

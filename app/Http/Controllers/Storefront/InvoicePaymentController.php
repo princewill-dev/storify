@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Storefront;
 
 use App\Enums\InvoiceStatus;
+use App\Enums\ProviderFeeBearer;
 use App\Enums\TransactionStatus;
 use App\Http\Controllers\Controller;
 use App\Mail\InvoicePaymentReceiptMail;
@@ -271,9 +272,12 @@ class InvoicePaymentController extends Controller
                 'gateway_reference' => $verification['data']['id'] ?? null,
                 'gateway_response' => $verification['data'],
                 'fee_kobo' => $feesKobo,
+                // The business's own keys again, so the business bears the
+                // provider's fee — see the same line in PaystackWebhookController.
+                'provider_fee_bearer' => ProviderFeeBearer::BUSINESS,
                 // Via the shared rule rather than an inline subtraction — see
                 // the same change in PaystackWebhookController for why.
-                'net_kobo' => Transaction::netKoboFor($amountKobo, $feesKobo, $commissionKobo),
+                'net_kobo' => Transaction::netKoboFor($amountKobo, $feesKobo, $commissionKobo, ProviderFeeBearer::BUSINESS),
                 'paid_at' => now(),
             ]);
 

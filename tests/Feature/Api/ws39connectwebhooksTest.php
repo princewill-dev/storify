@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\ProviderFeeBearer;
 use App\Enums\TransactionStatus;
 use App\Models\Business;
 use App\Models\ConnectWebhookEvent;
@@ -251,6 +252,10 @@ function cw39Sale(Business $business, Store $store, string $chargeId = 'chg_cw39
         'fee_kobo' => 5000,
         'net_kobo' => 238750,
         'platform_fee_kobo' => 6250,
+        // A pre-cutover collection, stated rather than left to the column
+        // default: the ₦2,500 less Bachs' ₦50 less our ₦62.50 the net above
+        // encodes is the old rule, and the fee is the business's in it.
+        'provider_fee_bearer' => ProviderFeeBearer::BUSINESS,
         'currency' => 'NGN',
         'status' => TransactionStatus::CONFIRMED->value,
         'gateway_reference' => $chargeId,
@@ -376,34 +381,46 @@ test('a delivery settles the sale into a wallet Storify holds, and into both set
     $businessId = (int) $business->id;
     $key = 'payment:txn:'.$transaction->id;
 
-    // ₦2,500 gross, less Bachs' ₦50 and our ₦62.50. What the business is owed is
-    // an asset against Storify rather than a clearing balance at a provider —
-    // which is the whole point of the account, and why it is a key of its own.
-    expect(cw39Ledger($businessId, $key, 'held_by_platform'))->toBe(238750)
+    // ₦2,500 gross, less our ₦62.50 — and Bachs' ₦50 nowhere in it. Storify
+    // charges on its own credentials, so that fee comes off our balance rather
+    // than the business's. What the business is owed is an asset against Storify
+    // rather than a clearing balance at a provider — which is the whole point of
+    // the account, and why it is a key of its own.
+    expect(cw39Ledger($businessId, $key, 'held_by_platform'))->toBe(243750)
         ->and(cw39Ledger($businessId, $key, 'accounts_receivable', 'credit'))->toBe(250000)
-        // Both fees land on 5500: to the business they are the same kind of
-        // thing, the cost of taking this payment.
-        ->and(cw39Ledger($businessId, $key, 'gateway_fees'))->toBe(11250)
+        // One line on 5500, holding the only cost the business was charged: our
+        // commission.
+        ->and(cw39Ledger($businessId, $key, 'gateway_fees'))->toBe(6250)
         ->and(cw39Ledger($businessId, $key, 'gateway_clearing'))->toBe(0);
 
     // Our side, and the entry that did not exist before this change: the gross
-    // is in our provider balance, we earned the commission, we owe the provider
-    // its fee and we owe the business its share.
+    // is in our provider balance, we earned the commission, and we owe the
+    // business its share. What we do *not* owe anyone is a payable to the
+    // provider — the fee is our own cost, recognised on 5510 the moment we know
+    // its size, which on a storefront sale is now.
     $platformKey = 'managed:collect:txn:'.$transaction->id;
+    $feeKey = 'managed:provider_fee:txn:'.$transaction->id;
 
     expect(cw39Ledger(null, $platformKey, 'gateway_clearing'))->toBe(250000)
-        ->and(cw39Ledger(null, $platformKey, 'business_funds_held', 'credit'))->toBe(238750)
+        ->and(cw39Ledger(null, $platformKey, 'business_funds_held', 'credit'))->toBe(243750)
         ->and(cw39Ledger(null, $platformKey, 'service_charge_income', 'credit'))->toBe(6250)
-        ->and(cw39Ledger(null, $platformKey, 'provider_fees_payable', 'credit'))->toBe(5000)
+        ->and(cw39Ledger(null, $platformKey, 'provider_fees_payable', 'credit'))->toBe(0)
+        // The fee as an expense, against the same clearing account: the provider
+        // has already taken it out of what it is holding for us, so 1030 was
+        // debited the full gross while the provider's balance is short by
+        // exactly this.
+        ->and(cw39Ledger(null, $feeKey, 'provider_processing_fees'))->toBe(5000)
         // The commission is *inside* that entry, so posting it separately would
         // be counting our own income twice.
         ->and(JournalEntry::where('idempotency_key', 'commission:txn:'.$transaction->id)->exists())->toBeFalse();
 
     // And the wallet: owed, but not yet payable — the provider has not settled
     // the charge to us, so paying it out would have Storify funding the gap.
+    // Credited at once all the same, because the business's share never depended
+    // on the fee the provider has not reported to us yet.
     $fresh = $business->fresh();
 
-    expect((int) $fresh->pending_balance)->toBe(238750)
+    expect((int) $fresh->pending_balance)->toBe(243750)
         ->and((int) $fresh->available_balance)->toBe(0)
         ->and($transaction->settle_at)->not->toBeNull();
 
@@ -435,7 +452,7 @@ test('a redelivered settlement is answered, and settles nothing twice', function
     expect((float) $order->fresh()->amount_paid)->toBe(2500.0)
         ->and(JournalEntry::where('idempotency_key', 'payment:txn:'.$transaction->id)->count())->toBe(1)
         ->and(JournalEntry::where('idempotency_key', 'managed:collect:txn:'.$transaction->id)->count())->toBe(1)
-        ->and((int) $business->fresh()->pending_balance)->toBe(238750);
+        ->and((int) $business->fresh()->pending_balance)->toBe(243750);
 });
 
 test('the browser verify and the delivery cannot both settle one sale', function () {
@@ -493,7 +510,7 @@ test('a delivery that names no account at all is settled anyway', function () {
     cw39Post($this, $body, $headers)->assertOk()->assertJsonPath('status', 'success');
 
     expect($transaction->fresh()->status)->toBe(TransactionStatus::CONFIRMED)
-        ->and((int) $business->fresh()->pending_balance)->toBe(238750)
+        ->and((int) $business->fresh()->pending_balance)->toBe(243750)
         // Nothing was named, so nothing was written down as having been.
         ->and(ConnectWebhookEvent::query()->where('event_id', 'evt_cw39_anonymous')->sole()->account_id)->toBeNull();
 });
@@ -595,7 +612,7 @@ test('the same delivery twice is claimed by its event id, and the second is not 
     cw39Post($this, $body, $headers)->assertOk()->assertJsonPath('status', 'duplicate');
 
     expect(JournalEntry::where('idempotency_key', 'managed:collect:txn:'.$transaction->id)->count())->toBe(1)
-        ->and((int) $business->fresh()->pending_balance)->toBe(238750);
+        ->and((int) $business->fresh()->pending_balance)->toBe(243750);
 
     // And the event is on record as handled, which is what makes the second
     // delivery cheap rather than merely harmless.

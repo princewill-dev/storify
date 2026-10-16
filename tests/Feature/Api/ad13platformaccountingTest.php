@@ -148,8 +148,8 @@ test('opening the platform books bootstraps the chart and current fiscal year', 
         'Authorization' => 'Bearer '.ad13AdminToken($admin),
     ])->assertOk();
 
-    expect(LedgerAccount::query()->whereNull('business_id')->count())->toBe(28)
-        ->and(LedgerMapping::query()->whereNull('business_id')->count())->toBe(23)
+    expect(LedgerAccount::query()->whereNull('business_id')->count())->toBe(29)
+        ->and(LedgerMapping::query()->whereNull('business_id')->count())->toBe(24)
         ->and(FiscalPeriod::query()->whereNull('business_id')->count())->toBe(12);
 
     $year = FiscalYear::query()->whereNull('business_id')->where('name', (string) now()->year)->first();
@@ -168,14 +168,17 @@ test('the chart of accounts is grouped by type with counts and computed balances
         'Authorization' => 'Bearer '.ad13AdminToken($admin),
     ]);
 
-    $response->assertOk()->assertJsonPath('data.total_accounts', 28);
+    $response->assertOk()->assertJsonPath('data.total_accounts', 29);
 
     $groups = collect($response->json('data.groups'))->keyBy('type');
 
     expect($groups->keys()->all())->toBe(['asset', 'liability', 'equity', 'income', 'expense'])
         ->and($groups['asset']['count'])->toBe(7)
         ->and($groups['income']['count'])->toBe(5)
-        ->and($groups['expense']['count'])->toBe(8)
+        // 5510 Provider Processing Fees joined the expense side: the provider's
+        // own charge on a sale Storify collected, which is our cost and not the
+        // business's.
+        ->and($groups['expense']['count'])->toBe(9)
         // Bank (1020) is the only account with movement; income sits normal
         // on the credit side.
         ->and($groups['asset']['balance_kobo'])->toBe(100000)
@@ -456,7 +459,7 @@ test('the report and journal filters reject unknown reports and malformed dates'
         ->assertJsonValidationErrors('as_of');
 });
 
-test('the settings screen exposes the platform chart, the 23 mappings and the fiscal calendar without tenant data', function () {
+test('the settings screen exposes the platform chart, the 24 mappings and the fiscal calendar without tenant data', function () {
     $admin = ad13SuperAdmin();
     $token = ad13AdminToken($admin);
 
@@ -470,8 +473,8 @@ test('the settings screen exposes the platform chart, the 23 mappings and the fi
 
     $response->assertOk();
 
-    expect($response->json('data.accounts'))->toHaveCount(28)
-        ->and($response->json('data.mappings'))->toHaveCount(23)
+    expect($response->json('data.accounts'))->toHaveCount(29)
+        ->and($response->json('data.mappings'))->toHaveCount(24)
         ->and($response->json('data.periods'))->toHaveCount(12)
         ->and($response->json('data.fiscal_years'))->toHaveCount(1);
 

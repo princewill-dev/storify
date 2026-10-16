@@ -326,11 +326,13 @@ final class PayoutAllocationService
     /**
      * How much of this sale is not already spoken for.
      *
-     * `netKobo()` and not the `net_kobo` column: the column overstates a managed
-     * sale by the commission, so allocating from it would claim money the business
-     * was never owed. Nulls are treated as nothing to allocate — a sale whose
-     * provider fee is unknown has no knowable net, and it has not been credited to
-     * the wallet either, so it cannot be in this position.
+     * `netKobo()` and not the `net_kobo` column: the column is the writers'
+     * record and is only as good as the release that wrote the row, while the
+     * method derives the figure from the row's own rule. Allocating from a stale
+     * column would claim money the business was never owed. Nulls are treated as
+     * nothing to allocate — a sale with no knowable net is one whose own provider
+     * fee is still unreported, and it has not been credited to the wallet either,
+     * so it cannot be in this position.
      */
     private function freeKobo(Transaction $transaction, int $claimedKobo): int
     {

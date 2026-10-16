@@ -28,10 +28,28 @@ use Illuminate\Support\Facades\Log;
  *    is a no-op by the time it arrives.
  *
  * Either way the repair is the same: ask the provider again, and write what it
- * says. `custody:promote` then picks the sale up on its next pass through
- * {@see CustodyService::salesAwaitingFee()} and credits the wallet, so this
- * command moves no money itself — it only removes the reason the wallet could not
- * be credited.
+ * says.
+ *
+ * ## What the written fee is now for
+ *
+ * It used to have exactly one purpose: unblocking the wallet. It now has two, and
+ * which one applies is the row's own business.
+ *
+ * On a sale charged through the business's **own** keys, the fee is part of what
+ * the business is owed, so writing it is what lets `custody:promote` credit the
+ * wallet on its next pass. On a sale **Storify** charged, the business was never
+ * waiting on it — that sale is credited the moment it is paid, and the promoter's
+ * next pass is a no-op for it — and the fee is our own expense, recognised by
+ * {@see CustodyService::promoteSettled()}'s sweep once the figure is on the row.
+ *
+ * Which is why the selection is {@see CustodyService::managedSalesWithNoFee()} and
+ * not the wallet's narrower view: a sale we charged is normally *already credited*
+ * by the time its fee is known, so asking only about uncredited sales would leave
+ * our own cost unrecorded for ever.
+ *
+ * This command moves no money either way, and posts nothing. Whether to look at
+ * credited sales as well is a property of the fee's purpose, not of this command's
+ * caution.
  *
  * ## Which fee gets written
  *
@@ -48,8 +66,10 @@ use Illuminate\Support\Facades\Log;
  * assumed from the configuration: a charge collected for **more** than we billed
  * means the fee was on top, and one collected for exactly what we billed means it
  * came out of the sale. `net_kobo` is then written through
- * {@see Transaction::netKoboFor()}, so the row keeps the same rule as every other
- * writer and `net = amount − fee_kobo − commission` stays true of it.
+ * {@see Transaction::netKoboFor()} with the row's own bearer, so the row keeps the
+ * same rule as every other writer — `net = amount − fee_kobo − commission` for a
+ * sale the business paid the provider on, and `net = amount − commission` for one
+ * Storify charged, where the fee is not part of the answer at all.
  *
  * ## What it will not do
  *
@@ -57,7 +77,7 @@ use Illuminate\Support\Facades\Log;
  * we billed; write a fee the provider has still not reported; invent a commission
  * that was never recorded; touch `amount`, `currency`, `status`, `paid_at` or
  * `gateway_response`; move money; or post a journal entry. It is a repair of two
- * derived columns, and the wallet credit stays where it already lives.
+ * derived columns, and the wallet credit and the expense stay where they live.
  *
  * It reports by default. `--apply` is the deliberate second run.
  */
@@ -69,7 +89,7 @@ class RepairCustodySaleFees extends Command
         {--transaction= : Repair a single transaction id}
         {--limit=0 : Stop after this many transactions (0 for no limit)}';
 
-    protected $description = 'Re-read the provider\'s charge for collected sales that settled with no fee';
+    protected $description = 'Re-read the provider\'s charge for collected sales with no fee recorded';
 
     public function __construct(
         private readonly CustodyService $custody,
@@ -85,7 +105,7 @@ class RepairCustodySaleFees extends Command
         $transactionId = $this->option('transaction') ? (int) $this->option('transaction') : null;
         $limit = (int) $this->option('limit');
 
-        $sales = $this->custody->salesAwaitingFee()
+        $sales = $this->custody->managedSalesWithNoFee()
             ->with('paymentMethod')
             ->when($businessId !== null, fn ($query) => $query->where('business_id', $businessId))
             ->when($transactionId !== null, fn ($query) => $query->whereKey($transactionId))
@@ -102,21 +122,33 @@ class RepairCustodySaleFees extends Command
             $tally[$status] = ($tally[$status] ?? 0) + 1;
 
             if ($status === 'priceable' && $apply) {
-                $written = Transaction::query()
+                $claim = Transaction::query()
                     ->whereKey($transaction->id)
-                    // Claimed the same way the wallet's own credit claims it. A
-                    // run of `custody:promote` in flight beside this one can
-                    // settle the sale first, and overwriting a settled row would
-                    // move a number the wallet has already been credited from.
-                    ->whereNull('fee_kobo')
-                    ->whereNull('settle_at')
-                    ->update([
-                        'fee_kobo' => $priced['fee'],
-                        // The query builder again rather than `save()`, for the
-                        // reason the sibling repair gives: nothing about the
-                        // transaction changed, so `updated_at` should not move.
-                        'net_kobo' => $priced['net'],
-                    ]);
+                    ->whereNull('fee_kobo');
+
+                // A sale the business paid the provider on may only be priced
+                // while it is still uncredited. Its net is `gross − fee −
+                // commission`, so a fee written after the wallet used the row
+                // would move a figure the business has already been credited
+                // from — the same claim the wallet's own credit makes.
+                //
+                // A sale Storify charged has no such constraint and is not
+                // pretending to: its net never depended on the fee, so writing one
+                // afterwards changes nothing the business was credited, and these
+                // rows are normally credited long before the provider reports a
+                // charge. Requiring `settle_at` to be null here would refuse
+                // exactly the rows this command now exists to price.
+                if ($transaction->providerFeeBearer()->isBusiness()) {
+                    $claim->whereNull('settle_at');
+                }
+
+                $written = $claim->update([
+                    'fee_kobo' => $priced['fee'],
+                    // The query builder again rather than `save()`, for the
+                    // reason the sibling repair gives: nothing about the
+                    // transaction changed, so `updated_at` should not move.
+                    'net_kobo' => $priced['net'],
+                ]);
 
                 if ($written === 0) {
                     $status = 'raced';
@@ -234,7 +266,10 @@ class RepairCustodySaleFees extends Command
         return [
             'status' => 'priceable',
             'fee' => $fee,
-            'net' => Transaction::netKoboFor($billed, $fee, max(0, (int) $recorded)),
+            // The row's own bearer, so a historical sale reproduces the net it was
+            // credited under and a sale Storify charged lands on `gross −
+            // commission` — the figure it was already credited with.
+            'net' => Transaction::netKoboFor($billed, $fee, max(0, (int) $recorded), $transaction->providerFeeBearer()),
             'reported_fee' => $reportedFee,
         ];
     }
@@ -246,13 +281,13 @@ class RepairCustodySaleFees extends Command
     {
         $priceable = $tally['priceable'] ?? 0;
 
-        $this->info("Sales awaiting a fee: {$examined}");
+        $this->info("Collected sales with no fee recorded: {$examined}");
         $this->info('Priceable '.($apply ? 'and written' : 'and to write').": {$priceable}");
 
         if ($priceable > 0) {
             $this->info(
                 $apply
-                    ? 'Their wallets are credited by the next `custody:promote` pass, which is where the money moves.'
+                    ? 'The next `custody:promote` pass credits whichever of these the business was waiting on, and recognises our own cost on the rest.'
                     : 'Run again with --apply to write their fee and net.'
             );
         }
@@ -274,8 +309,8 @@ class RepairCustodySaleFees extends Command
 
         if (($tally['provider still has not reported a fee'] ?? 0) > 0) {
             $this->line(
-                '  The provider has not worked those fees out yet. Their net stays empty, which is the honest'
-                .' answer — run this again once it has.'
+                '  The provider has not worked those fees out yet, so nothing is written for them — on a sale the'
+                .' business was waiting on the fee, an empty net is the honest answer. Run this again once it has.'
             );
         }
 

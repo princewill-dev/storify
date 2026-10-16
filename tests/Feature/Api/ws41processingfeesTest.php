@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\ProviderFeeBearer;
 use App\Enums\TransactionStatus;
 use App\Models\Business;
 use App\Models\JournalEntry;
@@ -12,6 +13,7 @@ use App\Models\Store;
 use App\Models\Transaction;
 use App\Models\User;
 use App\Services\Accounting\LedgerSetupService;
+use App\Support\Money\Naira;
 use Database\Seeders\PaymentMethodSeeder;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Http\Client\Request;
@@ -23,26 +25,29 @@ use Tests\TestCase;
 | WS-41 — the transaction says what the business was paid.
 |
 | Storify collects the sale, so the money is divided here rather than at the
-| provider: the customer's ₦2,500 is charged on Storify's account, Bachs takes
-| its fee, our commission is kept, and ₦2,387.50 is owed to the business and paid
-| out of its wallet. The transaction used to report only part of that.
-| `net_kobo` was written as `amount - fee_kobo`, with no commission anywhere in
-| the expression, so ₦2,450 was presented as what reached the bank when ₦2,387.50
-| did — and the commission itself lived only in a metadata key no endpoint
-| returned.
+| provider: the customer's ₦2,500 is charged on Storify's account, our commission
+| is kept, and ₦2,437.50 is owed to the business and paid out of its wallet. The
+| transaction used to report only part of that. `net_kobo` was written as
+| `amount - fee_kobo`, with no commission anywhere in the expression, so ₦2,450
+| was presented as what reached the bank when ₦2,437.50 did — and the commission
+| itself lived only in a metadata key no endpoint returned.
 |
 | These tests pin the replacement contract at every surface a business reads:
 |
 |     amount         = what the customer paid          (2500.00)
-|     processing_fee = Bachs' fee + Storify's cut      ( 112.50)
-|     net            = what the business is owed       (2387.50)
+|     processing_fee = Storify's commission            (  62.50)
+|     net            = what the business is owed       (2437.50)
 |
-| and the one case where no honest net exists at all — a till sale the provider
-| has not settled yet, which must report nothing rather than something wrong.
+| **Bachs' own fee is in none of those figures.** Storify charges on its own
+| credentials and Bachs bills Storify for the collection, so the ₦50 it takes is
+| Storify's cost of doing business: it reduces our margin and appears nowhere a
+| business can see it. What the business pays for taking the payment is our
+| commission, under the one line it has always been shown under — still called
+| "Processing fee", now holding one cost rather than two.
 |
-| The commission stays a single combined figure in front of the business. That
-| it is really two costs is recorded (on the row and on our own platform books)
-| rather than shown.
+| The one case where no honest net exists at all is a sale charged on the
+| business's **own** keys whose provider has not reported its charge yet. That
+| row must report nothing rather than something wrong, and it still does.
 */
 
 function pf41Platform(): void
@@ -302,10 +307,11 @@ beforeEach(function () {
     $this->seed(PaymentMethodSeeder::class);
 });
 
-test('a managed sale reports the combined fee and the money that reached the bank', function () {
-    // The header case. ₦2,500 paid; Bachs takes ₦50, we keep ₦62.50, and
-    // ₦2,387.50 is what the business is owed. Before this change the row said
-    // ₦2,450 — the commission simply absent from the sum.
+test('a managed sale charges the commission alone and pays the business the rest', function () {
+    // The header case. ₦2,500 paid; we keep ₦62.50, and ₦2,437.50 is what the
+    // business is owed. The ₦50 Bachs takes is on our side of the line: it is
+    // recorded on the row because it is our cost to reconcile against the
+    // provider's balance, and it is in none of the business's figures.
     pf41Platform();
     pf41Commission();
     pf41FakeBachs();
@@ -318,16 +324,20 @@ test('a managed sale reports the combined fee and the money that reached the ban
     $transaction->refresh();
 
     expect($transaction->status)->toBe(TransactionStatus::CONFIRMED)
-        // The provider's own charge, on its own column.
+        // The provider's own charge, on its own column — and, in the same row,
+        // the fact that it was not the business's. The two are written together
+        // because the second is what makes the first harmless.
         ->and($transaction->fee_kobo)->toBe(5000)
+        ->and($transaction->providerFeeBearer())->toBe(ProviderFeeBearer::PLATFORM)
         // Our cut, promoted out of metadata into a column so it can be summed.
         ->and($transaction->platform_fee_kobo)->toBe(6250)
-        // Both, as one figure, which is what the business is shown.
-        ->and($transaction->processingFeeKobo())->toBe(11250)
+        // The whole of what the business is charged for taking this payment.
+        ->and($transaction->processingFeeKobo())->toBe(6250)
         // And what actually arrived. This is the assertion the whole change is
-        // about: it is 238750, not 245000.
-        ->and($transaction->net_kobo)->toBe(238750)
-        ->and($transaction->netKobo())->toBe(238750);
+        // about: it is 243750 — the gross less our commission, with the
+        // provider's ₦50 nowhere in it.
+        ->and($transaction->net_kobo)->toBe(243750)
+        ->and($transaction->netKobo())->toBe(243750);
 
     // The charge-time record stays where it was. It is the historical statement
     // of what was charged, and the only thing a pre-column row can be backfilled
@@ -355,17 +365,24 @@ test('the browser return trip writes the same net the webhook would', function (
     expect($transaction->status)->toBe(TransactionStatus::CONFIRMED)
         ->and($transaction->fee_kobo)->toBe(5000)
         ->and($transaction->platform_fee_kobo)->toBe(6250)
-        ->and($transaction->net_kobo)->toBe(238750)
-        // A managed sale credits no store balance of ours — the money is in the
-        // business's own account at Bachs.
+        ->and($transaction->net_kobo)->toBe(243750)
+        // A managed sale credits no store balance of ours: `stores.balance` is
+        // the store's own money from payments taken on its own rails, and a
+        // collected sale was never paid into it. The business's share of this one
+        // is a wallet, which is a different ledger.
         ->and((int) $store->fresh()->balance)->toBe(0);
 });
 
-test('the two fees post as one processing fee line', function () {
-    // The business's books hold one combined cost, matching what it sees on the
-    // transaction. Two debits to the same account with different descriptions
-    // made the ledger the only place our margin was visible — on the business's
-    // own books, of all places.
+test('the business is charged our commission alone and the provider\'s fee stays off its books', function () {
+    // The business's books hold one cost, matching what it sees on the
+    // transaction — and that cost is now our commission alone. Bachs' charge is
+    // Storify's own expense: it is posted on our books, on 5510, and appears on
+    // no business's books at all.
+    //
+    // Two debits to one account with different descriptions used to make the
+    // ledger the only place our margin was visible — on the business's own books,
+    // of all places. There is now nothing there *but* our margin, so a finer
+    // breakdown is exactly what must not be posted.
     pf41Platform();
     pf41Commission();
     pf41FakeBachs();
@@ -375,49 +392,86 @@ test('the two fees post as one processing fee line', function () {
     [$body, $headers] = pf41Settlement();
     pf41Post($this, $body, $headers)->assertOk();
 
+    // Level with what the webhook wrote: the instance handed back by the
+    // initialize call predates all of it.
+    $transaction->refresh();
+
     $key = 'payment:txn:'.$transaction->id;
 
     // The business holds a claim on Storify rather than a balance at the
     // provider, so the debit is 1040 — not 1030, which is what a sale charged
     // through the business's *own* keys lands on. The two are kept apart on
     // purpose: only one of them is money Storify is holding for somebody.
-    expect(pf41Ledger($business->id, $key, 'held_by_platform'))->toBe(238750)
+    expect(pf41Ledger($business->id, $key, 'held_by_platform'))->toBe(243750)
         ->and(pf41Ledger($business->id, $key, 'accounts_receivable', 'credit'))->toBe(250000);
 
-    // One line, carrying both fees. Summed through the same mapping helper the
-    // rest of the suite uses, so a second line would still add up — hence the
-    // count below, which is what actually pins "combined".
-    expect(pf41Ledger($business->id, $key, 'gateway_fees'))->toBe(11250)
+    // One line, carrying our commission and nothing else. Summed through the
+    // same mapping helper the rest of the suite uses, so a *second* line would
+    // still add up — hence the count below, which is what actually pins "one
+    // cost", and the equality with the transaction's own figure, which is what
+    // pins "the same one the business is shown".
+    expect(pf41Ledger($business->id, $key, 'gateway_fees'))->toBe(6250)
+        ->and(pf41Ledger($business->id, $key, 'gateway_fees'))->toBe($transaction->processingFeeKobo())
         ->and(pf41ProcessingFeeLines($business->id, $key))->toBe(1)
         ->and(pf41ProcessingFeeDescription($business->id, $key))->toBe('Processing fee '.$transaction->reference);
 
     // Ours, on our own books: the whole charge lands in our clearing account and
-    // is split across what we owe the business, our commission, and the fee the
-    // provider will take. There is no second commission entry — the provider no
-    // longer takes our cut off before the money reaches us, so recognising it
-    // here *and* there would count the same income twice.
+    // is split across what we owe the business and our commission. There is no
+    // second commission entry — the provider no longer takes our cut off before
+    // the money reaches us, so recognising it here *and* there would count the
+    // same income twice.
+    //
+    // And no payable is raised to the provider any more. `2210` was credited on
+    // every collected sale and never cleared, because nothing called the entry
+    // that clears it; the fee is recognised as our own expense instead, on 5510,
+    // by an entry that now has real callers.
     $platformKey = 'managed:collect:txn:'.$transaction->id;
+    $feeKey = 'managed:provider_fee:txn:'.$transaction->id;
 
     expect(pf41Ledger(null, $platformKey, 'gateway_clearing'))->toBe(250000)
-        ->and(pf41Ledger(null, $platformKey, 'business_funds_held', 'credit'))->toBe(238750)
+        ->and(pf41Ledger(null, $platformKey, 'business_funds_held', 'credit'))->toBe(243750)
         ->and(pf41Ledger(null, $platformKey, 'service_charge_income', 'credit'))->toBe(6250)
-        ->and(pf41Ledger(null, $platformKey, 'provider_fees_payable', 'credit'))->toBe(5000)
+        ->and(pf41Ledger(null, $platformKey, 'provider_fees_payable', 'credit'))->toBe(0)
+        ->and(pf41Ledger(null, $feeKey, 'provider_processing_fees'))->toBe(5000)
         ->and(pf41Ledger(null, 'commission:txn:'.$transaction->id, 'gateway_clearing'))->toBe(0);
+
+    // The identity the posting service's docblock states, checked rather than
+    // trusted — and it is the reason the fee has to be recognised at all:
+    // `1030 = 2300 + 4020 − 5510`.
+    //
+    // Clearing is debited the full ₦2,500 the customer was charged, but the
+    // provider only ever hands over ₦2,450 of it. What we owe the business plus
+    // what we earned therefore comes to ₦50 more than clearing holds, and the
+    // ₦50 is our own expense. Leave 5510 out and the account appears to be short
+    // by a fee nobody has written down.
+    expect(pf41Ledger(null, $platformKey, 'gateway_clearing')
+        - pf41Ledger(null, $feeKey, 'gateway_clearing', 'credit'))
+        ->toBe(pf41Ledger(null, $platformKey, 'business_funds_held', 'credit')
+            + pf41Ledger(null, $platformKey, 'service_charge_income', 'credit')
+            - pf41Ledger(null, $feeKey, 'provider_processing_fees'));
 });
 
-test('a till sale records the commission but claims no net until the provider settles', function () {
+test('a till sale claims its net at once, and only an own-key leg waits for the fee', function () {
     // A POS leg is written the moment the till closes the sale; Bachs does not
-    // report what it charged until the charge settles, days later. There is no
-    // net to state, and writing `amount - commission` would put a number in a
-    // column meaning "reached the bank" that no bank ever saw.
+    // report what it charged until the charge settles, days later. On a sale
+    // Storify charged that now makes no difference — the business's share never
+    // depended on the fee — so the row states the net it is owed there and then,
+    // and the wallet is credited at the next promote run rather than whenever the
+    // provider gets round to pricing it.
+    //
+    // This row used to claim nothing at all, on the argument that
+    // `amount − commission` is "a number no bank ever saw". It is the number the
+    // business is owed and the number the wallet will hold, and withholding it
+    // was the defect: the money sat uncounted for days while the provider worked
+    // out a fee that was never going to be subtracted from it.
     pf41Platform();
     pf41Commission();
 
     [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
 
     // The row is built to the exact shape ProcessPosSale writes for a managed
-    // leg: the commission recorded, the provider's fee absent because it does
-    // not exist yet.
+    // leg: the commission recorded, the provider's fee absent because it does not
+    // exist yet, and the bearer saying whose the absent fee is.
     $transaction = Transaction::create([
         'reference' => 'TXN-PF41TILL',
         'business_id' => $business->id,
@@ -426,16 +480,32 @@ test('a till sale records the commission but claims no net until the provider se
         'status' => TransactionStatus::CONFIRMED,
         'paid_at' => now(),
         'platform_fee_kobo' => 6250,
+        'provider_fee_bearer' => ProviderFeeBearer::PLATFORM,
         'metadata' => ['payment_mode' => 'platform_managed', 'platform_fee_kobo' => 6250],
     ]);
 
     expect($transaction->platformFeeKobo())->toBe(6250)
-        // Not 0, and not 6250: the fee is unknown, so the column says so.
-        ->and($transaction->processingFeeKobo())->toBeNull()
-        ->and($transaction->netKobo())->toBeNull()
+        ->and($transaction->processingFeeKobo())->toBe(6250)
+        ->and($transaction->netKobo())->toBe(243750)
         // The shared rule agrees, from the other direction — this is what the
         // writers call before the row carries these values.
-        ->and(Transaction::netKoboFor(250000, null, 6250))->toBeNull();
+        ->and(Transaction::netKoboFor(250000, null, 6250, ProviderFeeBearer::PLATFORM))->toBe(243750);
+
+    // The sale that genuinely cannot state a net is the one whose fee *is* part
+    // of the answer: an own-key leg, where the provider deducts from the
+    // business's own account and the row is unpriced until it says how much.
+    // There, an empty net is still the honest answer and the row still waits —
+    // which is what keeps the null case alive rather than deleting it.
+    $ownKeys = new Transaction([
+        'amount' => 2500,
+        'platform_fee_kobo' => 6250,
+        'provider_fee_bearer' => ProviderFeeBearer::BUSINESS,
+        'metadata' => ['payment_mode' => 'own_keys'],
+    ]);
+
+    expect($ownKeys->processingFeeKobo())->toBeNull()
+        ->and($ownKeys->netKobo())->toBeNull()
+        ->and(Transaction::netKoboFor(250000, null, 6250, ProviderFeeBearer::BUSINESS))->toBeNull();
 
     $token = pf41Token($owner);
     $totals = $this->withToken($token)->getJson('/api/v1/management/transactions?status=confirmed')
@@ -443,14 +513,18 @@ test('a till sale records the commission but claims no net until the provider se
         ->json('data.totals');
 
     // The bar reports the gross in full rather than dropping a row whose fee is
-    // still unknown, which is the property this asserts.
+    // still unknown, which is the property this asserts. The fee it sums is our
+    // commission alone, because the row says the platform bore the provider's.
     //
     // `toEqual` rather than `toBe` on the money: PHP encodes a whole-naira float
     // as `2500` and it decodes back as an int, so an integral amount is never
     // identical to the float it was built from.
     expect($totals['amount'])->toEqual(2500.0)
         ->and($totals['processing_fee'])->toEqual(62.5)
-        ->and($totals['net'])->toEqual(2437.5);
+        ->and($totals['net'])->toEqual(2437.5)
+        // And the strip agrees with the row it is summing, which is the thing
+        // that used to be false: the row said nothing and the bar said ₦2,437.50.
+        ->and(Naira::floatFromKobo($transaction->netKobo()))->toEqual($totals['net']);
 });
 
 test('a sale on the business\'s own keys carries no commission at all', function () {
@@ -461,14 +535,17 @@ test('a sale on the business\'s own keys carries no commission at all', function
     $transaction = new Transaction([
         'amount' => 1000,
         'fee_kobo' => 1500,
+        'provider_fee_bearer' => ProviderFeeBearer::BUSINESS,
         'metadata' => ['payment_mode' => 'own_keys'],
     ]);
 
     expect($transaction->platformFeeKobo())->toBe(0)
         ->and($transaction->processingFeeKobo())->toBe(1500)
         ->and($transaction->netKobo())->toBe(98500)
-        // Same expression the two own-key webhook paths call.
-        ->and(Transaction::netKoboFor(100000, 1500, 0))->toBe(98500);
+        // Same expression the two own-key webhook paths call, with the bearer
+        // that means "the business paid the provider". The 98500 is the
+        // regression guard: own-key sales did not move.
+        ->and(Transaction::netKoboFor(100000, 1500, 0, ProviderFeeBearer::BUSINESS))->toBe(98500);
 });
 
 test('the list, the CSV and the totals agree on one processing fee', function () {
@@ -490,31 +567,35 @@ test('the list, the CSV and the totals agree on one processing fee', function ()
     $row = collect($list->json('data.transactions'))->firstWhere('reference', $transaction->reference);
 
     expect($row['amount'])->toEqual(2500.0)
-        ->and($row['processing_fee'])->toEqual(112.5)
-        ->and($row['net'])->toEqual(2387.5)
+        ->and($row['processing_fee'])->toEqual(62.5)
+        ->and($row['net'])->toEqual(2437.5)
         // The deprecated alias carries the same figure, so an SPA deployed on
         // either side of the API rename still shows a number here.
-        ->and($row['fee'])->toEqual(112.5);
+        ->and($row['fee'])->toEqual(62.5);
 
     expect($list->json('data.totals'))->toEqual([
         'amount' => 2500.0,
-        'processing_fee' => 112.5,
-        'net' => 2387.5,
+        'processing_fee' => 62.5,
+        'net' => 2437.5,
     ]);
 
     // The detail read model inherits the same three fields from the list row.
     $detail = $this->withToken($token)->getJson('/api/v1/management/transactions/'.$transaction->reference)
         ->assertOk();
 
-    expect($detail->json('data.transaction.processing_fee'))->toBe(112.5)
-        ->and($detail->json('data.transaction.net'))->toBe(2387.5);
+    expect($detail->json('data.transaction.processing_fee'))->toBe(62.5)
+        ->and($detail->json('data.transaction.net'))->toBe(2437.5);
 
-    // And the CSV, which is the same resource rendered as columns.
+    // And the CSV, which is the same resource rendered as columns. The same two
+    // figures — and, the point of checking all four surfaces at once, not the
+    // 112.50 the business used to be shown when the provider's fee was added to
+    // ours before being presented.
     $csv = $this->withToken($token)->get('/api/v1/management/transactions/export')->streamedContent();
 
     expect($csv)->toContain('Processing Fee')
-        ->and($csv)->toContain('112.50')
-        ->and($csv)->toContain('2387.50');
+        ->and($csv)->toContain('62.50')
+        ->and($csv)->toContain('2437.50')
+        ->and($csv)->not->toContain('112.50');
 });
 
 test('renaming 5500 reaches existing businesses and spares a name they chose', function () {
@@ -580,6 +661,10 @@ test('the backfill fills the commission column and corrects the net without --ap
         'paid_at' => now(),
         'fee_kobo' => 5000,
         'net_kobo' => 245000,
+        // Stated rather than left to the column default, because it is the whole
+        // reason this row is computed the old way: it is a sale the business paid
+        // the provider on, and the provider's fee is part of its net.
+        'provider_fee_bearer' => ProviderFeeBearer::BUSINESS,
         'metadata' => ['payment_mode' => 'platform_managed', 'platform_fee_kobo' => 6250],
     ]);
 
@@ -593,11 +678,13 @@ test('the backfill fills the commission column and corrects the net without --ap
         'paid_at' => now(),
         'fee_kobo' => 1500,
         'net_kobo' => 98500,
+        'provider_fee_bearer' => ProviderFeeBearer::BUSINESS,
         'metadata' => ['payment_mode' => 'own_keys'],
     ]);
 
-    // A managed leg with no provider fee: nothing to compute, and the run must
-    // say so rather than write a guess.
+    // A legacy managed leg with no provider fee: the fee is part of its net and
+    // is not known, so there is nothing to compute and the run must say so rather
+    // than write a guess.
     $awaiting = Transaction::create([
         'reference' => 'TXN-PF41TILL',
         'business_id' => $business->id,
@@ -605,11 +692,31 @@ test('the backfill fills the commission column and corrects the net without --ap
         'currency' => 'NGN',
         'status' => TransactionStatus::CONFIRMED,
         'paid_at' => now(),
+        'provider_fee_bearer' => ProviderFeeBearer::BUSINESS,
+        'metadata' => ['payment_mode' => 'platform_managed'],
+    ]);
+
+    // And a managed leg written under the new rule, whose provider fee has not
+    // arrived either. Its net does not depend on that fee, so it is computable
+    // and the run must *not* file it under "awaiting the provider's fee" — that
+    // report is a promise somebody will chase, and a row nothing is waiting on
+    // does not belong in it. The branch exists so that a platform row can never
+    // be left carrying a stale net on the argument that its fee is missing.
+    $platformBear = Transaction::create([
+        'reference' => 'TXN-PF41PLATFORM',
+        'business_id' => $business->id,
+        'amount' => 2500,
+        'currency' => 'NGN',
+        'status' => TransactionStatus::CONFIRMED,
+        'paid_at' => now(),
+        'platform_fee_kobo' => 6250,
+        'net_kobo' => 243750,
+        'provider_fee_bearer' => ProviderFeeBearer::PLATFORM,
         'metadata' => ['payment_mode' => 'platform_managed'],
     ]);
 
     $this->artisan('payments:backfill-processing-fees')
-        ->expectsOutputToContain('Transactions examined: 3')
+        ->expectsOutputToContain('Transactions examined: 4')
         ->expectsOutputToContain('Commission columns to fill: 1')
         ->expectsOutputToContain('Net amounts to correct: 1')
         ->expectsOutputToContain('Managed sales awaiting the provider\'s fee: 1')
@@ -624,6 +731,7 @@ test('the backfill fills the commission column and corrects the net without --ap
     $stale->refresh();
     $ownKeys->refresh();
     $awaiting->refresh();
+    $platformBear->refresh();
 
     expect($stale->platform_fee_kobo)->toBe(6250)
         ->and($stale->net_kobo)->toBe(238750)
@@ -632,7 +740,11 @@ test('the backfill fills the commission column and corrects the net without --ap
         ->and($ownKeys->net_kobo)->toBe(98500)
         ->and($ownKeys->platform_fee_kobo)->toBeNull()
         ->and($awaiting->net_kobo)->toBeNull()
-        ->and($awaiting->platform_fee_kobo)->toBeNull();
+        ->and($awaiting->platform_fee_kobo)->toBeNull()
+        // Recomputed and found correct with no fee anywhere on the row, which is
+        // the whole difference between the two bearers made visible.
+        ->and($platformBear->net_kobo)->toBe(243750)
+        ->and($platformBear->fee_kobo)->toBeNull();
 
     // The columns it must never touch, on any row.
     expect($stale->amount)->toBe('2500.00')

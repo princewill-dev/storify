@@ -107,13 +107,13 @@ beforeEach(function () {
     defaultPlanIncludingEveryModule();
 });
 
-test('the settings screen returns the 23 mapping keys, periods and fiscal years', function () {
+test('the settings screen returns the 24 mapping keys, periods and fiscal years', function () {
     [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
 
     $response = $this->withToken(ws37Token($owner))->getJson('/api/v1/management/accounting/settings');
 
     $response->assertOk()
-        ->assertJsonCount(23, 'data.mappings')
+        ->assertJsonCount(24, 'data.mappings')
         ->assertJsonPath('data.mappings.0.key', 'cash')
         ->assertJsonPath('data.mappings.0.default_code', '1010')
         ->assertJsonPath('data.mappings.0.account_code', '1010')

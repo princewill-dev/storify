@@ -87,10 +87,16 @@ class PromoteCustodyBalances extends Command
         ));
 
         if ($counts['uncredited'] > 0) {
-            // Said plainly rather than left in the count. This is not an error —
-            // a till leg has no provider fee until the provider settles — but it
-            // is the one number here that can be wrong for a long time without
-            // anything else noticing.
+            // Said plainly rather than left in the count. Not an error: a fee the
+            // provider has not reported yet is what the catch-up pass exists for.
+            //
+            // But what this number means has narrowed. A sale Storify charged is
+            // credited the moment it is paid — its share never depended on the
+            // provider's fee — so it cannot appear here, and this set is now the
+            // sales charged on businesses' own keys, which drains as they age out.
+            // A number that stays high therefore does not mean the till is working;
+            // it means something has stopped pricing own-key legs, which is the one
+            // thing worth hearing about.
             $this->warn(sprintf(
                 '%d collected sale(s) have no provider fee on record and cannot be credited yet.',
                 $counts['uncredited'],
@@ -99,9 +105,9 @@ class PromoteCustodyBalances extends Command
 
         $this->reportGate($counts['budget_limited'], $gate);
 
-        // Never a failure. A sale waiting on its provider's fee is the normal
-        // state of a till leg for a day or two, and failing the run would put a
-        // red mark on every hour of every day for something that is working.
+        // Never a failure. A sale waiting on a fee the provider has not reported is
+        // a state the catch-up pass exists for, and failing the run would put a red
+        // mark on every hour of every day for something that is working.
         return self::SUCCESS;
     }
 

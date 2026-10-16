@@ -100,8 +100,8 @@ final class InstantPayoutService
         // Only a sale the platform collected, and only once the wallet has been
         // credited for it. `settle_at` is stamped by
         // {@see CustodyService::recordCollectedSale()} and by nothing else, so a
-        // sale still waiting on its provider fee — the honest wait, not a bug —
-        // answers here and goes no further.
+        // sale that could not be credited — one whose figure is genuinely
+        // unknowable yet — answers here and goes no further.
         if (! $transaction->isPlatformManaged() || $transaction->settle_at === null) {
             return ['status' => 'nothing_credited'];
         }

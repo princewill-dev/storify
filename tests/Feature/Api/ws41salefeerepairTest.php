@@ -1,10 +1,13 @@
 <?php
 
+use App\Enums\ProviderFeeBearer;
 use App\Enums\TransactionStatus;
 use App\Models\Business;
+use App\Models\JournalEntry;
 use App\Models\PaymentMethod;
 use App\Models\Setting;
 use App\Models\Transaction;
+use App\Services\Payments\Custody\CustodyService;
 use Database\Seeders\PaymentMethodSeeder;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Support\Facades\Http;
@@ -98,6 +101,13 @@ function rp41FakeBalances(string $available = '1000000.00'): void
 /**
  * The row the old writer left behind: confirmed, paid, and priced with no provider
  * fee at all — the state `fee_kobo IS NULL` names.
+ *
+ * `business`-bearing, and stated rather than defaulted into. These are the rows
+ * the command was written for, where the missing fee is the reason the business
+ * has not been credited — `net = amount − fee − commission` cannot be answered
+ * without it. A test that wants the other rule passes the bearer it wants, which
+ * is what makes the difference between the two visible in the test rather than
+ * implied by a column default.
  */
 function rp41StuckSale(Business $business, array $attributes = []): Transaction
 {
@@ -112,6 +122,7 @@ function rp41StuckSale(Business $business, array $attributes = []): Transaction
         'paid_at' => now(),
         'fee_kobo' => null,
         'platform_fee_kobo' => 61813,
+        'provider_fee_bearer' => ProviderFeeBearer::BUSINESS,
         'metadata' => ['payment_mode' => 'platform_managed', 'platform_fee_kobo' => 61813],
     ], $attributes));
 }
@@ -135,6 +146,20 @@ function rp41Charged(array $overrides = []): array
     ], $overrides);
 }
 
+/**
+ * The platform's own entry for this sale's provider fee, if there is one.
+ *
+ * Found by idempotency key rather than by account, because the key is the thing
+ * that makes the two posting paths — at collection and from the promote sweep —
+ * one entry instead of two.
+ */
+function rp41FeeEntry(Transaction $transaction): ?JournalEntry
+{
+    return JournalEntry::query()
+        ->where('idempotency_key', 'managed:provider_fee:txn:'.$transaction->id)
+        ->first();
+}
+
 beforeEach(function () {
     $this->seed(PaymentMethodSeeder::class);
 });
@@ -148,7 +173,7 @@ test('the repair reports what it would write and moves nothing until it is told 
     rp41FakeCharge(rp41Charged());
 
     $this->artisan('custody:repair-sale-fees')
-        ->expectsOutputToContain('Sales awaiting a fee: 1')
+        ->expectsOutputToContain('Collected sales with no fee recorded: 1')
         ->expectsOutputToContain('Priceable and to write: 1')
         ->assertSuccessful();
 
@@ -198,6 +223,72 @@ test('the repair prices a stuck sale and the next promote run credits the wallet
         ->and($sale->promoted_at)->not->toBeNull()
         ->and($business->fresh()->available_balance)->toBe(2373599)
         ->and($business->fresh()->pending_balance)->toBe(0);
+});
+
+test('a sale Storify charged is credited without its fee, and the fee is recognised afterwards', function () {
+    // The rule change, on the one path where the delay used to be visible. A sale
+    // the platform charged is credited the moment it is paid, because the
+    // provider's fee was never part of the business's share — so the wallet holds
+    // the money while the row carries no fee at all, and the repair learns that
+    // fee for *our* books rather than the business's.
+    //
+    // The command's own contract is unchanged and is what the middle half of this
+    // test pins: it writes two derived columns and posts nothing. Recognising our
+    // cost is the promote sweep's job, on the same idempotency key.
+    rp41Platform();
+    rp41Settings(['system_payment_processor' => 'bachs', 'platform_commission_percent' => 2.5, 'platform_commission_fixed_kobo' => 0]);
+
+    $business = rp41Business();
+    $sale = rp41StuckSale($business, ['provider_fee_bearer' => ProviderFeeBearer::PLATFORM]);
+
+    // Credited already, with no fee on the row and nothing promoted yet.
+    expect(app(CustodyService::class)->recordCollectedSale($sale, 'bachs'))->toBeTrue();
+
+    $sale->refresh();
+
+    expect($sale->fee_kobo)->toBeNull()
+        // ₦24,725.00 − our ₦618.13, and the provider's ₦370.88 nowhere in it. Read
+        // through the accessor rather than the column: nothing has written
+        // `net_kobo` yet — `recordCollectedSale()` computes the share and credits
+        // it, and the column is the *writers'* record, which here has not run.
+        // The wallet is the proof the figure exists.
+        ->and($sale->netKobo())->toBe(2410687)
+        ->and($sale->net_kobo)->toBeNull()
+        ->and($business->fresh()->pending_balance)->toBe(2410687)
+        ->and(rp41FeeEntry($sale))->toBeNull();
+
+    rp41FakeCharge(rp41Charged());
+
+    $this->artisan('custody:repair-sale-fees --apply')->assertSuccessful();
+
+    $sale->refresh();
+
+    expect($sale->fee_kobo)->toBe(37088)
+        // Unchanged, and that is the point: the business was credited before this
+        // fee existed, and the fee was never going to move what it was owed.
+        ->and($sale->net_kobo)->toBe(2410687)
+        // Still nothing posted. The repair stays journal-neutral, as its docblock
+        // promises, so a run of it against production cannot write an entry
+        // nobody was expecting.
+        ->and(rp41FeeEntry($sale))->toBeNull();
+
+    // And the next promote pass recognises our own cost — as an expense, because
+    // this sale raised no payable to the provider.
+    rp41FakeBalances();
+
+    $this->artisan('custody:promote')->assertSuccessful();
+
+    $entry = rp41FeeEntry($sale);
+
+    expect($entry)->not->toBeNull()
+        ->and((int) $entry->lines()
+            ->whereHas('account', fn ($query) => $query->where('subtype', 'provider_processing_fees'))
+            ->sum('debit_kobo'))->toBe(37088)
+        ->and($entry->lines()
+            ->whereHas('account', fn ($query) => $query->where('subtype', 'provider_fees_payable'))
+            ->count())->toBe(0)
+        // The wallet matured, and still for the figure it was credited with.
+        ->and($business->fresh()->available_balance)->toBe(2410687);
 });
 
 test('a sale whose fee the customer paid is priced without it, not short by a fee', function () {
@@ -345,7 +436,7 @@ test('a second run finds nothing left to repair', function () {
 
     $this->artisan('custody:repair-sale-fees --apply')->assertSuccessful();
     $this->artisan('custody:repair-sale-fees --apply')
-        ->expectsOutputToContain('Sales awaiting a fee: 0')
+        ->expectsOutputToContain('Collected sales with no fee recorded: 0')
         ->assertSuccessful();
 
     expect($sale->fresh()->fee_kobo)->toBe(37088)

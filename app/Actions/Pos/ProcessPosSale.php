@@ -2,6 +2,7 @@
 
 namespace App\Actions\Pos;
 
+use App\Enums\ProviderFeeBearer;
 use App\Enums\TransactionStatus;
 use App\Models\Customer;
 use App\Models\Order;
@@ -426,6 +427,12 @@ final class ProcessPosSale
                 ? PlatformCommission::fromSettings()->on((int) round((float) $payment['amount'] * 100))
                 : null;
 
+            // Whose money the provider's own charge came out of — the same flag
+            // `payment_mode` is written from below, because they are the same
+            // question. Held in a local so the row, the ledger and the wallet
+            // cannot read it three different ways.
+            $feeBearer = $isManaged ? ProviderFeeBearer::PLATFORM : ProviderFeeBearer::BUSINESS;
+
             // What the provider charged for this leg, when the checkout's own
             // verification reported it.
             //
@@ -463,27 +470,31 @@ final class ProcessPosSale
                 // The commission as a column, not only in the metadata below —
                 // the two move together from here on.
                 'platform_fee_kobo' => $commissionKobo,
-                // `fee_kobo` and `net_kobo` are written only when the provider
-                // reported what it charged, which for a managed leg it does at
-                // the moment the customer's card is read — the checkout verifies
-                // the charge before this action runs, and the figure it saw is
-                // what arrives here.
+                'provider_fee_bearer' => $feeBearer,
+                // `fee_kobo` is written only when the provider reported what it
+                // charged, which it does at the moment the customer's card is
+                // read — the checkout verifies the charge before this action
+                // runs, and the figure it saw is what arrives here. It is our own
+                // cost record on a managed leg and the business's deduction on an
+                // own-keys one; either way it is kept, and it is what reconciles
+                // the provider's balance.
                 //
-                // When it did not report one, both stay null, and that is the
-                // right answer rather than a gap: `net` means "reached the
-                // business's bank", and writing `amount - commission` for a fee
-                // that is coming would put a number in that column that no bank
-                // ever saw. The transaction is then unpriced, and under custody
-                // the wallet deliberately refuses to credit it until a later pass
-                // finds the fee — see `CustodyService::creditAwaitingSales()`.
+                // When it was not reported, nothing the business is owed is
+                // waiting on it. On our keys the fee is ours, so the net is
+                // `amount - commission` and is written on the spot — which is
+                // what lets the wallet credit the leg now instead of at some
+                // later pass that has to find the fee first. On the business's
+                // own keys the net stays null: `net` means "reached the
+                // business's bank", and a partial subtraction is a wrong number
+                // rather than a late one, so the leg waits for the fee — see
+                // `CustodyService::creditAwaitingSales()`.
                 'fee_kobo' => $providerFeeKobo,
-                'net_kobo' => $providerFeeKobo === null
-                    ? null
-                    : Transaction::netKoboFor(
-                        Naira::koboFromRounded((float) $payment['amount']),
-                        $providerFeeKobo,
-                        (int) ($commissionKobo ?? 0),
-                    ),
+                'net_kobo' => Transaction::netKoboFor(
+                    Naira::koboFromRounded((float) $payment['amount']),
+                    $providerFeeKobo,
+                    (int) ($commissionKobo ?? 0),
+                    $feeBearer,
+                ),
                 'metadata' => array_merge([
                     'leg_method' => $method,
                     'amount_tendered' => $payment['amount_tendered'] ?? null,

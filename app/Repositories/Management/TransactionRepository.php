@@ -80,6 +80,12 @@ class TransactionRepository
      * smaller-looking one, which is the failure this whole change exists to
      * remove. Computing it from the sums instead keeps those rows counted.
      *
+     * The fee is summed through {@see Transaction::processingFeeSumSql()}, which
+     * applies the per-row rule: a sale Storify charged contributes our commission
+     * alone, and everything else contributes both fees as before. So one figure
+     * covers a filtered set that spans the change without either half of it being
+     * wrong — which is the whole point of the rule living on the row.
+     *
      * Reads the commission from its column, which the backfill fills. Until that
      * has run, totals understate by the commission on sales settled before the
      * column existed — see the deploy order in the backfill command.
@@ -94,13 +100,11 @@ class TransactionRepository
 
         $sums = (clone $query)
             ->selectRaw('COALESCE(SUM(amount * 100), 0) as gross_kobo')
-            ->selectRaw('COALESCE(SUM(fee_kobo), 0) as provider_fee_kobo')
-            ->selectRaw('COALESCE(SUM(platform_fee_kobo), 0) as commission_kobo')
+            ->selectRaw(Transaction::processingFeeSumSql().' as processing_fee_kobo')
             ->first();
 
         $grossKobo = (int) round((float) $sums->gross_kobo);
-        $processingFeeKobo = (int) round((float) $sums->provider_fee_kobo)
-            + (int) round((float) $sums->commission_kobo);
+        $processingFeeKobo = (int) round((float) $sums->processing_fee_kobo);
 
         return [
             'amount' => Naira::floatFromKobo($grossKobo),
