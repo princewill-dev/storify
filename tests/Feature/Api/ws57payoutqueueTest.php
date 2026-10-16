@@ -865,11 +865,17 @@ test('a gate that could not measure reports no terms at all', function () {
         ->and($gate['floor'])->not->toBeNull();
 });
 
-test('a provider holding nothing is named as the cause, not as a failure', function () {
+test('a provider holding nothing is named as a settlement, not as a lost transfer', function () {
     // The production shape exactly: Bachs answers, and answers '0.00'. That is a
     // successful read of an empty balance — a customer's charge that has arrived
     // but not settled — and it is a state that clears itself. It must not read
-    // like the platform failing to pay somebody.
+    // like the platform failing to pay somebody, which is what "the money never
+    // left the wallet" said about it.
+    //
+    // This runs on the `sync` connection, so `recheckLater()` stands down and the
+    // throw happens — which is what makes the reason string and the log context
+    // observable here at all. The quiet path is pinned separately, under
+    // `Queue::fake()`, where a delay means something.
     pq57Platform();
     pq57Settings(['system_payment_processor' => 'bachs']);
 
@@ -999,4 +1005,277 @@ test('the alert an operator receives carries the cause, not just the count', fun
             && $mail->blocker['code'] === PlatformPayoutNotifier::SETTLEMENT_FAILED
             && str_contains($mail->blocker['label'], 'the provider is not holding a released balance for these sales yet');
     });
+});
+
+// ---------------------------------------------------------------------------
+// Two clocks, because a broken provider and a slow one are not the same event
+// ---------------------------------------------------------------------------
+//
+// Everything above puts a provider that answered "not yet" on the same five-minute
+// clock as a provider that is down. It is the one thing the owner's log showed to be
+// wrong in practice: a card charge settles at Bachs on Bachs' own schedule, which is
+// hours, so the retry budget — five then thirty then the third attempt — was spent
+// inside the first hour, and the admins were emailed about a payment that had never
+// been sendable and that needed nobody.
+//
+// These pin the split. `Queue::fake()` is required rather than incidental: `delay()`
+// is meaningless on the `sync` connection, and `recheckLater()` deliberately stands
+// down there rather than recursing down its own schedule inside one call, so the
+// quiet path only exists where a queue can actually defer — which is exactly the
+// production condition, and so exactly the condition worth testing.
+
+test('the settlement wait is hours, where the provider-failure retry is minutes', function () {
+    // The two lists side by side, because the whole distinction is their magnitude,
+    // and a change that quietly made this one [5, 30, 60] would put the fault back
+    // without failing anything else in this file.
+    expect(config('custody.settlement_lag_backoff_minutes'))->toBe([60, 240, 720])
+        ->and(config('custody.retry_backoff_minutes'))->toBe([5, 30, 60]);
+});
+
+test('money the provider has not released yet is waited on quietly', function () {
+    pq57Platform();
+    pq57Settings(['system_payment_processor' => 'bachs']);
+
+    [, $business, $store] = pq57Business();
+
+    // Bachs answers, and answers zero. A successful read of an unsettled balance —
+    // the production shape.
+    pq57Provider(0);
+    pq57Credited($business, 100000, $store);
+
+    Queue::fake();
+    Mail::fake();
+
+    pq57Run((int) $business->id);
+
+    // Nothing thrown, so the queue does not retry it on the fast clock, and nothing
+    // mailed, so nobody is paged. The money is still owed and still in the wallet,
+    // which is what the business sees and what the next check will send.
+    expect((int) $business->fresh()->pending_balance)->toBe(100000)
+        ->and(Payout::query()->where('business_id', $business->id)->count())->toBe(0);
+
+    Queue::assertPushed(SettlePayouts::class, fn (SettlePayouts $job): bool => (int) $job->businessId === (int) $business->id
+        && $job->lagAttempt === 1);
+
+    Mail::assertNothingSent();
+});
+
+test('the first re-check is an hour out, and the last one twelve', function () {
+    // The schedule is read by index, so the first quiet look after the sale is the
+    // one an hour later and the last is twelve hours after that. Asserted through the
+    // actual delay on the pushed job rather than through the config, so a bug in the
+    // indexing — the reason `lagAttempt` exists at all — cannot pass.
+    pq57Platform();
+    pq57Settings(['system_payment_processor' => 'bachs']);
+
+    [, $business, $store] = pq57Business();
+
+    pq57Provider(0);
+    pq57Credited($business, 100000, $store);
+
+    Queue::fake();
+
+    pq57Run((int) $business->id);
+
+    Queue::assertPushed(
+        SettlePayouts::class,
+        fn (SettlePayouts $job): bool => $job->lagAttempt === 1
+            && $job->delay !== null
+            && $job->delay->between(now()->addMinutes(59), now()->addMinutes(61)),
+    );
+
+    // And the second and third, from the same chain, land on their own gaps.
+    $second = new SettlePayouts((int) $business->id, null, 1);
+    $third = new SettlePayouts((int) $business->id, null, 2);
+
+    Queue::fake();
+    $second->handle(app(InstantPayoutService::class), app(WalletSummaryService::class));
+
+    Queue::assertPushed(
+        SettlePayouts::class,
+        fn (SettlePayouts $job): bool => $job->lagAttempt === 2
+            && $job->delay->between(now()->addMinutes(239), now()->addMinutes(241)),
+    );
+
+    Queue::fake();
+    $third->handle(app(InstantPayoutService::class), app(WalletSummaryService::class));
+
+    Queue::assertPushed(
+        SettlePayouts::class,
+        fn (SettlePayouts $job): bool => $job->lagAttempt === 3
+            && $job->delay->between(now()->addMinutes(719), now()->addMinutes(721)),
+    );
+});
+
+test('when the settlement wait runs out, a person is told', function () {
+    // The end of the chain. Not routine any more: a charge that has not settled in
+    // seventeen hours is a thing to look at, and this is the moment the platform
+    // stops being patient about it.
+    pq57Platform();
+    pq57Settings(['system_payment_processor' => 'bachs']);
+
+    [, $business, $store] = pq57Business();
+
+    pq57Provider(0);
+    pq57Credited($business, 100000, $store);
+
+    Queue::fake();
+    Mail::fake();
+
+    $spent = count((array) config('custody.settlement_lag_backoff_minutes'));
+
+    $caught = null;
+
+    try {
+        // The job the last re-check pushed: the chain is spent, so this one is the
+        // fast-path attempt that ends in the alert.
+        (new SettlePayouts((int) $business->id, null, $spent))->handle(
+            app(InstantPayoutService::class),
+            app(WalletSummaryService::class),
+        );
+    } catch (PayoutNotSentException $e) {
+        $caught = $e;
+    }
+
+    expect($caught)->toBeInstanceOf(PayoutNotSentException::class)
+        ->and($caught->reason)->toBe('the provider is not holding a released balance for these sales yet');
+
+    // No further re-check: the patience is used up.
+    Queue::assertNotPushed(SettlePayouts::class);
+
+    // And the alert an operator gets says how long this has been going on, not just
+    // that it failed.
+    $job = new SettlePayouts((int) $business->id, null, $spent);
+    $job->failed($caught);
+
+    Mail::assertSent(AdminPayoutsStalledMail::class, function (AdminPayoutsStalledMail $mail) use ($spent): bool {
+        return str_contains($mail->blocker['label'], 'the provider is not holding a released balance for these sales yet')
+            && str_contains($mail->blocker['label'], $spent.' settlement re-checks');
+    });
+});
+
+test('a provider that is actually broken gets the fast clock, not the patient one', function () {
+    // The control, and the distinction the whole split rests on. An unreadable
+    // provider is the provider being *down* — the one thing the owner said they
+    // wanted to worry about — so it must be retried in minutes and escalated, not
+    // quietly given seventeen hours.
+    pq57Platform();
+    pq57Settings(['system_payment_processor' => 'bachs']);
+
+    [, $business, $store] = pq57Business();
+
+    Http::fake(['sandbox-api.bachs.io/*' => Http::response(['message' => 'Bad gateway'], 502)]);
+
+    pq57Credited($business, 100000, $store);
+
+    Queue::fake();
+
+    expect(fn () => pq57Run((int) $business->id))
+        ->toThrow(PayoutNotSentException::class);
+
+    Queue::assertNotPushed(SettlePayouts::class);
+});
+
+test('an operator retry starts the patience over', function () {
+    // A person pressing Retry has decided this is worth looking at again now. It must
+    // not resume three hours into a quiet chain it was never told about, and it must
+    // not inherit the spent flag — otherwise the button would do nothing on exactly
+    // the businesses an operator is worried about.
+    pq57Platform();
+    pq57Settings(['system_payment_processor' => 'bachs']);
+
+    [, $business, $store] = pq57Business();
+
+    pq57Provider(0);
+    pq57Credited($business, 100000, $store);
+
+    Queue::fake();
+
+    // What `PayoutRetryService` pushes — no lag attempt carried.
+    SettlePayouts::forBusiness((int) $business->id);
+
+    Queue::assertPushed(SettlePayouts::class, fn (SettlePayouts $job): bool => $job->lagAttempt === 0);
+
+    Queue::fake();
+
+    (new SettlePayouts((int) $business->id))->handle(
+        app(InstantPayoutService::class),
+        app(WalletSummaryService::class),
+    );
+
+    // First quiet look, an hour out — the chain restarted rather than continuing.
+    Queue::assertPushed(
+        SettlePayouts::class,
+        fn (SettlePayouts $job): bool => $job->lagAttempt === 1
+            && $job->delay->between(now()->addMinutes(59), now()->addMinutes(61)),
+    );
+});
+
+// ---------------------------------------------------------------------------
+// Money that is owed and unsendable is still money somebody is looking for
+// ---------------------------------------------------------------------------
+//
+// The last piece of the same fault. A business whose provider has not settled its
+// customer's charge holds money the platform is liable for, is owed it, cannot be
+// paid, and — before this — was on no screen an operator opens. `candidates()`
+// listed available balances, so this business was not on the queue; the dry-run
+// report printed "No custody business is holding a payable balance." while the
+// platform held exactly that. Everything about the state was correct; only the
+// ability to *see* it was missing, which for the person answering the phone is the
+// same as it not being true.
+
+test('a business whose money has not settled is still on the operator queue', function () {
+    pq57Platform();
+    pq57Settings(['system_payment_processor' => 'bachs']);
+
+    [, $business, $store] = pq57Business();
+
+    // Bachs answers, and answers zero: the charge is pending at the provider.
+    // Nothing is wrong, nothing is sendable, and the sale is still the business's.
+    pq57Provider(0);
+    pq57Credited($business, 110250, $store);
+
+    $admin = pq57Admin();
+    $token = pq57Token($admin);
+
+    $queue = $this->withToken($token)
+        ->getJson('/api/v1/admin/payout-queue')
+        ->assertOk()
+        ->json('data.queue');
+
+    $row = collect($queue['businesses'])->firstWhere('id', (int) $business->id);
+
+    expect($row)->not->toBeNull()
+        ->and($row['payable_kobo'])->toBe(0)
+        // The figure that makes the zero above readable rather than alarming.
+        ->and($row['pending_kobo'])->toBe(110250)
+        ->and($row['available_kobo'])->toBe(0)
+        // And nothing is blocking it. There is no hold, no missing bank, no
+        // exhausted destination: this business is simply waiting on its provider,
+        // which is why the row must not be dressed up as a problem to fix.
+        ->and($row['blocker'])->toBeNull();
+});
+
+test('a business that is owed nothing at all is still not a candidate', function () {
+    // The control. Widening the query to include `pending_balance` must not turn
+    // the queue into a list of every business on the platform — a business with
+    // nothing owed in either bucket has no business being on a payouts screen, and
+    // a list that grew to include them is a list nobody reads.
+    pq57Platform();
+    pq57Settings(['system_payment_processor' => 'bachs']);
+
+    [, $business] = pq57Business();
+
+    expect(app(PayoutSweepService::class)->candidates()->pluck('id')->all())
+        ->not->toContain((int) $business->id);
+
+    $admin = pq57Admin();
+
+    $queue = $this->withToken(pq57Token($admin))
+        ->getJson('/api/v1/admin/payout-queue')
+        ->assertOk()
+        ->json('data.queue');
+
+    expect(collect($queue['businesses'])->pluck('id')->all())
+        ->not->toContain((int) $business->id);
 });

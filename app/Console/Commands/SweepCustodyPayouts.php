@@ -208,7 +208,7 @@ class SweepCustodyPayouts extends Command
         $businesses = $payouts->candidates();
 
         if ($businesses->isEmpty()) {
-            $this->info('No custody business is holding a payable balance.');
+            $this->info('No custody business is holding a balance.');
 
             return self::SUCCESS;
         }
@@ -242,10 +242,19 @@ class SweepCustodyPayouts extends Command
 
             $storeHolds = $hold === null ? $holds->storeHolds($business) : collect();
 
+            // `pending_balance` gets a column of its own, and the reason is the one
+            // case that had no answer anywhere. A business whose provider has not
+            // settled its customer's charge has a balance of zero in *both* the other
+            // columns — nothing is sendable and nothing is available — so without
+            // this the row reads as a business that is owed nothing, in the report an
+            // operator runs precisely because they were told it is owed something.
+            $pending = (int) $business->pending_balance;
+
             $rows[] = [
                 $business->id,
                 $business->name,
                 number_format($available / 100, 2),
+                number_format($pending / 100, 2),
                 $payable === null ? '—' : number_format($payable['payable_kobo'] / 100, 2),
                 match (true) {
                     // A hold first, matching the sweep's precedence: a decision a
@@ -256,12 +265,17 @@ class SweepCustodyPayouts extends Command
                         'paying the rest: %s withheld',
                         $storeHolds->map(fn ($h) => 'store '.$h->store_id)->implode(', '),
                     ),
+                    // Read and not yet released, which is the state this column was
+                    // added for: nothing here is wrong and no amount of running this
+                    // command will move it. The provider settles on its own schedule
+                    // and the money goes by itself.
+                    $payable !== null && (int) $payable['payable_kobo'] === 0 && $pending > 0 => 'still settling with the provider',
                     default => '',
                 },
             ];
         }
 
-        $this->table(['business', 'name', 'wallet (NGN)', 'payable (NGN)', 'note'], $rows);
+        $this->table(['business', 'name', 'wallet (NGN)', 'settling (NGN)', 'payable (NGN)', 'note'], $rows);
         $this->info('Would pay '.number_format($total / 100, 2).' NGN in total.');
 
         if ($stuck > 0) {

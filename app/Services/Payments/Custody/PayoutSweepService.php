@@ -551,7 +551,23 @@ final class PayoutSweepService
     }
 
     /**
-     * Businesses holding payable money, whatever their switch says.
+     * Businesses holding money this platform owes, payable or not.
+     *
+     * "Owing" is both buckets, and the `pending_balance` half is not an
+     * afterthought. A sale lands in `pending_balance` and matures to
+     * `available_balance` when the promotion gate lets it — which, with the
+     * provider readable but not yet holding the customer's money, it does not. So a
+     * business can be owed money the platform is holding, and be owed it *for hours*,
+     * while `available_balance` reads zero.
+     *
+     * Leaving those out of this list was a real fault rather than a tidiness
+     * problem, and it showed up exactly where it hurt. This is a business whose money
+     * is stuck, whose provider is fine, whose bank is fine, and who has no reason on
+     * earth to know any of that — and it appeared absolutely nowhere an operator
+     * looks: not on the queue, and not in `custody:payouts --dry-run`, which printed
+     * "No custody business is holding a payable balance." while the platform was
+     * holding that business's money. The only trace was a log line nobody had cause
+     * to read, because nothing had failed.
      *
      * Not filtered on `auto_payout` or on having a bank, deliberately: the sweep
      * has to be able to *say* that a business is holding money it cannot receive,
@@ -560,13 +576,14 @@ final class PayoutSweepService
      *
      * **Not filtered on `custody_enabled` either, and that one used to be.** The
      * flag decides whether a business is *charged*, so it is a fact about the
-     * future; `available_balance` is money already collected into Storify's own
-     * provider balance, which is a fact about the past. `custody:disable` is
-     * available at any moment and exists to be reached for in a hurry, so filtering
-     * here meant the one command an operator runs during an incident also silently
-     * stopped every payout that business was owed — and printed a warning telling
-     * them to pay it by hand, with no tool left to pay it. The balance is only ever
-     * raised by {@see CustodyService::promoteSettled()}, which only ever matures a
+     * future; a balance is money already collected into Storify's own provider
+     * balance, which is a fact about the past. `custody:disable` is available at any
+     * moment and exists to be reached for in a hurry, so filtering here meant the one
+     * command an operator runs during an incident also silently stopped every payout
+     * that business was owed — and printed a warning telling them to pay it by hand,
+     * with no tool left to pay it. Both balances are only ever raised by
+     * {@see CustodyService::promoteSettled()} and
+     * {@see InstantPayoutService::settle()}'s promote step, which only ever credit a
      * sale Storify collected, so a balance is proof of collection on its own.
      *
      * @return Collection<int, Business>
@@ -581,7 +598,10 @@ final class PayoutSweepService
         return Business::query()
             ->where(fn ($query) => $query
                 ->where('available_balance', '>', 0)
-                ->orWhereHas('stores', fn ($stores) => $stores->where('available_balance', '>', 0)))
+                ->orWhere('pending_balance', '>', 0)
+                ->orWhereHas('stores', fn ($stores) => $stores
+                    ->where('available_balance', '>', 0)
+                    ->orWhere('pending_balance', '>', 0)))
             ->orderBy('id')
             ->limit((int) config('custody.payout_batch', 100))
             ->get();

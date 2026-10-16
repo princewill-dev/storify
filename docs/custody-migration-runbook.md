@@ -117,7 +117,9 @@ something is wrong. It does three things and deliberately not a fourth:
 
 It does **not** clear the wallet, and it does **not** move money anywhere. The money is in
 Storify's own provider balance, which is the platform's account — there is nowhere to move
-it back to. Paying it out is what settles it, and **the payout sweep is what pays it out**:
+it back to. Paying it out is what settles it, and **the queued send is what pays it out**
+(`App\Jobs\SettlePayouts`, dispatched the moment a sale is collected — there is no scheduled
+run behind it any more):
 
 **The settlement path keeps finding this business, and keeps paying it.** The flag decides how
 a business is *charged*; it says nothing about money already taken. Everything in the wallet
@@ -301,6 +303,13 @@ An admin holding `admin.finance` has the same controls through the console:
 deliberately no "pay now" among them; a second way to move money is a second way to move it
 twice.
 
+The queue lists **every business the platform owes money to**, which is deliberately wider than
+the set it could pay today: a business whose whole balance is still settling at the provider has
+nothing available and nothing payable, and appears anyway — with the amount in **Settling** and
+nothing under **Stopping it** — because the alternative is a business that is owed money and is
+on no screen at all. Set expectations against the **Settling** column before treating an empty
+**Ready to send** as a problem.
+
 `custody:payouts` **gives up on a bank account** after
 `config('custody.max_destination_failures')` refusals of it (3 by default) that are the
 provider refusing to register the destination — counted since money last reached that
@@ -401,17 +410,47 @@ already recorded, to pay a business we can still pay.
 ### When the provider is down
 
 Payouts do not retry forever. `App\Jobs\SettlePayouts` gets three attempts — the backoff in
-`custody.retry_backoff_minutes` is `5`, then `30`, then `60` minutes, so roughly 95 minutes end
-to end — and then it stops. The money does not leave the wallet: it stays in
-`available_balance`, still showing as owed, and the last failure writes a `failed_jobs` row and
-sends the admin alert email. Nothing is lost and nobody is paid twice; the platform is simply
-waiting for a person.
+`custody.retry_backoff_minutes` is `5`, then `30`, then `60` minutes — and then it stops. **Only
+the first two gaps elapse before the budget runs out**, because the third attempt is the last one
+the worker will make: the wall-clock window is about thirty-five minutes, not the ninety-five the
+three figures add up to. Read the list as "the first three attempts start 5 and 30 minutes after
+the ones before them", not as a total.
+
+After that, the money does not leave the wallet: it stays in `available_balance`, still showing as
+owed, and the last failure writes a `failed_jobs` row and sends the admin alert email. Nothing is
+lost and nobody is paid twice; the platform is simply waiting for a person.
 
 Once the provider is back, press **Retry** in the admin console (or run `custody:retry-payouts`).
 The buttons are on the admin **Payouts** screen (AD-19): **`Retry`** on a business's row in the
 queue, and **`Retry all failed payouts`** in the header for the whole set. Both queue the attempt
 and neither sends anything inline; that clears the recorded refusals and queues a fresh attempt
 from a clean count — the money has been payable the whole time, so there is nothing to reconstruct.
+
+### When the provider is *not* down, and has simply not paid yet
+
+The two are not the same event and are no longer treated as one. Bachs and Paystack both hold a
+card charge as pending before making it available, on their own schedule, which is **hours**. So a
+sale can be collected, recorded, owed and genuinely unsendable for most of a day while the provider
+is perfectly healthy — and the send finds an empty balance and sends nothing.
+
+That state used to spend the whole thirty-five-minute retry budget and then email an operator about
+a payment that had never been sendable. It no longer does. A provider that was read successfully,
+refused nothing, left nothing payable and is holding a sale in `pending_balance` is treated as
+**waiting rather than failing**: no alert, no failure, and a re-check scheduled from
+`custody.settlement_lag_backoff_minutes` — an hour, then four hours, then twelve. When that chain
+runs out, roughly seventeen hours after the sale, a person *is* told, because a charge that has not
+settled by then is not routine any more.
+
+**Nothing needs doing about any of this**, and that is the point of the separate clock. The money
+is the business's, it is in the wallet, and the send follows the moment the provider releases it.
+Two things will get it there sooner than the chain: the business's own next sale, which re-checks
+everything it is owed and not merely that sale, and an operator pressing **Retry**. Both are safe —
+neither can pay anything the provider has not released.
+
+The queue on the admin **Payouts** screen lists these businesses, with the money in a **Settling**
+column and *"Still settling with the provider"* under **Stopping it**. That row is a fact, not a
+fault: it is there so that when a business rings to ask where its money is, the answer is on the
+screen rather than inferred from a log.
 
 ### `queue:work` is load-bearing for money
 
@@ -427,14 +466,16 @@ to check.
 |---|---|
 | `custody:promote` → `unpriced` | Sales that settled before the provider said what it charged. A number that only grows means businesses are not being credited. |
 | `custody:promote` → "the provider's balance could not be read" | The gate fell back to the clock. Money is still moving, on a window nobody verified — worth a look at the provider's API before it becomes routine. |
-| `custody:promote` → "the provider has not released the money behind them" | Salable money is behind a provider that has not funded it. Normal briefly and not a bug; if it is standing, the provider is the conversation. |
+| `custody:promote` → "the provider has not released the money behind them" | Salable money is behind a provider that has not funded it. Normal briefly and not a bug; if it is standing, the provider is the conversation. The `Gate (NGN)` line above it prints the arithmetic that produced the shortfall — provider balance, less what is owed, less transfers in flight, less the fee headroom — so which term consumed the budget is readable rather than inferred. |
 | `custody:payouts` → `on hold` | Deliberate: an operator, a suspension, or a rail incident. The holds are listed with their reasons, and the money is in the wallet the whole time. If this line names a business nobody meant to hold, that is the bug. |
 | `custody:payouts` → `held` | The *business's own* switch (`auto_payout`), not an operator's. Only its owner can turn it back on. |
 | `custody:payouts` → `skipped` | Storify is holding money it cannot hand over: no payout bank, or another run took the balance. The first needs chasing. |
 | `custody:payouts` → `blocked` | The provider keeps refusing this business's bank, so the send has stopped asking. Fix the destination, or press **Retry** on the admin Payouts screen (or run `custody:retry-payouts`); the money is safe in the wallet until then. |
 | `custody:payouts` → `unresolved` | Payouts the provider accepted but never confirmed. Normal briefly; their wallet reservations stay held. |
 | `custody.payout.instant_withheld` | A sale was paid for and the payout was not attempted, with the reason. Expected if a hold or `auto_payout` is off; a run of these for one business is that business's money not moving. |
-| `custody.payout.instant` with `outcome: null` | Nothing was sent for a sale that *was* settled. Read `matured` beside it: zero means the promotion gate held the money back — a provider balance that could not cover it, or one that could not be read — and a later attempt will pick it up. |
+| `custody.payout.instant` with `outcome: null` | Nothing was sent for a sale that *was* settled. Read `matured` beside it: zero means the promotion gate held the money back — a provider balance that could not cover it, or one that could not be read — and a later attempt will pick it up. The `gate` object on the same line is the arithmetic behind that answer: `available`, `liability`, `in_flight` and `headroom`, and their `budget_kobo` result. |
+| `custody.payout.retry` | The send is coming back. Read `gate` for why the budget was what it was, and `measured`: `false` is a provider that could not be read and is the provider being down; `true` with an `available` of zero is a provider that answered and is simply holding nothing yet. |
+| `custody.payout.settling` | Not an error. The provider has not released the charge and the platform is waiting on the settlement clock rather than the retry one; `check` and `of` say how far down the chain this is. A run of these for one business that never reaches `of` is worth a look at the provider's dashboard. |
 | `custody.promote.balance_unreadable` | Both the instant path and the run fell back to the clock. Money is still moving, on a window nobody verified. |
 | `ledger:reconcile` | Weekly scan. Under custody it also compares each business's wallet against its `1040 Funds Held by Storify` ledger lines. |
 | Enforcement pre-flight | Two lists an admin works through: `businesses_awaiting_custody` (not on the new rail — an operator's step) and `businesses_cannot_be_paid` (trading happily with no bank named, so the money is accumulating). |

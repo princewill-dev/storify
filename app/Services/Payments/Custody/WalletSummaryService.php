@@ -585,13 +585,24 @@ final class WalletSummaryService
      * money and there is no "pay me now" endpoint to build. What an operator needs
      * during an incident is to *see* the queue and to place a hold, and both are here.
      *
-     * `in_flight` is the part the queue alone cannot see. `candidates()` lists
-     * businesses holding money, and a business whose money is entirely reserved has
-     * `available_balance` of zero — so it is not a candidate, and a transfer stuck
-     * unanswered by the provider would be invisible on the one screen an operator
-     * opens when a business says its payout never arrived. The rows are capped and
-     * `truncated` says so, because this list can grow to one row per sale during a
-     * provider outage and an unbounded admin payload is its own incident.
+     * `in_flight` is the part the business rows alone cannot see. `candidates()`
+     * lists businesses holding money, and a business whose money is entirely
+     * *reserved* has a balance of zero in both wallet buckets — the amount has left
+     * them and has not yet been confirmed as arrived — so it is not a candidate, and
+     * a transfer stuck unanswered by the provider would be invisible on the one
+     * screen an operator opens when a business says its payout never arrived. The
+     * rows are capped and `truncated` says so, because this list can grow to one row
+     * per sale during a provider outage and an unbounded admin payload is its own
+     * incident.
+     *
+     * **Reserved is not the same as pending, and both used to be missing.** Money in
+     * `pending_balance` is in the wallet, owed, and not yet matured; a business whose
+     * whole balance is in that state is now a candidate (see
+     * {@see PayoutSweepService::candidates()}) and appears here as a row whose
+     * `payable_kobo` is zero and whose `pending_kobo` is not. The row is the point:
+     * this is a business that has done nothing wrong, is owed money the platform is
+     * holding, cannot be paid until the provider settles, and has no way to know any
+     * of that. Before, it was on no screen at all.
      *
      * @return array{businesses: array<int, array<string, mixed>>, totals: array<string, mixed>, holds: array<int, array<string, mixed>>, in_flight: array<string, mixed>}
      */
@@ -623,6 +634,14 @@ final class WalletSummaryService
                 'currency' => $currency,
                 'available_kobo' => $available,
                 'payable_kobo' => $payableKobo,
+                // Money the platform is holding for this business that has not
+                // matured yet — and the figure that makes a row with a zero payable
+                // comprehensible rather than broken. A business whose whole balance
+                // is still settling appears here with `payable_kobo: 0` and nothing
+                // else to explain it, which is exactly the row an operator would
+                // otherwise read as "this business is owed nothing" at the moment it
+                // is owed something.
+                'pending_kobo' => (int) $business->pending_balance,
                 'withheld_kobo' => $payable['withheld_kobo'] ?? 0,
                 'blocker' => $blocker,
                 'destination_failures' => $this->sweep->destinationFailures($business),

@@ -271,6 +271,48 @@ return [
     ), static fn (int $minutes): bool => $minutes > 0)),
 
     /*
+    | How long to wait before looking again at money the provider has simply not
+    | released yet, in minutes, oldest first — and for rarer reasons than
+    | `retry_backoff_minutes` above.
+    |
+    | **The two lists answer different questions and must not be confused.** The
+    | one above is for a provider that is *broken*: it refused, or it could not be
+    | read. That is an incident, it is worth three quick attempts, and it is worth
+    | an admin alert when they run out.
+    |
+    | This one is for a provider that answered perfectly and does not have the
+    | money yet. A card charge arrives at Bachs as pending and only becomes
+    | spendable when the provider settles it, which the provider does on its own
+    | schedule — so a sale can be collected, recorded, owed, and genuinely
+    | unsendable for hours. Nothing is wrong. The five-minute clock is simply
+    | shorter than the thing it is waiting for, and retrying at five minutes then
+    | thirty then sixty would spend the whole budget inside the first hour and
+    | alert a human about a state that fixes itself. Before this list existed it
+    | did exactly that.
+    |
+    | So this path is quiet: no alert while it is pending, and a re-check on the
+    | clock below instead. These are deliberately hours rather than minutes, and
+    | the last one is deliberately long: with `settlement_hours` at 0 the moment
+    | the provider releases the money the next check sends it, so the only cost of
+    | waiting is latency on a payment that could not have been made earlier anyway.
+    |
+    | The chain running out is what a person is told about, because a charge that
+    | has not settled in this long is no longer routine. The default checks at an
+    | hour, four hours and twelve hours — seventeen hours in total, which is well
+    | past a next-day settlement cycle and well inside the point at which somebody
+    | would be asking anyway.
+    |
+    | A business's own next sale re-checks it too, and sooner — `settle()` promotes
+    | everything the business is owed, not just the sale that triggered it — so
+    | this list is the safety net for a business that has stopped selling, not the
+    | only way the money is ever moved.
+    */
+    'settlement_lag_backoff_minutes' => array_values(array_filter(array_map(
+        static fn (string $minutes): int => (int) trim($minutes),
+        explode(',', (string) env('CUSTODY_PAYOUT_SETTLEMENT_BACKOFF', '60,240,720')),
+    ), static fn (int $minutes): bool => $minutes > 0)),
+
+    /*
     | Whether a collected sale is credited to the store that earned it, or to the
     | business as a whole.
     |

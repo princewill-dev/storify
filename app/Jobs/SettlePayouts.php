@@ -15,7 +15,9 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Queue\SyncQueue;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Queue;
 use Throwable;
 
 /**
@@ -67,6 +69,26 @@ use Throwable;
  * wallet screen, and retrying them on a clock would be three alerts about a decision
  * somebody has already made. Only a refusal, an unreadable provider and a balance
  * left behind are retried.
+ *
+ * ## Two stalls, two clocks
+ *
+ * **A provider that is broken and a provider that has not paid yet are not the same
+ * event**, and treating them as one was a real fault rather than a rough edge. A
+ * refusal or an unreadable balance is an incident: three attempts on
+ * `custody.retry_backoff_minutes`, then `failed()` and an admin alert.
+ *
+ * A provider that answered and is simply *not holding the money yet* — a card charge
+ * still settling on the provider's own schedule — produces the identical record in
+ * the log and needs the opposite response. It is not an incident, and at five minutes
+ * it is not even informative: the retry budget would be spent inside the first hour
+ * and an operator would be alerted about a payment that was never sendable and that
+ * fixes itself. That path is quiet instead, and re-checks on
+ * `custody.settlement_lag_backoff_minutes` — see {@see self::recheckLater()}. Only
+ * when that chain runs out is anybody told.
+ *
+ * The two clocks are separate lists because the thing being waited for has a
+ * different order of magnitude: minutes for a provider to come back, hours for money
+ * to settle.
  */
 final class SettlePayouts implements ShouldQueue
 {
@@ -75,11 +97,27 @@ final class SettlePayouts implements ShouldQueue
     /**
      * @param  int  $businessId  whose money this is
      * @param  ?int  $transactionId  the sale that triggered it, absent on an operator's retry
+     * @param  int  $lagAttempt  how many settlement re-checks this business has already had
      */
     public function __construct(
         public readonly int $businessId,
         public readonly ?int $transactionId = null,
-    ) {}
+        int $lagAttempt = 0,
+    ) {
+        $this->lagAttempt = max(0, $lagAttempt);
+    }
+
+    /**
+     * How many times this business has already been re-checked for money the
+     * provider has not released yet.
+     *
+     * **A declared property with a default, deliberately not a promoted one.** A job
+     * already sitting in the `jobs` table when this field was added deserializes
+     * without it, and a promoted typed property would then be uninitialised and throw
+     * on the first read — turning a deploy into a failed payout. Declared this way,
+     * such a job comes back as `0`, which is exactly what it is: the first check.
+     */
+    public int $lagAttempt = 0;
 
     /**
      * Dispatch this for a sale, if there is a business to settle.
@@ -151,14 +189,15 @@ final class SettlePayouts implements ShouldQueue
      * error. Under the `sync` connection, which is every test, this is also what keeps
      * the job's own `PayoutNotSentException` from coming back out of the caller.
      */
-    private static function push(int $businessId, ?int $transactionId): void
+    private static function push(int $businessId, ?int $transactionId, int $lagAttempt = 0): void
     {
         try {
-            self::dispatch($businessId, $transactionId);
+            self::dispatch($businessId, $transactionId, $lagAttempt);
         } catch (Throwable $e) {
             Log::error('custody.payout.not_queued', [
                 'business_id' => $businessId,
                 'transaction_id' => $transactionId,
+                'lag_attempt' => $lagAttempt,
                 'error' => $e->getMessage(),
             ]);
         }
@@ -237,9 +276,11 @@ final class SettlePayouts implements ShouldQueue
         // What `payable_kobo > 0` means after a send is that money the walk says
         // should go did not — a refusal, or the provider's balance short of it.
         // `pending_kobo > 0` means a due sale did not mature, which for both rails
-        // (`settlement_hours` 0) has only two causes and both are worth retrying:
-        // the provider could not be read, so the gate fell back to the 72-hour floor
-        // and a fresh sale is still inside it; or the gate was read and short.
+        // (`settlement_hours` 0) has only two causes: the provider could not be read,
+        // so the gate fell back to the 72-hour floor and a fresh sale is still inside
+        // it; or the gate was read and short. The first is trouble and the second is
+        // usually not, which is why the two are separated below rather than both
+        // being sent round the fast clock.
         $leftBehind = (int) ($summary['pending_kobo'] ?? 0) > 0
             || (int) ($summary['payable_kobo'] ?? 0) > 0;
 
@@ -248,8 +289,41 @@ final class SettlePayouts implements ShouldQueue
             return;
         }
 
-        $attempt = $this->attempts();
         $gate = is_array($result['gate'] ?? null) ? $result['gate'] : [];
+
+        // ---------------------------------------------------------------
+        // First: the case that is not an incident
+        // ---------------------------------------------------------------
+        //
+        // The provider was read, it refused nothing, nothing was payable, and a sale
+        // is sitting in `pending_balance`. That is a charge the provider has recorded
+        // but not yet released — it settles on its own schedule and the money becomes
+        // sendable with no action from anybody. The identical record is produced by a
+        // platform balance that other businesses' money has already spoken for, which
+        // also clears itself, just less predictably.
+        //
+        // Neither is a reason to spend three attempts inside the hour and email an
+        // operator. The whole point of the retry budget is that reaching its end means
+        // something needs a person; spending it on a payment that was never sendable
+        // makes the alert routine, and a routine alert is one nobody reads on the day
+        // it means something.
+        //
+        // The four conditions are deliberately narrow. `refused` covers a refusal and
+        // a transfer still inside its own backoff window; `measured !== true` covers a
+        // provider that could not be read, which is the provider being *down* and is
+        // exactly what the fast clock is for; and `payable_kobo === 0` excludes the
+        // case where the walk was willing to send and sent nothing, which is trouble
+        // whatever the reason.
+        $waitingOnProvider = ! $refused
+            && ($result['measured'] ?? false) === true
+            && (int) ($summary['payable_kobo'] ?? 0) === 0
+            && (int) ($summary['pending_kobo'] ?? 0) > 0;
+
+        if ($waitingOnProvider && $this->recheckLater()) {
+            return;
+        }
+
+        $attempt = $this->attempts();
 
         Log::warning('custody.payout.retry', [
             'business_id' => $business->id,
@@ -282,6 +356,95 @@ final class SettlePayouts implements ShouldQueue
             $attempt,
             $this->tries(),
         );
+    }
+
+    /**
+     * Queue the next look at money the provider has not released, and say whether it
+     * went.
+     *
+     * **A re-check is a new job, and it has to be.** The worker's `backoff()` and
+     * `tries()` are not read from this object at the moment of failure — they are
+     * rendered into the queue payload when the job is *pushed*
+     * (`Queue::getJobBackoff()`) and read back out of that payload later
+     * (`Illuminate\Queue\Jobs\Job::backoff()`), so they cannot be made to depend on
+     * anything `handle()` discovers. There is no way to tell the worker "this
+     * particular stall deserves an hour, not five minutes" from inside `handle()`.
+     * Waiting an hour therefore means pushing a job that will not run until then.
+     *
+     * **Deliberately not {@see self::push()}**, which swallows. Swallowing is right for
+     * the three call sites that queue this for a sale — they are somewhere a payment
+     * has already been committed and must not be turned into an error. Here it would
+     * be dangerous in the opposite direction: if the re-check cannot be queued and the
+     * failure is hidden, the chain silently ends with the money owed and *nobody*
+     * told, which is the one outcome the fast path's alert exists to prevent. So this
+     * reports rather than swallows, and the caller falls through to the throw — a
+     * re-check that cannot be queued behaves exactly as this job did before re-checks
+     * existed.
+     *
+     * Returns false when the chain is spent, which is not a failure: the business has
+     * had every check this platform is willing to make quietly, and the caller's throw
+     * is what turns that into a person being told.
+     */
+    private function recheckLater(): bool
+    {
+        // **A queue that cannot defer cannot re-check.** On the `sync` driver
+        // `later()` ignores its delay and runs the job inline, so a re-check would
+        // not be a later look at anything — it would recurse down the schedule inside
+        // the current call, asking the provider four times in a row and failing the
+        // nested jobs on the way, each of which alerts. Standing the whole mechanism
+        // down here is what keeps a sync environment on the behaviour that existed
+        // before it, which is the fast path falling through to the alert.
+        //
+        // `Queue::fake()` is not caught by this: `QueueFake::connection()` returns the
+        // fake itself rather than the underlying driver, so the tests that exercise
+        // the quiet path exercise it for real.
+        if (Queue::connection() instanceof SyncQueue) {
+            return false;
+        }
+
+        $schedule = config('custody.settlement_lag_backoff_minutes', [60, 240, 720]);
+
+        $schedule = is_array($schedule) && $schedule !== []
+            ? array_values($schedule)
+            : [60, 240, 720];
+
+        if ($this->lagAttempt >= count($schedule)) {
+            return false;
+        }
+
+        $minutes = max(1, (int) $schedule[$this->lagAttempt]);
+
+        Log::info('custody.payout.settling', [
+            'business_id' => $this->businessId,
+            'transaction_id' => $this->transactionId,
+            // Which check this was, and when the next one is — the two facts that
+            // say whether this is a charge that settled late or one that never
+            // arrived.
+            'check' => $this->lagAttempt + 1,
+            'of' => count($schedule),
+            'next_check_in_minutes' => $minutes,
+        ]);
+
+        try {
+            // `delay()`, so the row is written now and becomes claimable later. That
+            // is the difference between this and a `sleep()`: no worker is held, and
+            // the money is not waiting on a process staying alive.
+            self::dispatch($this->businessId, $this->transactionId, $this->lagAttempt + 1)
+                ->delay(now()->addMinutes($minutes));
+
+            return true;
+        } catch (Throwable $e) {
+            // Reached when the `jobs` row could not be written — a queue that is
+            // down, or a payload the connection would not accept. Rare, and it must
+            // not be silent: the caller's throw is what reaches the operator.
+            Log::channel('queue')->warning('custody.payout.recheck_not_queued', [
+                'business_id' => $this->businessId,
+                'lag_attempt' => $this->lagAttempt,
+                'error' => $e->getMessage(),
+            ]);
+
+            return false;
+        }
     }
 
     /**
@@ -357,6 +520,12 @@ final class SettlePayouts implements ShouldQueue
             'business_id' => $this->businessId,
             'transaction_id' => $this->transactionId,
             'attempts' => $this->tries(),
+            // How many quiet looks this business had before the loud one, and so how
+            // long it has actually been stuck. Zero for the ordinary provider
+            // refusal; the whole settlement schedule for a charge that never
+            // settled. Without it the line reads the same whether this failed in the
+            // last half hour or has been waiting since yesterday.
+            'settlement_rechecks' => $this->lagAttempt,
             'error' => $e->getMessage(),
             'business_found' => $business instanceof Business,
         ]);
@@ -378,13 +547,25 @@ final class SettlePayouts implements ShouldQueue
         // operator deciding whether to press Retry now or to wait.
         $reason = $e instanceof PayoutNotSentException ? $e->reason : null;
 
+        // How long this has been going on, said in the label rather than only in the
+        // log, because an operator deciding whether to press Retry now or to wait
+        // needs it and is not going to go and read a log first. A business that came
+        // down the settlement chain has been waiting hours across checks that
+        // deliberately said nothing; one that was refused has been waiting minutes.
+        // The word for both is "attempts", which is why the quiet ones are named
+        // separately rather than counted in with the loud ones.
+        $quiet = $this->lagAttempt > 0
+            ? sprintf(' and %d settlement re-checks over the preceding hours', $this->lagAttempt)
+            : '';
+
         $blocker = $sweep->payoutBlocker($business) ?? [
             'code' => PlatformPayoutNotifier::SETTLEMENT_FAILED,
             'label' => $reason !== null && $reason !== ''
-                ? sprintf('Nothing was sent in %d attempts — %s', $this->tries(), $reason)
+                ? sprintf('Nothing was sent in %d attempts%s — %s', $this->tries(), $quiet, $reason)
                 : sprintf(
-                    'Nothing was sent and the provider never took the money — %d attempts spent',
+                    'Nothing was sent and the provider never took the money — %d attempts spent%s',
                     $this->tries(),
+                    $quiet,
                 ),
         ];
 
