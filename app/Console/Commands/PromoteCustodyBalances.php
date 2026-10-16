@@ -157,7 +157,35 @@ class PromoteCustodyBalances extends Command
      */
     private function reportGate(int $budgetLimited, array $gate): void
     {
+        // The terms of the budget, printed before anything is said about them.
+        //
+        // An operator reaching for this command is almost always asking the same
+        // question — why is this business's money still pending — and the answer is
+        // in these four numbers. Printing the arithmetic rather than only the verdict
+        // is what lets them see for themselves whether the provider is holding
+        // nothing (a customer's charge that has not settled, which resolves itself)
+        // or whether it is holding money that the platform's own liabilities have
+        // already spoken for (which will not resolve itself, and is a different
+        // incident).
+        if (is_array($gate['components'] ?? null)) {
+            $this->line(sprintf(
+                'Gate (NGN): provider holds %s − owed %s − in flight %s − headroom %s = %s to mature.',
+                $this->money($gate['components']['available']),
+                $this->money($gate['components']['liability']),
+                $this->money($gate['components']['in_flight']),
+                $this->money($gate['components']['headroom']),
+                $this->money((int) $gate['budget']),
+            ));
+        }
+
         if ($budgetLimited > 0) {
+            // Deliberately unchanged, and deliberately not branched on the figures
+            // above. The tempting rewrite — "the provider is holding nothing" versus
+            // "another business's balance has consumed it" — would be asserting a
+            // cause the command cannot actually see: the gate knows the four sums,
+            // not which sale or business each naira is owed to. This sentence is true
+            // of every shortfall, and the numbered line above it is what tells the
+            // operator which of the sums did the consuming.
             $this->warn(sprintf(
                 '%d sale(s) are past their window but the provider has not released the money behind them. '
                 .'They stay payable and mature on a later attempt; nothing is lost.',
@@ -171,5 +199,14 @@ class PromoteCustodyBalances extends Command
                 $gate['floor']->toDateTimeString(),
             ));
         }
+    }
+
+    /**
+     * Kobo as a plain naira figure, the way every other amount in this file is
+     * written — bare, with `NGN` said once in the label rather than on every number.
+     */
+    private function money(int $kobo): string
+    {
+        return number_format($kobo / 100, 2);
     }
 }

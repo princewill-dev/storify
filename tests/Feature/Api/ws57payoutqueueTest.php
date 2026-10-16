@@ -16,10 +16,12 @@ use App\Services\Payments\Custody\CustodyService;
 use App\Services\Payments\Custody\InstantPayoutService;
 use App\Services\Payments\Custody\PayoutHoldService;
 use App\Services\Payments\Custody\PayoutSweepService;
+use App\Services\Payments\Custody\PlatformPayoutNotifier;
 use App\Services\Payments\Custody\WalletSummaryService;
 use Database\Seeders\SpatiePermissionSeeder;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -784,4 +786,217 @@ test('money in flight reads as one shape to the operator and another to the busi
         ->and($own['destinations'])->toHaveCount(1)
         ->and($own['destinations'][0]['account_last_four'])->toBe('6789')
         ->and($own['destinations'][0]['bank_code'])->toBe('058');
+});
+
+// ---------------------------------------------------------------------------
+// A stall says which stall it is
+// ---------------------------------------------------------------------------
+//
+// Everything above pins *that* the job retries. These pin what anybody reading
+// the log or the alert afterwards can actually learn from it.
+//
+// The problem they were written for is narrow and was found in production: a
+// sale collected, `custody.payout.instant` reporting `matured: 0`, an empty
+// outcome, and a job retrying — with nothing anywhere saying why the money had
+// not moved. Every way of arriving at that state produces the same record, and
+// the ways need opposite responses. A provider that has not settled a customer's
+// charge yet will fix itself; a platform balance every naira of which is already
+// promised somewhere else will not. Only the terms of the promotion budget
+// distinguish them, so those terms are now carried out with the answer.
+
+test('the promotion gate hands back the terms it subtracted', function () {
+    pq57Platform();
+    pq57Settings(['system_payment_processor' => 'bachs']);
+
+    [, $business] = pq57Business();
+
+    // The provider is holding ₦3,000. ₦1,000 of that is already owed to this
+    // business and promoted, and ₦500 is out in a transfer on its way — so only
+    // what is left over is available to mature a fresh sale from.
+    Http::fake([
+        'sandbox-api.bachs.io/v1/balances' => Http::response([
+            'balances' => [['currency' => 'NGN', 'available_balance' => '3000.00']],
+        ]),
+    ]);
+
+    $business->forceFill(['available_balance' => 100000])->save();
+
+    Payout::create([
+        'business_id' => $business->id,
+        'provider' => 'bachs',
+        'bank_code' => '058',
+        'account_number' => '0123456789',
+        'amount_kobo' => 50000,
+        'currency' => 'NGN',
+        'status' => Payout::STATUS_PROCESSING,
+        'reference' => 'PO_PQ57_'.strtoupper(Str::random(10)),
+        'requested_at' => now(),
+    ]);
+
+    $headroom = (int) config('custody.payout_fee_headroom_kobo', 0);
+    $gate = app(PayoutSweepService::class)->promotionGate();
+
+    expect($gate['measured'])->toBeTrue()
+        ->and($gate['components'])->toBe([
+            'available' => 300000,
+            'liability' => 100000,
+            'in_flight' => 50000,
+            'headroom' => $headroom,
+        ])
+        // Stated as the subtraction rather than as a number, so a change in the
+        // headroom default moves this test into failing rather than into agreeing.
+        ->and($gate['budget'])->toBe(300000 - 100000 - 50000 - $headroom);
+});
+
+test('a gate that could not measure reports no terms at all', function () {
+    // The other half of the contract, and the one a caller has to branch on: no
+    // budget, no terms, and a floor instead. A provider that cannot be read has
+    // not been shown to be empty, and reporting zeros here would say it had.
+    pq57Platform();
+    pq57Settings(['system_payment_processor' => 'bachs']);
+
+    Http::fake(['sandbox-api.bachs.io/*' => Http::response(['message' => 'Bad gateway'], 502)]);
+
+    $gate = app(PayoutSweepService::class)->promotionGate();
+
+    expect($gate['components'])->toBeNull()
+        ->and($gate['measured'])->toBeFalse()
+        ->and($gate['budget'])->toBeNull()
+        ->and($gate['floor'])->not->toBeNull();
+});
+
+test('a provider holding nothing is named as the cause, not as a failure', function () {
+    // The production shape exactly: Bachs answers, and answers '0.00'. That is a
+    // successful read of an empty balance — a customer's charge that has arrived
+    // but not settled — and it is a state that clears itself. It must not read
+    // like the platform failing to pay somebody.
+    pq57Platform();
+    pq57Settings(['system_payment_processor' => 'bachs']);
+
+    [, $business, $store] = pq57Business();
+
+    pq57Provider(0);
+    pq57Credited($business, 100000, $store);
+
+    Log::spy();
+
+    $caught = null;
+
+    try {
+        pq57Run((int) $business->id);
+    } catch (PayoutNotSentException $e) {
+        $caught = $e;
+    }
+
+    expect($caught)->toBeInstanceOf(PayoutNotSentException::class)
+        ->and($caught->reason)->toBe('the provider is not holding a released balance for these sales yet');
+
+    // The retry log carries the arithmetic, which is what makes the line worth
+    // reading: `measured: true` with an `available` of zero is a provider that
+    // answered and had nothing, and is a completely different incident from
+    // `measured: false`.
+    Log::shouldHaveReceived('warning')
+        ->withArgs(fn (string $message, array $context = []) => $message === 'custody.payout.retry'
+            && ($context['measured'] ?? null) === true
+            && ($context['budget_kobo'] ?? null) === 0
+            && ($context['gate']['available'] ?? null) === 0
+            && ($context['gate']['liability'] ?? null) === 0
+            && ($context['gate']['in_flight'] ?? null) === 0
+            && ($context['pending_kobo'] ?? null) === 100000)
+        ->atLeast()->once();
+});
+
+test('a balance spoken for elsewhere is named differently from a provider that has not paid', function () {
+    // Read, holding money, and short anyway — the platform's own liabilities have
+    // consumed the provider's balance. Also worth retrying, and worth retrying for
+    // a different reason: it clears when the other money leaves, not when the
+    // provider settles. Two incidents, two sentences, one retry.
+    pq57Platform();
+    pq57Settings(['system_payment_processor' => 'bachs']);
+
+    [, $business, $store] = pq57Business();
+
+    // Holding ₦100 and owing ₦1,000 — the provider is readable and has money, and
+    // the money is not this business's.
+    pq57Provider(10000);
+
+    $other = Business::create([
+        'user_id' => createBusinessOwner()[0]->id,
+        'name' => 'Other PQ57 Trader',
+        'status' => 'active',
+    ]);
+
+    // Promoted and not yet sent, which is what makes it a liability: the platform
+    // owes this to somebody else out of the same provider balance.
+    $other->forceFill(['available_balance' => 10000])->save();
+
+    pq57Credited($business, 100000, $store);
+
+    $caught = null;
+
+    try {
+        pq57Run((int) $business->id);
+    } catch (PayoutNotSentException $e) {
+        $caught = $e;
+    }
+
+    expect($other->id)->not->toBe($business->id)
+        ->and($caught)->toBeInstanceOf(PayoutNotSentException::class)
+        ->and($caught->reason)->toBe('the provider\'s available balance is short of what the platform owes across all businesses');
+});
+
+test('a provider that cannot be read is named as the settlement window, not as a refusal', function () {
+    // The third shape, and the one whose retry genuinely pays off: nothing was
+    // asked successfully, so a fresh sale is inside the conservative floor. The
+    // job comes back because the provider might answer next time.
+    pq57Platform();
+    pq57Settings(['system_payment_processor' => 'bachs']);
+
+    [, $business, $store] = pq57Business();
+
+    Http::fake(['sandbox-api.bachs.io/*' => Http::response(['message' => 'Bad gateway'], 502)]);
+
+    pq57Credited($business, 100000, $store);
+
+    $caught = null;
+
+    try {
+        pq57Run((int) $business->id);
+    } catch (PayoutNotSentException $e) {
+        $caught = $e;
+    }
+
+    expect($caught)->toBeInstanceOf(PayoutNotSentException::class)
+        ->and($caught->reason)->toBe('the provider\'s balance could not be read, so a fresh sale is inside the conservative settlement window');
+});
+
+test('the alert an operator receives carries the cause, not just the count', function () {
+    // The last reader in the chain, and the only one who cannot go and look. When
+    // the attempts are spent the mail says which of the stalls this was, because
+    // "nothing was sent" is equally true of all of them and therefore tells the
+    // person deciding whether to press Retry nothing at all.
+    pq57Platform();
+    pq57Settings(['system_payment_processor' => 'bachs']);
+
+    [, $business, $store] = pq57Business();
+
+    pq57Provider(0);
+    pq57Credited($business, 100000, $store);
+
+    Mail::fake();
+
+    $job = new SettlePayouts((int) $business->id);
+
+    $job->failed(new PayoutNotSentException(
+        $business,
+        'the provider is not holding a released balance for these sales yet',
+        3,
+        3,
+    ));
+
+    Mail::assertSent(AdminPayoutsStalledMail::class, function (AdminPayoutsStalledMail $mail) use ($business): bool {
+        return (int) $mail->business->id === (int) $business->id
+            && $mail->blocker['code'] === PlatformPayoutNotifier::SETTLEMENT_FAILED
+            && str_contains($mail->blocker['label'], 'the provider is not holding a released balance for these sales yet');
+    });
 });

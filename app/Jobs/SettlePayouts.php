@@ -249,6 +249,7 @@ final class SettlePayouts implements ShouldQueue
         }
 
         $attempt = $this->attempts();
+        $gate = is_array($result['gate'] ?? null) ? $result['gate'] : [];
 
         Log::warning('custody.payout.retry', [
             'business_id' => $business->id,
@@ -260,15 +261,81 @@ final class SettlePayouts implements ShouldQueue
             'payable_kobo' => (int) ($summary['payable_kobo'] ?? 0),
             'withheld_kobo' => (int) ($summary['withheld_kobo'] ?? 0),
             'measured' => $result['measured'] ?? null,
+
+            // The subtraction behind the promotion budget, and the reason this
+            // line is worth reading at all. Every stall this job retries comes
+            // back as the same shape — nothing sent, nothing matured — while the
+            // causes behind it need opposite responses: a provider that has not
+            // released a customer's money yet will settle itself if it is given
+            // time, whereas a platform balance that is fully spoken for will not
+            // move at all until something else clears. Without these figures the
+            // line says only that the job tried again, which is the one thing
+            // already known.
+            'budget_kobo' => $gate['budget'] ?? null,
+            'gate' => $gate['components'] ?? null,
             'outcome' => $result['outcome'] ?? null,
         ]);
 
         throw new PayoutNotSentException(
             $business,
-            $refused ? 'the provider refused the transfer' : 'the money never left the wallet',
+            $this->stallReason($refused, $summary, $gate),
             $attempt,
             $this->tries(),
         );
+    }
+
+    /**
+     * Why the money did not move, named precisely enough to act on.
+     *
+     * The string lands inside the exception's message and in the admin alert, so it
+     * is a clause rather than a sentence: lowercase, no full stop, readable in the
+     * parentheses of `Payout for business #12 was not sent (…) — attempt 1 of 3.`
+     *
+     * **Not one reason but four, and they call for opposite things.** The previous
+     * single string — "the money never left the wallet" — was true of all of them
+     * and therefore told nobody anything. A provider that has not released a
+     * customer's money yet resolves itself; a refusal at the bank needs a person; a
+     * balance that another business's stranded money is sitting on will not move
+     * however many times this job comes back. An operator reading the alert is
+     * deciding which of those they are looking at, and this is the only place that
+     * knows.
+     *
+     * @param  array<string, mixed>  $summary  the wallet read model, as the caller read it
+     * @param  array<string, mixed>  $gate  `promotionGate()`'s answer, empty when absent
+     */
+    private function stallReason(bool $refused, array $summary, array $gate): string
+    {
+        if ($refused) {
+            return 'the provider refused the transfer';
+        }
+
+        // Payable and unsent: the walk found money it was willing to send and no
+        // transfer came of it — a destination the bank refused, or a provider that
+        // could not be reached. Different from everything below, which is about
+        // money that never became payable in the first place.
+        if ((int) ($summary['payable_kobo'] ?? 0) > 0) {
+            return 'money was payable to this business and the send did not move it';
+        }
+
+        // Nothing payable, so the sale is still in `pending_balance`: it was due to
+        // mature and did not. From here on the gate's own terms are the answer.
+        if (($gate['measured'] ?? false) !== true) {
+            return 'the provider\'s balance could not be read, so a fresh sale is inside the conservative settlement window';
+        }
+
+        $components = is_array($gate['components'] ?? null) ? $gate['components'] : [];
+
+        // Read, and holding nothing: the customer's charge has arrived but the
+        // provider has not settled it, so there is genuinely nothing to send yet.
+        // The case the retry exists for, and the one that fixes itself.
+        if ((int) ($components['available'] ?? 0) <= 0) {
+            return 'the provider is not holding a released balance for these sales yet';
+        }
+
+        // Read, holding money, and the gate still came back empty — so the
+        // platform's spendable balance is already accounted for by what it owes
+        // elsewhere, by transfers already in flight, or by the fee headroom.
+        return 'the provider\'s available balance is short of what the platform owes across all businesses';
     }
 
     /**
@@ -304,12 +371,21 @@ final class SettlePayouts implements ShouldQueue
         // commonest way to arrive here is a provider that never answered, which leaves
         // no ceiling and often no payout row either, the money having never been
         // reserved. That case is exactly the one an operator most needs to hear about.
+        //
+        // The exception's own reason is preferred to a fixed string, because it is
+        // the only text in the alert that says *which* stall this was. "Nothing was
+        // sent" is true of every way of arriving here and so is worth little to the
+        // operator deciding whether to press Retry now or to wait.
+        $reason = $e instanceof PayoutNotSentException ? $e->reason : null;
+
         $blocker = $sweep->payoutBlocker($business) ?? [
             'code' => PlatformPayoutNotifier::SETTLEMENT_FAILED,
-            'label' => sprintf(
-                'Nothing was sent and the provider never took the money — %d attempts spent',
-                $this->tries(),
-            ),
+            'label' => $reason !== null && $reason !== ''
+                ? sprintf('Nothing was sent in %d attempts — %s', $this->tries(), $reason)
+                : sprintf(
+                    'Nothing was sent and the provider never took the money — %d attempts spent',
+                    $this->tries(),
+                ),
         ];
 
         app(PlatformPayoutNotifier::class)->payoutsStalled(

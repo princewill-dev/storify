@@ -410,12 +410,23 @@ final class PayoutSweepService
      * is readable the floor is null, because the measurement is better than any
      * clock.
      *
-     * @return array{budget: int|null, floor: CarbonInterface|null, measured: bool}
+     * **`components` is the same subtraction, itemised**, and is null whenever the
+     * gate could not measure at all. It travels with the budget because the budget
+     * alone cannot be interpreted: a zero has four quite different causes — a
+     * provider that has not released the customer's charge, another business's
+     * money stranded in `available_balance`, transfers already in flight, or the
+     * fee headroom — and every one of them looks the same from the send, which
+     * finds nothing payable and reports having sent nothing. The readers that have
+     * to tell them apart are the job deciding whether to retry and the operator
+     * reading the alert; both would otherwise be reconstructing these four sums by
+     * hand, against live provider state, in the moment they least can.
+     *
+     * @return array{budget: int|null, floor: CarbonInterface|null, measured: bool, components: array{available: int, liability: int, in_flight: int, headroom: int}|null}
      */
     public function promotionGate(): array
     {
         if (! (bool) config('custody.balance_gate.enabled', true)) {
-            return ['budget' => null, 'floor' => null, 'measured' => false];
+            return ['budget' => null, 'floor' => null, 'measured' => false, 'components' => null];
         }
 
         $context = $this->context();
@@ -426,7 +437,7 @@ final class PayoutSweepService
             // before it sent anything. Applying the floor here would only delay a
             // business's balance from maturing over a payout that could not happen
             // anyway, and make a misconfigured processor look like slow settlement.
-            return ['budget' => null, 'floor' => null, 'measured' => false];
+            return ['budget' => null, 'floor' => null, 'measured' => false, 'components' => null];
         }
 
         $available = $context['rail']->availableBalance($context['credentials']);
@@ -439,7 +450,7 @@ final class PayoutSweepService
                 'floor' => $floor->toIso8601String(),
             ]);
 
-            return ['budget' => null, 'floor' => $floor, 'measured' => false];
+            return ['budget' => null, 'floor' => $floor, 'measured' => false, 'components' => null];
         }
 
         // Everything the platform owes, across both kinds of bucket.
@@ -469,6 +480,25 @@ final class PayoutSweepService
             'budget' => max(0, $available - $liability - $inFlight - $headroom),
             'floor' => null,
             'measured' => true,
+
+            // The terms of the subtraction, carried out with the answer.
+            //
+            // A zero budget has several different meanings — the provider has not
+            // released the customer's money yet, another business's stranded
+            // balance is sitting on it, transfers already in flight account for it,
+            // or the headroom absorbs it — and every one of them reads identically
+            // from the outside: a sale that stayed in `pending_balance`. Without
+            // these figures the only way to tell them apart is to reproduce the
+            // arithmetic by hand against live provider state, which is exactly what
+            // an operator cannot do at the moment they need to. They are returned
+            // rather than logged here because the gate is read on every settlement
+            // while only some callers want to say why they came away with nothing.
+            'components' => [
+                'available' => $available,
+                'liability' => $liability,
+                'in_flight' => $inFlight,
+                'headroom' => $headroom,
+            ],
         ];
     }
 

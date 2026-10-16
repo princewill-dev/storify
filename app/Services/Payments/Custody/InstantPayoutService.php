@@ -109,7 +109,7 @@ final class InstantPayoutService
      * is what makes {@see SettlePayouts} safe to hand a sale that has
      * already been paid, which is what a provider redelivering its webhook does.
      *
-     * @return array{status: string, reason?: string, matured?: int, hold_id?: int|null, measured?: bool, outcome?: array<string, int>}
+     * @return array{status: string, reason?: string, matured?: int, hold_id?: int|null, measured?: bool, gate?: array, outcome?: array<string, int>}
      */
     public function afterCollection(Transaction $transaction): array
     {
@@ -149,12 +149,21 @@ final class InstantPayoutService
                 'matured' => $result['matured'],
             ]);
         } else {
+            // `gate` is the terms the promotion budget was computed from, and it is
+            // logged on the *success* path too — not only when something goes wrong.
+            // A sale that matured nothing and sent nothing looks identical here
+            // either way, and this line is the first thing anyone reads when a
+            // business asks why its money has not moved. `outcome` says what the
+            // send did; only these four figures say whether there was anything for
+            // it to do.
             Log::info('custody.payout.instant', [
                 'transaction_id' => $transaction->id,
                 'business_id' => $business->id,
                 'provider' => $transaction->settlementProviderCode(),
                 'matured' => $result['matured'],
                 'budget_measured' => $result['measured'],
+                'budget_kobo' => $result['gate']['budget'] ?? null,
+                'gate' => $result['gate']['components'] ?? null,
                 'outcome' => $result['outcome'],
             ]);
         }
@@ -175,7 +184,7 @@ final class InstantPayoutService
      * Reads no transaction and writes no log: what to make of the answer is the
      * caller's, and the two callers make different things of it.
      *
-     * @return array{status: string, reason?: string, matured?: int, hold_id?: int|null, measured?: bool, outcome?: array<string, int>}
+     * @return array{status: string, reason?: string, matured?: int, hold_id?: int|null, measured?: bool, gate?: array, outcome?: array<string, int>}
      */
     public function settle(Business $business): array
     {
@@ -224,10 +233,22 @@ final class InstantPayoutService
         // business that owes nothing both come back as an empty tally — the send
         // reports what it sent and never what it could not read — so the caller
         // that has to decide whether to try again cannot learn it from `outcome`.
+        //
+        // The gate travels with it for the same reason, one level deeper. A sale
+        // that matured nothing comes back here as `matured: 0` with an empty
+        // outcome whether the provider was holding nothing, another business's
+        // stranded balance was sitting on the budget, or transfers already in
+        // flight had spent it. That distinction is the whole difference between
+        // "the provider has not released the customer's money yet" and "the
+        // platform's own balance is short", and only the terms of the subtraction
+        // can draw it — so they come out with the answer rather than being
+        // recomputed, differently and approximately, by whichever caller is
+        // deciding whether to try again.
         return [
             'status' => 'attempted',
             'matured' => $matured,
             'measured' => $gate['measured'],
+            'gate' => $gate,
             'outcome' => $outcome,
         ];
     }
