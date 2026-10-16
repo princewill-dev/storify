@@ -25,6 +25,15 @@ use Illuminate\Validation\ValidationException;
  *    arrangement, and for support cases: comped accounts, a migration, a
  *    business whose plan is being sorted out while it needs to trade today.
  *
+ * **A trial is not a third way.** A live trial entitles a business to the whole
+ * platform — every module on, every cap lifted — and `own_gateway` is the single
+ * key it holds back ({@see EntitlementRegistry::trialGrants()}). It has to be:
+ * a connection made during a trial is not unmade by the trial ending, so a trial
+ * that granted this would be a free, permanent route out of the platform's
+ * processing, open to anybody who signs up. The trial of the top tier shows the
+ * business everything the top tier does; the one thing it does not hand over is
+ * the one it can walk away with.
+ *
  * **One definition, two callers.** Both the WS-39 screen and the older WS-11
  * settings screen write these connections, and a rule enforced on one of them
  * is not a rule — it is a detour. Small enough to be a static, and static so

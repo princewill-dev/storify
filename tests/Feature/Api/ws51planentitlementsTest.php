@@ -19,10 +19,10 @@ use Database\Seeders\PaymentMethodSeeder;
 | granted it to individually.
 |
 | The resolution order is the part worth reading twice. A subscription beats a
-| trial, a trial follows the plan the owner picked, and a trial that never picked
-| one falls back to the platform's default plan rather than to nothing — which is
-| the difference between a trial that can use the product and a trial that cannot
-| create a single store.
+| trial, and a trial is the whole platform — every module on, every cap lifted —
+| whatever plan the owner has or has not picked. One key is held back from it
+| ({@see EntitlementRegistry::trialGrants()}), and it is the only one: a trial
+| does not let a business move its payments onto its own processor.
 */
 
 function ws51Token(User $user): string
@@ -113,9 +113,13 @@ test('a paid plan governs over the trial that preceded it', function () {
         ->and($entitlements->limit(EntitlementRegistry::STORES))->toBe(3);
 });
 
-test('a trial grants the plan the owner picked, enterprise included', function () {
-    // A trial is a trial *of a plan*. Picking the top tier and trialling it must
-    // reach the same screens the paid version does, or the trial is of nothing.
+test('trialling the top tier reaches every screen it has but one', function () {
+    // Picking the top tier and trialling it must reach the same screens the paid
+    // version does, or the trial is of nothing — and the one screen it does not
+    // reach is the one that is not a screen. A trial grants accounting, the
+    // till, plugins, invoices and unlimited stores; it does not grant the
+    // business's own payment keys, which is a change in who processes its money
+    // rather than something to try out. Bought or granted, and not trialled.
     $enterprise = ws51Enterprise();
 
     [$owner, $business] = createBusinessOwner([
@@ -126,9 +130,28 @@ test('a trial grants the plan the owner picked, enterprise included', function (
     $entitlements = Entitlements::for($business->fresh());
 
     expect($entitlements->source())->toBe(Entitlements::SOURCE_TRIAL)
-        ->and($entitlements->allows(EntitlementRegistry::OWN_GATEWAY))->toBeTrue()
+        // The one key the top tier sells that the trial of it holds back.
+        ->and($entitlements->allows(EntitlementRegistry::OWN_GATEWAY))->toBeFalse()
         // Unlimited, not zero — the distinction the top tier rests on.
         ->and($entitlements->limit(EntitlementRegistry::STORES))->toBeNull();
+});
+
+test('a business that buys the top tier keeps the key its trial held back', function () {
+    // The other half of the exception, and the one a carve-out could quietly
+    // break: `own_gateway` is held back from a *trial*, not from the tier that
+    // sells it. This is also the plan the refusal names as the way forward —
+    // {@see Entitlements::planGranting()} — so a business that cannot connect
+    // its keys yet is told which plan it would have to buy.
+    $enterprise = ws51Enterprise();
+
+    [$owner, $business] = createBusinessOwner();
+    ws51Subscribe($owner, $enterprise);
+
+    $entitlements = Entitlements::for($business->fresh());
+
+    expect($entitlements->source())->toBe(Entitlements::SOURCE_SUBSCRIPTION)
+        ->and($entitlements->allows(EntitlementRegistry::OWN_GATEWAY))->toBeTrue()
+        ->and(Entitlements::planGranting(EntitlementRegistry::OWN_GATEWAY)?->name)->toBe('Enterprise');
 });
 
 test('a trial is the whole platform, whatever plan is or is not chosen', function () {
@@ -140,10 +163,14 @@ test('a trial is the whole platform, whatever plan is or is not chosen', functio
     //
     // A default plan exists here and is deliberately ignored: the trial is not
     // measured against it.
+    // The default plan states both halves of the catalogue out loud, so that
+    // the trial can be seen not to be reading it: a cap of five and a module
+    // switched off. It says nothing about `own_gateway`, which is therefore the
+    // one answer below that comes from the catalogue rather than from it.
     ws51Plan([
         'name' => 'Default',
         'is_default' => true,
-        'entitlements' => [EntitlementRegistry::STORES => 5, EntitlementRegistry::OWN_GATEWAY => false],
+        'entitlements' => [EntitlementRegistry::STORES => 5, EntitlementRegistry::ACCOUNTING => false],
     ]);
 
     [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
@@ -155,8 +182,11 @@ test('a trial is the whole platform, whatever plan is or is not chosen', functio
         ->and($entitlements->plan())->toBeNull()
         // Every cap lifted, including the one the default plan sets at five.
         ->and($entitlements->limit(EntitlementRegistry::STORES))->toBeNull()
-        // And the toggle that default switches off.
-        ->and($entitlements->allows(EntitlementRegistry::OWN_GATEWAY))->toBeTrue();
+        // And the module that default switches off.
+        ->and($entitlements->allows(EntitlementRegistry::ACCOUNTING))->toBeTrue()
+        // Less the one key no trial lifts, whichever plan is or is not
+        // configured — the exception lives in the catalogue, not in the plan.
+        ->and($entitlements->allows(EntitlementRegistry::OWN_GATEWAY))->toBeFalse();
 });
 
 test('no plan and no live trial entitles a business to nothing', function () {

@@ -78,6 +78,31 @@ use App\Support\Plugins\PluginRegistry;
  * the three seeded tiers state all three keys explicitly — every row this
  * platform ships says yes or no out loud. Any key added after this one has the
  * same obligation.
+ *
+ * ## The one key a trial does not lift
+ *
+ * A live trial resolves to every toggle on and every cap lifted, and that is
+ * deliberate: a trial that demonstrates the entry tier makes "what do I get?"
+ * depend on a plan the owner has not chosen yet ({@see Entitlements}).
+ *
+ * `own_gateway` is the exception, and it is the only one. It carries
+ * `'trial' => false`, which makes a trial answer the catalogue's own `default`
+ * for it — off — instead of on. The reason is that this key is not a screen to
+ * look at while deciding; it is a change in **who processes the business's
+ * money**. A business that connects its own keys takes payments through its own
+ * merchant account, and a connection made during a trial is not unmade by the
+ * trial ending ({@see GatewayGrant} — revoking the grant stops the keys being
+ * *changed*, not the business being charged through them). A free window in
+ * which any signup can route payments out of the platform's processing, and keep
+ * them there afterwards, is the loophole the whole of {@see GatewayGrant} exists
+ * to close — so it is granted by the top tier and by an admin, and not by time.
+ *
+ * The flag is deliberately **not** in {@see cataloguePayload()}: it is not a
+ * plan setting an admin edits, it is the platform's own position on one key, and
+ * putting it in the plan editor would read as a per-plan choice worth making.
+ *
+ * Any key added later that is a *change in the commercial relationship* rather
+ * than a feature of the software belongs here beside this one.
  */
 final class EntitlementRegistry
 {
@@ -224,6 +249,10 @@ final class EntitlementRegistry
                 // exists to remove. Only the top tier and individually granted
                 // businesses have it.
                 'default' => false,
+                // And a trial is not one of the three ways to get it. The only
+                // key in the catalogue that says this — see the class docblock
+                // for why this one is different from every other toggle.
+                'trial' => false,
                 'unit' => null,
             ],
 
@@ -327,6 +356,24 @@ final class EntitlementRegistry
     public static function defaultFor(string $key): mixed
     {
         return self::all()[$key]['default'] ?? null;
+    }
+
+    /**
+     * Whether a live trial turns this key on.
+     *
+     * True for every key that does not say otherwise, because a trial is the
+     * whole platform — which is what makes the exception a decision rather than
+     * a default. The one key that opts out ({@see self::OWN_GATEWAY}, marked
+     * `'trial' => false`) is a change in who processes the business's money
+     * rather than a screen to look at; see the class docblock.
+     *
+     * Only the toggle half is asked. A trial lifts every cap, and a cap is not
+     * something a trial can opt out of: a limit read as `0` for a trialling
+     * business would take away the stores the trial exists to demonstrate.
+     */
+    public static function trialGrants(string $key): bool
+    {
+        return (self::all()[$key]['trial'] ?? true) === true;
     }
 
     /**

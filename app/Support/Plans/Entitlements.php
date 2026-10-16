@@ -104,6 +104,12 @@ final class Entitlements
         // It is also the honest reading of what a trial is. Every plan stays
         // selectable throughout — nothing here decides what they may buy — and
         // the plan only starts to govern anything once it is paid for.
+        //
+        // The whole platform, with exactly one key held back, and the holding
+        // back is the catalogue's to declare rather than this method's:
+        // `own_gateway` is not lifted by a trial because it moves the business's
+        // payments onto its own processor rather than showing it a screen. See
+        // {@see EntitlementRegistry::trialGrants()}.
         return new self(null, self::SOURCE_TRIAL);
     }
 
@@ -367,18 +373,34 @@ final class Entitlements
         // defaults below with nothing stored, which is deliberate — see the
         // class docblock. `SOURCE_NONE` is the distinction that matters, not
         // "the plan is null".
-        // A live trial: every toggle on, every cap lifted.
+        // A live trial: every toggle on, every cap lifted — less the keys that
+        // opt out, of which there is currently one.
         //
         // Nothing is stored for it, because nothing about it is a plan — the
         // owner may not have chosen one at all, and choosing is what the trial
         // exists to let them do. `null` for a limit is the registry's own
         // spelling of unlimited; `array_key_exists` in `limit()` is what keeps
         // that distinct from a cap of zero.
+        //
+        // An opted-out key answers the catalogue's own `default` rather than
+        // `false`, so that opting out of a trial means "the trial does not lift
+        // this" rather than "this is off unless a plan says otherwise" — for the
+        // key that does it today the two are the same answer, and the difference
+        // is the one that keeps this branch from overruling the catalogue.
+        // {@see EntitlementRegistry::trialGrants()}, and the class docblock there
+        // for why `own_gateway` is the exception.
         if ($this->source === self::SOURCE_TRIAL) {
-            return $this->effective = array_map(
-                static fn (array $definition): mixed => $definition['type'] === EntitlementRegistry::TYPE_LIMIT ? null : true,
-                EntitlementRegistry::all(),
-            );
+            $effective = [];
+
+            foreach (EntitlementRegistry::all() as $key => $definition) {
+                $effective[$key] = match (true) {
+                    $definition['type'] === EntitlementRegistry::TYPE_LIMIT => null,
+                    ! EntitlementRegistry::trialGrants($key) => $definition['default'],
+                    default => true,
+                };
+            }
+
+            return $this->effective = $effective;
         }
 
         if ($this->plan === null && $this->source === self::SOURCE_NONE) {

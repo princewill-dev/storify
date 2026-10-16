@@ -23,6 +23,14 @@ use Illuminate\Support\Facades\Http;
 | is not the only caller: WS-39 and the older WS-11 settings surface both write
 | these connections, and a rule enforced on one of them is a detour rather than
 | a rule.
+|
+| Every fixture below is a business with a *live trial*, because that is the
+| shortest way to a business that may reach the endpoint at all. It is also the
+| fixture that makes these tests worth reading twice: a trial grants the whole
+| platform, and `own_gateway` is the single key it does not grant
+| ({@see EntitlementRegistry::trialGrants()}). A trial that granted it would make
+| every refusal here unreachable, and would let any signup — for free, and
+| permanently — take its payments out of the platform's processing.
 */
 
 function gg39Token(User $user, string $audience = 'management'): string
