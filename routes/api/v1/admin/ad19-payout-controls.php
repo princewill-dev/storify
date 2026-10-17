@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\V1\Admin\BusinessWalletController;
+use App\Http\Controllers\Api\V1\Admin\PayoutCheckController;
 use App\Http\Controllers\Api\V1\Admin\PayoutHoldController;
 use App\Http\Controllers\Api\V1\Admin\PayoutQueueController;
 use App\Http\Controllers\Api\V1\Admin\PayoutRetryController;
@@ -34,6 +35,11 @@ use App\Http\Middleware\ForceJsonResponse;
 | `SettlePayouts` job a collected sale dispatches, which sends only what the wallet
 | already says is owed to the account the business already named. The amended rule
 | and the reasoning are in ad12-money-config.php.
+|
+| `payouts/{payout}/check` keeps that rule and is still worth flagging: it cannot
+| initiate a transfer either, but it is a write to the books, because the provider's
+| answer settles the row, fails it, or credits the wallet back. It never sends money
+| — it only learns where money already sent has got to.
 */
 
 Route::middleware([ForceJsonResponse::class, 'permission:admin.finance', AdminApiActivityLogger::class])->group(function () {
@@ -69,6 +75,16 @@ Route::middleware([ForceJsonResponse::class, 'permission:admin.finance', AdminAp
     // the wallet read above so the console can offer both from one screen.
     Route::post('businesses/{business}/payouts/retry', [PayoutRetryController::class, 'retryBusiness'])
         ->name('businesses.payouts.retry');
+
+    // "Check now": ask the provider what happened to one transfer, and write the row
+    // from the answer. Addressed by the payout's reference, not its id — the model's
+    // own route key, so a URL is the same thing an operator reads off the console and
+    // quotes to the provider.
+    //
+    // `POST` for the same reason the retry above is: each press is a fresh question
+    // put to the provider at that moment, and pressing twice legitimately means "ask
+    // again". Unlike the retry it answers synchronously, and the controller says why.
+    Route::post('payouts/{payout}/check', [PayoutCheckController::class, 'check'])->name('payouts.check');
 
     Route::get('payout-holds', [PayoutHoldController::class, 'index'])->name('payout-holds.index');
     Route::post('payout-holds', [PayoutHoldController::class, 'store'])->name('payout-holds.store');

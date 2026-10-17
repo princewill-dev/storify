@@ -313,6 +313,42 @@ return [
     ), static fn (int $minutes): bool => $minutes > 0)),
 
     /*
+    | How long to wait before asking the provider what happened to a transfer it
+    | accepted — in **seconds**, oldest first, one entry per question asked.
+    |
+    | **Seconds, where both lists above are minutes.** Three unit conventions in one
+    | neighbourhood is a trap, so this one carries the unit everywhere it is
+    | written: the config key, the env variable, and this paragraph. `5` here is
+    | five seconds, and the same string one key up is five minutes.
+    |
+    | **One entry per check, and the first entry is a wait.** Entry 1 is the gap
+    | between the provider accepting the transfer and the first question; entry *n*
+    | is the gap before question *n*. So the number of questions a payout gets is
+    | `count()`, and shortening the list shortens the investigation rather than
+    | changing when it starts. `5,15,30,60,120,300,900,1800,3600` — nine questions
+    | spread from five seconds to just under two hours — is the shape: fast where a
+    | near-instant provider answers, thinning out to hourly for the rare transfer
+    | the provider takes its time over.
+    |
+    | **This is what now resolves a payout whose webhook never arrives.** The
+    | scheduled runs are gone ({@see routes/console.php}), so `custody:payouts` —
+    | the batch reconciler, which also polls `processing` rows — only runs when an
+    | operator types it. Without this list, a transfer the provider accepts and
+    | never follows up on sits in `processing` indefinitely, and nobody is told.
+    | The last question running out is therefore an event: the admins are mailed
+    | once, from {@see App\Jobs\CheckPayoutStatus}.
+    |
+    | Paid and reversed answers end the chain early, and so does any other writer —
+    | a webhook that lands mid-ladder wins, because every terminal write claims the
+    | row conditionally. The ladder is a backstop for a provider that says nothing,
+    | not a race against the webhook.
+    */
+    'payout_status_backoff_seconds' => array_values(array_filter(array_map(
+        static fn (string $seconds): int => (int) trim($seconds),
+        explode(',', (string) env('CUSTODY_PAYOUT_STATUS_BACKOFF_SECONDS', '5,15,30,60,120,300,900,1800,3600')),
+    ), static fn (int $seconds): bool => $seconds > 0)),
+
+    /*
     | Whether a collected sale is credited to the store that earned it, or to the
     | business as a whole.
     |

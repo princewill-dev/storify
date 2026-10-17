@@ -2,6 +2,7 @@
 
 namespace App\Services\Payments\Custody;
 
+use App\Jobs\CheckPayoutStatus;
 use App\Models\Business;
 use App\Models\Payout;
 use App\Models\PayoutHold;
@@ -2277,6 +2278,21 @@ final class PayoutSweepService
             'meta' => $meta,
         ])->save();
 
+        // The clock starts here, and this is the only place it can: every path that
+        // leaves a row `processing` runs through this method, so one line covers the
+        // sweep's send, the reconciler's resend of a stuck reservation, and a
+        // provider that accepted the request and then never answered it.
+        //
+        // **Indeterminate sends start it too.** The provider said nothing useful, or
+        // the request threw before we read the answer — which is the case where a
+        // question is worth the most, not the least. For Paystack the lookup resolves
+        // by our own reference, so a five-second question can settle a transfer we
+        // have no id for; for Bachs, which cannot look up without the id it never
+        // gave us, the question costs nothing at all — `lookUp()` returns null before
+        // making a request. Either way the ladder ends in a human being told, which
+        // is right: a transfer that was sent and has no answer is unconfirmed money.
+        CheckPayoutStatus::forPayout($payout);
+
         if ($outcome->isIndeterminate()) {
             Log::warning('custody.payout.indeterminate', [
                 'payout_id' => $payout->id,
@@ -2488,6 +2504,46 @@ final class PayoutSweepService
         }
 
         return $counts;
+    }
+
+    /**
+     * Ask the provider about one payout, and write the row from the answer.
+     *
+     * The single-payout form of {@see self::reconcile()}, and a public door onto
+     * {@see self::resolve()} for the two callers that cannot use the batch:
+     * {@see CheckPayoutStatus}, which asks about a transfer seconds after sending it
+     * rather than half an hour later, and an operator's **Check now**, which asks
+     * about the one row they are looking at.
+     *
+     * ## The guard, and what it is actually guarding
+     *
+     * A row that is not `processing` is answered `skipped` and the provider is never
+     * asked. That is **not** what makes the write safe — `settle()`, `fail()` and
+     * `undo()` each claim the row with a conditional update before touching
+     * anything, precisely so that a racing writer loses cleanly, and `undo()`
+     * claiming from `paid` is the designed recall path rather than a bug. What the
+     * guard buys is that the *ladder* stops: no further provider calls, and no
+     * "unconfirmed" alert about a payout that quietly reached a final state ten
+     * seconds after it was sent.
+     *
+     * It lives here rather than in the callers because both of them must obey one
+     * rule, and a rule with two copies is a rule that drifts.
+     *
+     * @return string `skipped`|`settled`|`failed`|`reversed`|`unresolved`
+     */
+    public function checkPayout(Payout $payout): string
+    {
+        if ($payout->status !== Payout::STATUS_PROCESSING) {
+            return 'skipped';
+        }
+
+        $context = $this->context();
+
+        if ($context === null) {
+            return 'unresolved';
+        }
+
+        return $this->resolve($payout, $context);
     }
 
     /**
