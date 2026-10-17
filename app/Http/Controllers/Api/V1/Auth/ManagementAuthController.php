@@ -98,10 +98,12 @@ class ManagementAuthController extends ApiController
 
             Log::info('api.management.staff_login', ['user_id' => $user->id]);
 
+            $userPayload = $this->userPayload($user);
+
             return $this->ok([
                 ...$pair,
-                'user' => $this->userPayload($user),
-                'next' => $this->nextStep($user),
+                'user' => $userPayload,
+                'next' => $userPayload['onboarding']['next'],
             ], 'Welcome, '.$user->name.'!');
         }
 
@@ -145,11 +147,13 @@ class ManagementAuthController extends ApiController
             return $this->error('Invalid or expired verification code.');
         }
 
+        $userPayload = $this->userPayload($user);
+
         return $this->ok([
             ...$result['pair'],
             'context' => $result['context'],
-            'user' => $this->userPayload($user),
-            'next' => $this->nextStep($user),
+            'user' => $userPayload,
+            'next' => $userPayload['onboarding']['next'],
         ], 'Signed in successfully.');
     }
 
@@ -199,9 +203,16 @@ class ManagementAuthController extends ApiController
         $impersonation = Impersonation::activeForToken($user->currentAccessToken());
         $impersonator = $impersonation?->impersonator;
 
+        // An admin debugging a business is not its owner: the setup gate is
+        // about the owner's own obligations, so an impersonated session is
+        // never held at the wizard. The block is still emitted, with `next`
+        // reporting `dashboard`, so the SPA's shape does not depend on who is
+        // looking.
+        $userPayload = $this->userPayload($user, $impersonator !== null);
+
         return $this->ok([
-            'user' => $this->userPayload($user),
-            'next' => $this->nextStep($user),
+            'user' => $userPayload,
+            'next' => $userPayload['onboarding']['next'],
             'impersonator' => $impersonator ? [
                 'id' => $impersonator->id,
                 'name' => $impersonator->name,

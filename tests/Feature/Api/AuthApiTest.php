@@ -114,12 +114,19 @@ test('a verified business owner logs in through an otp challenge', function () {
     ])->assertOk();
 
     expect($response->json('data.access_token'))->toBeString()->not->toBeEmpty()
-        ->and($response->json('data.refresh_token'))->toBeString();
+        ->and($response->json('data.refresh_token'))->toBeString()
+        // Every auth response carries the setup checklist, and the top-level
+        // `next` is read off it rather than computed a second time.
+        ->and($response->json('data.next'))->toBe('payment_setup')
+        ->and($response->json('data.user.onboarding.next'))->toBe('payment_setup')
+        ->and($response->json('data.user.onboarding.steps.kyc.done'))->toBeTrue()
+        ->and($response->json('data.user.onboarding.steps.payouts.done'))->toBeFalse();
 
     // Access token works on /me
     $this->getJson('/api/v1/management/auth/me', bearer($response->json('data.access_token')))
         ->assertOk()
-        ->assertJsonPath('data.user.email', 'owner-login@example.test');
+        ->assertJsonPath('data.user.email', 'owner-login@example.test')
+        ->assertJsonPath('data.user.onboarding.next', 'payment_setup');
 });
 
 test('staff sign in directly without an otp challenge', function () {

@@ -104,10 +104,14 @@ test('the user directory filters to staff and narrows by status and verified sta
 });
 
 test('a forced password change keeps steering the app to the password screen until completed', function () {
-    [$owner] = createBusinessOwner([
+    // The payout destination is connected so the only thing this test observes
+    // is the password branch: WS-63's setup gate would otherwise answer
+    // `payment_setup` once the forced change is cleared.
+    [$owner, $business] = createBusinessOwner([
         'force_password_change' => true,
         'trial_ends_at' => now()->addWeek(),
     ]);
+    connectBusinessPayoutBank($business);
 
     // The SPA is told where to go instead of being hard-redirected.
     $this->withToken(aumManagementToken($owner))

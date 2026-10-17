@@ -2,6 +2,7 @@
 
 use App\Models\Business;
 use App\Models\Impersonation;
+use App\Models\KycApplication;
 use App\Models\Setting;
 use App\Models\Store;
 use App\Models\StoreBank;
@@ -9,24 +10,25 @@ use App\Models\User;
 use Database\Seeders\PaymentMethodSeeder;
 
 /*
-| WS-40 — the step that used to stand between a business and its dashboard.
+| WS-40 — the payout destination and where a sign-in is steered.
 |
-| This suite was written for a forced `payout_account` screen: a business that
-| had not named a bank account was redirected to it on every sign-in and could
-| not dismiss it. That screen is gone, and what is left of the suite is the
-| proof that it is — every state that used to produce `payout_account` now
-| produces `dashboard`, which is the whole point of the change.
+| This suite was first written for a forced `payout_account` screen, then
+| rewritten when that screen was removed. WS-63 brought the requirement back as
+| part of `payment_setup`, alongside KYC: `nextStep()` now sends an owner to the
+| setup wizard until the business has named a payout destination.
 |
-| The states are kept as separate tests rather than collapsed into one, because
-| they were separate reasons and each has to stop producing the step on its own:
-| no bank named, a bank named with no account at the processor, a bank named with
-| an account at a *different* processor, and an account with no bank named.
+| The states are kept separate because they are separate reasons a business can
+| be incomplete: no bank named, a bank named with no account at the processor, a
+| bank named with an account at a *different* processor, and an account with no
+| bank named. The processor cases now all answer `dashboard` when a destination
+| exists — the processor is not what the gate is about — and `payment_setup`
+| when it does not.
 |
-| `nextStep()` is still the single authority the management SPA obeys, so what
-| the sign-in answer is matters even when the answer is the ordinary one. The
-| branches that survive unchanged — staff, a lapsed subscription, a platform
-| whose processor this build cannot run — are kept here for the same reason: the
-| change was to one branch, and these are the assertions that say so.
+| The branches that do not depend on the destination — staff, a lapsed
+| subscription, an impersonated admin, a platform whose processor this build
+| cannot run — are kept here because `nextStep()` is still the single authority
+| the management SPA obeys, and these are the assertions that say which branch
+| answered.
 */
 
 function ps40Settings(array $attributes): void
@@ -108,11 +110,9 @@ beforeEach(function () {
     $this->seed(PaymentMethodSeeder::class);
 });
 
-test('a business that has named no bank account is not stopped at sign-in', function () {
-    // The gate this change removes. A business with no bank account named can
-    // take a customer's money — Storify holds it and hands it over the moment
-    // one is named — so sending it to a screen it cannot dismiss was stopping it
-    // trading over paperwork that can arrive tomorrow.
+test('a business that has named no payout destination is sent to setup', function () {
+    // WS-63's gate. KYC is approved by the fixture, so the destination is the
+    // only thing outstanding.
     ps40PlatformBachs();
     ps40Switch('bachs');
 
@@ -120,13 +120,10 @@ test('a business that has named no bank account is not stopped at sign-in', func
     ps40Store($owner);
 
     expect($business->payout_bank_id)->toBeNull()
-        ->and(ps40Next($owner))->toBe('dashboard');
+        ->and(ps40Next($owner))->toBe('payment_setup');
 });
 
-test('naming the bank account and having an account at the processor changes nothing at sign-in', function () {
-    // The ordinary registered business. It reaches the dashboard, and so does
-    // the one in the test above — which is the point: where a business is sent
-    // no longer depends on whether its payouts are set up.
+test('naming the bank account lets the business through', function () {
     ps40PlatformBachs();
     ps40Switch('bachs');
 
@@ -138,11 +135,11 @@ test('naming the bank account and having an account at the processor changes not
     expect(ps40Next($owner))->toBe('dashboard');
 });
 
-test('a business that can sell but never named a bank account is not asked at all', function () {
-    // An account at the processor that works, and no `store_banks` row behind
-    // it — a business whose payouts were set up before the pointer existed, or
-    // one that simply never named an account. It can sell today, and it is not
-    // intercepted; what it is owed waits in the wallet until it names one.
+test('an account at the processor without a payout destination is still stopped', function () {
+    // A business whose payouts were set up before `payout_bank_id` existed, or
+    // one that never chose a destination. An account at the processor is not
+    // the same fact as a destination, and this is the assertion that keeps the
+    // two from being confused again.
     ps40PlatformBachs();
     ps40Switch('bachs');
 
@@ -151,17 +148,15 @@ test('a business that can sell but never named a bank account is not asked at al
     ps40Managed($business);
 
     expect($business->payout_bank_id)->toBeNull()
-        ->and(ps40Next($owner))->toBe('dashboard');
+        ->and(ps40Next($owner))->toBe('payment_setup');
 });
 
-test('switching the processor does not re-prompt anyone', function () {
+test('switching the processor does not re-prompt a business with a destination', function () {
     // The state the old step existed for: a business registered on Bachs, with
     // the admin having since switched the platform to Paystack, holds no account
-    // at the processor now in force. Under the old model that was a business
-    // that could not take a payment, and the form was how it found out. It is
-    // still a business that cannot take a payment *through Paystack* — the
-    // resolver still offers nothing, and the storefront still says nothing is
-    // available — but it is not locked out of its own dashboard over it.
+    // at the processor now in force. It still cannot take a payment *through
+    // Paystack* — the resolver offers nothing — but its destination is named,
+    // so sign-in is the ordinary one.
     config([
         'services.paystack.secret_key' => 'sk_live_platform1234567890',
         'services.paystack.public_key' => 'pk_live_platform1234567890',
@@ -177,22 +172,23 @@ test('switching the processor does not re-prompt anyone', function () {
     expect(ps40Next($owner))->toBe('dashboard');
 });
 
-test('with the switch off nobody is sent anywhere unusual', function () {
+test('with the switch off the destination is still what is asked for', function () {
     [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
     ps40Store($owner);
 
-    expect(ps40Next($owner))->toBe('dashboard');
+    expect(ps40Next($owner))->toBe('payment_setup');
 });
 
-test('a stored processor this build cannot run is not a business\'s problem', function () {
+test('a stored processor this build cannot run does not change the setup gate', function () {
     // Enforced in the database, unusable in this build. Nothing can be charged
-    // through anything — an admin's to fix, not a business's.
+    // through anything — an admin's to fix, not a business's — and the setup
+    // gate is about the business's own paperwork rather than the processor.
     ps40Switch('stripe');
 
-    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
     ps40Store($owner);
 
-    expect(ps40Next($owner))->toBe('dashboard');
+    expect(ps40Next($owner))->toBe('payment_setup');
 });
 
 test('staff are never asked, whatever their business is missing', function () {
@@ -211,16 +207,16 @@ test('staff are never asked, whatever their business is missing', function () {
     expect(ps40Next($staff))->toBe('dashboard');
 });
 
-test('a member without the payment permission is not held anywhere', function () {
-    // A paid-up business with no payout bank — the state the old step
-    // intercepted. An owner without `settings payment` used to be exempted from
-    // the form because they could not submit it, which was a favour; now nobody
-    // is asked, and this is the assertion that says the exemption did not become
-    // a trap when the branch went away.
+test('a member without the payment permission still sees the gate, which their business has satisfied', function () {
+    // The role is artificial — an owner without `settings payment` — but the
+    // point is the shape of the question: the gate asks about the *business's*
+    // destination, not about the viewer's ability to edit it. A complete
+    // business is not held anywhere, whoever is looking.
     ps40PlatformBachs();
     ps40Switch('bachs');
 
     [, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    ps40PayoutBank($business);
 
     $till = User::factory()->create([
         'role' => 'staff',
@@ -236,14 +232,34 @@ test('a member without the payment permission is not held anywhere', function ()
     // Not staff, so it is the owner branch that answers.
     $till->forceFill(['role' => User::ROLE_BUSINESS_OWNER])->save();
 
+    // KYC is the owner's own identity, so the member needs one of their own —
+    // the business's destination does not stand in for it.
+    KycApplication::query()->create([
+        'user_id' => $till->id,
+        'business_id' => $business->id,
+        'status' => KycApplication::STATUS_APPROVED,
+        'legal_name' => 'Till Owner',
+        'first_name' => 'Till',
+        'last_name' => 'Owner',
+        'phone_number' => '08030000000',
+        'date_of_birth' => now()->subYears(30)->toDateString(),
+        'address_line' => '1 Test Street',
+        'city' => 'Lagos',
+        'state' => 'Lagos',
+        'country' => 'Nigeria',
+        'kyc_document_id' => 'NIN-987654321',
+        'submitted_at' => now()->subDay(),
+        'approved_at' => now()->subDay(),
+    ]);
+
     expect($till->fresh()->can('settings payment'))->toBeFalse()
         ->and(ps40Next($till->fresh()))->toBe('dashboard');
 });
 
-test('an impersonated session reaches the dashboard, and so does the owner', function () {
-    // An admin debugging a business is not its owner, which is why the old step
-    // exempted it. Both now answer the same way, and the interesting half is the
-    // second assertion: the owner is not asked either.
+test('an impersonated session reaches the dashboard while the owner is still held', function () {
+    // An admin debugging a business is not its owner: the setup checklist is
+    // the owner's own obligation, so an impersonating admin is never held at
+    // the wizard. The owner's own session is not exempted by that, and is.
     ps40PlatformBachs();
     ps40Switch('bachs');
 
@@ -261,9 +277,9 @@ test('an impersonated session reaches the dashboard, and so does the owner', fun
     $token = ps40Token($owner, ['management', Impersonation::ABILITY_PREFIX.$impersonation->id]);
 
     expect(ps40Next($owner, $token))->toBe('dashboard')
-        // The owner's own session is not exempted by the impersonation and still
-        // reaches the dashboard — the business has named no bank account.
-        ->and(ps40Next($owner))->toBe('dashboard');
+        // The business has named no payout destination, so the owner's own
+        // session is sent to setup.
+        ->and(ps40Next($owner))->toBe('payment_setup');
 });
 
 test('a lapsed subscription is paid for before the business is asked anything', function () {

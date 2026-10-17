@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1\Auth\Concerns;
 
 use App\Mail\OtpMail;
 use App\Models\Customer;
+use App\Models\KycApplication;
 use App\Models\User;
 use App\Services\OtpService;
 use App\Support\Plans\Entitlements;
@@ -30,7 +31,7 @@ trait BuildsAuthResponses
     /**
      * @return array<string, mixed>
      */
-    protected function userPayload(User $user): array
+    protected function userPayload(User $user, bool $impersonating = false): array
     {
         setPermissionsTeamId($user->business_id);
 
@@ -77,6 +78,12 @@ trait BuildsAuthResponses
             // are not in the loadMissing above: a paying business never touches
             // them.
             'entitlements' => Entitlements::for($user->business)->payload(),
+            // The setup checklist, in the same shape the guide modal and the
+            // payment-settings wizard read. Carried on every auth response for
+            // the same reason `entitlements` is: the SPA caches one payload for
+            // the session, and these answers decide whether the dashboard is
+            // reachable at all. See `nextStep()`.
+            'onboarding' => $this->onboardingPayload($user, $impersonating),
             'roles' => $user->getRoleNames()->values()->all(),
             'permissions' => $user->getAllPermissions()->pluck('name')->values()->all(),
             'stores' => $this->storesPayload($user),
@@ -169,8 +176,16 @@ trait BuildsAuthResponses
      * for nothing yet is sent to plans, not to a page congratulating them on
      * an account they cannot use. The interstitial is what follows access, not
      * a substitute for obtaining it.
+     *
+     * `payment_setup` sits between plans and welcome, and it is the tail of
+     * onboarding added long after the first two: KYC and a payout destination.
+     * A business that predates both has a plan and a welcome flag already, so
+     * nothing above this branch would ever send it to the wizard. It is a hard
+     * gate — the SPA holds an owner there until both are done — but only for an
+     * owner's own session: an impersonating admin is not its subject, and staff
+     * have already returned above.
      */
-    protected function nextStep(User $user): string
+    protected function nextStep(User $user, bool $impersonating = false): string
     {
         if ($user->force_password_change) {
             return 'change_password';
@@ -190,8 +205,12 @@ trait BuildsAuthResponses
 
         $business = $user->business;
 
-        if ($business && ! $business->hasActiveSubscription() && ! ($user->trial_ends_at && $user->trial_ends_at->isFuture())) {
+        if ($business && ! $this->hasPlan($user)) {
             return 'plans';
+        }
+
+        if (! $impersonating && ! $this->setupComplete($user)) {
+            return 'payment_setup';
         }
 
         // Reached only with access in hand. A business that has never been
@@ -204,5 +223,110 @@ trait BuildsAuthResponses
         }
 
         return 'dashboard';
+    }
+
+    /**
+     * The setup checklist carried on every auth response.
+     *
+     * `complete` is deliberately narrower than "every row is done": business
+     * registration is displayed beside KYC and payouts but it gates nothing,
+     * so an owner who has not answered it reaches the dashboard and never sees
+     * the guide again. `next` is repeated here so the top-level `next` and the
+     * block the SPA caches can never disagree.
+     *
+     * @return array<string, mixed>
+     */
+    protected function onboardingPayload(User $user, bool $impersonating = false): array
+    {
+        $business = $user->business;
+        $kycState = $this->kycState($user);
+        $registered = $business?->is_registered;
+
+        return [
+            'next' => $this->nextStep($user, $impersonating),
+            'complete' => $this->setupComplete($user),
+            'steps' => [
+                'plan' => [
+                    'state' => $business?->hasActiveSubscription() ? 'active' : ($this->onTrial($user) ? 'trial' : 'none'),
+                    'done' => $this->hasPlan($user),
+                ],
+                'kyc' => [
+                    'state' => $kycState,
+                    'done' => in_array($kycState, ['submitted', 'approved'], true),
+                ],
+                'payouts' => [
+                    'state' => $this->hasPayoutDestination($user) ? 'connected' : 'missing',
+                    'done' => $this->hasPayoutDestination($user),
+                ],
+                // Nullable on purpose: null means nobody has asked, false
+                // means the owner answered no. Collapsing the two would make
+                // every business that predates the column look answered.
+                'business_registration' => [
+                    'state' => $registered === null ? 'unanswered' : ($registered ? 'registered' : 'not_registered'),
+                    'done' => $registered !== null,
+                ],
+            ],
+        ];
+    }
+
+    /**
+     * Access in hand: a paid subscription or a live platform trial.
+     *
+     * The same predicate the `plans` branch uses, extracted so the checklist
+     * and the steering cannot drift apart.
+     */
+    protected function hasPlan(User $user): bool
+    {
+        return (bool) $user->business?->hasActiveSubscription() || $this->onTrial($user);
+    }
+
+    protected function onTrial(User $user): bool
+    {
+        return $user->trial_ends_at !== null && $user->trial_ends_at->isFuture();
+    }
+
+    /**
+     * KYC and a payout destination, the two things the setup wizard exists for.
+     */
+    protected function setupComplete(User $user): bool
+    {
+        return in_array($this->kycState($user), ['submitted', 'approved'], true)
+            && $this->hasPayoutDestination($user);
+    }
+
+    /**
+     * The owner's latest application for this business — or a legacy row with
+     * no business at all. Mirrors `KycController::applicationQuery()` so the
+     * gate and the KYC screen can never disagree about which row counts.
+     */
+    protected function latestKycApplication(User $user): ?KycApplication
+    {
+        return KycApplication::query()
+            ->where('user_id', $user->id)
+            ->where(fn ($query) => $query
+                ->whereNull('business_id')
+                ->orWhere('business_id', $user->business_id))
+            ->orderByDesc('id')
+            ->first();
+    }
+
+    protected function kycState(User $user): string
+    {
+        return match ($this->latestKycApplication($user)?->status) {
+            KycApplication::STATUS_SUBMITTED => 'submitted',
+            KycApplication::STATUS_APPROVED => 'approved',
+            KycApplication::STATUS_REJECTED => 'rejected',
+            default => 'required',
+        };
+    }
+
+    /**
+     * The canonical destination is the business pointer, never the existence of
+     * a `store_banks` row: a legacy account that has never been chosen as the
+     * payout destination is still not connected.
+     */
+    protected function hasPayoutDestination(User $user): bool
+    {
+        return $user->business !== null && $user->business->payout_bank_id !== null;
     }
 }

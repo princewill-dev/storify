@@ -4,6 +4,7 @@ use App\Models\Business;
 use App\Models\Customer;
 use App\Models\KycApplication;
 use App\Models\Store;
+use App\Models\StoreBank;
 use App\Models\SubscriptionPlan;
 use App\Models\User;
 use App\Support\Plans\EntitlementRegistry;
@@ -138,6 +139,25 @@ function createBusinessOwner(array $userAttributes = [], array $businessAttribut
     }
 
     return [$user->fresh(), $business->fresh()];
+}
+
+/**
+ * Give a business a payout destination — the state the setup gate calls
+ * "connected".
+ *
+ * A `store_banks` row alone is not enough: the canonical destination is
+ * `businesses.payout_bank_id`, and a legacy row that was never chosen is
+ * exactly the state the gate has to catch. The row is still created because
+ * deleting a pointer with no row behind it would be a shape the API never
+ * produces.
+ */
+function connectBusinessPayoutBank(Business $business): StoreBank
+{
+    $bank = StoreBank::factory()->create(['business_id' => $business->id]);
+
+    $business->forceFill(['payout_bank_id' => $bank->id])->save();
+
+    return $bank;
 }
 
 /**

@@ -25,13 +25,21 @@ function ws54Token(User $user, array $abilities = ['management']): string
 
 /**
  * An owner with access in hand and a business that has never been welcomed.
+ *
+ * The payout destination is connected because these tests are about the
+ * interstitial, not about WS-63's setup gate: without it `nextStep()` would
+ * answer `payment_setup` before `welcome` for every fixture here.
  */
 function ws54FreshBusiness(array $userAttributes = [], array $businessAttributes = []): array
 {
-    return createBusinessOwner(
+    [$user, $business] = createBusinessOwner(
         array_merge(['trial_ends_at' => now()->addWeek()], $userAttributes),
         array_merge(['welcome_seen_at' => null], $businessAttributes),
     );
+
+    connectBusinessPayoutBank($business);
+
+    return [$user, $business->fresh()];
 }
 
 test('a business that has never been welcomed is steered to the welcome screen', function () {
@@ -45,8 +53,11 @@ test('a business that has never been welcomed is steered to the welcome screen',
 
 test('a business that has been welcomed is not', function () {
     // The population the migration's backfill creates: every business that
-    // existed before this column did. Signing in must go straight through.
-    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    // existed before this column did. Signing in must go straight through —
+    // and the payout destination is connected so the WS-63 setup gate is not
+    // what answers instead.
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    connectBusinessPayoutBank($business);
 
     $this->withToken(ws54Token($owner))
         ->getJson('/api/v1/management/auth/me')
@@ -309,10 +320,12 @@ test('the businesses that predate the column are treated as already welcomed', f
     // whose column was set that way is the shape every existing business has.
     // This pins the *intent* of the backfill: a business with the flag set —
     // whenever it was set — never sees the interstitial.
-    [$owner] = createBusinessOwner(
+    [$owner, $business] = createBusinessOwner(
         ['trial_ends_at' => now()->addWeek()],
         ['welcome_seen_at' => now()->subYear()],
     );
+
+    connectBusinessPayoutBank($business);
 
     $this->withToken(ws54Token($owner))
         ->getJson('/api/v1/management/auth/me')
