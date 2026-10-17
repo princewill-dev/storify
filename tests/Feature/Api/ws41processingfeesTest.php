@@ -82,11 +82,18 @@ function pf41Settings(array $attributes): void
     $settings->update($attributes);
 }
 
+/**
+ * A percentage with no ceiling.
+ *
+ * `platform_commission_max_kobo => 0` is "uncapped", not "take nothing" — the
+ * cap only ever reduces a fee, so these tests keep exercising the percentage
+ * arithmetic they were written for.
+ */
 function pf41Commission(float $percent = 2.5): void
 {
     pf41Settings([
         'platform_commission_percent' => $percent,
-        'platform_commission_fixed_kobo' => 0,
+        'platform_commission_max_kobo' => 0,
     ]);
 }
 

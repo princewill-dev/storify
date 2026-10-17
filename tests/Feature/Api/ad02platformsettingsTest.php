@@ -553,7 +553,7 @@ test('the platform commission is bounded so a fee can never swallow a sale', fun
     $this->putJson('/api/v1/admin/settings', ad02FullPayload(['platform_commission_percent' => -1]), ad02Headers($admin))
         ->assertStatus(422);
 
-    $this->putJson('/api/v1/admin/settings', ad02FullPayload(['platform_commission_fixed_kobo' => -500]), ad02Headers($admin))
+    $this->putJson('/api/v1/admin/settings', ad02FullPayload(['platform_commission_max_kobo' => -500]), ad02Headers($admin))
         ->assertStatus(422);
 
     $this->putJson('/api/v1/admin/settings', ad02FullPayload(['platform_commission_percent' => 2.5]), ad02Headers($admin))
@@ -572,7 +572,7 @@ test('a save that does not mention the commission leaves it as it was', function
     $admin = ad02SuperAdmin();
     ad02Settings([
         'platform_commission_percent' => 2.5,
-        'platform_commission_fixed_kobo' => 10000,
+        'platform_commission_max_kobo' => 10000,
     ]);
 
     $this->putJson('/api/v1/admin/settings', ad02FullPayload(['company_name' => 'Storify Ltd']), ad02Headers($admin))
@@ -582,5 +582,5 @@ test('a save that does not mention the commission leaves it as it was', function
 
     expect($settings->company_name)->toBe('Storify Ltd')
         ->and((float) $settings->platform_commission_percent)->toBe(2.5)
-        ->and((int) $settings->platform_commission_fixed_kobo)->toBe(10000);
+        ->and((int) $settings->platform_commission_max_kobo)->toBe(10000);
 });

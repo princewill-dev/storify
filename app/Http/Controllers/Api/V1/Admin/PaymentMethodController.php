@@ -74,7 +74,15 @@ class PaymentMethodController extends ApiController
                 // admin typed is the number they are shown, and the conversion
                 // to basis points is an internal detail of the calculator.
                 'percent' => $commission->percentBasisPoints() / 100,
-                'fixed_kobo' => $commission->fixedKobo(),
+                // The per-sale ceiling in kobo; zero means the percentage is
+                // uncapped.
+                'max_kobo' => $commission->maxKobo(),
+                // Deprecated, echoed as zero for one release. The flat fee was
+                // replaced by the cap, and the previous admin bundle still reads
+                // this key while deciding whether the form is dirty. Reporting
+                // the (inert) stored value would show a charge that no longer
+                // happens.
+                'fixed_kobo' => 0,
                 'is_zero' => $commission->isZero(),
                 // Which providers Storify can charge through on its own
                 // credentials, so the screen can say what the commission applies

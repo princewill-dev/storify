@@ -764,13 +764,16 @@ test('the payment methods screen reports the commission and who it applies to', 
     Setting::create([
         'company_name' => 'Storify',
         'platform_commission_percent' => 2.5,
-        'platform_commission_fixed_kobo' => 10000,
+        'platform_commission_max_kobo' => 10000,
     ]);
 
     $commission = ad12BillingBlock($this, $admin)['commission'];
 
     expect($commission['percent'])->toBe(2.5)
-        ->and($commission['fixed_kobo'])->toBe(10000)
+        ->and($commission['max_kobo'])->toBe(10000)
+        // Legacy, and deliberately zero: the flat fee is no longer charged, so
+        // a stale console must not read the stored value as live.
+        ->and($commission['fixed_kobo'])->toBe(0)
         ->and($commission['is_zero'])->toBeFalse()
         // Read from the credential map, which is the same declaration the charge
         // path consults — a list built from anywhere else could name a provider
@@ -787,7 +790,9 @@ test('a commission of zero is a choice, not an error', function () {
     Setting::create([
         'company_name' => 'Storify',
         'platform_commission_percent' => 0,
-        'platform_commission_fixed_kobo' => 0,
+        // A ceiling with no percentage is a ceiling of nothing — the cap alone
+        // must not make the screen report that a charge is in force.
+        'platform_commission_max_kobo' => 50000,
     ]);
 
     expect(ad12BillingBlock($this, $admin)['commission']['is_zero'])->toBeTrue();

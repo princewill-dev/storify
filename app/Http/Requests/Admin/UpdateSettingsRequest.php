@@ -115,10 +115,13 @@ class UpdateSettingsRequest extends FormRequest
             // total we could never take, and the provider refuses a fee that
             // leaves the business nothing. The ceiling here is the crude half of
             // that check; the real one is per sale, in
-            // `PlatformCommission::on()`, because a fixed fee can exceed a small
-            // gross at any percentage at all.
+            // `PlatformCommission::on()`, because even a percentage below 100
+            // can round up to the whole of a tiny sale.
             'platform_commission_percent' => ['nullable', 'numeric', 'min:0', 'lt:100'],
-            'platform_commission_fixed_kobo' => ['nullable', 'integer', 'min:0'],
+            // The most Storify keeps from one sale, in kobo. Zero or blank
+            // means uncapped — a ceiling is not a charge, so a cap with no
+            // percentage still takes nothing.
+            'platform_commission_max_kobo' => ['nullable', 'integer', 'min:0'],
             'og_description' => ['nullable', 'string', 'max:2000'],
             'og_url' => ['nullable', 'url', 'max:255'],
             'og_type' => ['nullable', Rule::in(self::OG_TYPES)],

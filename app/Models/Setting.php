@@ -32,8 +32,12 @@ class Setting extends Model
         // null is not "unset", it is "off".
         'system_payment_processor',
         // Storify's commission on a sale it processed on a business's behalf:
-        // a percentage and a per-sale fixed amount, in kobo.
+        // a percentage and a per-sale maximum, in kobo.
         'platform_commission_percent',
+        'platform_commission_max_kobo',
+        // Legacy: the flat per-sale amount the cap replaced. Retained so old
+        // rows and fixtures still read and a code rollback needs no schema
+        // change, but nothing computes from it any more.
         'platform_commission_fixed_kobo',
         // SEO
         'og_title',
@@ -57,6 +61,9 @@ class Setting extends Model
         // arithmetic in integer basis points, and handing it a decimal string
         // only to cast it there would put the same cast in two places.
         'platform_commission_percent' => 'float',
+        // Zero means uncapped, not zero commission.
+        'platform_commission_max_kobo' => 'integer',
+        // Legacy — see the comment on the fillable list above.
         'platform_commission_fixed_kobo' => 'integer',
     ];
 }

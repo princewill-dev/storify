@@ -62,7 +62,7 @@ final class SettingsService
         'billing_gateway',
         'system_payment_processor',
         'platform_commission_percent',
-        'platform_commission_fixed_kobo',
+        'platform_commission_max_kobo',
         'og_title',
         'og_description',
         'og_image_path',
@@ -132,9 +132,15 @@ final class SettingsService
                 'platform_commission_percent' => $data['platform_commission_percent']
                     ?? $settings->platform_commission_percent
                     ?? 0,
-                'platform_commission_fixed_kobo' => $data['platform_commission_fixed_kobo']
-                    ?? $settings->platform_commission_fixed_kobo
-                    ?? 0,
+                // The per-sale ceiling. `array_key_exists`, not `??`, because a
+                // *blank* field reaches here as null (`ConvertEmptyStringsToNull`)
+                // and means "uncapped" — a real instruction — while an absent
+                // key means this save has no opinion. Conflating them would
+                // either make the cap impossible to clear or let an unrelated
+                // save wipe it.
+                'platform_commission_max_kobo' => array_key_exists('platform_commission_max_kobo', $data)
+                    ? max(0, (int) ($data['platform_commission_max_kobo'] ?? 0))
+                    : ($settings->platform_commission_max_kobo ?? 0),
                 'og_title' => $data['og_title'] ?? null,
                 'og_description' => $data['og_description'] ?? null,
                 'og_url' => $data['og_url'] ?? null,

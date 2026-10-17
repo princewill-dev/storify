@@ -22,6 +22,11 @@ use Illuminate\Support\Facades\Schema;
  * nobody configured: until an admin sets this on the Payment Methods screen, a
  * processed sale passes to the business in full and Storify earns nothing from
  * it.
+ *
+ * **The flat half is superseded.** Commission is now a percentage with a
+ * per-sale maximum (`2026_10_17_000001_add_platform_commission_max_to_settings_table`).
+ * `platform_commission_fixed_kobo` is kept so old rows and a code rollback still
+ * read, but nothing computes from it any more.
  */
 return new class extends Migration
 {

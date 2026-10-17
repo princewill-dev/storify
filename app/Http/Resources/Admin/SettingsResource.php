@@ -88,7 +88,11 @@ final class SettingsResource extends JsonResource
             'system_payment_processor_problem' => SystemProcessor::unavailableReason(),
             'system_payment_processors' => $this->processors(),
             'platform_commission_percent' => (float) ($settings?->platform_commission_percent ?? 0),
-            'platform_commission_fixed_kobo' => (int) ($settings?->platform_commission_fixed_kobo ?? 0),
+            'platform_commission_max_kobo' => max(0, (int) ($settings?->platform_commission_max_kobo ?? 0)),
+            // Deprecated, echoed as zero for one release: the flat fee was
+            // replaced by the cap, and a stale admin bundle must not present an
+            // inert stored value as something still being charged.
+            'platform_commission_fixed_kobo' => 0,
             'default_currency_id' => $this->defaultCurrencyId,
             'greeting_modal_enabled' => (bool) ($settings?->greeting_modal_enabled ?? false),
             'greeting_modal_frequency' => $settings?->greeting_modal_frequency ?? 'never',
