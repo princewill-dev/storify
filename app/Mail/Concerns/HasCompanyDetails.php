@@ -2,7 +2,7 @@
 
 namespace App\Mail\Concerns;
 
-use App\Models\Setting;
+use App\Support\EmailBrand;
 
 /**
  * The platform's own letterhead, for the custody money alerts.
@@ -13,6 +13,9 @@ use App\Models\Setting;
  * family of five alerts that differ only in their body. The values are read once,
  * at construction, so a mail built during a settings change describes one state of
  * the platform rather than two.
+ *
+ * The resolver is shared with `AppServiceProvider`, so the custody family gets the
+ * same `public/logo.png` fallback as every other template.
  */
 trait HasCompanyDetails
 {
@@ -21,15 +24,6 @@ trait HasCompanyDetails
 
     protected function companyDetails(): array
     {
-        $settings = Setting::query()->first();
-
-        return [
-            'logo' => $settings?->company_logo_path ? asset('storage/'.$settings->company_logo_path) : null,
-            'name' => $settings->company_name ?? config('app.name'),
-            'email' => $settings->support_email ?? null,
-            'phone' => $settings->support_phone ?? null,
-            'address' => $settings->company_address ?? null,
-            'branch_address' => $settings->branch_address ?? null,
-        ];
+        return EmailBrand::resolve();
     }
 }

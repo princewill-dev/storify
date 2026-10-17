@@ -1,57 +1,40 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Trial Expiring Soon</title>
-    <style>
-        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-        .header { background: #f59e0b; color: white; padding: 30px; text-align: center; border-radius: 8px 8px 0 0; }
-        .content { background: #f9f9f9; padding: 30px; }
-        .highlight-box { background: white; padding: 25px; margin: 20px 0; border-radius: 8px; text-align: center; border-left: 4px solid #f59e0b; }
-        .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
-        .button { display: inline-block; padding: 15px 40px; background: #111827; color: white; text-decoration: none; border-radius: 8px; margin: 20px 0; font-size: 16px; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>Trial Expiring Soon</h1>
-        </div>
+<x-email.layout
+    title="Trial Expiring Soon"
+    preheader="Your free trial is coming to an end."
+    eyebrow="Billing"
+    heading="Your trial is ending soon"
+    badge="Trial"
+    tone="warning">
 
-        <div class="content">
-            <p>Hello {{ $user->name }},</p>
+    <x-email.paragraph>Hello {{ $user->name }},</x-email.paragraph>
 
-            <div class="highlight-box">
-                @if($daysRemaining > 0)
-                    <h2 style="margin: 0; color: #f59e0b;">{{ $daysRemaining }} day{{ $daysRemaining > 1 ? 's' : '' }} remaining</h2>
-                    <p style="margin: 10px 0 0; color: #666;">Your free trial ends on {{ $user->trial_ends_at?->format('M d, Y') }}</p>
-                @else
-                    <h2 style="margin: 0; color: #ef4444;">Your trial expires today!</h2>
-                    <p style="margin: 10px 0 0; color: #666;">Your store will go offline soon if you don't upgrade</p>
-                @endif
-            </div>
+    @if($daysRemaining > 0)
+        <x-email.callout tone="warning" :title="$daysRemaining.' day'.($daysRemaining > 1 ? 's' : '').' remaining'">
+            Your free trial ends on {{ $user->trial_ends_at?->format('M d, Y') }}
+        </x-email.callout>
+    @else
+        <x-email.callout tone="danger" title="Your trial expires today!">
+            Your store will go offline soon if you don't upgrade
+        </x-email.callout>
+    @endif
 
-            <p>To keep your store online and continue accepting orders, upgrade to a paid plan today.</p>
+    <x-email.paragraph>
+        To keep your store online and continue accepting orders, upgrade to a paid plan today.
+    </x-email.paragraph>
 
-            <p>Here's what you'll lose if your trial expires:</p>
-            <ul>
-                <li>Your store will go <strong>offline</strong></li>
-                <li>Customers won't be able to place orders</li>
-                <li>Your product listings will be hidden</li>
-            </ul>
+    <x-email.heading>What you'll lose if your trial expires</x-email.heading>
 
-            <p style="text-align: center;">
-                <a href="{{ \App\Support\SpaUrls::management('/subscription/payment') }}" class="button">Upgrade Now</a>
-            </p>
+    <x-email.panel>
+        <ul style="margin:0;padding:0 0 0 20px;font-size:14px;line-height:22px;color:#0F172A;">
+            <li>Your store will go <strong>offline</strong></li>
+            <li>Customers won't be able to place orders</li>
+            <li>Your product listings will be hidden</li>
+        </ul>
+    </x-email.panel>
 
-            <p style="color: #666; font-size: 14px;">If you have any questions, our support team is happy to help.</p>
-        </div>
+    <x-email.button href="{{ \App\Support\SpaUrls::management('/subscription/payment') }}">Upgrade Now</x-email.button>
 
-        <div class="footer">
-            <p>&copy; {{ date('Y') }} {{ config('app.name') }}. All rights reserved.</p>
-        </div>
-    </div>
-</body>
-</html>
+    <x-email.paragraph muted>
+        If you have any questions, our support team is happy to help.
+    </x-email.paragraph>
+</x-email.layout>

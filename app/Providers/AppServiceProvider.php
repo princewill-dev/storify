@@ -7,6 +7,7 @@ use App\Models\Setting;
 use App\Models\SubscriptionPlan;
 use App\Models\User;
 use App\Observers\SubscriptionPlanObserver;
+use App\Support\EmailBrand;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\Paginator;
@@ -168,5 +169,6 @@ class AppServiceProvider extends ServiceProvider
             ];
         }
         View::share('company', $company);
+        View::share('emailBrand', EmailBrand::fromCompany($company));
     }
 }

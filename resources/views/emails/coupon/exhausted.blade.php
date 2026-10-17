@@ -1,39 +1,26 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-</head>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f8fafc; margin: 0; padding: 40px 20px;">
-    <div style="max-width: 480px; margin: 0 auto; background: #ffffff; border-radius: 16px; border: 1px solid #e2e8f0; overflow: hidden;">
-        <div style="padding: 32px 40px; border-bottom: 1px solid #f1f5f9; background: #0f172a;">
-            <h1 style="margin: 0; font-size: 20px; font-weight: 700; color: #ffffff;">Coupon Fully Redeemed</h1>
-        </div>
-        <div style="padding: 32px 40px;">
-            <p style="margin: 0 0 16px; font-size: 15px; color: #334155; line-height: 1.6;">
-                Coupon code <strong style="font-family: monospace; background: #f1f5f9; padding: 2px 8px; border-radius: 6px;">{{ $coupon->code }}</strong>
-                {{ $coupon->name ? '(' . $coupon->name . ')' : '' }} has reached its usage limit.
-            </p>
-            <table style="width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 14px;">
-                <tr>
-                    <td style="padding: 10px 0; color: #64748b; border-bottom: 1px solid #f1f5f9;">Total Uses</td>
-                    <td style="padding: 10px 0; text-align: right; font-weight: 600; color: #0f172a; border-bottom: 1px solid #f1f5f9;">{{ $coupon->uses_count }} / {{ $coupon->max_uses }}</td>
-                </tr>
-                <tr>
-                    <td style="padding: 10px 0; color: #64748b; border-bottom: 1px solid #f1f5f9;">Discount</td>
-                    <td style="padding: 10px 0; text-align: right; font-weight: 600; color: #0f172a; border-bottom: 1px solid #f1f5f9;">{{ $coupon->discount_label }}</td>
-                </tr>
-                <tr>
-                    <td style="padding: 10px 0; color: #64748b;">Plan</td>
-                    <td style="padding: 10px 0; text-align: right; font-weight: 600; color: #0f172a;">{{ $coupon->subscriptionPlan?->name ?? 'All Plans' }}</td>
-                </tr>
-            </table>
-            <p style="margin: 24px 0 0; font-size: 13px; color: #94a3b8;">
-                The coupon has been automatically marked as inactive. No further action is required.
-            </p>
-        </div>
-        <div style="padding: 20px 40px; background: #f8fafc; font-size: 12px; color: #94a3b8;">
-            {{ config('app.name') }} · Coupon notifications
-        </div>
-    </div>
-</body>
-</html>
+<x-email.layout
+    title="Coupon fully redeemed"
+    preheader="A coupon code has reached its usage limit."
+    eyebrow="Billing"
+    heading="Coupon fully redeemed"
+    badge="Redeemed"
+    tone="warning">
+
+    <x-email.paragraph>
+        Coupon code
+        <span style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:#F1F5F9;padding:2px 8px;border-radius:6px;color:#0F172A;">{{ $coupon->code }}</span>
+        {{ $coupon->name ? '(' . $coupon->name . ')' : '' }} has reached its usage limit.
+    </x-email.paragraph>
+
+    <x-email.panel>
+        <x-email.rows>
+            <x-email.row label="Total uses" :value="$coupon->uses_count.' / '.$coupon->max_uses" strong />
+            <x-email.row label="Discount" :value="$coupon->discount_label" />
+            <x-email.row label="Plan" :value="$coupon->subscriptionPlan?->name ?? 'All Plans'" />
+        </x-email.rows>
+    </x-email.panel>
+
+    <x-email.paragraph muted>
+        The coupon has been automatically marked as inactive. No further action is required.
+    </x-email.paragraph>
+</x-email.layout>

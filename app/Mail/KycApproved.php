@@ -27,7 +27,7 @@ class KycApproved extends Mailable implements ShouldQueue
 
     public function content(): Content
     {
-        return new Content(markdown: 'emails.kyc.approved');
+        return new Content(view: 'emails.kyc.approved');
     }
 
     public function attachments(): array

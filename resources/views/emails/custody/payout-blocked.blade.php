@@ -1,99 +1,46 @@
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta http-equiv="x-ua-compatible" content="ie=edge">
-  <title>Action needed — we cannot send your payouts</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-</head>
-<body style="margin:0;padding:0;background:#f6f7fb;font-family:Arial,Helvetica,sans-serif;color:#111827;">
-  @php($c = is_array($company ?? null) ? $company : (array) ($company ?? []))
-  <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
-    <tr>
-      <td align="center" style="padding:24px;">
-        <table role="presentation" cellpadding="0" cellspacing="0" width="600" style="max-width:600px;background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.05);">
-          <tr>
-            <td style="padding:20px 24px;border-bottom:1px solid #e5e7eb;">
-              @if(!empty($c['logo']))
-                <img src="{{ $c['logo'] }}" alt="{{ $c['name'] ?? 'Company' }}" style="height:32px;object-fit:contain;vertical-align:middle;">
-              @endif
-              <strong style="font-size:16px;vertical-align:middle;">{{ $c['name'] ?? config('app.name') }}</strong>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding:24px;">
-              <h2 style="margin:0 0 12px;font-size:18px;">Action needed — we cannot send your payouts</h2>
-              <p style="margin:0 0 12px;">Hello {{ $user->name }},</p>
+<x-email.layout
+    title="Action needed — we cannot send your payouts"
+    preheader="Your payout account needs updating before we can send {{ $wallet }}."
+    eyebrow="Payout"
+    heading="Action needed — we cannot send your payouts"
+    subtitle="{{ $business->name }}"
+    badge="Blocked"
+    tone="warning">
 
-              <p style="margin:0 0 16px;">
-                We have now tried {{ $attempts }} {{ $attempts === 1 ? 'time' : 'times' }} to send money for
-                <strong>{{ $business->name }}</strong> to the bank account you have on file, and it has been refused
-                every time. Rather than keep asking, we have stopped. Your money is safe and untouched — but it
-                cannot reach you until the account is corrected.
-              </p>
+    <x-email.paragraph>Hello {{ $user->name }},</x-email.paragraph>
 
-              <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:12px 14px;margin-bottom:16px;">
-                <div style="font-weight:600;margin-bottom:6px;">Waiting to be paid to you</div>
-                <div style="font-size:22px;font-weight:700;">{{ $currency }} {{ $wallet }}</div>
-                <div style="color:#6b7280;font-size:12px;margin-top:4px;">
-                  This will be sent to you as soon as this is fixed.
-                </div>
-              </div>
+    <x-email.paragraph>
+        We have now tried {{ $attempts }} {{ $attempts === 1 ? 'time' : 'times' }} to send money for
+        <strong>{{ $business->name }}</strong> to the bank account you have on file, and it has been refused
+        every time. Rather than keep asking, we have stopped. Your money is safe and untouched — but it
+        cannot reach you until the account is corrected.
+    </x-email.paragraph>
 
-              <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:12px 14px;margin-bottom:16px;">
-                <div style="font-weight:600;margin-bottom:6px;">The account we are paying to</div>
-                <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="font-size:14px;">
-                  <tr>
-                    <td style="padding:3px 0;color:#6b7280;">Bank</td>
-                    <td style="padding:3px 0;text-align:right;">{{ $bankName ?? 'Not on file' }}{{ $bankCode ? ' ('.$bankCode.')' : '' }}</td>
-                  </tr>
-                  <tr>
-                    <td style="padding:3px 0;color:#6b7280;">Account number</td>
-                    <td style="padding:3px 0;text-align:right;">{{ $accountNumberMasked ?: 'Not on file' }}</td>
-                  </tr>
-                  <tr>
-                    <td style="padding:3px 0;color:#6b7280;">Account name</td>
-                    <td style="padding:3px 0;text-align:right;">{{ $accountName ?: 'Not on file' }}</td>
-                  </tr>
-                </table>
-              </div>
+    <x-email.callout tone="warning" title="Waiting to be paid to you">
+        <div style="font-size:22px;line-height:28px;font-weight:700;">{{ $currency }} {{ $wallet }}</div>
+        <div style="margin-top:4px;font-size:12px;line-height:18px;">This will be sent to you as soon as this is fixed.</div>
+    </x-email.callout>
 
-              @if($reason)
-                <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:12px 14px;margin-bottom:16px;">
-                  <div style="font-weight:600;margin-bottom:6px;">What the bank keeps saying</div>
-                  <div style="white-space:pre-wrap;">{{ $reason }}</div>
-                </div>
-              @endif
+    <x-email.panel>
+        <div style="margin:0 0 8px;font-size:11px;line-height:16px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#64748B;">The account we are paying to</div>
+        <x-email.rows>
+            <x-email.row label="Bank" :value="($bankName ?? 'Not on file').($bankCode ? ' ('.$bankCode.')' : '')" />
+            <x-email.row label="Account number" :value="$accountNumberMasked ?: 'Not on file'" mono />
+            <x-email.row label="Account name" :value="$accountName ?: 'Not on file'" />
+        </x-email.rows>
+    </x-email.panel>
 
-              <p style="margin:0 0 12px;">
-                This usually means the account number is wrong, the account is closed or cannot receive transfers,
-                or the account name does not match what the bank holds. Whatever the cause, please check your payout
-                account in your dashboard and update it — the details above are the ones failing.
-              </p>
+    @if($reason)
+        <x-email.callout tone="neutral" title="What the bank keeps saying">
+            <div style="white-space:pre-wrap;">{{ $reason }}</div>
+        </x-email.callout>
+    @endif
 
-              <p style="margin:0 0 12px;">
-                Once you have updated it, reply to this email or contact our team so we can confirm the new account
-                and restart your payouts. Until then, nothing will be sent.
-              </p>
+    <x-email.paragraph>
+        This usually means the account number is wrong, the account is closed or cannot receive transfers, or the account name does not match what the bank holds. Whatever the cause, please check your payout account in your dashboard and update it — the details above are the ones failing.
+    </x-email.paragraph>
 
-              @php($supportEmail = $c['email'] ?? config('mail.from.address'))
-              @if($supportEmail)
-                <p style="margin:0 0 12px;">Contact <a href="mailto:{{ $supportEmail }}">{{ $supportEmail }}</a>.</p>
-              @endif
-            </td>
-          </tr>
-          <tr>
-            <td style="padding:16px 24px;border-top:1px solid #e5e7eb;color:#6b7280;font-size:12px;">
-              <div>{{ $c['name'] ?? '' }} {{ !empty($c['email']) ? '• '.$c['email'] : '' }} {{ !empty($c['phone']) ? '• '.$c['phone'] : '' }}</div>
-              <div>{{ $c['address'] ?? '' }}</div>
-              @if(!empty($c['branch_address']))
-                <div>{{ $c['branch_address'] }}</div>
-              @endif
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>
+    <x-email.paragraph>
+        Once you have updated it, reply to this email or contact our team so we can confirm the new account and restart your payouts. Until then, nothing will be sent.
+    </x-email.paragraph>
+</x-email.layout>

@@ -1,26 +1,28 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <title>New Support Message</title>
-</head>
-<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-    <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-        <h2 style="color: #2c3e50;">New Support Message</h2>
-        <p>A new support message has been received from your website.</p>
-        
-        <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0;">
-            <p><strong>Name:</strong> {{ $data['name'] }}</p>
-            <p><strong>Email:</strong> {{ $data['email'] }}</p>
-            <p><strong>Phone:</strong> {{ $data['phone'] ?? 'N/A' }}</p>
-            <p><strong>Subject:</strong> {{ $data['subject'] }}</p>
-            
-            <hr style="border: 1px solid #eee; margin: 15px 0;">
-            
-            <p><strong>Message:</strong></p>
-            <p style="white-space: pre-wrap;">{{ $data['message'] }}</p>
-        </div>
-        
-        <p style="font-size: 12px; color: #7f8c8d;">This email was sent automatically from your website contact form.</p>
-    </div>
-</body>
-</html>
+<x-email.layout
+    title="New Support Message"
+    preheader="A new support message has been received from your website."
+    eyebrow="Support"
+    heading="New support message"
+    subtitle="A new support message has been received from your website."
+    badge="New"
+    tone="info">
+
+    <x-email.panel>
+        <x-email.rows>
+            <x-email.row label="Name" :value="$data['name']" strong />
+            <x-email.row label="Email" :value="$data['email']" />
+            <x-email.row label="Phone" :value="$data['phone'] ?? 'N/A'" />
+            <x-email.row label="Subject" :value="$data['subject']" />
+        </x-email.rows>
+    </x-email.panel>
+
+    <x-email.heading>Message</x-email.heading>
+
+    <x-email.panel>
+        <div style="font-size:14px;line-height:22px;color:#0F172A;white-space:pre-wrap;">{{ $data['message'] }}</div>
+    </x-email.panel>
+
+    <x-email.paragraph muted>
+        This email was sent automatically from your website contact form.
+    </x-email.paragraph>
+</x-email.layout>

@@ -1,83 +1,37 @@
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta http-equiv="x-ua-compatible" content="ie=edge">
-  <title>Payment received</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-</head>
-<body style="margin:0;padding:0;background:#f6f7fb;font-family:Arial,Helvetica,sans-serif;color:#111827;">
-  @php($c = is_array($company ?? null) ? $company : (array) ($company ?? []))
-  <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
-    <tr>
-      <td align="center" style="padding:24px;">
-        <table role="presentation" cellpadding="0" cellspacing="0" width="600" style="max-width:600px;background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.05);">
-          <tr>
-            <td style="padding:20px 24px;border-bottom:1px solid #e5e7eb;">
-              @if(!empty($c['logo']))
-                <img src="{{ $c['logo'] }}" alt="{{ $c['name'] ?? 'Company' }}" style="height:32px;object-fit:contain;vertical-align:middle;">
-              @endif
-              <strong style="font-size:16px;vertical-align:middle;">{{ $c['name'] ?? config('app.name') }}</strong>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding:24px;">
-              <h2 style="margin:0 0 12px;font-size:18px;">Payment received</h2>
-              <p style="margin:0 0 12px;">Hello {{ $user->name }},</p>
-              <p style="margin:0 0 16px;">
-                A new payment has been made on your store. Here is the information. Please check your dashboard for
-                more info.
-              </p>
+<x-email.layout
+    title="Payment received"
+    preheader="A new payment of {{ $amount }} has landed on your store."
+    eyebrow="Payment"
+    heading="Payment received"
+    badge="Credited"
+    tone="success">
 
-              <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:12px 14px;margin-bottom:16px;">
-                <div style="font-weight:600;margin-bottom:6px;">Payment details</div>
-                <div style="font-size:22px;font-weight:700;margin-bottom:6px;">{{ $amount }}</div>
-                <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="font-size:14px;">
-                  @if($fee)
-                    <tr>
-                      <td style="padding:3px 0;color:#6b7280;">Processing fee</td>
-                      <td style="padding:3px 0;text-align:right;">{{ $fee }}</td>
-                    </tr>
-                  @endif
-                  @if($storeName)
-                    <tr>
-                      <td style="padding:3px 0;color:#6b7280;">Store</td>
-                      <td style="padding:3px 0;text-align:right;">{{ $storeName }}</td>
-                    </tr>
-                  @endif
-                  @if($reference)
-                    <tr>
-                      <td style="padding:3px 0;color:#6b7280;">Reference</td>
-                      <td style="padding:3px 0;text-align:right;">{{ $reference }}</td>
-                    </tr>
-                  @endif
-                  @if($date)
-                    <tr>
-                      <td style="padding:3px 0;color:#6b7280;">Date</td>
-                      <td style="padding:3px 0;text-align:right;">{{ $date }}</td>
-                    </tr>
-                  @endif
-                </table>
-              </div>
+    <x-email.paragraph>Hello {{ $user->name }},</x-email.paragraph>
 
-              @php($supportEmail = $c['email'] ?? config('mail.from.address'))
-              @if($supportEmail)
-                <p style="margin:0 0 12px;">Questions? Contact <a href="mailto:{{ $supportEmail }}">{{ $supportEmail }}</a>.</p>
-              @endif
-            </td>
-          </tr>
-          <tr>
-            <td style="padding:16px 24px;border-top:1px solid #e5e7eb;color:#6b7280;font-size:12px;">
-              <div>{{ $c['name'] ?? '' }} {{ !empty($c['email']) ? '• '.$c['email'] : '' }} {{ !empty($c['phone']) ? '• '.$c['phone'] : '' }}</div>
-              <div>{{ $c['address'] ?? '' }}</div>
-              @if(!empty($c['branch_address']))
-                <div>{{ $c['branch_address'] }}</div>
-              @endif
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>
+    <x-email.paragraph>
+        A new payment has been made on your store. Here is the information. Please check your dashboard for more info.
+    </x-email.paragraph>
+
+    <x-email.panel>
+        <div style="margin:0 0 4px;font-size:11px;line-height:16px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#64748B;">Payment details</div>
+        <x-email.amount>{{ $amount }}</x-email.amount>
+        <x-email.rows>
+            @if($fee)
+                <x-email.row label="Processing fee" :value="$fee" />
+            @endif
+            @if($storeName)
+                <x-email.row label="Store" :value="$storeName" />
+            @endif
+            @if($reference)
+                <x-email.row label="Reference" :value="$reference" mono />
+            @endif
+            @if($date)
+                <x-email.row label="Date" :value="$date" />
+            @endif
+        </x-email.rows>
+    </x-email.panel>
+
+    <x-email.paragraph muted>
+        Please check your dashboard for more info about this payment.
+    </x-email.paragraph>
+</x-email.layout>

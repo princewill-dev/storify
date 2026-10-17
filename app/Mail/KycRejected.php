@@ -35,7 +35,7 @@ class KycRejected extends Mailable implements ShouldQueue
 
     public function content(): Content
     {
-        return new Content(markdown: 'emails.kyc.rejected');
+        return new Content(view: 'emails.kyc.rejected');
     }
 
     public function attachments(): array

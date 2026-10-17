@@ -1,79 +1,56 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Account Suspended</title>
-    <style>
-        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; background-color: #f4f4f4; }
-        .container { max-width: 600px; margin: 20px auto; background: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        .header { background: #dc3545; color: #ffffff; padding: 30px; text-align: center; }
-        .header h1 { margin: 0; font-size: 24px; }
-        .content { padding: 30px; }
-        .alert { background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0; border-radius: 4px; }
-        .reason-box { background: #f8f9fa; border: 1px solid #dee2e6; padding: 15px; margin: 20px 0; border-radius: 4px; }
-        .reason-box strong { display: block; margin-bottom: 10px; color: #495057; }
-        .customer-info { background: #f8f9fa; padding: 15px; margin: 20px 0; border-radius: 4px; }
-        .customer-info p { margin: 5px 0; }
-        .footer { background: #f8f9fa; padding: 20px; text-align: center; font-size: 12px; color: #6c757d; }
-        .button { display: inline-block; padding: 12px 30px; background: #007bff; color: #ffffff; text-decoration: none; border-radius: 4px; margin: 20px 0; }
-        .icon { font-size: 48px; margin-bottom: 10px; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <div class="icon">⚠️</div>
-            <h1>Account Suspended</h1>
-        </div>
-        
-        <div class="content">
-            <p>Hello {{ $customer->first_name }},</p>
-            
-            <div class="alert">
-                <strong>⚠️ Important Notice</strong><br>
-                Your account has been temporarily suspended by our administration team.
-            </div>
+<x-email.layout
+    title="Account Suspended"
+    preheader="Your account has been temporarily suspended."
+    eyebrow="Account"
+    heading="Account suspended"
+    badge="Suspended"
+    tone="danger">
 
-            <div class="customer-info">
-                <p><strong>Account Details:</strong></p>
-                <p><strong>Name:</strong> {{ $customer->full_name }}</p>
-                <p><strong>Email:</strong> {{ $customer->email }}</p>
-                @if($customer->phone)
-                <p><strong>Phone:</strong> {{ $customer->phone }}</p>
-                @endif
-            </div>
+    <x-email.paragraph>Hello {{ $customer->first_name }},</x-email.paragraph>
 
-            <div class="reason-box">
-                <strong>Reason for Suspension:</strong>
-                <p>{{ $reason }}</p>
-            </div>
+    <x-email.callout tone="warning" title="Important notice">
+        Your account has been temporarily suspended by our administration team.
+    </x-email.callout>
 
-            <h3>What This Means:</h3>
-            <ul>
-                <li>You will not be able to place new orders</li>
-                <li>You cannot access your account dashboard</li>
-                <li>Existing orders will continue to be processed</li>
-                <li>Your account data remains secure</li>
-            </ul>
+    <x-email.panel>
+        <div style="margin:0 0 8px;font-size:11px;line-height:16px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#64748B;">Account details</div>
+        <x-email.rows>
+            <x-email.row label="Name" :value="$customer->full_name" />
+            <x-email.row label="Email" :value="$customer->email" />
+            @if($customer->phone)
+                <x-email.row label="Phone" :value="$customer->phone" />
+            @endif
+        </x-email.rows>
+    </x-email.panel>
 
-            <h3>What You Should Do:</h3>
-            <p>If you believe this suspension was made in error or if you would like to discuss this matter, please contact our support team immediately.</p>
+    <x-email.callout tone="danger" title="Reason for suspension">
+        {{ $reason }}
+    </x-email.callout>
 
-            <p style="margin-top: 30px;">
-                <strong>Contact Support:</strong><br>
-                Email: {{ config('mail.from.address') }}<br>
-                We typically respond within 24 hours.
-            </p>
+    <x-email.heading>What this means</x-email.heading>
 
-            <p style="margin-top: 30px;">We take account security and policy compliance seriously. We appreciate your understanding and cooperation in this matter.</p>
-        </div>
-        
-        <div class="footer">
-            <p><strong>{{ config('app.name') }}</strong></p>
-            <p>This is an automated message. Please do not reply directly to this email.</p>
-            <p>&copy; {{ date('Y') }} {{ config('app.name') }}. All rights reserved.</p>
-        </div>
-    </div>
-</body>
-</html>
+    <x-email.panel>
+        <x-email.rows>
+            <x-email.row label="New orders" value="You will not be able to place new orders" />
+            <x-email.row label="Dashboard" value="You cannot access your account dashboard" />
+            <x-email.row label="Existing orders" value="Existing orders will continue to be processed" />
+            <x-email.row label="Your data" value="Your account data remains secure" />
+        </x-email.rows>
+    </x-email.panel>
+
+    <x-email.heading>What you should do</x-email.heading>
+
+    <x-email.paragraph>
+        If you believe this suspension was made in error or if you would like to discuss this matter, please contact our support team immediately.
+    </x-email.paragraph>
+
+    <x-email.paragraph muted>
+        <strong>Contact support:</strong><br>
+        Email: {{ config('mail.from.address') }}<br>
+        We typically respond within 24 hours.
+    </x-email.paragraph>
+
+    <x-email.paragraph>
+        We take account security and policy compliance seriously. We appreciate your understanding and cooperation in this matter.
+    </x-email.paragraph>
+</x-email.layout>
