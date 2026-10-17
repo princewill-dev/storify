@@ -58,6 +58,12 @@ use Illuminate\Support\Str;
 | nothing else, and a row that is no longer `processing` is answered `skipped` without the
 | provider being asked at all. Both are pinned, because "polling cannot double-pay" is the
 | safety argument for shipping this at all.
+|
+| **The ladder has its own lane.** A check can occupy a worker for a provider client's full
+| thirty-second timeout, and there are nine per payout, so sharing `default` with
+| `SettlePayouts` would let a silent provider stop money moving. The lane is named, and it is
+| asserted to differ from the send job's. WS-60 covers what happens when that provider is
+| unreachable — the circuit breaker in front of the rail.
 */
 
 function ps59Settings(array $attributes): void
@@ -386,14 +392,14 @@ test('a send that was never answered starts the clock too, and asking about it c
     });
 });
 
-test('the ladder is queued on the default queue, where the worker is listening', function () {
+test('the ladder is queued on its own lane, away from the money worker', function () {
     // The chain is only as good as the worker that drains it, so which lane the question
-    // lands in is part of the feature rather than an implementation detail. Nothing on the
-    // job overrides the queue, so it lands on the connection's own — `DB_QUEUE`, `default` —
-    // which is the lane `SettlePayouts` already uses and the one the documented bare
-    // `php artisan queue:work` drains. A future `->onQueue('payouts')` would put the ladder
-    // somewhere no worker is looking, and the only symptom would be money sitting still,
-    // which is what this job exists to prevent.
+    // lands in is part of the feature rather than an implementation detail. A check can
+    // spend a provider client's full thirty-second timeout and there are nine per payout,
+    // so these do **not** share the lane `SettlePayouts` uses: a slow provider must delay
+    // status checks, never the sending of money. The price is that the lane only works if a
+    // worker drains it, which the README and the runbook both spell out, and which
+    // `CUSTODY_PAYOUT_CHECK_QUEUE=default` overrides for a deployment that cannot add one.
     ps59Platform();
     ps59Settings(['system_payment_processor' => 'bachs']);
 
@@ -404,19 +410,32 @@ test('the ladder is queued on the default queue, where the worker is listening',
 
     ps59InFlight($business, $store);
 
-    // The send job is the control. It is the one already known to be drained in production,
-    // so "the same lane as it" is the claim worth making — and the queue name recorded here
-    // is the one the *job* named, which is `null`, meaning the connection's own queue
-    // (`DB_QUEUE`, `default`). `->onQueue('payouts')` would record a name here instead, and
-    // that is the failure this catches: the ladder would run, on a queue nobody reads.
+    // The send job is the control: the one that settles money, whose lane is the
+    // connection's own. The check must be somewhere else, and named — a `null` here would
+    // mean it went back to sharing the money lane.
     SettlePayouts::dispatch((int) $business->id);
 
     $pushed = Queue::pushedJobs();
 
     expect($pushed)->toHaveKey(CheckPayoutStatus::class)
         ->and($pushed[CheckPayoutStatus::class][0]['queue'])
-        ->toBe($pushed[SettlePayouts::class][0]['queue'])
-        ->toBeNull();
+        ->toBe(CheckPayoutStatus::queueName())
+        ->toBe('payout-checks')
+        ->and($pushed[CheckPayoutStatus::class][0]['queue'])
+        ->not->toBe($pushed[SettlePayouts::class][0]['queue']);
+});
+
+test('a deployment that cannot run a second worker can put the checks back on default', function () {
+    config(['custody.payout_check_queue' => '']);
+
+    // A blank value must not produce a job on the empty-string queue, which no worker
+    // drains: the fallback is the documented lane, and the escape hatch is the word
+    // `default`, not nothing at all.
+    expect(CheckPayoutStatus::queueName())->toBe('payout-checks');
+
+    config(['custody.payout_check_queue' => 'default']);
+
+    expect(CheckPayoutStatus::queueName())->toBe('default');
 });
 
 // ---------------------------------------------------------------------------

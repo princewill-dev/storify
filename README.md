@@ -35,11 +35,17 @@ npm run build
 php artisan serve
 ```
 
-Run a queue worker in another terminal because receipts and operational email are queued:
+Run queue workers in another terminal because receipts, operational email and payouts are queued.
+Payout status checks have their own lane, so they cannot occupy the worker that settles money:
 
 ```bash
-php artisan queue:work
+php artisan queue:work                            # default: sales, email, SettlePayouts
+php artisan queue:work --queue=payout-checks      # the ladder that asks the provider what happened
 ```
+
+The second worker is not optional in production: with nothing draining `payout-checks`, a
+transfer the provider accepts and then goes quiet about is never reconciled. A deployment that
+cannot add a process may set `CUSTODY_PAYOUT_CHECK_QUEUE=default` and accept a shared lane.
 
 After route, controller, view, or configuration changes, clear Laravel caches:
 

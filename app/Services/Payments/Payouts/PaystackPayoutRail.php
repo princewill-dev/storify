@@ -358,7 +358,24 @@ final class PaystackPayoutRail implements PayoutRail
      * `reversed` comes back as `accepted` with that status, because a reversal is a
      * payout that happened and then came back — the caller maps it to its own
      * `reversed` state rather than to either "in flight" or "never sent".
+     *
+     * **An unreachable Paystack throws rather than returning `null`**, and so does
+     * a 5xx. `null` means "Paystack was asked and cannot answer for this
+     * reference"; those two mean "Paystack was not asked", which is a fact about
+     * the provider rather than about the transfer. See
+     * {@see PayoutLookupUnreachable}.
+     *
+     * @throws PayoutLookupUnreachable when the provider could not be asked
      */
+    /**
+     * Paystack looks a transfer up by our own reference, so every payout can be
+     * asked about — including a send that timed out before returning a code.
+     */
+    public function canLookUpPayout(?string $providerPayoutId): bool
+    {
+        return true;
+    }
+
     public function lookUp(
         GatewayCredentials $credentials,
         string $reference,
@@ -373,7 +390,11 @@ final class PaystackPayoutRail implements PayoutRail
                 'error' => $e->getMessage(),
             ]);
 
-            return null;
+            // Not "no answer for this transfer" — no answer for *anything*. See
+            // {@see PayoutLookupUnreachable}: the caller opens a breaker so the
+            // remaining payouts are not asked the same question at thirty
+            // seconds each.
+            throw PayoutLookupUnreachable::forProvider('Paystack', $reference, $e);
         }
 
         if ($response->status() === 404) {
@@ -383,6 +404,16 @@ final class PaystackPayoutRail implements PayoutRail
         }
 
         if (! $response->successful()) {
+            if ($response->serverError() || $response->status() === 429) {
+                Log::warning('paystack.payout.lookup_server_error', [
+                    'reference' => $reference,
+                    'status' => $response->status(),
+                ]);
+
+                throw PayoutLookupUnreachable::forStatus('Paystack', $reference, $response->status());
+            }
+
+            // A 4xx is Paystack speaking about this request. The provider is up.
             return null;
         }
 

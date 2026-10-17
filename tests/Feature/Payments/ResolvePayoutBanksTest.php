@@ -114,6 +114,11 @@ function rpbRail(
         ): ?TransferOutcome {
             throw new RuntimeException('not used');
         }
+
+        public function canLookUpPayout(?string $providerPayoutId): bool
+        {
+            return true;
+        }
     };
 }
 

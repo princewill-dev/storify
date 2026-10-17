@@ -154,4 +154,17 @@ interface PayoutRail
         string $reference,
         ?string $providerPayoutId = null,
     ): ?TransferOutcome;
+
+    /**
+     * Whether {@see lookUp()} can ask the provider anything for this payout.
+     *
+     * Bachs needs the id it issued, so a send that timed out before returning one
+     * cannot be looked up at all — `lookUp()` answers `null` without making a
+     * request. That case is worth distinguishing from an answer, because a null
+     * usually *does* mean the provider was reached and had nothing to say. A
+     * caller that cannot tell the two apart would close a circuit breaker on a
+     * call that never left the building, and the next wave of checks would hang
+     * on a provider that was still down.
+     */
+    public function canLookUpPayout(?string $providerPayoutId): bool;
 }

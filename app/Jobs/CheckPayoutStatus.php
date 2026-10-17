@@ -72,6 +72,26 @@ use Throwable;
  * ladder did not choose, racing the schedule that was. What `tries() = 1` must not do
  * is fail silently: see `failed()`.
  *
+ * ## Its own lane, and why the worker must be told about it
+ *
+ * These questions run on `custody.payout_check_queue` (`payout-checks`), not on the
+ * connection's default queue. That is a deliberate departure from {@see SettlePayouts},
+ * made for one reason: a check can spend a provider client's full thirty-second timeout,
+ * and there are nine of them per payout. On a shared FIFO queue a provider having a bad
+ * minute puts every `SettlePayouts` behind a wall of timeouts — **the platform stops
+ * paying businesses because it is busy asking about payouts**. Separate lanes mean the
+ * worst case is slow status checks, not stalled money.
+ *
+ * The cost is that the lane only exists once a worker drains it:
+ *
+ *     php artisan queue:work --queue=payout-checks
+ *
+ * A worker started with a bare `php artisan queue:work` will not consume these jobs, and
+ * the symptom is the same one this job exists to prevent — rows sitting in `processing`.
+ * The `custody.payout.check_queued` line names the queue so the mismatch is visible in the
+ * log, and setting `CUSTODY_PAYOUT_CHECK_QUEUE=default` is the escape hatch for a
+ * deployment that cannot add a process.
+ *
  * ## Standing down on a sync queue
  *
  * `forPayout()` and `checkLater()` both return early when the queue cannot defer
@@ -85,6 +105,9 @@ use Throwable;
 final class CheckPayoutStatus implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+
+    /** The lane name when `custody.payout_check_queue` is unset or blank. */
+    public const DEFAULT_QUEUE = 'payout-checks';
 
     /**
      * Which check this job performs, 1-based.
@@ -136,6 +159,19 @@ final class CheckPayoutStatus implements ShouldQueue
     }
 
     /**
+     * The lane these checks are queued on — `payout-checks` unless configured.
+     *
+     * A blank config falls back rather than producing a job on the empty-string queue,
+     * which workers do not drain and which would look like a chain that silently stopped.
+     */
+    public static function queueName(): string
+    {
+        $queue = config('custody.payout_check_queue', self::DEFAULT_QUEUE);
+
+        return is_string($queue) && trim($queue) !== '' ? trim($queue) : self::DEFAULT_QUEUE;
+    }
+
+    /**
      * Start the ladder for a payout the provider has just accepted.
      *
      * Called from {@see PayoutSweepService::apply()}, which runs on the customer's
@@ -154,11 +190,13 @@ final class CheckPayoutStatus implements ShouldQueue
 
         try {
             self::dispatch((int) $payout->id, 1)
+                ->onQueue(self::queueName())
                 ->delay(now()->addSeconds(max(1, (int) self::delayBefore(1))));
 
             Log::info('custody.payout.check_queued', [
                 'payout_id' => $payout->id,
                 'reference' => $payout->reference,
+                'queue' => self::queueName(),
                 'in_seconds' => self::delayBefore(1),
                 'checks_scheduled' => count(self::schedule()),
             ]);
@@ -261,7 +299,9 @@ final class CheckPayoutStatus implements ShouldQueue
             // `delay()`, so the row is written now and becomes claimable later. That is
             // the difference between this and a `sleep()`: no worker is held open for an
             // hour, and the money is not waiting on a process staying alive.
-            self::dispatch($this->payoutId, $next)->delay(now()->addSeconds($delay));
+            self::dispatch($this->payoutId, $next)
+                ->onQueue(self::queueName())
+                ->delay(now()->addSeconds($delay));
         } catch (Throwable $e) {
             Log::channel('queue')->warning('custody.payout.check_not_queued', [
                 'payout_id' => $payout->id,

@@ -102,6 +102,11 @@ function bd58Rail(array $banks, string $code = 'stub', ?string $error = null): P
         ): ?TransferOutcome {
             throw new RuntimeException('not used');
         }
+
+        public function canLookUpPayout(?string $providerPayoutId): bool
+        {
+            return true;
+        }
     };
 }
 

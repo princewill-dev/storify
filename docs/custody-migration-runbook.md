@@ -36,12 +36,24 @@ was a precondition to the migration and it remains a precondition to operating i
 1. **Legal sign-off** on the above.
 2. The API is **hand-deployed**. `php artisan migrate --force` and `php artisan optimize:clear`
    must have run on the server, or nothing below is live.
-3. **A worker is consuming the queue.** Paying a business is a queued job
+3. **Two workers are consuming the queue.** Paying a business is a queued job
    (`App\Jobs\SettlePayouts`, on the `default` queue), so with no `queue:work` running
    nothing settles at all: a sale is credited and payable and no send is ever attempted.
-   The queue is load-bearing for money, not just for email. `CUSTODY_INSTANT_PAYOUT` must
-   not be `false` (off, a sale simply waits), and the retry budget the worker respects is
-   `CUSTODY_PAYOUT_BACKOFF` — minutes, `5,30,60` by default.
+   The queue is load-bearing for money, not just for email. A second worker drains
+   `payout-checks`, the lane that asks the provider what became of each transfer:
+
+   ```bash
+   php artisan queue:work
+   php artisan queue:work --queue=payout-checks
+   ```
+
+   Keep them separate. A status check may spend thirty seconds on one provider call, and
+   nine per payout; sharing the lane would let a slow provider hold up every send behind
+   it. With no worker on `payout-checks`, a transfer the provider accepted and then went
+   quiet about sits in `processing` until someone runs `custody:payouts` by hand.
+
+   `CUSTODY_INSTANT_PAYOUT` must not be `false` (off, a sale simply waits), and the retry
+   budget the worker respects is `CUSTODY_PAYOUT_BACKOFF` — minutes, `5,30,60` by default.
 4. The platform's own credentials are complete in `config/services.php` for whichever
    processor is selected. A business's own keys are never read under custody, so the
    platform's key *is* the rail.
@@ -459,6 +471,25 @@ retry, every hold lifted — runs on the queue, so a stopped worker means **noth
 all**: sales are still collected and credited, the wallet still shows the money as owed, and no
 send is ever attempted. If payouts have gone quiet platform-wide, the worker is the first thing
 to check.
+
+There are **two** workers, and the second one is easy to forget because its absence produces no
+error:
+
+```bash
+php artisan queue:work                            # sends, email, SettlePayouts
+php artisan queue:work --queue=payout-checks      # asks the provider about transfers it accepted
+```
+
+If `payout-checks` has no worker, sales still pay out. What stops is reconciliation: a transfer
+the provider accepted and never confirmed stays `processing` with nobody asking again, and the
+"unconfirmed" alert never fires. Check for a growing `processing` count before looking anywhere
+else. The queue is named in every `custody.payout.check_queued` log line, so a misconfigured
+deployment says so itself.
+
+A provider that stops answering is handled separately: `custody.payout_lookup_breaker_seconds`
+(60 by default) opens after one unreachable look-up, and checks in that window are answered
+without an HTTP call. The ladder still runs and still alerts — the breaker saves the worker,
+never the warning.
 
 ## The one-time clear-up
 

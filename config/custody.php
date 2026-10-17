@@ -349,6 +349,49 @@ return [
     ), static fn (int $seconds): bool => $seconds > 0)),
 
     /*
+    | How long a status check stops asking when the provider cannot be reached,
+    | in **seconds**.
+    |
+    | Every provider client times out after thirty seconds, so an unreachable
+    | provider does not make the ladder fail — it makes every rung of it cost
+    | thirty seconds of worker time, per payout, to learn nothing. Fifty transfers
+    | out is four hundred and fifty questions, and they share the `default` queue
+    | with {@see App\Jobs\SettlePayouts}: the backlog stops money moving.
+    |
+    | After one unreachable answer this breaker opens for this many seconds. While
+    | it is open a check is answered `unresolved` without any HTTP at all, so the
+    | ladder keeps its schedule and still ends in its one alert — the breaker
+    | suppresses the question, never the warning. When the window expires one
+    | check probes; if it gets through, everything resumes.
+    |
+    | **Short on purpose.** This is not a provider backoff; it is a pause so the
+    | queue can do useful work while the provider is broken. A provider that comes
+    | back should be asked again within a minute. The state lives in the cache, so
+    | clearing the cache closes the breaker — the fail-open direction.
+    */
+    'payout_lookup_breaker_seconds' => (int) env('CUSTODY_PAYOUT_LOOKUP_BREAKER_SECONDS', 60),
+
+    /*
+    | The queue the per-payout status check runs on.
+    |
+    | **Not `default`, deliberately.** The check can spend thirty seconds on one
+    | provider call, and nine of them per payout; a provider having a bad minute
+    | must not push {@see App\Jobs\SettlePayouts} — and therefore every payout
+    | behind it — to the back of the same FIFO queue. Separating the lanes is what
+    | turns "status checks are slow" into an operational annoyance instead of
+    | "money has stopped".
+    |
+    | This only isolates anything if a worker actually drains this queue. Run a
+    | second worker:
+    |
+    |     php artisan queue:work --queue=payout-checks
+    |
+    | A deployment that cannot add a process can set this to `default` and accept
+    | the shared lane; everything still works, the failure mode is just worse.
+    */
+    'payout_check_queue' => (string) env('CUSTODY_PAYOUT_CHECK_QUEUE', 'payout-checks'),
+
+    /*
     | Whether a collected sale is credited to the store that earned it, or to the
     | business as a whole.
     |

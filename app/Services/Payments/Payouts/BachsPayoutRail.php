@@ -378,7 +378,23 @@ final class BachsPayoutRail implements PayoutRail
      * `processing` means the provider still has it and the money may yet move, so
      * it comes back `accepted` and it is the caller that decides whether to keep
      * waiting. Only `failed` — with a `failure_reason` — is a refusal.
+     *
+     * **An unreachable Bachs throws rather than returning `null`**, and so does a
+     * 5xx. `null` means "Bachs was asked and has nothing for this transfer"; those
+     * two mean "Bachs was not asked". The caller feeds the difference to
+     * {@see PayoutLookupBreaker} so one outage does not cost the worker thirty
+     * seconds per payout.
+     *
+     * @throws PayoutLookupUnreachable when the provider could not be asked
      */
+    /**
+     * Bachs can only be asked by its own id; without one there is no request.
+     */
+    public function canLookUpPayout(?string $providerPayoutId): bool
+    {
+        return $providerPayoutId !== null && $providerPayoutId !== '';
+    }
+
     public function lookUp(
         GatewayCredentials $credentials,
         string $reference,
@@ -397,10 +413,25 @@ final class BachsPayoutRail implements PayoutRail
                 'error' => $e->getMessage(),
             ]);
 
-            return null;
+            // Not "no answer for this transfer" — no answer for *anything*. The
+            // caller opens a breaker so the next payout does not spend another
+            // thirty seconds learning the same thing.
+            throw PayoutLookupUnreachable::forProvider('Bachs', $reference, $e);
         }
 
         if (! $response->successful()) {
+            if ($response->serverError() || $response->status() === 429) {
+                Log::warning('bachs.payout.lookup_server_error', [
+                    'reference' => $reference,
+                    'status' => $response->status(),
+                ]);
+
+                throw PayoutLookupUnreachable::forStatus('Bachs', $reference, $response->status());
+            }
+
+            // A 4xx is Bachs speaking about this request — a 404 for a transfer it
+            // does not know, a 401 for a key it will not accept. The provider is
+            // up; only *this* answer is unhelpful, and the ladder continues.
             return null;
         }
 

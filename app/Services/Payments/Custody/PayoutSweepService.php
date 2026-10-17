@@ -14,6 +14,8 @@ use App\Services\Payments\Payouts\BankDirectory;
 use App\Services\Payments\Payouts\PayoutBankResolution;
 use App\Services\Payments\Payouts\PayoutBankResolver;
 use App\Services\Payments\Payouts\PayoutDestinationRef;
+use App\Services\Payments\Payouts\PayoutLookupBreaker;
+use App\Services\Payments\Payouts\PayoutLookupUnreachable;
 use App\Services\Payments\Payouts\PayoutRail;
 use App\Services\Payments\Payouts\PayoutRailRegistry;
 use App\Services\Payments\Payouts\ProviderPayload;
@@ -215,6 +217,7 @@ final class PayoutSweepService
         private readonly PlatformPayoutNotifier $platform,
         private readonly PayoutBankResolver $payoutBanks,
         private readonly BankDirectory $directory,
+        private readonly PayoutLookupBreaker $breaker,
     ) {}
 
     /**
@@ -2554,13 +2557,55 @@ final class PayoutSweepService
      */
     private function resolve(Payout $payout, array $context): string
     {
+        $provider = (string) $context['provider'];
+
+        // The provider cannot be asked about this row at all — Bachs, and a send
+        // that never returned an id. No request is made, so this is not evidence
+        // either way about the provider's health and the breaker is left alone.
+        if (! $context['rail']->canLookUpPayout($payout->provider_payout_id)) {
+            return 'unresolved';
+        }
+
+        // The provider was unreachable within the last window, so every question
+        // would cost the same thirty-second timeout to learn the same nothing.
+        // Answering `unresolved` without asking keeps the worker free for money —
+        // and, importantly, does not stop the ladder, which still ends in its one
+        // alert. See {@see PayoutLookupBreaker}.
+        if (! $this->breaker->allows($provider)) {
+            Log::info('custody.payout.lookup_skipped', [
+                'payout_id' => $payout->id,
+                'reference' => $payout->reference,
+                'provider' => $provider,
+                'reason' => 'provider_unreachable',
+            ]);
+
+            return 'unresolved';
+        }
+
         try {
             $outcome = $context['rail']->lookUp(
                 $context['credentials'],
                 (string) $payout->reference,
                 $payout->provider_payout_id,
             );
+        } catch (PayoutLookupUnreachable $e) {
+            // The *provider* is the problem, not this transfer. One failure opens
+            // the breaker, so the other payouts due in this window are answered
+            // without an HTTP call instead of each burning the full timeout.
+            $this->breaker->recordUnreachable($provider);
+
+            Log::warning('custody.payout.lookup_unreachable', [
+                'payout_id' => $payout->id,
+                'reference' => $payout->reference,
+                'provider' => $provider,
+                'error' => $e->getMessage(),
+            ]);
+
+            return 'unresolved';
         } catch (\Throwable $e) {
+            // Something else went wrong inside the rail — unreadable body, a bug.
+            // That is not a statement about reachability, so the breaker keeps its
+            // state and the next check tries again.
             Log::warning('custody.payout.lookup_failed', [
                 'payout_id' => $payout->id,
                 'error' => $e->getMessage(),
@@ -2568,6 +2613,10 @@ final class PayoutSweepService
 
             return 'unresolved';
         }
+
+        // The provider answered, whatever it said about this transfer — including
+        // "I have nothing for that reference". It is up, so the breaker closes.
+        $this->breaker->recordAnswered($provider);
 
         // "Cannot answer" — which is not "not found". Bachs has no lookup by our
         // reference, so a Bachs send that never returned an id can only be
