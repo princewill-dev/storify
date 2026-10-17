@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\V1\Storefront\CheckoutController;
 use App\Http\Controllers\Api\V1\Storefront\ConsentController;
 use App\Http\Controllers\Api\V1\Storefront\DataRightsController;
 use App\Http\Controllers\Api\V1\Storefront\DownloadController;
+use App\Http\Controllers\Api\V1\Storefront\InvoicePaymentController;
 use App\Http\Controllers\Api\V1\Storefront\SupportController;
 use App\Http\Controllers\Api\V1\Storefront\TrackingController;
 use App\Support\Payments\PaymentGatewayRegistry;
@@ -136,6 +137,31 @@ Route::prefix('storefront/{store}')->name('api.storefront.')->group(function () 
     });
 
     Route::get('orders/{orderNumber}', [CheckoutController::class, 'orderShow'])->name('orders.show');
+
+    // Invoice payment. Public because the token in the emailed link *is* the
+    // credential — the recipient has no account and no session. The lookup is
+    // still scoped to this store's business and to the invoice's own store.
+    //
+    // The provider is a path segment, as it is at checkout, so adding a
+    // provider stays a driver and a registry entry.
+    Route::prefix('invoices/{token}')->name('invoices.')->group(function () {
+        Route::get('/', [InvoicePaymentController::class, 'show'])->name('show');
+
+        Route::post('payments/{provider}/initialize', [InvoicePaymentController::class, 'initialize'])
+            ->whereIn('provider', PaymentGatewayRegistry::keys())
+            ->middleware('throttle:20,1')
+            ->name('payments.initialize');
+
+        Route::post('payments/{provider}/verify', [InvoicePaymentController::class, 'verify'])
+            ->whereIn('provider', PaymentGatewayRegistry::keys())
+            ->name('payments.verify');
+
+        // The slip is money paid outside the platform. It resolves only when
+        // the store's own bank accounts are on offer — never under a system
+        // processor, where the resolver does not return it.
+        Route::post('bank-transfer', [InvoicePaymentController::class, 'bankTransfer'])
+            ->name('bank-transfer');
+    });
 
     // Tokenised digital downloads. The token in the emailed link IS the
     // credential, so these stay public and are scoped to the issuing store.

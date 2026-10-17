@@ -16,6 +16,7 @@ use App\Services\Payments\Data\GatewayCredentials;
 use App\Services\Payments\Data\VerificationResult;
 use App\Services\Payments\Data\WebhookEvent;
 use App\Services\Payments\Data\WebhookScope;
+use App\Services\Storefront\InvoicePaymentService;
 use App\Support\Money\Naira;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
@@ -43,6 +44,7 @@ final class PaymentWebhookProcessor
         private readonly LedgerPostingService $ledger,
         private readonly DigitalDeliveryService $digital,
         private readonly CustodyService $custody,
+        private readonly InvoicePaymentService $invoices,
     ) {}
 
     /**
@@ -119,6 +121,25 @@ final class PaymentWebhookProcessor
             }
 
             $feesMinor = $verification->feesMinor ?? $event->feesMinor;
+
+            // An invoice payment settles against its invoice, not an order.
+            // Everything below this point — the order's amount paid and status,
+            // digital delivery, the balance credit for a sale on its own keys —
+            // is Order-shaped. The invoice service performs the equivalent
+            // transition under its own row locks, and owns the receipt mail and
+            // the custody/payout hand-off for this sale.
+            if ($transaction->invoice_id !== null) {
+                $this->invoices->settle($transaction, $verification, $driver->code(), $feesMinor);
+
+                Log::info('payments.webhook.settled', [
+                    'reference' => $reference,
+                    'provider' => $driver->code(),
+                    'transaction_id' => $transaction->id,
+                    'invoice_id' => $transaction->invoice_id,
+                ]);
+
+                return ['status' => 'success', 'http' => Response::HTTP_OK];
+            }
 
             // Read before the write below: whether this sale was the platform's
             // is a property of how it was charged, and must not be re-derived
@@ -407,7 +428,13 @@ final class PaymentWebhookProcessor
         $query->where('transactions.business_id', $scope->businessId);
 
         if ($scope->storeId !== null && $scope->storeOwnsKeys) {
-            $query->whereHas('order', fn ($order) => $order->where('store_id', $scope->storeId));
+            // Grouped, so the business predicate above applies to both halves.
+            // A store-scoped URL must be able to settle a payment for an invoice
+            // issued by this store as well as one for an order placed in it —
+            // and must not settle either for a sibling store.
+            $query->where(fn ($q) => $q
+                ->whereHas('order', fn ($order) => $order->where('store_id', $scope->storeId))
+                ->orWhereHas('invoice', fn ($invoice) => $invoice->where('store_id', $scope->storeId)));
         }
 
         return $query;

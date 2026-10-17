@@ -36,12 +36,27 @@ class ReconcileLedger extends Command
             ->get();
 
         foreach ($transactions as $transaction) {
-            if ($transaction->order_id && $this->hasEntry($transaction->business_id, 'sale:order:'.$transaction->order_id)) {
-                continue;
-            }
+            // An invoice payment has two entries: the invoice document once,
+            // and this payment's own side. A managed payment's own side is the
+            // custody collection key, not `payment:txn`, so checking only the
+            // latter would re-report every managed invoice payment forever.
+            if ($transaction->invoice_id) {
+                $paymentKey = $transaction->isPlatformManaged()
+                    ? 'managed:collect:txn:'.$transaction->id
+                    : 'payment:txn:'.$transaction->id;
 
-            if ($this->hasEntry($transaction->business_id, 'payment:txn:'.$transaction->id)) {
-                continue;
+                if ($this->hasEntry($transaction->business_id, 'invoice:'.$transaction->invoice_id)
+                    && $this->hasEntry($transaction->business_id, $paymentKey)) {
+                    continue;
+                }
+            } else {
+                if ($transaction->order_id && $this->hasEntry($transaction->business_id, 'sale:order:'.$transaction->order_id)) {
+                    continue;
+                }
+
+                if ($this->hasEntry($transaction->business_id, 'payment:txn:'.$transaction->id)) {
+                    continue;
+                }
             }
 
             // POS sales are posted as a single sale entry per order.
@@ -64,7 +79,23 @@ class ReconcileLedger extends Command
             $missing++;
 
             if ($shouldPost) {
-                $posting->safe(fn () => $posting->postPaymentReceived($transaction, null));
+                if ($transaction->invoice_id) {
+                    $posting->safe(fn () => $posting->postInvoice($transaction->invoice, null));
+
+                    if ($transaction->isPlatformManaged()) {
+                        $posting->safe(fn () => $posting->postManagedPaymentReceived(
+                            $transaction,
+                            $transaction->platformFeeKobo(),
+                            null,
+                            custody: true,
+                        ));
+                    } else {
+                        $posting->safe(fn () => $posting->postPaymentReceived($transaction, null));
+                    }
+                } else {
+                    $posting->safe(fn () => $posting->postPaymentReceived($transaction, null));
+                }
+
                 $posted++;
             }
         }

@@ -5,6 +5,7 @@ namespace App\Http\Resources\Management\Invoice;
 use App\Enums\TransactionStatus;
 use App\Models\Invoice;
 use App\Models\Transaction;
+use App\Support\InvoicePaymentUrl;
 use App\Support\Money\Naira;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
@@ -55,9 +56,7 @@ final class InvoiceDetailResource extends JsonResource
             'sent_at' => $invoice->sent_at?->toISOString(),
             'paid_at' => $invoice->paid_at?->toISOString(),
             'voided_at' => $invoice->voided_at?->toISOString(),
-            'payment_url' => $invoice->payment_token
-                ? route('invoice.pay.show', ['token' => $invoice->payment_token])
-                : null,
+            'payment_url' => InvoicePaymentUrl::for($invoice),
             'items' => $invoice->items->map(fn ($item) => [
                 'id' => $item->id,
                 'description' => $item->description,

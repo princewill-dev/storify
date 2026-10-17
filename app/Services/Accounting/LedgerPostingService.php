@@ -409,7 +409,8 @@ class LedgerPostingService
             return null;
         }
 
-        $businessId = $transaction->business_id ?: $transaction->order?->business_id;
+        $businessId = $transaction->business_id
+            ?: ($transaction->order?->business_id ?? $transaction->invoice?->business_id);
 
         if (! $businessId) {
             return null;
@@ -429,8 +430,8 @@ class LedgerPostingService
         $commissionKobo = max(0, min($commissionKobo, $grossKobo - $providerFeeKobo));
         $netKobo = $grossKobo - $providerFeeKobo - $commissionKobo;
 
-        $storeId = $transaction->order?->store_id;
-        $contactId = $transaction->order?->customer_id;
+        $storeId = $transaction->order?->store_id ?? $transaction->invoice?->store_id;
+        $contactId = $transaction->order?->customer_id ?? $transaction->invoice?->customer_id;
 
         $lines = [[
             'account_key' => $this->managedAssetKey($custody),
@@ -528,13 +529,14 @@ class LedgerPostingService
             return null;
         }
 
-        $businessId = $transaction->business_id ?: $transaction->order?->business_id;
+        $businessId = $transaction->business_id
+            ?: ($transaction->order?->business_id ?? $transaction->invoice?->business_id);
 
         if (! $businessId) {
             return null;
         }
 
-        $storeId = $transaction->order?->store_id;
+        $storeId = $transaction->order?->store_id ?? $transaction->invoice?->store_id;
 
         $lines = [
             [
@@ -589,17 +591,20 @@ class LedgerPostingService
             return null;
         }
 
+        // An invoice payment has no order; its store lives on the invoice.
+        $storeId = $transaction->order?->store_id ?? $transaction->invoice?->store_id;
+
         $lines = [
             [
                 'account_key' => 'gateway_clearing',
                 'debit' => $commissionKobo,
-                'store_id' => $transaction->order?->store_id,
+                'store_id' => $storeId,
                 'description' => 'Commission '.$transaction->reference,
             ],
             [
                 'account_key' => 'service_charge_income',
                 'credit' => $commissionKobo,
-                'store_id' => $transaction->order?->store_id,
+                'store_id' => $storeId,
                 'description' => 'Commission '.$transaction->reference,
             ],
         ];
@@ -783,7 +788,7 @@ class LedgerPostingService
             ));
         }
 
-        $storeId = $transaction->order?->store_id;
+        $storeId = $transaction->order?->store_id ?? $transaction->invoice?->store_id;
         $description = 'Payment '.$transaction->reference;
 
         $lines = [[
@@ -870,7 +875,7 @@ class LedgerPostingService
             return null;
         }
 
-        $storeId = $transaction->order?->store_id;
+        $storeId = $transaction->order?->store_id ?? $transaction->invoice?->store_id;
         $description = 'Provider fee '.$transaction->reference;
 
         $lines = [

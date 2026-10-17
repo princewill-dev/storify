@@ -10,6 +10,7 @@ use App\Models\ServiceCharge;
 use App\Models\Store;
 use App\Models\Transaction;
 use App\Models\User;
+use App\Support\InvoicePaymentUrl;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
@@ -179,7 +180,7 @@ final class InvoiceService
                 $invoice->save();
             }
 
-            $paymentUrl = route('invoice.pay.show', ['token' => $invoice->payment_token]);
+            $paymentUrl = InvoicePaymentUrl::for($invoice);
 
             Mail::to($to)->queue(new InvoiceMail($invoice, $paymentUrl));
 

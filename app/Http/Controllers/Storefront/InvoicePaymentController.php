@@ -14,6 +14,7 @@ use App\Services\Access\StorePaymentGate;
 use App\Services\Accounting\LedgerPostingService;
 use App\Services\Payments\PaymentGatewayResolver;
 use App\Services\PaystackService;
+use App\Support\InvoicePaymentUrl;
 use App\Support\Money\Naira;
 use App\Support\Payments\SystemProcessor;
 use Illuminate\Http\JsonResponse;
@@ -37,12 +38,25 @@ class InvoicePaymentController extends Controller
         $this->paystack = $paystackService;
     }
 
-    public function show(string $token): View
+    /**
+     * The legacy page, kept only for an invoice with no store to serve it.
+     *
+     * Every invoice that resolves to a store now opens on the storefront SPA,
+     * which is where its payment actually runs on the centralized collection.
+     * A 302 rather than a 301 because the destination may move as stores are
+     * created or deleted, and because an emailed link should never be cached
+     * as a permanent redirect.
+     */
+    public function show(string $token): View|RedirectResponse
     {
         $invoice = Invoice::where('payment_token', $token)->with(['items', 'store', 'store.banks', 'transactions', 'business'])->firstOrFail();
 
         if ($invoice->status === InvoiceStatus::DRAFT) {
             abort(404);
+        }
+
+        if (InvoicePaymentUrl::storeFor($invoice) !== null) {
+            return redirect()->away(InvoicePaymentUrl::for($invoice), 302);
         }
 
         $store = $invoice->store;

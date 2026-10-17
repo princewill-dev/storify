@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\TransactionStatus;
+use App\Mail\InvoicePaymentReceiptMail;
 use App\Mail\PaymentConfirmedMail;
 use App\Mail\PaymentRejectedMail;
 use App\Mail\RefundProcessedMail;
@@ -471,7 +472,7 @@ test('confirming a pending payment credits the store and queues the legacy mails
     Mail::assertQueued(PaymentConfirmedMail::class, fn (PaymentConfirmedMail $mail) => $mail->recipient?->email === $customer->email);
 });
 
-test('confirming an invoice payment credits its store without order mails', function () {
+test('confirming an invoice payment credits its store and sends only the invoice receipt', function () {
     Mail::fake();
 
     [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
@@ -493,8 +494,10 @@ test('confirming an invoice payment credits its store without order mails', func
 
     expect((int) $store->fresh()->balance)->toBe(250000);
 
-    // The legacy mail block assumed an order and died on invoice payments.
-    Mail::assertNothingQueued();
+    // An invoice payment now sends its own receipt — and nothing shaped like an
+    // order. The order mail block used to assume one and die on invoice rows.
+    Mail::assertQueued(InvoicePaymentReceiptMail::class, 1);
+    Mail::assertNotQueued(PaymentConfirmedMail::class);
 });
 
 test('only pending transactions can be confirmed', function () {

@@ -2,8 +2,12 @@
 
 namespace App\Services\Transactions;
 
+use App\Enums\InvoiceStatus;
 use App\Enums\OrderStatus;
 use App\Enums\TransactionStatus;
+use App\Jobs\SettlePayouts;
+use App\Mail\InvoicePaymentReceiptMail;
+use App\Models\Invoice;
 use App\Models\Order;
 use App\Models\Store;
 use App\Models\Transaction;
@@ -17,6 +21,7 @@ use App\Services\Subscription\PlatformBillingGateway;
 use App\Support\Money\Naira;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 
 /**
  * WS-18 — the money movement behind confirm/reject/refund.
@@ -47,6 +52,50 @@ class TransactionWorkflowService
             $transaction->update(['status' => TransactionStatus::CONFIRMED->value]);
 
             $store = $this->transactions->storeFor($transaction);
+            $invoice = $transaction->invoice;
+
+            if ($invoice) {
+                // An invoice payment advances the invoice, not an order. Locked
+                // on the invoice row, which is the thing two confirmations
+                // would otherwise both increment.
+                $invoice = Invoice::query()
+                    ->whereKey($invoice->getKey())
+                    ->lockForUpdate()
+                    ->firstOrFail();
+
+                $invoice->amount_paid = (float) $invoice->amount_paid + (float) $transaction->amount;
+
+                if ($invoice->isFullyPaid()) {
+                    $invoice->status = InvoiceStatus::PAID;
+                    $invoice->paid_at = now();
+                } elseif ((float) $invoice->amount_paid > 0) {
+                    $invoice->status = InvoiceStatus::PARTIAL;
+                }
+
+                $invoice->save();
+            } else {
+                $order = $transaction->order;
+
+                if ($order) {
+                    $order->amount_paid = (float) $order->amount_paid + (float) $transaction->amount;
+
+                    if ($order->isFullyPaid() && $order->status === OrderStatus::PENDING) {
+                        $order->status = OrderStatus::ACCEPTED;
+                    }
+
+                    $order->save();
+                }
+            }
+
+            // A managed invoice sale is money in the business's account at the
+            // provider, not a balance we hold, so it must not be credited here.
+            // An order keeps the credit it has always had: the legs reaching
+            // this method for an order are not platform-managed.
+            $shouldCredit = $invoice === null || ! $transaction->isPlatformManaged();
+
+            if (! $shouldCredit && $store === null) {
+                return;
+            }
 
             if (! $store) {
                 throw new \RuntimeException('Transaction has no associated store.');
@@ -62,29 +111,38 @@ class TransactionWorkflowService
                 'store_balance_before' => $balanceBefore,
                 'store_balance_after' => (int) $store->fresh()->balance,
             ]);
-
-            $order = $transaction->order;
-
-            if ($order) {
-                $order->amount_paid = (float) $order->amount_paid + (float) $transaction->amount;
-
-                if ($order->isFullyPaid() && $order->status === OrderStatus::PENDING) {
-                    $order->status = OrderStatus::ACCEPTED;
-                }
-
-                $order->save();
-            }
         });
 
         $transaction = $transaction->fresh();
 
-        $this->ledger->safe(fn () => $this->ledger->postPaymentReceived($transaction, $actorId));
+        if ($transaction->invoice) {
+            $this->ledger->safe(fn () => $this->ledger->postInvoice($transaction->invoice, $actorId));
 
-        if ($transaction->order && $transaction->order->isFullyPaid()) {
-            $this->digital->deliverSafely($transaction->order);
+            if ($transaction->isPlatformManaged()) {
+                $this->ledger->safe(fn () => $this->ledger->postManagedPaymentReceived(
+                    $transaction,
+                    $transaction->platformFeeKobo(),
+                    $actorId,
+                    custody: true,
+                ));
+
+                $this->custody->recordCollectedSale($transaction, $transaction->settlementProviderCode());
+
+                SettlePayouts::forSale($transaction);
+            } else {
+                $this->ledger->safe(fn () => $this->ledger->postPaymentReceived($transaction, $actorId));
+            }
+
+            $this->queueInvoiceReceipt($transaction);
+        } else {
+            $this->ledger->safe(fn () => $this->ledger->postPaymentReceived($transaction, $actorId));
+
+            if ($transaction->order && $transaction->order->isFullyPaid()) {
+                $this->digital->deliverSafely($transaction->order);
+            }
+
+            $this->mails->queue($transaction, 'confirmed');
         }
-
-        $this->mails->queue($transaction, 'confirmed');
 
         Log::info('api.management.payment_confirmed', [
             'user_id' => $actorId,
@@ -93,6 +151,31 @@ class TransactionWorkflowService
         ]);
 
         return $transaction;
+    }
+
+    /**
+     * The invoice receipt, once. A mail failure is logged and never allowed to
+     * fail a payment the operator has already confirmed.
+     */
+    private function queueInvoiceReceipt(Transaction $transaction): void
+    {
+        $invoice = $transaction->invoice;
+
+        if (! $invoice) {
+            return;
+        }
+
+        $to = $invoice->recipient_email ?: $invoice->customer?->email;
+
+        if (! $to || str_contains($to, '@walkin.local')) {
+            return;
+        }
+
+        try {
+            Mail::to($to)->queue(new InvoicePaymentReceiptMail($invoice, $transaction));
+        } catch (\Throwable $e) {
+            Log::error('invoice_receipt_mail_failed', ['error' => $e->getMessage()]);
+        }
     }
 
     /**

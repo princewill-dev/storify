@@ -2,12 +2,16 @@
 
 namespace App\Services\Management\Transaction;
 
+use App\Enums\InvoiceStatus;
 use App\Enums\OrderStatus;
 use App\Enums\TransactionStatus;
+use App\Jobs\SettlePayouts;
+use App\Models\Invoice;
 use App\Models\Order;
 use App\Models\Transaction;
 use App\Services\Accounting\LedgerPostingService;
 use App\Services\Digital\DigitalDeliveryService;
+use App\Services\Payments\Custody\CustodyService;
 use App\Support\Money\Naira;
 use Illuminate\Support\Facades\DB;
 
@@ -38,6 +42,7 @@ final class TransactionService
     public function __construct(
         private readonly LedgerPostingService $ledger,
         private readonly DigitalDeliveryService $digital,
+        private readonly CustodyService $custody,
     ) {}
 
     /**
@@ -51,6 +56,46 @@ final class TransactionService
             $transaction->update(['status' => TransactionStatus::CONFIRMED->value]);
 
             $store = $transaction->order?->store ?? $transaction->invoice?->store;
+            $invoice = $transaction->invoice;
+
+            if ($invoice) {
+                // An invoice payment advances the invoice. Locked on the invoice
+                // row so two confirmations cannot both add to it.
+                $invoice = Invoice::query()
+                    ->whereKey($invoice->getKey())
+                    ->lockForUpdate()
+                    ->firstOrFail();
+
+                $invoice->amount_paid = (float) $invoice->amount_paid + (float) $transaction->amount;
+
+                if ($invoice->isFullyPaid()) {
+                    $invoice->status = InvoiceStatus::PAID;
+                    $invoice->paid_at = now();
+                } elseif ((float) $invoice->amount_paid > 0) {
+                    $invoice->status = InvoiceStatus::PARTIAL;
+                }
+
+                $invoice->save();
+            } else {
+                $order = $transaction->order;
+
+                if ($order) {
+                    $order->amount_paid = (float) $order->amount_paid + (float) $transaction->amount;
+
+                    if ($order->isFullyPaid() && $order->status === OrderStatus::PENDING) {
+                        $order->status = OrderStatus::ACCEPTED;
+                    }
+
+                    $order->save();
+                }
+            }
+
+            // A managed invoice sale sits in the business's account at the
+            // provider, never in a wallet of ours. An order keeps the credit it
+            // has always had.
+            if ($invoice && $transaction->isPlatformManaged()) {
+                return;
+            }
 
             if (! $store) {
                 throw new \RuntimeException('Transaction has no associated store.');
@@ -68,19 +113,28 @@ final class TransactionService
                 'store_balance_before' => $balanceBefore,
                 'store_balance_after' => (int) $store->fresh()->balance,
             ]);
-
-            $order = $transaction->order;
-
-            if ($order) {
-                $order->amount_paid = (float) $order->amount_paid + (float) $transaction->amount;
-
-                if ($order->isFullyPaid() && $order->status === OrderStatus::PENDING) {
-                    $order->status = OrderStatus::ACCEPTED;
-                }
-
-                $order->save();
-            }
         });
+
+        if ($transaction->invoice) {
+            $this->ledger->safe(fn () => $this->ledger->postInvoice($transaction->invoice, $actorId));
+
+            if ($transaction->isPlatformManaged()) {
+                $this->ledger->safe(fn () => $this->ledger->postManagedPaymentReceived(
+                    $transaction,
+                    $transaction->platformFeeKobo(),
+                    $actorId,
+                    custody: true,
+                ));
+
+                $this->custody->recordCollectedSale($transaction, $transaction->settlementProviderCode());
+
+                SettlePayouts::forSale($transaction);
+            } else {
+                $this->ledger->safe(fn () => $this->ledger->postPaymentReceived($transaction, $actorId));
+            }
+
+            return $transaction;
+        }
 
         $this->ledger->safe(fn () => $this->ledger->postPaymentReceived($transaction, $actorId));
 

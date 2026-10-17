@@ -11,6 +11,7 @@ use App\Models\Transaction;
 use App\Models\User;
 use App\Repositories\Management\InvoiceRepository;
 use App\Services\Accounting\LedgerPostingService;
+use App\Support\InvoicePaymentUrl;
 use App\Support\Money\Naira;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -365,7 +366,7 @@ final class InvoiceService
 
         Mail::to($to)->queue(new InvoiceMail(
             $invoice,
-            route('invoice.pay.show', ['token' => $invoice->payment_token]),
+            InvoicePaymentUrl::for($invoice),
         ));
 
         if ($invoice->isDraft()) {

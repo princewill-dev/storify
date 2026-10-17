@@ -17,9 +17,9 @@ use App\Services\Digital\DigitalDeliveryService;
 use App\Services\Payments\Connect\PlatformCommission;
 use App\Services\Payments\Custody\CustodyService;
 use App\Services\Payments\Data\PaymentIntent;
-use App\Services\Payments\Data\VerificationResult;
 use App\Services\Payments\PaymentGatewayManager;
 use App\Services\Payments\PaymentGatewayResolver;
+use App\Services\Payments\PaymentPricing;
 use App\Support\Money\ExchangeRateService;
 use App\Support\Money\Naira;
 use App\Support\Money\StoreCurrency;
@@ -52,6 +52,7 @@ final class CheckoutPaymentService
         private readonly PaymentGatewayManager $manager,
         private readonly ExchangeRateService $rates,
         private readonly CustodyService $custody,
+        private readonly PaymentPricing $pricing,
     ) {}
 
     /**
@@ -75,7 +76,7 @@ final class CheckoutPaymentService
             );
         }
 
-        $reference = $this->generateReference();
+        $reference = $this->pricing->reference('ch');
         $remaining = $order->remainingBalance();
 
         // Resolve the charge before anything is written. The store's own amount
@@ -108,7 +109,7 @@ final class CheckoutPaymentService
 
         // Built once and used twice: written onto the transaction under
         // `metadata.pricing`, and echoed to the customer as `data.pricing`.
-        $block = $this->pricingBlock($storeCurrency, $storeAmountMinor, $chargeMinor, $driver->currency());
+        $block = $this->pricing->block($storeCurrency, $storeAmountMinor, $chargeMinor, $driver->currency());
 
         // Email is not a validated field on this endpoint, so this stays null
         // and the platform from-address is used — as before.
@@ -175,7 +176,7 @@ final class CheckoutPaymentService
                     'provider' => $provider,
                     'payment_mode' => $connection->paymentMode(),
                     'platform_fee_kobo' => $commissionKobo,
-                ], $this->pricingMetadata($block)),
+                ], $this->pricing->metadata($block)),
             ]);
 
             $result = $driver->initialize(
@@ -318,7 +319,7 @@ final class CheckoutPaymentService
             // — while the currency gate confined Bitfra to USD stores it was
             // unreachable for them, and every other provider settles in the
             // store's own currency so the two figures coincide.
-            if ($this->isUnderpaid($transaction, $verification)) {
+            if ($this->pricing->isUnderpaid($transaction, $verification)) {
                 return PaymentVerificationOutcome::failed(
                     'The amount received is less than the amount charged for this payment.'
                 );
@@ -457,82 +458,6 @@ final class CheckoutPaymentService
     }
 
     /**
-     * Whether the provider reports less than this payment was asked to charge.
-     *
-     * Only asks the question when a converted charge was recorded. A row with
-     * no `pricing` — every naira transaction, and every row predating
-     * conversion — answers "no" without a comparison, so its settlement is
-     * exactly what it was before.
-     *
-     * Deliberately `<` and not `!=`: a provider reporting *more* is a customer
-     * having overpaid through FX movement between checkout and settlement, and
-     * refusing that would reject real money.
-     */
-    private function isUnderpaid(Transaction $transaction, VerificationResult $verification): bool
-    {
-        $expected = $transaction->chargeAmountMinor();
-
-        if ($expected === null || $verification->amountMinor >= $expected) {
-            return false;
-        }
-
-        Log::warning('payments.settlement.underpaid', [
-            'reference' => $transaction->reference,
-            'expected_minor' => $expected,
-            'reported_minor' => $verification->amountMinor,
-            'charge_currency' => $transaction->metadata['pricing']['charge_currency'] ?? null,
-        ]);
-
-        return true;
-    }
-
-    /**
-     * The record of what the provider was asked to charge.
-     *
-     * **Empty when the two currencies match**, which is six providers out of
-     * seven. That is not an optimisation — it is what keeps a naira transaction
-     * byte-identical to the one this code wrote before conversion existed, so
-     * the settlement floor keyed on this block's presence cannot change the
-     * behaviour of any payment that does not involve a conversion.
-     *
-     * The block is returned *unwrapped*: `pricingMetadata()` puts it under the
-     * key the transaction's metadata wants, and the controller echoes it as
-     * `data.pricing` as it is. Wrapping it here would nest it twice on one of
-     * those two paths.
-     *
-     * @return array<string, mixed>
-     */
-    private function pricingBlock(string $storeCurrency, int $storeAmountMinor, int $chargeMinor, string $chargeCurrency): array
-    {
-        if ($storeCurrency === $chargeCurrency) {
-            return [];
-        }
-
-        return [
-            'store_amount_minor' => $storeAmountMinor,
-            'store_currency' => $storeCurrency,
-            'charge_amount_minor' => $chargeMinor,
-            'charge_currency' => $chargeCurrency,
-            // Store-minor units per charge-minor unit — for a naira store
-            // paying in USD, the familiar "₦1,331 to the dollar".
-            'rate' => $this->rates->divisorFor($storeCurrency, $chargeCurrency),
-            'rated_at' => $this->rates->ratedAt($storeCurrency, $chargeCurrency)?->toIso8601String(),
-        ];
-    }
-
-    /**
-     * The same block as it is stored: under `metadata.pricing`, or absent
-     * entirely when there was nothing to convert.
-     *
-     * @param  array<string, mixed>  $block
-     * @return array<string, array<string, mixed>>
-     */
-    private function pricingMetadata(array $block): array
-    {
-        return $block === [] ? [] : ['pricing' => $block];
-    }
-
-    /**
      * The store's verified bank accounts, for a provider that settles offline.
      *
      * @return array<int, array<string, string>>
@@ -547,28 +472,5 @@ final class CheckoutPaymentService
             ])
             ->values()
             ->all();
-    }
-
-    /**
-     * The reference a new transaction is known by.
-     *
-     * It is a public string — quoted to the customer on the confirmation and
-     * tracking pages, and handed to the provider to echo back — so it is
-     * written to read like an identifier rather than like an internal code. It
-     * used to be `API_<epoch>_<8 hex>`, which printed this platform's own
-     * vocabulary, and a timestamp, on somebody else's receipt.
-     *
-     * Random rather than clock-derived, which is all `md5(uniqid())` amounted
-     * to: `uniqid()` is the time, so anyone who knew roughly when a checkout
-     * was opened could write the reference down. Sixty-four bits from
-     * `random_bytes` against a column that is unique is not a collision that
-     * will happen.
-     *
-     * References already written keep the old shape. Nothing parses either —
-     * the value is matched whole, as a string, on every path that reads it.
-     */
-    private function generateReference(): string
-    {
-        return 'ch_'.bin2hex(random_bytes(8));
     }
 }
