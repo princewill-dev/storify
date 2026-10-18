@@ -4,6 +4,7 @@ namespace App\Mail;
 
 use App\Models\User;
 use App\Queue\WithQueueConfig;
+use App\Support\SpaUrls;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Mail\Mailable;
@@ -46,7 +47,9 @@ class WelcomeMail extends Mailable implements ShouldQueue
                 'user' => $this->user,
                 'appName' => config('app.name', 'Ecom'),
                 'appUrl' => config('app.url'),
-                'loginUrl' => config('app.url').'/login',
+                // The API's /login is now a redirect into the admin console;
+                // business owners sign in at the management app.
+                'loginUrl' => SpaUrls::management('/login'),
             ],
         );
     }

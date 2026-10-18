@@ -5,6 +5,7 @@ use App\Http\Middleware\EnsurePlanFeature;
 use App\Http\Middleware\EnsureTokenAudience;
 use App\Http\Middleware\IsPlatformAdmin;
 use App\Http\Middleware\SetPermissionsTeamId;
+use App\Support\SpaUrls;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -48,10 +49,11 @@ return Application::configure(basePath: dirname(__DIR__))
         // route named `login` — see routes/web.php. Guests are still not
         // redirected here; the auth middleware's own redirect handles them.
         //
-        // Signed-in visitors to /login go to the log viewer rather than to
-        // whatever defaultRedirectUri() happens to find first (it looks for
-        // `dashboard`, then `home`, then '/', none of which mean anything here).
-        $middleware->redirectUsersTo(fn () => route('log-viewer.index'));
+        // Nothing uses the `guest` middleware any more, but if a package route
+        // ever does, an already-signed-in visitor belongs in the console — not
+        // on the log viewer, which may be disabled and then has no route at
+        // all (resolving it here would throw during boot).
+        $middleware->redirectUsersTo(fn () => SpaUrls::admin('/login'));
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //

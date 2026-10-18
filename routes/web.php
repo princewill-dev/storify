@@ -1,6 +1,6 @@
 <?php
 
-use App\Http\Controllers\Auth\SuperadminSessionController;
+use App\Http\Controllers\Auth\LogViewerHandoffController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -10,27 +10,37 @@ use Illuminate\Support\Facades\Route;
 | This application is API-only. The web stack is kept for exactly three things
 | that genuinely need it: the Paystack webhook (signature-verified, CSRF
 | exempt), the public invoice payment page, which is emailed to people who
-| have no account, and the session login for the log viewer.
+| have no account, and the session handoff for the log viewer.
 |
 | The log viewer is the reason the `web` guard exists at all. It is reached by
 | typing a URL, and a top-level browser navigation cannot send an Authorization
 | header — so a token, which is how every other client authenticates, is not an
-| option. `Authenticate` sends guests here by resolving route('login') by name,
-| so that name is not decorative: renaming it breaks /logs with a 500.
+| option. The authenticated admin console mints a signed URL instead; redeeming
+| it establishes the session. `Authenticate` sends guests to route('login') by
+| name, so that name is not decorative: renaming it breaks /logs with a 500.
+| It now redirects to the admin console's own sign-in screen rather than
+| rendering a second, Blade-based login form.
 |
 | Everything else lives under routes/api.php.
 */
 
-Route::middleware('guest')->group(function () {
-    Route::get('/login', [SuperadminSessionController::class, 'show'])->name('login');
+// Not a login form: the named destination `Authenticate` resolves for guests.
+Route::get('/login', [LogViewerHandoffController::class, 'login'])->name('login');
 
-    // The account must be a superadmin, so the guessable secret is a password
-    // to a real account rather than a token — worth rate limiting directly.
-    Route::post('/login', [SuperadminSessionController::class, 'store'])->middleware('throttle:6,1');
-});
+/*
+| The signed handoff itself.
+|
+| Outside the package's `logs` prefix on purpose — that prefix owns
+| `logs/{view?}` as a catch-all, and a static sibling under it would depend on
+| registration order. The one-minute signature is the credential; the
+| controller re-checks the account before logging it in.
+*/
+Route::get('/log-viewer/enter', LogViewerHandoffController::class)
+    ->middleware('signed')
+    ->name('log-viewer.enter');
 
-Route::post('/logout', [SuperadminSessionController::class, 'destroy'])
-    ->middleware('auth')
+Route::post('/logout', [LogViewerHandoffController::class, 'destroy'])
+    ->middleware('auth:web')
     ->name('logout');
 
 /*

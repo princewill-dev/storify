@@ -47,10 +47,11 @@ return [
     |--------------------------------------------------------------------------
     | Log Viewer Access
     |--------------------------------------------------------------------------
-    | The roles allowed through the session login at /login, and the only ones
-    | the LogViewer::auth() gate in AppServiceProvider lets in. Both read this
-    | key, so widening access is a one-line change here rather than an edit in
-    | two places that can drift apart.
+    | The roles allowed through the signed handoff from the admin console, and
+    | the only ones the LogViewer::auth() gate in AppServiceProvider lets in.
+    | Both go through App\Support\Auth\LogViewerAccess, so widening access is a
+    | one-line change here rather than an edit in several places that can drift
+    | apart.
     |
     | Not a package setting — the log viewer has no role concept of its own.
     |
@@ -114,7 +115,10 @@ return [
 
     'middleware' => [
         'web',
-        'auth',
+        // Pinned to the session guard. The handoff logs the user in there, and
+        // an unqualified `auth` would follow whatever the default guard is at
+        // the time — which Sanctum's stateful middleware can change.
+        'auth:web',
         AuthorizeLogViewer::class,
     ],
 
@@ -129,7 +133,7 @@ return [
 
     'api_middleware' => [
         EnsureFrontendRequestsAreStateful::class,
-        'auth',
+        'auth:web',
         AuthorizeLogViewer::class,
     ],
 

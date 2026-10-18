@@ -7,11 +7,11 @@ use App\Models\Setting;
 use App\Models\SubscriptionPlan;
 use App\Models\User;
 use App\Observers\SubscriptionPlanObserver;
+use App\Support\Auth\LogViewerAccess;
 use App\Support\EmailBrand;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\Paginator;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
@@ -66,13 +66,9 @@ class AppServiceProvider extends ServiceProvider
         // would let someone sign in and then be shown nothing, or worse, the
         // reverse.
         if (class_exists(LogViewer::class)) {
-            LogViewer::auth(function ($request) {
-                $user = $request->user('web');
-
-                return $user !== null
-                    && $user->status === 'active'
-                    && in_array($user->role, config('log-viewer.allowed_roles', ['superadmin']), true);
-            });
+            // The same predicate the handoff and the mint endpoint use — see
+            // LogViewerAccess, which is also where the allow-list lives.
+            LogViewer::auth(fn ($request) => LogViewerAccess::allows($request->user('web')));
         }
 
         Paginator::useBootstrapFive();

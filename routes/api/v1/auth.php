@@ -94,6 +94,12 @@ Route::middleware(['auth:sanctum', 'token.audience:admin', 'team.context'])
     ->prefix('admin')->name('api.admin.')
     ->group(function () {
         Route::get('auth/me', [AdminAuthController::class, 'me'])->name('me');
+        // The bridge to the session-cookie surface at /logs. `platform.admin`
+        // is defence in depth; the controller's LogViewerAccess check is the
+        // real gate and is the one that respects `log-viewer.allowed_roles`.
+        Route::get('auth/log-viewer-link', [AdminAuthController::class, 'logViewerLink'])
+            ->middleware('platform.admin')
+            ->name('log-viewer-link');
         Route::post('auth/logout', [AdminAuthController::class, 'logout'])->name('logout');
         Route::post('auth/logout-all', [AdminAuthController::class, 'logoutAll'])->name('logout-all');
         Route::post('users/{user}/impersonate', [ImpersonationController::class, 'impersonate'])

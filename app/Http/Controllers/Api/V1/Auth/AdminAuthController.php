@@ -15,10 +15,12 @@ use App\Repositories\Auth\AdminAuthRepository;
 use App\Services\Auth\AdminAuthService;
 use App\Services\Auth\ApiTokenService;
 use App\Services\Auth\RefreshTokenService;
+use App\Support\Auth\LogViewerAccess;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\URL;
 
 /**
  * Platform-admin authentication — the console's one-time bootstrap, sign-in
@@ -78,6 +80,7 @@ class AdminAuthController extends ApiController
             ...$pair,
             'user' => $this->userPayload($user),
             'session' => $this->sessionPayload('admin'),
+            'capabilities' => $this->capabilitiesPayload($user),
         ], 'Admin account created.', 201);
     }
 
@@ -127,6 +130,7 @@ class AdminAuthController extends ApiController
             ...$pair,
             'user' => $this->userPayload($user),
             'session' => $this->sessionPayload('admin'),
+            'capabilities' => $this->capabilitiesPayload($user),
         ], 'Signed in successfully.');
     }
 
@@ -173,7 +177,52 @@ class AdminAuthController extends ApiController
         return $this->ok([
             'user' => $this->userPayload($user),
             'session' => $this->sessionPayload('admin'),
+            'capabilities' => $this->capabilitiesPayload($user),
         ]);
+    }
+
+    /**
+     * Mint the signed URL that opens the log viewer in a new tab.
+     *
+     * A top-level navigation cannot carry a bearer token, and the viewer needs
+     * a `web` session. This is the bridge: an authenticated API call returns a
+     * one-minute signed URL; the browser opening it establishes the session.
+     *
+     * The user comes from the token and nowhere else. The role/status check is
+     * repeated when the URL is redeemed, because a demoted or suspended account
+     * must not get in on a link minted a moment earlier.
+     */
+    public function logViewerLink(Request $request): JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->user();
+
+        if (! LogViewerAccess::allows($user)) {
+            return $this->error('You do not have access to the server logs.', 403);
+        }
+
+        $expiresAt = now()->addSeconds(LogViewerAccess::HANDOFF_TTL_SECONDS);
+
+        return $this->ok([
+            'url' => URL::temporarySignedRoute('log-viewer.enter', $expiresAt, [
+                'user' => $user->getKey(),
+            ]),
+            'expires_at' => $expiresAt->toIso8601String(),
+        ])->header('Cache-Control', 'no-store, private');
+    }
+
+    /**
+     * Server-reported abilities the console uses to shape its chrome.
+     *
+     * Deliberately not part of `userPayload()`: that payload is shared with
+     * management, invitation and impersonation responses, and the log viewer
+     * is an admin-only surface.
+     *
+     * @return array{log_viewer: bool}
+     */
+    private function capabilitiesPayload(User $user): array
+    {
+        return ['log_viewer' => LogViewerAccess::allows($user)];
     }
 
     public function logout(AdminLogoutRequest $request): JsonResponse
