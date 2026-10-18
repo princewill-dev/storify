@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1\Auth;
 
 use App\Http\Controllers\Api\V1\ApiController;
+use App\Http\Controllers\Api\V1\Auth\Concerns\BuildsAuthResponses;
 use App\Http\Requests\Auth\RefreshTokenRequest;
 use App\Models\RefreshToken;
 use App\Services\Auth\ApiTokenService;
@@ -12,6 +13,8 @@ use Illuminate\Support\Facades\Log;
 
 class TokenController extends ApiController
 {
+    use BuildsAuthResponses;
+
     public function __construct(
         private readonly RefreshTokenService $refreshTokens,
         private readonly ApiTokenService $tokens,
@@ -54,6 +57,8 @@ class TokenController extends ApiController
             ...$access,
             'refresh_token' => $plainRefresh,
             'abilities' => $abilities,
+            // A refreshed session keeps the policy of the app it belongs to.
+            'session' => $this->sessionPayload($refresh->app),
         ], 'Token refreshed.');
     }
 }

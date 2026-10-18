@@ -63,6 +63,9 @@ class ImpersonationController extends ApiController
                 'id' => $impersonation->id,
                 'impersonator' => ['id' => $admin->id, 'name' => $admin->name],
             ],
+            // The impersonating session runs on management tokens, so it idles
+            // out on the management console's clock, not the admin one.
+            'session' => $this->sessionPayload('management'),
         ], 'You are now viewing as '.$user->name.'.');
     }
 
@@ -108,6 +111,7 @@ class ImpersonationController extends ApiController
         return $this->ok([
             ...$pair,
             'user' => $this->userPayload($admin),
+            'session' => $this->sessionPayload('admin'),
         ], 'Returned to admin.');
     }
 }

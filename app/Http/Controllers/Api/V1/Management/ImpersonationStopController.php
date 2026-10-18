@@ -99,6 +99,9 @@ class ImpersonationStopController extends ApiController
         return $this->ok([
             ...$pair,
             'user' => $this->userPayload($admin),
+            // The pair is an admin one, so the console that receives it keeps
+            // the admin idle window rather than the one it was impersonating.
+            'session' => $this->sessionPayload('admin'),
         ], 'Returned to admin.');
     }
 }

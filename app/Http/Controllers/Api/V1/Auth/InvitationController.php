@@ -62,6 +62,7 @@ class InvitationController extends ApiController
         return $this->ok([
             ...$pair,
             'user' => $this->userPayload($user->fresh()),
+            'session' => $this->sessionPayload('management'),
         ], 'Welcome aboard! Your account has been activated.');
     }
 
@@ -89,6 +90,7 @@ class InvitationController extends ApiController
         return $this->ok([
             ...$pair,
             'user' => $this->userPayload($user->fresh()),
+            'session' => $this->sessionPayload('admin'),
         ], 'Welcome to the admin team!');
     }
 }

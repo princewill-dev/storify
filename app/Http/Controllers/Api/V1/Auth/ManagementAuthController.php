@@ -104,6 +104,7 @@ class ManagementAuthController extends ApiController
                 ...$pair,
                 'user' => $userPayload,
                 'next' => $userPayload['onboarding']['next'],
+                'session' => $this->sessionPayload('management'),
             ], 'Welcome, '.$user->name.'!');
         }
 
@@ -154,6 +155,7 @@ class ManagementAuthController extends ApiController
             'context' => $result['context'],
             'user' => $userPayload,
             'next' => $userPayload['onboarding']['next'],
+            'session' => $this->sessionPayload('management'),
         ], 'Signed in successfully.');
     }
 
@@ -220,6 +222,7 @@ class ManagementAuthController extends ApiController
                 'impersonation_id' => $impersonation->id,
                 'started_at' => $impersonation->started_at?->toISOString(),
             ] : null,
+            'session' => $this->sessionPayload('management'),
         ]);
     }
 

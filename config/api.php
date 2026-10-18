@@ -15,11 +15,17 @@ return [
         'management' => [
             'access_ttl_minutes' => (int) env('API_MANAGEMENT_ACCESS_TTL', 120),
             'refresh_ttl_days' => (int) env('API_MANAGEMENT_REFRESH_TTL', 30),
+            // The idle session window. A session is kept alive only by activity:
+            // the refresh token is pushed this far forward on every rotation,
+            // and the console warns and signs out when it is not. `0` restores
+            // the day-based `refresh_ttl_days` behaviour above.
+            'idle_ttl_minutes' => (int) env('API_MANAGEMENT_IDLE_TTL_MINUTES', 1440),
             'abilities' => ['management'],
         ],
         'admin' => [
             'access_ttl_minutes' => (int) env('API_ADMIN_ACCESS_TTL', 120),
             'refresh_ttl_days' => (int) env('API_ADMIN_REFRESH_TTL', 14),
+            'idle_ttl_minutes' => (int) env('API_ADMIN_IDLE_TTL_MINUTES', 1440),
             'abilities' => ['admin'],
         ],
         'customer' => [
@@ -64,4 +70,16 @@ return [
         'path' => '/api/v1/auth',
         'same_site' => env('API_REFRESH_COOKIE_SAMESITE', 'lax'),
     ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Idle warning
+    |--------------------------------------------------------------------------
+    |
+    | How long before an idle session expires the console shows its warning.
+    | The API sends this with every auth response so the client counts down
+    | against the same number the server enforces.
+    |
+    */
+    'idle_warning_seconds' => (int) env('API_SESSION_WARNING_SECONDS', 60),
 ];

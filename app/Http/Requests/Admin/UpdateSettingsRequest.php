@@ -70,10 +70,12 @@ class UpdateSettingsRequest extends FormRequest
         return [
             'company_name' => ['nullable', 'string', 'max:255'],
             'company_description' => ['nullable', 'string', 'max:2000'],
-            'company_logo' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
-            'company_favicon' => ['nullable', 'file', 'mimes:png,ico,jpg,jpeg,webp', 'max:1024'],
+            // 5 MB: brand assets are often exported at 2x–3x and a retuned
+            // PNG can clear the old 2 MB (and 1 MB favicon) ceilings.
+            'company_logo' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
+            'company_favicon' => ['nullable', 'file', 'mimes:png,ico,jpg,jpeg,webp', 'max:5120'],
             'company_certificate' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png,webp', 'max:5120'],
-            'og_image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
+            'og_image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
             'support_email' => ['nullable', 'email', 'max:255'],
             'support_phone' => ['nullable', 'string', 'max:50'],
             'company_address' => ['nullable', 'string', 'max:2000'],

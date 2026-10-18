@@ -77,6 +77,7 @@ class AdminAuthController extends ApiController
         return $this->ok([
             ...$pair,
             'user' => $this->userPayload($user),
+            'session' => $this->sessionPayload('admin'),
         ], 'Admin account created.', 201);
     }
 
@@ -125,6 +126,7 @@ class AdminAuthController extends ApiController
         return $this->ok([
             ...$pair,
             'user' => $this->userPayload($user),
+            'session' => $this->sessionPayload('admin'),
         ], 'Signed in successfully.');
     }
 
@@ -168,7 +170,10 @@ class AdminAuthController extends ApiController
         /** @var User $user */
         $user = $request->user();
 
-        return $this->ok(['user' => $this->userPayload($user)]);
+        return $this->ok([
+            'user' => $this->userPayload($user),
+            'session' => $this->sessionPayload('admin'),
+        ]);
     }
 
     public function logout(AdminLogoutRequest $request): JsonResponse

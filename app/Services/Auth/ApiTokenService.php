@@ -2,6 +2,7 @@
 
 namespace App\Services\Auth;
 
+use App\Support\Auth\SessionPolicy;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
 
@@ -16,7 +17,10 @@ class ApiTokenService
      */
     public function issuePair(Model $tokenable, string $app, Request $request, array $extraAbilities = []): array
     {
-        $ttlMinutes = (int) config("api.apps.{$app}.access_ttl_minutes", 120);
+        // Not the configured access TTL on its own: SessionPolicy caps it at
+        // half the idle window and at Sanctum's global expiry, so an active
+        // session always rotates before its refresh token goes stale.
+        $ttlMinutes = SessionPolicy::accessTtlMinutes($app);
         $abilities = array_merge(
             (array) config("api.apps.{$app}.abilities", [$app]),
             $extraAbilities
@@ -43,7 +47,7 @@ class ApiTokenService
      */
     public function issueAccessOnly(Model $tokenable, string $app, array $extraAbilities = []): array
     {
-        $ttlMinutes = (int) config("api.apps.{$app}.access_ttl_minutes", 120);
+        $ttlMinutes = SessionPolicy::accessTtlMinutes($app);
         $abilities = array_merge(
             (array) config("api.apps.{$app}.abilities", [$app]),
             $extraAbilities

@@ -3,8 +3,10 @@
 namespace App\Services\Auth;
 
 use App\Models\RefreshToken;
+use App\Support\Auth\SessionPolicy;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class RefreshTokenService
@@ -22,7 +24,9 @@ class RefreshTokenService
             'app' => $app,
             'family_id' => (string) Str::uuid(),
             'token_hash' => $this->hash($plain),
-            'expires_at' => now()->addDays((int) config("api.apps.{$app}.refresh_ttl_days", 30)),
+            // The idle deadline — see SessionPolicy. Sliding: every rotation
+            // pushes it forward, so only inactivity reaches it.
+            'expires_at' => SessionPolicy::refreshExpiry($app),
             'user_agent' => substr((string) $request->userAgent(), 0, 255),
             'ip_address' => $request->ip(),
         ]);
@@ -34,48 +38,58 @@ class RefreshTokenService
      * Rotate a refresh token. Returns the new model and plaintext value,
      * or null when invalid, expired, or reused (reuse revokes the family).
      *
+     * The row is locked inside a transaction because two tabs (or a tab and a
+     * background refresh) can reach this at the same moment. Without the lock
+     * both could read the same active row and both mint a replacement, leaving
+     * one live orphan; with it the loser re-reads a revoked row and takes the
+     * reuse path, which is the behaviour the family is built around.
+     *
      * @return array{0: RefreshToken, 1: string}|null
      */
     public function rotate(string $plain, Request $request): ?array
     {
-        $token = RefreshToken::where('token_hash', $this->hash($plain))->first();
+        return DB::transaction(function () use ($plain, $request) {
+            $token = RefreshToken::where('token_hash', $this->hash($plain))
+                ->lockForUpdate()
+                ->first();
 
-        if (! $token) {
-            return null;
-        }
+            if (! $token) {
+                return null;
+            }
 
-        // Reuse of a rotated/revoked token — revoke the whole family.
-        if ($token->isRevoked()) {
-            RefreshToken::where('family_id', $token->family_id)
-                ->whereNull('revoked_at')
-                ->update(['revoked_at' => now()]);
+            // Reuse of a rotated/revoked token — revoke the whole family.
+            if ($token->isRevoked()) {
+                RefreshToken::where('family_id', $token->family_id)
+                    ->whereNull('revoked_at')
+                    ->update(['revoked_at' => now()]);
 
-            return null;
-        }
+                return null;
+            }
 
-        if ($token->isExpired()) {
-            return null;
-        }
+            if ($token->isExpired()) {
+                return null;
+            }
 
-        $newPlain = Str::random(64);
+            $newPlain = Str::random(64);
 
-        $new = RefreshToken::create([
-            'tokenable_type' => $token->tokenable_type,
-            'tokenable_id' => $token->tokenable_id,
-            'app' => $token->app,
-            'family_id' => $token->family_id,
-            'token_hash' => $this->hash($newPlain),
-            'expires_at' => now()->addDays((int) config("api.apps.{$token->app}.refresh_ttl_days", 30)),
-            'user_agent' => substr((string) $request->userAgent(), 0, 255),
-            'ip_address' => $request->ip(),
-        ]);
+            $new = RefreshToken::create([
+                'tokenable_type' => $token->tokenable_type,
+                'tokenable_id' => $token->tokenable_id,
+                'app' => $token->app,
+                'family_id' => $token->family_id,
+                'token_hash' => $this->hash($newPlain),
+                'expires_at' => SessionPolicy::refreshExpiry($token->app),
+                'user_agent' => substr((string) $request->userAgent(), 0, 255),
+                'ip_address' => $request->ip(),
+            ]);
 
-        $token->update([
-            'revoked_at' => now(),
-            'replaced_by_id' => $new->id,
-        ]);
+            $token->update([
+                'revoked_at' => now(),
+                'replaced_by_id' => $new->id,
+            ]);
 
-        return [$new, $newPlain];
+            return [$new, $newPlain];
+        });
     }
 
     public function revoke(string $plain): void

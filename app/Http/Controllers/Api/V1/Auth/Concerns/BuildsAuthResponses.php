@@ -7,6 +7,7 @@ use App\Models\Customer;
 use App\Models\KycApplication;
 use App\Models\User;
 use App\Services\OtpService;
+use App\Support\Auth\SessionPolicy;
 use App\Support\Plans\Entitlements;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
@@ -88,6 +89,26 @@ trait BuildsAuthResponses
             'permissions' => $user->getAllPermissions()->pluck('name')->values()->all(),
             'stores' => $this->storesPayload($user),
             'last_login_at' => $user->last_login_at?->toISOString(),
+        ];
+    }
+
+    /**
+     * The idle policy the console counts down against.
+     *
+     * Deliberately a sibling of `user` rather than a member of `userPayload()`:
+     * that payload is shared with admin, invitation and profile responses, and
+     * an app-specific idle window would leak into all of them. Every endpoint
+     * that issues a pair — or reports the current session — emits this, so the
+     * SPA's timer and the refresh token's expiry are the same deadline.
+     *
+     * @return array{idle_timeout_minutes: int, warning_seconds: int, access_expires_in: int}
+     */
+    protected function sessionPayload(string $app = 'management'): array
+    {
+        return [
+            'idle_timeout_minutes' => SessionPolicy::idleMinutes($app),
+            'warning_seconds' => SessionPolicy::warningSeconds(),
+            'access_expires_in' => SessionPolicy::accessTtlMinutes($app) * 60,
         ];
     }
 
