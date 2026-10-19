@@ -81,4 +81,20 @@ return [
         'connect_webhook_secret' => env('BACHS_CONNECT_WEBHOOK_SECRET'),
     ],
 
+    /*
+     * Termii transactional SMS: KYC phone verification and payment/order
+     * alerts. `channel` is Termii's route — `dnd` for transactional traffic,
+     * `generic` for promotional — and `sender_id` must be an approved sender
+     * on the account. `default_country_code` is digits without a plus; it is
+     * used when a local number is entered without a dialling code.
+     */
+    'termii' => [
+        'api_key' => env('TERMII_API_KEY'),
+        'base_url' => env('TERMII_BASE_URL', 'https://api.ng.termii.com'),
+        'sender_id' => env('TERMII_SENDER_ID'),
+        'channel' => env('TERMII_SMS_CHANNEL', 'dnd'),
+        'default_country_code' => env('TERMII_DEFAULT_COUNTRY_CODE', '234'),
+        'timeout_ms' => (int) env('TERMII_TIMEOUT_MS', 10000),
+    ],
+
 ];

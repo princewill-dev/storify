@@ -12,6 +12,7 @@ use App\Models\Transaction;
 use App\Services\Accounting\LedgerPostingService;
 use App\Services\Digital\DigitalDeliveryService;
 use App\Services\Payments\Custody\CustodyService;
+use App\Services\Sms\OrderAlertService;
 use App\Support\Money\Naira;
 use Illuminate\Support\Facades\DB;
 
@@ -43,6 +44,7 @@ final class TransactionService
         private readonly LedgerPostingService $ledger,
         private readonly DigitalDeliveryService $digital,
         private readonly CustodyService $custody,
+        private readonly OrderAlertService $alerts,
     ) {}
 
     /**
@@ -133,6 +135,8 @@ final class TransactionService
                 $this->ledger->safe(fn () => $this->ledger->postPaymentReceived($transaction, $actorId));
             }
 
+            $this->alerts->invoicePaid($transaction);
+
             return $transaction;
         }
 
@@ -141,6 +145,8 @@ final class TransactionService
         if ($transaction->order && $transaction->order->isFullyPaid()) {
             $this->digital->deliverSafely($transaction->order);
         }
+
+        $this->alerts->orderPaid($transaction);
 
         return $transaction;
     }

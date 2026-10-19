@@ -61,6 +61,23 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute(10)->by($request->ip().'|'.(string) $request->input('email'));
         });
 
+        // KYC phone verification. `OtpService` has no attempt counter, so this
+        // is the brute-force guard on a 6-digit code; separate limiters keep a
+        // code request from consuming the guesses, and vice versa.
+        RateLimiter::for('kyc-phone-send', function (Request $request) {
+            $key = 'kyc-phone-send:'.($request->user()?->getAuthIdentifier() ?: $request->ip());
+
+            return [
+                Limit::perMinute(3)->by($key),
+                Limit::perDay(10)->by($key.':day'),
+            ];
+        });
+
+        RateLimiter::for('kyc-phone-verify', function (Request $request) {
+            return Limit::perMinute(10)
+                ->by('kyc-phone-verify:'.($request->user()?->getAuthIdentifier() ?: $request->ip()));
+        });
+
         // Log Viewer access. The roles come from config so this gate and the
         // session login that feeds it cannot drift apart — a discrepancy here
         // would let someone sign in and then be shown nothing, or worse, the

@@ -10,6 +10,7 @@ use App\Models\Order;
 use App\Models\PaymentMethod;
 use App\Models\User;
 use App\Services\ActivityRecorder;
+use App\Services\Sms\OrderAlertService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
@@ -35,6 +36,8 @@ use Illuminate\Support\Str;
  */
 final class OrderOversightService
 {
+    public function __construct(private readonly OrderAlertService $alerts) {}
+
     /**
      * The edit form's write: shipping fee, tax, the recomputed total, notes
      * and the optional status transition.
@@ -194,6 +197,10 @@ final class OrderOversightService
 
     private function notifyCustomerOfStatusChange(Order $order, string $oldStatus, string $newStatus): bool
     {
+        // Before the e-mail guard: a customer who gave a phone but no address
+        // still needs to know their order moved.
+        $this->alerts->orderStatusChanged($order, $oldStatus, $newStatus);
+
         $email = $order->customer?->email;
 
         // POS/walk-in orders have no customer email; legacy assumed one and

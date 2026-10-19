@@ -39,6 +39,7 @@ class KycApplication extends Model
         'last_name',
         'phone_number',
         'phone_country_code',
+        'phone_verified_at',
         'date_of_birth',
         'address_line',
         'city',
@@ -62,6 +63,7 @@ class KycApplication extends Model
 
     protected $casts = [
         'date_of_birth' => 'date',
+        'phone_verified_at' => 'datetime',
         'submitted_at' => 'datetime',
         'approved_at' => 'datetime',
         'rejected_at' => 'datetime',

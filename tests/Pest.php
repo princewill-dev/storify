@@ -3,12 +3,14 @@
 use App\Models\Business;
 use App\Models\Customer;
 use App\Models\KycApplication;
+use App\Models\KycPhoneVerification;
 use App\Models\Store;
 use App\Models\StoreBank;
 use App\Models\SubscriptionPlan;
 use App\Models\User;
 use App\Support\Plans\EntitlementRegistry;
 use App\Support\Plans\Entitlements;
+use App\Support\Sms\PhoneNumber;
 use Database\Seeders\SpatiePermissionSeeder;
 use Illuminate\Support\Str;
 use Tests\Support\SeedsPlatformFixturesOnce;
@@ -139,6 +141,20 @@ function createBusinessOwner(array $userAttributes = [], array $businessAttribut
     }
 
     return [$user->fresh(), $business->fresh()];
+}
+
+/**
+ * Mark the owner's phone as proven, as the KYC step does once the SMS code is
+ * confirmed. Tests that submit KYC use this because verification is required.
+ */
+function verifyKycPhone(User $user, string $phone = '08030000000', ?string $dialCode = null): KycPhoneVerification
+{
+    $normalized = PhoneNumber::normalize($dialCode, $phone, '+234');
+
+    return KycPhoneVerification::updateOrCreate(
+        ['user_id' => $user->id, 'phone' => $normalized],
+        ['business_id' => $user->business_id, 'verified_at' => now()],
+    );
 }
 
 /**

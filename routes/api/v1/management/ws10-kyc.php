@@ -21,4 +21,14 @@ use Illuminate\Support\Facades\Route;
 Route::middleware('permission:settings view')->group(function () {
     Route::get('kyc', [KycController::class, 'show'])->name('kyc.show');
     Route::post('kyc', [KycController::class, 'store'])->name('kyc.submit');
+
+    // Proving the form's phone before submission. Two separate limits: asking
+    // for codes is expensive and abusable, while entering a code is the only
+    // place a 6-digit secret is guessed.
+    Route::post('kyc/phone/otp', [KycController::class, 'sendPhoneOtp'])
+        ->middleware('throttle:kyc-phone-send')
+        ->name('kyc.phone.otp');
+    Route::post('kyc/phone/verify', [KycController::class, 'verifyPhoneOtp'])
+        ->middleware('throttle:kyc-phone-verify')
+        ->name('kyc.phone.verify');
 });

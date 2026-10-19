@@ -14,6 +14,7 @@ use App\Services\Access\StorePaymentGate;
 use App\Services\Accounting\LedgerPostingService;
 use App\Services\Payments\PaymentGatewayResolver;
 use App\Services\PaystackService;
+use App\Services\Sms\OrderAlertService;
 use App\Support\InvoicePaymentUrl;
 use App\Support\Money\Naira;
 use App\Support\Payments\SystemProcessor;
@@ -339,6 +340,10 @@ class InvoicePaymentController extends Controller
             $ledger->postInvoice($invoice);
             $ledger->postPaymentReceived($transaction);
         });
+
+        // This legacy own-keys callback does not pass through the shared
+        // invoice settlement, so it owes the owner the same alert.
+        app(OrderAlertService::class)->invoicePaid($transaction->fresh());
 
         return redirect()->route('invoice.pay.show', ['token' => $token])->with('paymentSuccess', true);
     }

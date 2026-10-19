@@ -11,6 +11,7 @@ use App\Models\OrderDelivery;
 use App\Models\Transaction;
 use App\Models\User;
 use App\Repositories\Management\OrderFulfilmentRepository;
+use App\Services\Sms\OrderAlertService;
 use App\Services\StockLedgerService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -37,6 +38,7 @@ final class OrderFulfilmentService
     public function __construct(
         private readonly OrderFulfilmentRepository $repository,
         private readonly StockLedgerService $ledger,
+        private readonly OrderAlertService $alerts,
     ) {}
 
     /**
@@ -285,6 +287,10 @@ final class OrderFulfilmentService
     private function notifyOrderUpdate(Order $order, string $oldStatus, string $newStatus): void
     {
         $order->loadMissing(['customer', 'store.user']);
+
+        // Beside the mail, not inside its try/catch: a mail failure must not
+        // cost the customer the text, and the alert service never throws.
+        $this->alerts->orderStatusChanged($order, $oldStatus, $newStatus);
 
         $recipients = collect([
             $order->customer?->email,

@@ -17,6 +17,7 @@ use App\Services\Digital\DigitalDeliveryService;
 use App\Services\Payments\Custody\CustodyService;
 use App\Services\Payments\Data\RefundRequest;
 use App\Services\Payments\PaymentGatewayManager;
+use App\Services\Sms\OrderAlertService;
 use App\Services\Subscription\PlatformBillingGateway;
 use App\Support\Money\Naira;
 use Illuminate\Support\Facades\DB;
@@ -40,6 +41,7 @@ class TransactionWorkflowService
         private readonly PaymentGatewayManager $manager,
         private readonly PlatformBillingGateway $platform,
         private readonly CustodyService $custody,
+        private readonly OrderAlertService $alerts,
     ) {}
 
     /**
@@ -134,6 +136,7 @@ class TransactionWorkflowService
             }
 
             $this->queueInvoiceReceipt($transaction);
+            $this->alerts->invoicePaid($transaction);
         } else {
             $this->ledger->safe(fn () => $this->ledger->postPaymentReceived($transaction, $actorId));
 
@@ -142,6 +145,7 @@ class TransactionWorkflowService
             }
 
             $this->mails->queue($transaction, 'confirmed');
+            $this->alerts->orderPaid($transaction);
         }
 
         Log::info('api.management.payment_confirmed', [

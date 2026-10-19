@@ -4,13 +4,17 @@ namespace App\Http\Controllers\Api\V1\Management;
 
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Http\Controllers\Api\V1\Management\Concerns\ResolvesManagementContext;
+use App\Http\Requests\Management\SendKycPhoneOtpRequest;
 use App\Http\Requests\Management\SubmitKycRequest;
+use App\Http\Requests\Management\VerifyKycPhoneOtpRequest;
 use App\Mail\AdminKycSubmitted;
 use App\Mail\BusinessKycSubmitted;
 use App\Models\KycApplication;
 use App\Models\KycDocumentType;
 use App\Models\Store;
 use App\Models\User;
+use App\Services\Management\KycPhoneVerificationService;
+use App\Support\Sms\PhoneNumber;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -36,6 +40,8 @@ use Illuminate\Validation\ValidationException;
 class KycController extends ApiController
 {
     use ResolvesManagementContext;
+
+    public function __construct(private readonly KycPhoneVerificationService $phones) {}
 
     public function show(Request $request): JsonResponse
     {
@@ -73,8 +79,63 @@ class KycController extends ApiController
             'state' => $this->state($application),
             'can_submit' => $blockReason === null,
             'block_reason' => $blockReason,
+            'phone_verification' => $this->phoneVerificationPayload($user, $application),
             'gate' => $this->gate($user, $application),
         ]);
+    }
+
+    /**
+     * Send the code that proves the KYC phone belongs to the owner.
+     *
+     * Synchronous, unlike every alert: the person is waiting on this, and a
+     * Termii refusal has to reach them as an error they can retry now.
+     */
+    public function sendPhoneOtp(SendKycPhoneOtpRequest $request): JsonResponse
+    {
+        $user = $this->authorizeOwner($request);
+
+        if (! $user->business_id) {
+            return $this->error('Complete your business setup before verifying your phone number.', 422);
+        }
+
+        $data = $request->validated();
+
+        $result = $this->phones->send(
+            $user,
+            $data['phone_country_code'] ?? null,
+            $data['phone_number'],
+        );
+
+        return $this->ok($result, 'Verification code sent by SMS.');
+    }
+
+    public function verifyPhoneOtp(VerifyKycPhoneOtpRequest $request): JsonResponse
+    {
+        $user = $this->authorizeOwner($request);
+
+        if (! $user->business_id) {
+            return $this->error('Complete your business setup before verifying your phone number.', 422);
+        }
+
+        $data = $request->validated();
+
+        $this->phones->confirm(
+            $user,
+            $data['phone_country_code'] ?? null,
+            $data['phone_number'],
+            $data['code'],
+        );
+
+        $application = $this->latestApplication($user);
+        $blockReason = $this->blockReason($user, $application);
+
+        return $this->ok([
+            'phone_verification' => $this->phoneVerificationPayload($user, $application),
+            'application' => $this->applicationPayload($application),
+            'state' => $this->state($application),
+            'can_submit' => $blockReason === null,
+            'block_reason' => $blockReason,
+        ], 'Phone number verified.');
     }
 
     public function store(SubmitKycRequest $request): JsonResponse
@@ -117,6 +178,27 @@ class KycController extends ApiController
         $legalName = $request->legalName();
         $dialCode = $request->dialCode();
 
+        // The form's phone must be one this owner proved they control. Checked
+        // against the normalised number, not the typed string, so 0803… and
+        // +234803… are the same phone — and required here as well as in the
+        // payload, because a stale form could otherwise post without ever
+        // asking for a code.
+        $submittedPhone = PhoneNumber::normalize($dialCode, $data['phone_number'], SubmitKycRequest::DEFAULT_DIAL_CODE);
+
+        if ($submittedPhone === null) {
+            throw ValidationException::withMessages([
+                'phone_number' => 'Enter a valid phone number.',
+            ]);
+        }
+
+        $phoneVerification = $this->phones->verificationFor($user, $submittedPhone);
+
+        if ($phoneVerification === null) {
+            throw ValidationException::withMessages([
+                'phone_number' => 'Verify this phone number by SMS before submitting your KYC.',
+            ]);
+        }
+
         Log::info('business.kyc.submission_received', [
             'user_id' => $user->id,
             'data' => [
@@ -152,7 +234,7 @@ class KycController extends ApiController
             $userAgent = (string) $request->userAgent();
             $ipAddress = $request->ip();
 
-            $application = DB::transaction(function () use ($user, $data, $files, $previous, $userAgent, $ipAddress, $legalName, $dialCode) {
+            $application = DB::transaction(function () use ($user, $data, $files, $previous, $userAgent, $ipAddress, $legalName, $dialCode, $phoneVerification) {
                 $application = new KycApplication;
 
                 // `fill`, not `forceFill`. The model's $fillable was missing
@@ -170,6 +252,7 @@ class KycController extends ApiController
                     'last_name' => $data['last_name'],
                     'phone_number' => $data['phone_number'],
                     'phone_country_code' => $dialCode,
+                    'phone_verified_at' => $phoneVerification->verified_at,
                     'date_of_birth' => $data['date_of_birth'],
                     'address_line' => $data['address_line'],
                     'city' => $data['city'],
@@ -332,11 +415,53 @@ class KycController extends ApiController
             return 'no_business';
         }
 
-        return match ($application?->status) {
-            KycApplication::STATUS_SUBMITTED => 'under_review',
-            KycApplication::STATUS_APPROVED => 'approved',
-            default => null,
-        };
+        // An application already in the review queue, or approved, is not
+        // something a phone check can change. Those states keep the reason they
+        // have always had; the phone becomes the blocker only when the owner
+        // could otherwise submit.
+        if ($application?->status === KycApplication::STATUS_SUBMITTED) {
+            return 'under_review';
+        }
+
+        if ($application?->status === KycApplication::STATUS_APPROVED) {
+            return 'approved';
+        }
+
+        if (! $this->phones->hasVerifiedPhone($user)) {
+            return 'phone_unverified';
+        }
+
+        return null;
+    }
+
+    /**
+     * @return array{phone: string|null, verified: bool, verified_at: string|null}
+     */
+    private function phoneVerificationPayload(User $user, ?KycApplication $application): array
+    {
+        if ($application !== null && filled($application->phone_number)) {
+            $phone = PhoneNumber::normalize(
+                $application->phone_country_code,
+                $application->phone_number,
+                SubmitKycRequest::DEFAULT_DIAL_CODE,
+            );
+
+            $verification = $phone === null ? null : $this->phones->verificationFor($user, $phone);
+
+            return [
+                'phone' => $phone,
+                'verified' => $verification !== null,
+                'verified_at' => $verification?->verified_at?->toISOString(),
+            ];
+        }
+
+        $latest = $this->phones->latestVerification($user);
+
+        return [
+            'phone' => $latest?->phone,
+            'verified' => $latest !== null,
+            'verified_at' => $latest?->verified_at?->toISOString(),
+        ];
     }
 
     /**
@@ -396,6 +521,7 @@ class KycController extends ApiController
             'last_name' => $application->last_name,
             'phone_country_code' => $application->phone_country_code,
             'phone_number' => $application->phone_number,
+            'phone_verified_at' => $application->phone_verified_at?->toISOString(),
             'date_of_birth' => $application->date_of_birth?->toDateString(),
             'address_line' => $application->address_line,
             'city' => $application->city,

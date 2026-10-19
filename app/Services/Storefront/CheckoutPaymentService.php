@@ -20,6 +20,7 @@ use App\Services\Payments\Data\PaymentIntent;
 use App\Services\Payments\PaymentGatewayManager;
 use App\Services\Payments\PaymentGatewayResolver;
 use App\Services\Payments\PaymentPricing;
+use App\Services\Sms\OrderAlertService;
 use App\Support\Money\ExchangeRateService;
 use App\Support\Money\Naira;
 use App\Support\Money\StoreCurrency;
@@ -53,6 +54,7 @@ final class CheckoutPaymentService
         private readonly ExchangeRateService $rates,
         private readonly CustodyService $custody,
         private readonly PaymentPricing $pricing,
+        private readonly OrderAlertService $alerts,
     ) {}
 
     /**
@@ -405,6 +407,12 @@ final class CheckoutPaymentService
                     ]);
                 }
             });
+
+            // The payment is committed; the customer is on the return leg
+            // rather than waiting on a webhook, so this is often the first
+            // settlement path to reach the sale. The dedupe key makes the
+            // webhook's later arrival a no-op.
+            $this->alerts->orderPaid($transaction->fresh());
 
             if ($managed) {
                 $this->ledger->safe(fn () => $this->ledger->postManagedPaymentReceived(

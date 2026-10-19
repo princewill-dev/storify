@@ -16,6 +16,7 @@ use App\Services\Payments\Data\GatewayCredentials;
 use App\Services\Payments\Data\VerificationResult;
 use App\Services\Payments\Data\WebhookEvent;
 use App\Services\Payments\Data\WebhookScope;
+use App\Services\Sms\OrderAlertService;
 use App\Services\Storefront\InvoicePaymentService;
 use App\Support\Money\Naira;
 use Illuminate\Database\Eloquent\Builder;
@@ -45,6 +46,7 @@ final class PaymentWebhookProcessor
         private readonly DigitalDeliveryService $digital,
         private readonly CustodyService $custody,
         private readonly InvoicePaymentService $invoices,
+        private readonly OrderAlertService $alerts,
     ) {}
 
     /**
@@ -230,6 +232,10 @@ final class PaymentWebhookProcessor
                     }
                 }
             });
+
+            // Committed, so the worker will see the confirmed row. The alert
+            // service swallows its own failures; a text can never undo a sale.
+            $this->alerts->orderPaid($transaction->fresh());
 
             if ($managed) {
                 // The business's side — net asset, our commission as its expense

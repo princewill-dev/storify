@@ -11,6 +11,7 @@ use App\Models\Transaction;
 use App\Services\Accounting\LedgerPostingService;
 use App\Services\Digital\DigitalDeliveryService;
 use App\Services\PaystackService;
+use App\Services\Sms\OrderAlertService;
 use App\Support\Money\Naira;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -181,6 +182,10 @@ class PaystackWebhookController extends Controller
                 if ($order && $order->isFullyPaid()) {
                     app(DigitalDeliveryService::class)->deliverSafely($order);
                 }
+
+                // This legacy path settles own-key deliveries that the shared
+                // processor never sees; it owes the owner the same alert.
+                app(OrderAlertService::class)->orderPaid($transaction->fresh());
 
                 return response()->json(['status' => 'success']);
             }

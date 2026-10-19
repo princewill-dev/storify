@@ -72,6 +72,15 @@ function ws10Submission(array $overrides = []): array
 
 function ws10Post(object $test, User $user, array $payload, array $files = [], array $headers = [])
 {
+    // Submission now requires the form's phone to have been proved by SMS.
+    // Seed that fact; the tests that are about the refusal verify a different
+    // number, or post without this helper.
+    verifyKycPhone(
+        $user,
+        $payload['phone_number'] ?? '08030000000',
+        $payload['phone_country_code'] ?? null,
+    );
+
     return $test->withToken(ws10Token($user))
         ->withHeaders(array_merge(['Accept' => 'application/json'], $headers))
         ->post('/api/v1/management/kyc', array_merge($payload, $files));
@@ -87,8 +96,13 @@ test('a fresh owner is told KYC is required and sees the active document types',
         ->assertOk()
         ->assertJsonPath('data.application', null)
         ->assertJsonPath('data.state', 'required')
-        ->assertJsonPath('data.can_submit', true)
-        ->assertJsonPath('data.block_reason', null)
+        // A fresh owner can fill the form, but not submit it: the phone on it
+        // has not been proved yet. The SPA keeps the fieldset editable for
+        // exactly this reason.
+        ->assertJsonPath('data.can_submit', false)
+        ->assertJsonPath('data.block_reason', 'phone_unverified')
+        ->assertJsonPath('data.phone_verification.verified', false)
+        ->assertJsonPath('data.phone_verification.phone', null)
         ->assertJsonPath('data.gate.kyc_approved', false)
         ->assertJsonCount(1, 'data.document_types')
         ->assertJsonPath('data.document_types.0.code', 'passport');

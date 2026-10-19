@@ -21,6 +21,7 @@ use App\Services\Payments\Data\VerificationResult;
 use App\Services\Payments\PaymentGatewayManager;
 use App\Services\Payments\PaymentGatewayResolver;
 use App\Services\Payments\PaymentPricing;
+use App\Services\Sms\OrderAlertService;
 use App\Support\Money\ExchangeRateService;
 use App\Support\Money\Naira;
 use App\Support\Money\StoreCurrency;
@@ -64,6 +65,7 @@ final class InvoicePaymentService
         private readonly ExchangeRateService $rates,
         private readonly PaymentPricing $pricing,
         private readonly CustodyService $custody,
+        private readonly OrderAlertService $alerts,
     ) {}
 
     /**
@@ -460,6 +462,10 @@ final class InvoicePaymentService
         }
 
         $this->queueReceipt($invoice, $transaction);
+
+        // Only the caller that actually confirmed reaches this line, so the
+        // owner is told once. The dedupe key covers the other path's arrivals.
+        $this->alerts->invoicePaid($transaction->fresh());
 
         Log::info('storefront.invoice_payment_settled', [
             'invoice_id' => $invoice->id,
