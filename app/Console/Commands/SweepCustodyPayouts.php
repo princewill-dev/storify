@@ -111,6 +111,22 @@ class SweepCustodyPayouts extends Command
             ));
         }
 
+        if ($counts['below_minimum'] > 0) {
+            // Deliberately waiting, not stuck. Said plainly so a run's output
+            // does not send an operator looking for a fault in the sweep.
+            $this->line(sprintf(
+                '  %d destination(s) are waiting to reach the minimum payout amount.',
+                $counts['below_minimum'],
+            ));
+        }
+
+        if ($counts['below_fee'] > 0) {
+            $this->line(sprintf(
+                '  %d destination(s) are waiting for the balance to cover the payout fee.',
+                $counts['below_fee'],
+            ));
+        }
+
         if ($counts['on_hold'] > 0) {
             // Named with their reasons, and never as a bare count. A hold is a
             // person's decision, so the number on its own is the message that has
@@ -234,7 +250,10 @@ class SweepCustodyPayouts extends Command
             $payable = $blocker === null ? $payouts->payableFor($business) : null;
 
             if ($payable !== null) {
-                $total += $payable['payable_kobo'];
+                // What would go now, not what is owed. A destination below the
+                // floor or waiting on the fee is owed money this run will not
+                // send, and the total has always meant "would pay".
+                $total += $payable['sendable_kobo'];
                 $stuck += $available - $payable['payable_kobo'];
             } else {
                 $stuck += $available;
@@ -255,12 +274,20 @@ class SweepCustodyPayouts extends Command
                 $business->name,
                 number_format($available / 100, 2),
                 number_format($pending / 100, 2),
-                $payable === null ? '—' : number_format($payable['payable_kobo'] / 100, 2),
+                $payable === null ? '—' : number_format($payable['sendable_kobo'] / 100, 2),
+                $payable === null ? '—' : number_format($payable['fee_kobo'] / 100, 2),
                 match (true) {
                     // A hold first, matching the sweep's precedence: a decision a
                     // person made about this business is the answer to the question,
                     // whatever else is also true of it.
                     $blocker !== null => $blocker['label'],
+                    // Then the platform's own policy, which resolves on its own as
+                    // the balance grows.
+                    $payable !== null && (int) $payable['below_minimum_kobo'] > 0 => sprintf(
+                        'waiting for the minimum payout amount (%s NGN short)',
+                        number_format(($payable['minimum_payout_kobo'] - $payable['payable_kobo']) / 100, 2),
+                    ),
+                    $payable !== null && (int) $payable['fee_blocked_kobo'] > 0 => 'waiting for the balance to cover the payout fee',
                     $storeHolds->isNotEmpty() => sprintf(
                         'paying the rest: %s withheld',
                         $storeHolds->map(fn ($h) => 'store '.$h->store_id)->implode(', '),
@@ -275,7 +302,7 @@ class SweepCustodyPayouts extends Command
             ];
         }
 
-        $this->table(['business', 'name', 'wallet (NGN)', 'settling (NGN)', 'payable (NGN)', 'note'], $rows);
+        $this->table(['business', 'name', 'wallet (NGN)', 'settling (NGN)', 'payable (NGN)', 'fee (NGN)', 'note'], $rows);
         $this->info('Would pay '.number_format($total / 100, 2).' NGN in total.');
 
         if ($stuck > 0) {

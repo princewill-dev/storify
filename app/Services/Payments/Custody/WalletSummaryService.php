@@ -184,6 +184,26 @@ final class WalletSummaryService
             'payable' => Naira::floatFromKobo($payable['payable_kobo']),
             'payable_kobo' => $payable['payable_kobo'],
 
+            // Owed versus sendable, and the policy that separates them.
+            //
+            // `payable_kobo` is what the walk found; `sendable_kobo` is what a
+            // sweep would actually move now. They differ when a destination is
+            // below the platform's minimum payout amount, or when its whole
+            // balance would be taken by the payout fee — both deliberate holds
+            // that resolve themselves, and neither something a business has to
+            // act on. The fee travels with them so a screen can show the
+            // subtraction before it happens rather than after the money lands.
+            'minimum_payout' => Naira::floatFromKobo($payable['minimum_payout_kobo']),
+            'minimum_payout_kobo' => $payable['minimum_payout_kobo'],
+            'payout_fee' => Naira::floatFromKobo($payable['fee_kobo']),
+            'payout_fee_kobo' => $payable['fee_kobo'],
+            'sendable' => Naira::floatFromKobo($payable['sendable_kobo']),
+            'sendable_kobo' => $payable['sendable_kobo'],
+            'below_minimum' => Naira::floatFromKobo($payable['below_minimum_kobo']),
+            'below_minimum_kobo' => $payable['below_minimum_kobo'],
+            'fee_blocked' => Naira::floatFromKobo($payable['fee_blocked_kobo']),
+            'fee_blocked_kobo' => $payable['fee_blocked_kobo'],
+
             // Held back on purpose, and the figure that makes a hold legible on a
             // business's own screen: money it can see, that is not being sent, with a
             // reason attached.
@@ -611,16 +631,30 @@ final class WalletSummaryService
         $currency = (string) config('custody.currency', 'NGN');
         $businesses = [];
         $payableTotal = 0;
+        $sendableTotal = 0;
+        $belowMinimumTotal = 0;
+        $feeBlockedTotal = 0;
         $stuckTotal = 0;
+
+        // One read for the whole queue. Every row is judged against the same
+        // policy, and reading it inside the loop would let an admin's save land
+        // halfway down the list and show two different floors in one table.
+        $policy = PayoutPolicy::current();
 
         foreach ($this->sweep->candidates() as $business) {
             $available = (int) $business->available_balance;
             $blocker = $this->sweep->payoutBlocker($business);
-            $payable = $blocker === null ? $this->sweep->payableFor($business) : null;
+            $payable = $blocker === null ? $this->sweep->payableFor($business, $policy) : null;
 
             $payableKobo = $payable['payable_kobo'] ?? 0;
+            $sendableKobo = $payable['sendable_kobo'] ?? 0;
+            $belowMinimumKobo = $payable['below_minimum_kobo'] ?? 0;
+            $feeBlockedKobo = $payable['fee_blocked_kobo'] ?? 0;
 
             $payableTotal += $payableKobo;
+            $sendableTotal += $sendableKobo;
+            $belowMinimumTotal += $belowMinimumKobo;
+            $feeBlockedTotal += $feeBlockedKobo;
             $stuckTotal += $available - $payableKobo;
 
             $businesses[] = [
@@ -633,7 +667,13 @@ final class WalletSummaryService
                 'business_code' => $business->business_code,
                 'currency' => $currency,
                 'available_kobo' => $available,
+                // Owed, versus what a run would send now. The difference is a
+                // policy hold, and a screen that showed only `payable_kobo` as
+                // "ready" would be promising a transfer the sweep will decline.
                 'payable_kobo' => $payableKobo,
+                'sendable_kobo' => $sendableKobo,
+                'below_minimum_kobo' => $belowMinimumKobo,
+                'fee_blocked_kobo' => $feeBlockedKobo,
                 // Money the platform is holding for this business that has not
                 // matured yet — and the figure that makes a row with a zero payable
                 // comprehensible rather than broken. A business whose whole balance
@@ -653,6 +693,11 @@ final class WalletSummaryService
             'totals' => [
                 'currency' => $currency,
                 'payable_kobo' => $payableTotal,
+                'sendable_kobo' => $sendableTotal,
+                'below_minimum_kobo' => $belowMinimumTotal,
+                'fee_blocked_kobo' => $feeBlockedTotal,
+                'minimum_payout_kobo' => $policy['minimum_kobo'],
+                'payout_fee_kobo' => $policy['fee_kobo'],
                 'stuck_kobo' => $stuckTotal,
                 'businesses' => count($businesses),
             ],

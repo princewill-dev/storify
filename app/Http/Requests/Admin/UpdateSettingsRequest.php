@@ -124,6 +124,10 @@ class UpdateSettingsRequest extends FormRequest
             // means uncapped — a ceiling is not a charge, so a cap with no
             // percentage still takes nothing.
             'platform_commission_max_kobo' => ['nullable', 'integer', 'min:0'],
+            // The payout policy, in kobo. Zero means "no floor" and "no fee";
+            // a blank field reaches here as null and is treated the same way.
+            'minimum_payout_kobo' => ['nullable', 'integer', 'min:0'],
+            'payout_processing_fee_kobo' => ['nullable', 'integer', 'min:0'],
             'og_description' => ['nullable', 'string', 'max:2000'],
             'og_url' => ['nullable', 'url', 'max:255'],
             'og_type' => ['nullable', Rule::in(self::OG_TYPES)],

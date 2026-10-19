@@ -2,12 +2,14 @@
 
 namespace App\Services\Admin;
 
+use App\Jobs\SettlePayouts;
 use App\Mail\SettingsUpdated;
 use App\Models\Currency;
 use App\Models\Setting;
 use App\Models\User;
 use App\Repositories\Admin\SettingsRepository;
 use App\Services\ActivityLogger;
+use App\Services\Payments\Custody\PayoutSweepService;
 use App\Services\Subscription\PlatformBillingGateway;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
@@ -63,6 +65,8 @@ final class SettingsService
         'system_payment_processor',
         'platform_commission_percent',
         'platform_commission_max_kobo',
+        'minimum_payout_kobo',
+        'payout_processing_fee_kobo',
         'og_title',
         'og_description',
         'og_image_path',
@@ -87,10 +91,19 @@ final class SettingsService
      */
     public function update(array $data, array $uploads): array
     {
-        [$settings, $changed] = DB::transaction(function () use ($data, $uploads) {
+        [$settings, $changed, $previousPolicy] = DB::transaction(function () use ($data, $uploads) {
             $settings = $this->settings->current() ?? new Setting;
             $before = $settings->exists ? $settings->toArray() : [];
             $beforeCurrencyId = $this->settings->defaultCurrencyId();
+
+            // The payout policy as it stood before this save. A loosening — a
+            // lower floor or a lower fee — may make money that was deliberately
+            // held sendable, and nothing else would wake it until the business's
+            // next sale. Kept here because the row is about to be overwritten.
+            $previousPolicy = [
+                'minimum_kobo' => max(0, (int) ($settings->minimum_payout_kobo ?? 0)),
+                'fee_kobo' => max(0, (int) ($settings->payout_processing_fee_kobo ?? 0)),
+            ];
 
             $attributes = [
                 'company_name' => $data['company_name'] ?? null,
@@ -141,6 +154,16 @@ final class SettingsService
                 'platform_commission_max_kobo' => array_key_exists('platform_commission_max_kobo', $data)
                     ? max(0, (int) ($data['platform_commission_max_kobo'] ?? 0))
                     : ($settings->platform_commission_max_kobo ?? 0),
+                // The payout policy. Same `array_key_exists` rule for the same
+                // reason: a partial save from another tab must leave both figures
+                // exactly as they were, and a blank field is a real instruction
+                // ("no floor", "no fee") rather than an absent opinion.
+                'minimum_payout_kobo' => array_key_exists('minimum_payout_kobo', $data)
+                    ? max(0, (int) ($data['minimum_payout_kobo'] ?? 0))
+                    : ($settings->minimum_payout_kobo ?? 0),
+                'payout_processing_fee_kobo' => array_key_exists('payout_processing_fee_kobo', $data)
+                    ? max(0, (int) ($data['payout_processing_fee_kobo'] ?? 0))
+                    : ($settings->payout_processing_fee_kobo ?? 0),
                 'og_title' => $data['og_title'] ?? null,
                 'og_description' => $data['og_description'] ?? null,
                 'og_url' => $data['og_url'] ?? null,
@@ -168,12 +191,21 @@ final class SettingsService
             return [
                 $settings,
                 $this->changedKeys($before, $settings->toArray(), $beforeCurrencyId, $afterCurrencyId),
+                $previousPolicy,
             ];
         });
 
         $this->bustCaches($changed);
         $this->recordAudit($changed);
         $this->notifySuperadmin($changed);
+
+        // After the commit, so the jobs read the new figures. Only a loosening
+        // releases anything: a higher floor leaves the money held, and a higher
+        // fee may newly block a small destination, but neither can unblock one.
+        if (max(0, (int) ($settings->minimum_payout_kobo ?? 0)) < $previousPolicy['minimum_kobo']
+            || max(0, (int) ($settings->payout_processing_fee_kobo ?? 0)) < $previousPolicy['fee_kobo']) {
+            $this->resumePayouts();
+        }
 
         return [$settings, $changed];
     }
@@ -256,6 +288,29 @@ final class SettingsService
             }
         } catch (\Throwable $e) {
             Log::warning('api.admin.settings_updated_mail_failed', ['error' => $e->getMessage()]);
+        }
+    }
+
+    /**
+     * Wake the standard settlement job for every business holding money.
+     *
+     * The same lever `PayoutHoldService::resume()` pulls when a system hold is
+     * lifted. `candidates()` is the existing bounded list of businesses with a
+     * wallet balance, and the job itself decides whether a destination now
+     * qualifies — this only makes sure a loosened policy is not left waiting on
+     * the business's next sale.
+     */
+    private function resumePayouts(): void
+    {
+        try {
+            foreach (app(PayoutSweepService::class)->candidates() as $business) {
+                SettlePayouts::forBusiness((int) $business->id);
+            }
+        } catch (\Throwable $e) {
+            // The policy was saved; a failed wake-up is not a failed save. The
+            // next sale settles under the new figures anyway, and the operator
+            // can retry from the payout console.
+            Log::warning('api.admin.payout_policy_resume_failed', ['error' => $e->getMessage()]);
         }
     }
 

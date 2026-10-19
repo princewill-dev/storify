@@ -626,6 +626,20 @@ class LedgerPostingService
      * the provider, and the payout is what empties it. Posted when the provider
      * reports the payout paid, not when it is requested — the debit at creation
      * is not the money having arrived, and a payout can still fail.
+     *
+     * ## With a processing fee
+     *
+     * The wallet is debited and the allocations sum to the gross, but the bank
+     * receives the net — so the entry splits the difference rather than crediting
+     * an asset the business never got:
+     *
+     *     Dr 1020 Bank                  gross − fee
+     *     Dr 5500 Processing Fee        fee
+     *     Cr 1030/1040 managed asset    gross
+     *
+     * One entry, one idempotency key: a reversal takes the fee expense back with
+     * the bank debit, because a payout that was recalled was not a payout the
+     * business should have paid a fee on.
      */
     public function postGatewayWithdrawal(
         int $businessId,
@@ -634,24 +648,46 @@ class LedgerPostingService
         string $reference,
         ?int $userId = null,
         bool $custody = false,
+        int $feeKobo = 0,
     ): ?JournalEntry {
         if ($amountKobo <= 0) {
             return null;
         }
 
-        $lines = [
-            [
+        // A fee can never exceed the amount it is taken from; clamping here keeps
+        // a misconfigured policy from producing a negative bank debit rather than
+        // a held payout, which the sweep already prevents.
+        $feeKobo = max(0, min($feeKobo, $amountKobo));
+        $netKobo = $amountKobo - $feeKobo;
+
+        $lines = [];
+
+        if ($netKobo > 0) {
+            $lines[] = [
                 'account_key' => 'bank',
-                'debit' => $amountKobo,
+                'debit' => $netKobo,
                 'store_id' => $storeId,
                 'description' => 'Payout '.$reference,
-            ],
-            [
-                'account_key' => $this->managedAssetKey($custody),
-                'credit' => $amountKobo,
+            ];
+        }
+
+        if ($feeKobo > 0) {
+            // The business's own expense, under the one name its P&L gives the
+            // cost of moving money: Processing Fee. The gross left its wallet,
+            // the bank received the net, and this is the difference.
+            $lines[] = [
+                'account_key' => 'gateway_fees',
+                'debit' => $feeKobo,
                 'store_id' => $storeId,
-                'description' => 'Payout '.$reference,
-            ],
+                'description' => 'Payout fee '.$reference,
+            ];
+        }
+
+        $lines[] = [
+            'account_key' => $this->managedAssetKey($custody),
+            'credit' => $amountKobo,
+            'store_id' => $storeId,
+            'description' => 'Payout '.$reference,
         ];
 
         return $this->post($businessId, $lines, [
@@ -928,10 +964,14 @@ class LedgerPostingService
         string $reference,
         ?int $storeId = null,
         ?int $userId = null,
+        int $feeKobo = 0,
     ): ?JournalEntry {
         if ($amountKobo <= 0) {
             return null;
         }
+
+        $feeKobo = max(0, min($feeKobo, $amountKobo));
+        $netKobo = $amountKobo - $feeKobo;
 
         $lines = [
             [
@@ -940,13 +980,30 @@ class LedgerPostingService
                 'store_id' => $storeId,
                 'description' => 'Payout '.$reference,
             ],
-            [
+        ];
+
+        if ($netKobo > 0) {
+            $lines[] = [
                 'account_key' => 'gateway_clearing',
-                'credit' => $amountKobo,
+                'credit' => $netKobo,
                 'store_id' => $storeId,
                 'description' => 'Payout '.$reference,
-            ],
-        ];
+            ];
+        }
+
+        if ($feeKobo > 0) {
+            // The fee stays with Storify: it is not money still owed to the
+            // business, and it never left our provider balance. Recognising it as
+            // service-charge income — the same account commission lands on — keeps
+            // the documented identity `1030 = 2300 + 4020 − 5510` true, because
+            // 2300 falls by gross while 1030 falls only by net.
+            $lines[] = [
+                'account_key' => 'service_charge_income',
+                'credit' => $feeKobo,
+                'store_id' => $storeId,
+                'description' => 'Payout fee '.$reference,
+            ];
+        }
 
         return $this->post(null, $lines, [
             'memo' => 'Payout to business '.$reference,

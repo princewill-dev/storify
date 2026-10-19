@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\V1\Admin\Concerns\EnsuresPlatformAdmin;
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Models\PaymentMethod;
 use App\Services\Payments\Connect\PlatformCommission;
+use App\Services\Payments\Custody\PayoutPolicy;
 use App\Services\Subscription\PlatformBillingGateway;
 use App\Support\Payments\PaymentGatewayRegistry;
 use Illuminate\Http\JsonResponse;
@@ -60,10 +61,18 @@ class PaymentMethodController extends ApiController
         $gateway = app(PlatformBillingGateway::class);
         $selected = $gateway->code();
         $commission = PlatformCommission::fromSettings();
+        $payoutPolicy = PayoutPolicy::current();
 
         return [
             'gateway' => $selected,
             'webhook_configured' => $gateway->webhookConfigured(),
+            // The payout policy, beside the commission because it is the other
+            // deduction on the same money path. Exposed from this finance-gated
+            // read so an admin who may see the payments tab can read the figures
+            // even when they cannot save settings (`PUT /admin/settings` needs
+            // `admin.settings`).
+            'minimum_payout_kobo' => $payoutPolicy['minimum_kobo'],
+            'payout_processing_fee_kobo' => $payoutPolicy['fee_kobo'],
             // What Storify takes from a sale it processes on a business's
             // behalf. Shown here rather than on a page of its own because it is
             // the other half of the same decision: this screen already says

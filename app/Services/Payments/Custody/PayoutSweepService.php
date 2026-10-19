@@ -1372,7 +1372,21 @@ final class PayoutSweepService
      */
     public function sweep(): array
     {
-        $counts = ['sent' => 0, 'held' => 0, 'on_hold' => 0, 'skipped' => 0, 'failed' => 0, 'exhausted' => 0, 'backoff' => 0];
+        $counts = [
+            'sent' => 0,
+            'held' => 0,
+            'on_hold' => 0,
+            'skipped' => 0,
+            'failed' => 0,
+            'exhausted' => 0,
+            'backoff' => 0,
+            // Deliberate policy holds. They are not failures and must not be
+            // reported as such: the run's report separates "waiting for the
+            // floor" and "waiting for the fee" from anything an operator has to
+            // act on.
+            'below_minimum' => 0,
+            'below_fee' => 0,
+        ];
         $context = $this->context();
 
         if ($context === null) {
@@ -1546,6 +1560,42 @@ final class PayoutSweepService
                 continue;
             }
 
+            // The platform's payout policy, checked before anything is attempted.
+            //
+            // A destination below the floor is owed money and is deliberately
+            // waiting for the rest of it; one whose whole balance would be eaten
+            // by the fee has nothing to transfer. Neither is a refusal, neither
+            // spends the retry budget, and both resolve without a person — the
+            // first when more money arrives, the second when enough does.
+            //
+            // Read from the destination's own annotation, so this and the wallet
+            // page cannot disagree about which figure the policy was applied to.
+            if ((int) $destination['below_minimum_kobo'] > 0) {
+                Log::info('custody.payout.below_minimum', [
+                    'business_id' => $business->id,
+                    'destination_bank_code' => $destination['bank']->bank_code,
+                    'payable_kobo' => $amountKobo,
+                    'minimum_kobo' => $destination['minimum_payout_kobo'],
+                ]);
+
+                $tally['below_minimum'] = ($tally['below_minimum'] ?? 0) + 1;
+
+                continue;
+            }
+
+            if ((int) $destination['fee_blocked_kobo'] > 0) {
+                Log::info('custody.payout.below_fee', [
+                    'business_id' => $business->id,
+                    'destination_bank_code' => $destination['bank']->bank_code,
+                    'payable_kobo' => $amountKobo,
+                    'fee_kobo' => $destination['fee_kobo'],
+                ]);
+
+                $tally['below_fee'] = ($tally['below_fee'] ?? 0) + 1;
+
+                continue;
+            }
+
             // Checked per destination, not once for the business. One account the
             // provider keeps refusing should stop *that* transfer, not every
             // other store's — which is what a single business-level check would
@@ -1570,6 +1620,7 @@ final class PayoutSweepService
                 $context['provider'],
                 $destination['plan'],
                 $destination['store_ids'],
+                (int) $destination['fee_kobo'],
             );
 
             // Not a failure. The overwhelmingly likely reason is that a
@@ -1739,10 +1790,27 @@ final class PayoutSweepService
      * reproduces itself term for term — which is what lets the flag be flipped
      * without a second code path.
      *
-     * @return Collection<int, array{bank: StoreBank, plan: Collection, payable_kobo: int, available_kobo: int, store_ids: array<int, int>, withheld_kobo: int, unattributed_kobo: int}>
+     * ## The payout policy is annotated here
+     *
+     * Each destination also carries the floor and fee that applied when this walk
+     * ran, and what each means for this amount: `sendable_kobo` is what a sweep
+     * would actually send, while `below_minimum_kobo` and `fee_blocked_kobo` say
+     * how much is deliberately waiting and why. The three are disjoint and add up
+     * to `payable_kobo`, so a reader never has to re-derive the decision.
+     *
+     * The floor is measured on the **gross** payable, before the fee. It exists to
+     * make a transfer worth the per-transfer cost, and the fee is part of that
+     * cost.
+     *
+     * @param  array{minimum_kobo: int, fee_kobo: int}|null  $policy  read once by the caller and threaded through; null reads it here
+     * @return Collection<int, array{bank: StoreBank, plan: Collection, payable_kobo: int, available_kobo: int, store_ids: array<int, int>, withheld_kobo: int, unattributed_kobo: int, minimum_payout_kobo: int, fee_kobo: int, net_kobo: int, sendable_kobo: int, below_minimum_kobo: int, fee_blocked_kobo: int}>
      */
-    public function payableDestinations(Business $business): Collection
+    public function payableDestinations(Business $business, ?array $policy = null): Collection
     {
+        $policy ??= PayoutPolicy::current();
+        $minimumKobo = $policy['minimum_kobo'];
+        $feeKobo = $policy['fee_kobo'];
+
         $heldStoreIds = $this->holds->heldStoreIds($business);
         $default = $business->payoutBank;
 
@@ -1785,7 +1853,7 @@ final class PayoutSweepService
             $add((int) $store->id, $held ? 0 : $available, $held, $store->payoutBank ?? $default);
         }
 
-        return collect($groups)->map(function (array $group) use ($business, $heldStoreIds) {
+        return collect($groups)->map(function (array $group) use ($business, $heldStoreIds, $minimumKobo, $feeKobo) {
             // The cap counts every bucket in this destination, held ones
             // included — because what the hold costs is measured against what
             // the destination would otherwise have sent.
@@ -1863,6 +1931,17 @@ final class PayoutSweepService
                 ]);
             }
 
+            // The policy applied to this destination's own amount. A destination
+            // at exactly the floor qualifies (`<`, not `<=`), matching "equal to
+            // or greater than". A fee that would leave nothing to transfer is a
+            // second, separate reason to wait — only reachable when the floor is
+            // below the fee or off altogether.
+            $belowMinimumKobo = $amountKobo > 0 && $amountKobo < $minimumKobo ? $amountKobo : 0;
+
+            $feeBlockedKobo = $amountKobo > 0 && $belowMinimumKobo === 0 && $amountKobo <= $feeKobo
+                ? $amountKobo
+                : 0;
+
             return [
                 'bank' => $group['bank'],
                 'plan' => $plan,
@@ -1871,6 +1950,12 @@ final class PayoutSweepService
                 'store_ids' => collect($group['buckets'])->pluck('bucket')->filter()->values()->all(),
                 'withheld_kobo' => $withheldKobo,
                 'unattributed_kobo' => $gapKobo,
+                'minimum_payout_kobo' => $minimumKobo,
+                'fee_kobo' => $feeKobo,
+                'net_kobo' => max(0, $amountKobo - $feeKobo),
+                'sendable_kobo' => $amountKobo - $belowMinimumKobo - $feeBlockedKobo,
+                'below_minimum_kobo' => $belowMinimumKobo,
+                'fee_blocked_kobo' => $feeBlockedKobo,
             ];
         })->values();
     }
@@ -1883,17 +1968,25 @@ final class PayoutSweepService
      * that. Kept as a method rather than made into a sum at each call site so the
      * wallet page and the run cannot disagree about the total.
      */
-    public function payableFor(Business $business): array
+    public function payableFor(Business $business, ?array $policy = null): array
     {
-        $destinations = $this->payableDestinations($business);
+        $policy ??= PayoutPolicy::current();
+        $destinations = $this->payableDestinations($business, $policy);
 
         return [
             'plan' => $destinations->flatMap(fn ($destination) => $destination['plan'])->values(),
+            // Everything the walk found — owed, whether or not this attempt may
+            // send it. `sendable_kobo` is what a sweep would actually send now.
             'payable_kobo' => (int) $destinations->sum('payable_kobo'),
             'available_kobo' => (int) $destinations->sum('available_kobo'),
             'held_store_ids' => $this->holds->heldStoreIds($business),
             'withheld_kobo' => (int) $destinations->sum('withheld_kobo'),
             'unattributed_kobo' => (int) $destinations->sum('unattributed_kobo'),
+            'minimum_payout_kobo' => $policy['minimum_kobo'],
+            'fee_kobo' => $policy['fee_kobo'],
+            'sendable_kobo' => (int) $destinations->sum('sendable_kobo'),
+            'below_minimum_kobo' => (int) $destinations->sum('below_minimum_kobo'),
+            'fee_blocked_kobo' => (int) $destinations->sum('fee_blocked_kobo'),
             'destinations' => $destinations,
         ];
     }
@@ -1926,10 +2019,11 @@ final class PayoutSweepService
         string $provider,
         Collection $plan,
         array $storeIds = [],
+        int $feeKobo = 0,
     ): ?Payout {
 
         try {
-            return DB::transaction(function () use ($business, $bank, $amountKobo, $provider, $plan, $storeIds) {
+            return DB::transaction(function () use ($business, $bank, $amountKobo, $provider, $plan, $storeIds, $feeKobo) {
                 $payout = Payout::reserve(
                     (int) $business->id,
                     // The store this transfer was for, when the destination
@@ -1943,7 +2037,11 @@ final class PayoutSweepService
                     (string) $bank->bank_code,
                     $bank->account_name,
                     $amountKobo,
-                    $this->currency(),
+                    // Snapshotted from the same policy the gate used a moment
+                    // ago, so the fee the business sees on the payout is the fee
+                    // the decision was made under.
+                    $feeKobo,
+                    currency: $this->currency(),
                     payoutBankId: (int) $bank->id,
                 );
 
@@ -2021,7 +2119,12 @@ final class PayoutSweepService
             'reference' => $payout->reference,
             'business_id' => $payout->business_id,
             'provider' => $context['provider'],
+            // Gross, fee and net together, because the provider's dashboard will
+            // show the net and the wallet shows the gross: an operator comparing
+            // the two needs the subtraction in front of them.
             'amount_kobo' => (int) $payout->amount_kobo,
+            'fee_kobo' => $payout->feeKobo(),
+            'net_kobo' => $payout->netKobo(),
             'attempt' => (int) $payout->attempts,
             'destination_id' => (string) $destination->id,
             'account_last_four' => $this->lastFour($payout->account_number),
@@ -2031,7 +2134,10 @@ final class PayoutSweepService
             $outcome = $context['rail']->send(
                 $context['credentials'],
                 (string) $destination->id,
-                (int) $payout->amount_kobo,
+                // The bank receives the gross less the fee. The wallet was
+                // debited gross and the allocations still sum to gross; this is
+                // the only place the three figures part company.
+                $payout->netKobo(),
                 (string) $payout->reference,
                 $this->currency(),
             );
@@ -2072,6 +2178,11 @@ final class PayoutSweepService
             'business_id' => $payout->business_id,
             'provider' => $context['provider'],
             'amount_kobo' => (int) $payout->amount_kobo,
+            'fee_kobo' => $payout->feeKobo(),
+            'net_kobo' => $payout->netKobo(),
+            // What we actually asked the provider to move. Kept beside the gross
+            // so a support call can read the request rather than recompute it.
+            'sent_kobo' => $payout->netKobo(),
             'attempt' => (int) $payout->attempts,
             'outcome' => $outcome->outcome,
             'provider_status' => $outcome->providerStatus,
@@ -2859,13 +2970,16 @@ final class PayoutSweepService
             (int) $payout->amount_kobo,
             (string) $payout->reference,
             custody: true,
+            feeKobo: $payout->feeKobo(),
         ));
 
-        // Our books: we are no longer holding it.
+        // Our books: we are no longer holding it, and the fee we withheld is
+        // income rather than money still owed to the business.
         $this->ledger->safe(fn () => $this->ledger->postCustodyPayoutOnPlatformBooks(
             (int) $payout->amount_kobo,
             (string) $payout->reference,
             $storeId,
+            feeKobo: $payout->feeKobo(),
         ));
 
         Log::info('custody.payout.settled', [
@@ -2873,6 +2987,8 @@ final class PayoutSweepService
             'reference' => $payout->reference,
             'business_id' => $payout->business_id,
             'amount_kobo' => (int) $payout->amount_kobo,
+            'fee_kobo' => $payout->feeKobo(),
+            'net_kobo' => $payout->netKobo(),
         ]);
 
         // The business is told its money arrived. After the claim above, which is

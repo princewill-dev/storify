@@ -89,6 +89,10 @@ final class SettingsResource extends JsonResource
             'system_payment_processors' => $this->processors(),
             'platform_commission_percent' => (float) ($settings?->platform_commission_percent ?? 0),
             'platform_commission_max_kobo' => max(0, (int) ($settings?->platform_commission_max_kobo ?? 0)),
+            // The payout policy. Zero on either is a real instruction, not a
+            // missing value: no floor, or no fee.
+            'minimum_payout_kobo' => max(0, (int) ($settings?->minimum_payout_kobo ?? 0)),
+            'payout_processing_fee_kobo' => max(0, (int) ($settings?->payout_processing_fee_kobo ?? 0)),
             // Deprecated, echoed as zero for one release: the flat fee was
             // replaced by the cap, and a stale admin bundle must not present an
             // inert stored value as something still being charged.

@@ -35,6 +35,11 @@ class Setting extends Model
         // a percentage and a per-sale maximum, in kobo.
         'platform_commission_percent',
         'platform_commission_max_kobo',
+        // The platform-wide payout policy: a floor below which a destination's
+        // takings wait, and a flat fee withheld from every transfer. Both are
+        // kobo and both default to zero ("no floor", "no fee").
+        'minimum_payout_kobo',
+        'payout_processing_fee_kobo',
         // Legacy: the flat per-sale amount the cap replaced. Retained so old
         // rows and fixtures still read and a code rollback needs no schema
         // change, but nothing computes from it any more.
@@ -63,6 +68,9 @@ class Setting extends Model
         'platform_commission_percent' => 'float',
         // Zero means uncapped, not zero commission.
         'platform_commission_max_kobo' => 'integer',
+        // Zero means "pay out every collected amount" and "charge no fee".
+        'minimum_payout_kobo' => 'integer',
+        'payout_processing_fee_kobo' => 'integer',
         // Legacy — see the comment on the fillable list above.
         'platform_commission_fixed_kobo' => 'integer',
     ];

@@ -1,5 +1,6 @@
 <?php
 
+use App\Jobs\SettlePayouts;
 use App\Mail\SettingsUpdated;
 use App\Models\ActivityLog;
 use App\Models\Currency;
@@ -10,6 +11,7 @@ use Database\Seeders\SpatiePermissionSeeder;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 
 /**
@@ -583,4 +585,147 @@ test('a save that does not mention the commission leaves it as it was', function
     expect($settings->company_name)->toBe('Storify Ltd')
         ->and((float) $settings->platform_commission_percent)->toBe(2.5)
         ->and((int) $settings->platform_commission_max_kobo)->toBe(10000);
+});
+
+/*
+|--------------------------------------------------------------------------
+| The payout policy
+|--------------------------------------------------------------------------
+|
+| The floor below which a destination's balance waits, and the flat fee taken
+| out of each transfer. Both are in kobo, both mean "off" at zero, and both are
+| read at send time — so the two things a settings save must get right are that
+| it stores what the admin typed and that an unrelated tab's save leaves them
+| alone. Lowering either releases money that was deliberately held, which is the
+| one side effect this screen has on the payout machinery.
+*/
+
+test('the payout policy is stored in kobo and returned by the settings payload', function () {
+    $admin = ad02SuperAdmin();
+    ad02Settings();
+
+    $response = $this->putJson('/api/v1/admin/settings', ad02FullPayload([
+        'minimum_payout_kobo' => 300000,
+        'payout_processing_fee_kobo' => 5000,
+    ]), ad02Headers($admin));
+
+    $response->assertOk()
+        ->assertJsonPath('data.settings.minimum_payout_kobo', 300000)
+        ->assertJsonPath('data.settings.payout_processing_fee_kobo', 5000);
+
+    $settings = Setting::query()->first();
+
+    expect((int) $settings->minimum_payout_kobo)->toBe(300000)
+        ->and((int) $settings->payout_processing_fee_kobo)->toBe(5000);
+
+    // And a fresh read agrees: an admin who reloads the screen sees the figures
+    // they saved rather than the defaults.
+    $this->getJson('/api/v1/admin/settings', ad02Headers($admin))
+        ->assertOk()
+        ->assertJsonPath('data.settings.minimum_payout_kobo', 300000)
+        ->assertJsonPath('data.settings.payout_processing_fee_kobo', 5000);
+});
+
+test('a save that does not mention the payout policy leaves it as it was', function () {
+    // Same rule as the commission, for the same reason: this save has other
+    // callers, and a partial save resetting the floor to zero would start
+    // paying out every ₦400 sale again with nothing on screen having said so.
+    $admin = ad02SuperAdmin();
+    ad02Settings([
+        'minimum_payout_kobo' => 300000,
+        'payout_processing_fee_kobo' => 5000,
+    ]);
+
+    $this->putJson('/api/v1/admin/settings', ad02FullPayload(['company_name' => 'Storify Ltd']), ad02Headers($admin))
+        ->assertOk();
+
+    $settings = Setting::query()->first();
+
+    expect($settings->company_name)->toBe('Storify Ltd')
+        ->and((int) $settings->minimum_payout_kobo)->toBe(300000)
+        ->and((int) $settings->payout_processing_fee_kobo)->toBe(5000);
+});
+
+test('a blank payout policy turns both figures off', function () {
+    // A blank field reaches the service as null (`ConvertEmptyStringsToNull`),
+    // and for these columns that is a real instruction rather than an absent
+    // opinion: no floor, no fee. Zero is the only other way to say it.
+    $admin = ad02SuperAdmin();
+    ad02Settings([
+        'minimum_payout_kobo' => 300000,
+        'payout_processing_fee_kobo' => 5000,
+    ]);
+
+    $this->putJson('/api/v1/admin/settings', ad02FullPayload([
+        'minimum_payout_kobo' => null,
+        'payout_processing_fee_kobo' => null,
+    ]), ad02Headers($admin))->assertOk();
+
+    $settings = Setting::query()->first();
+
+    expect((int) $settings->minimum_payout_kobo)->toBe(0)
+        ->and((int) $settings->payout_processing_fee_kobo)->toBe(0);
+});
+
+test('the payout policy cannot be negative', function () {
+    // A negative floor would qualify everything, and a negative fee would pay a
+    // business for being paid. Both are refused rather than clamped, so the
+    // admin learns the field was wrong.
+    $admin = ad02SuperAdmin();
+    ad02Settings();
+
+    $this->putJson('/api/v1/admin/settings', ad02FullPayload(['minimum_payout_kobo' => -1]), ad02Headers($admin))
+        ->assertStatus(422);
+
+    $this->putJson('/api/v1/admin/settings', ad02FullPayload(['payout_processing_fee_kobo' => -1]), ad02Headers($admin))
+        ->assertStatus(422);
+
+    $this->putJson('/api/v1/admin/settings', ad02FullPayload([
+        'minimum_payout_kobo' => 0,
+        'payout_processing_fee_kobo' => 0,
+    ]), ad02Headers($admin))->assertOk();
+});
+
+test('lowering the payout policy wakes held money, and raising it does not', function () {
+    // Nothing else would pay a balance held under the old floor until the
+    // business's next sale, which on a quiet shop may be days. A loosening
+    // therefore dispatches the same settlement job a hold lift does; a
+    // tightening has nothing to release.
+    $admin = ad02SuperAdmin();
+    ad02Settings([
+        'minimum_payout_kobo' => 300000,
+        'payout_processing_fee_kobo' => 5000,
+    ]);
+
+    [, $business] = createBusinessOwner();
+    $business->forceFill(['available_balance' => 100000])->save();
+
+    Queue::fake();
+
+    $this->putJson('/api/v1/admin/settings', ad02FullPayload([
+        'minimum_payout_kobo' => 50000,
+        'payout_processing_fee_kobo' => 5000,
+    ]), ad02Headers($admin))->assertOk();
+
+    Queue::assertPushed(SettlePayouts::class, fn (SettlePayouts $job) => $job->businessId === (int) $business->id);
+
+    Queue::fake();
+
+    $this->putJson('/api/v1/admin/settings', ad02FullPayload([
+        'minimum_payout_kobo' => 900000,
+        'payout_processing_fee_kobo' => 5000,
+    ]), ad02Headers($admin))->assertOk();
+
+    Queue::assertNothingPushed();
+
+    // A lower fee is the other half of the same loosening, and releases a
+    // destination whose balance the old fee would have swallowed.
+    Queue::fake();
+
+    $this->putJson('/api/v1/admin/settings', ad02FullPayload([
+        'minimum_payout_kobo' => 900000,
+        'payout_processing_fee_kobo' => 1000,
+    ]), ad02Headers($admin))->assertOk();
+
+    Queue::assertPushed(SettlePayouts::class, fn (SettlePayouts $job) => $job->businessId === (int) $business->id);
 });

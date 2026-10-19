@@ -277,16 +277,21 @@ final class SettlePayouts implements ShouldQueue
         $refused = ($result['outcome']['failed'] ?? 0) > 0
             || ($result['outcome']['backoff'] ?? 0) > 0;
 
-        // `payable_kobo`, deliberately, and **not** `available_kobo`. The two are
-        // equal in the ordinary case and differ in exactly the one that matters
-        // here: a **store hold** withholds that store's share and pays the business
-        // for the rest, so it leaves `available_balance` untouched while taking the
-        // money out of the walk's figure. Retrying on `available_kobo` would
-        // therefore spend three attempts and send an admin alert about a hold
-        // somebody placed on purpose — a page with nothing wrong on it, which is the
-        // thing `PayoutSweepService::STALLING_BLOCKERS` exists to avoid.
+        // `sendable_kobo`, deliberately, and **not** `available_kobo`. It is what
+        // this attempt was willing to send: everything owed, less money a **store
+        // hold** withholds, less a destination waiting for the platform's minimum
+        // payout amount or whose whole balance the payout fee would swallow.
         //
-        // What `payable_kobo > 0` means after a send is that money the walk says
+        // `payable_kobo` cannot be used for this any more. It means "owed", and a
+        // business deliberately waiting under the floor would then look identical
+        // to one whose send failed: three retries inside the hour and an admin
+        // alert about money nobody was trying to move. Retrying on
+        // `available_kobo` would fail the same way for a store hold, which takes
+        // the money out of the walk while leaving the wallet's balance untouched
+        // — a page with nothing wrong on it, which is the thing
+        // `PayoutSweepService::STALLING_BLOCKERS` exists to avoid.
+        //
+        // What `sendable_kobo > 0` means after a send is that money the walk says
         // should go did not — a refusal, or the provider's balance short of it.
         // `pending_kobo > 0` means a due sale did not mature, which for both rails
         // (`settlement_hours` 0) has only two causes: the provider could not be read,
@@ -294,8 +299,9 @@ final class SettlePayouts implements ShouldQueue
         // it; or the gate was read and short. The first is trouble and the second is
         // usually not, which is why the two are separated below rather than both
         // being sent round the fast clock.
-        $leftBehind = (int) ($summary['pending_kobo'] ?? 0) > 0
-            || (int) ($summary['payable_kobo'] ?? 0) > 0;
+        $sendable = (int) ($summary['sendable_kobo'] ?? 0);
+
+        $leftBehind = (int) ($summary['pending_kobo'] ?? 0) > 0 || $sendable > 0;
 
         // Sent, or nothing was ever owed. Either way this job is finished.
         if (! $refused && ! $leftBehind) {
@@ -342,13 +348,13 @@ final class SettlePayouts implements ShouldQueue
         // a transfer still inside its own backoff window; `measured !== true` covers a
         // provider that could not be read, which is the provider being *down* and is
         // exactly what the fast clock is for; `$fundable` excludes a provider that
-        // cannot pay anybody; and `payable_kobo === 0` excludes the case where the
+        // cannot pay anybody; and `sendable_kobo === 0` excludes the case where the
         // walk was willing to send and sent nothing, which is trouble whatever the
-        // reason.
+        // reason — while a policy hold is deliberately not "willing to send".
         $waitingOnProvider = ! $refused
             && ($result['measured'] ?? false) === true
             && $sweep->gateCanFundPayout($gate)
-            && (int) ($summary['payable_kobo'] ?? 0) === 0
+            && $sendable === 0
             && (int) ($summary['pending_kobo'] ?? 0) > 0;
 
         if ($waitingOnProvider && $this->recheckLater($gate)) {
@@ -365,6 +371,9 @@ final class SettlePayouts implements ShouldQueue
             'refused' => $refused,
             'pending_kobo' => (int) ($summary['pending_kobo'] ?? 0),
             'payable_kobo' => (int) ($summary['payable_kobo'] ?? 0),
+            // Owed versus sendable: the difference is a policy hold, and a hold
+            // is never what this line is warning about.
+            'sendable_kobo' => $sendable,
             'withheld_kobo' => (int) ($summary['withheld_kobo'] ?? 0),
             'measured' => $result['measured'] ?? null,
 

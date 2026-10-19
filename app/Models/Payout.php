@@ -61,7 +61,7 @@ class Payout extends Model
     protected $fillable = [
         'business_id', 'store_id', 'provider', 'destination_id', 'payout_bank_id',
         'bank_code', 'account_number', 'account_name',
-        'amount_kobo', 'currency', 'status', 'reference', 'provider_payout_id',
+        'amount_kobo', 'fee_kobo', 'currency', 'status', 'reference', 'provider_payout_id',
         'failure_code', 'failure_reason', 'requested_by',
         'requested_at', 'sent_at', 'paid_at', 'failed_at', 'reversed_at',
         'attempts', 'meta',
@@ -69,6 +69,7 @@ class Payout extends Model
 
     protected $casts = [
         'amount_kobo' => 'integer',
+        'fee_kobo' => 'integer',
         'attempts' => 'integer',
         'meta' => 'array',
         'requested_at' => 'datetime',
@@ -121,6 +122,12 @@ class Payout extends Model
      * can be reserved, sit in `pending` while a slow provider call is retried, and
      * the question the job asks is when we first tried, not when the row
      * appeared.
+     *
+     * `fee_kobo` is the processing fee withheld from this transfer, copied from
+     * the platform policy at the moment of reservation. It is a snapshot for the
+     * same reason the destination is: a fee changed after this point must not
+     * alter a transfer already on its way. `amount_kobo` stays gross; see
+     * {@see netKobo()}.
      */
     public static function reserve(
         int $businessId,
@@ -130,6 +137,7 @@ class Payout extends Model
         ?string $bankCode,
         ?string $accountName,
         int $amountKobo,
+        int $feeKobo = 0,
         string $currency = 'NGN',
         ?int $requestedBy = null,
         ?int $payoutBankId = null,
@@ -147,12 +155,37 @@ class Payout extends Model
             'bank_code' => $bankCode,
             'account_name' => $accountName,
             'amount_kobo' => $amountKobo,
+            'fee_kobo' => $feeKobo,
             'currency' => $currency,
             'status' => self::STATUS_PENDING,
             'reference' => self::newReference($businessId),
             'requested_by' => $requestedBy,
             'requested_at' => now(),
         ]);
+    }
+
+    /**
+     * The processing fee withheld from this payout, in kobo.
+     *
+     * Clamped at zero so a row written before the column existed — or by a test
+     * that does not care about the fee — reads as "no fee" rather than as a
+     * credit.
+     */
+    public function feeKobo(): int
+    {
+        return max(0, (int) $this->fee_kobo);
+    }
+
+    /**
+     * What the provider is asked to transfer: the gross less the fee.
+     *
+     * Never stored. The wallet was debited `amount_kobo`, the allocations sum to
+     * `amount_kobo`, and this one subtraction is what the bank receives — three
+     * figures that cannot drift because only two of them are columns.
+     */
+    public function netKobo(): int
+    {
+        return max(0, (int) $this->amount_kobo - $this->feeKobo());
     }
 
     /**

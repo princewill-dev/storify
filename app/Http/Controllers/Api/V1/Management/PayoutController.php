@@ -52,6 +52,9 @@ class PayoutController extends ApiController
             ->when($request->filled('store_id'), fn (Builder $q) => $q->where('store_id', (int) $request->integer('store_id')))
             ->when($request->filled('date_from'), fn (Builder $q) => $q->whereDate('requested_at', '>=', $request->date('date_from')))
             ->when($request->filled('date_to'), fn (Builder $q) => $q->whereDate('requested_at', '<=', $request->date('date_to')))
+            // One aggregate subquery, not a query per row: the count is what
+            // tells a list which payouts pooled several sales.
+            ->withCount('allocations')
             ->orderByDesc('id')
             ->paginate(min(100, max(1, (int) $request->integer('per_page', 20))));
 
@@ -100,8 +103,21 @@ class PayoutController extends ApiController
             'reference' => $payout->reference,
             'status' => $payout->status,
             'currency' => $payout->currency,
+            // The gross the wallet was debited and the allocations add up to.
             'amount' => Naira::floatFromKobo((int) $payout->amount_kobo),
             'amount_kobo' => (int) $payout->amount_kobo,
+            // The platform's processing fee and what the bank actually received.
+            // Sent on every row, not only the detail, because a business reading
+            // its payout list is comparing the figure here to its bank statement
+            // and the difference is exactly this subtraction.
+            'fee' => Naira::floatFromKobo($payout->feeKobo()),
+            'fee_kobo' => $payout->feeKobo(),
+            'net' => Naira::floatFromKobo($payout->netKobo()),
+            'net_kobo' => $payout->netKobo(),
+            // How many sales the amount was drawn from. On the list it comes
+            // from the `withCount` aggregate; on the detail the allocations are
+            // already loaded, and the two answers are the same number.
+            'sales_count' => (int) ($payout->allocations_count ?? $payout->allocations->count()),
             'provider' => $payout->provider,
             'store_id' => $payout->store_id !== null ? (int) $payout->store_id : null,
             'bank_code' => $payout->bank_code,
@@ -122,9 +138,6 @@ class PayoutController extends ApiController
         }
 
         return $row + [
-            // How many sales the amount was drawn from. The list does not carry
-            // it — it is a second query per row for a column no list renders.
-            'sales_count' => $payout->allocations->count(),
             // Null when the system sent it — the queued settlement a collected sale
             // dispatches, or an operator's retry. Both are the ordinary case, and
             // neither asks a person's permission, so this field distinguishes "a

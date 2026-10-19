@@ -77,6 +77,9 @@ class BusinessWalletController extends ApiController
 
         $payouts = Payout::query()
             ->where('business_id', $business->id)
+            // One aggregate, not a query per row — the same count the business's
+            // own list shows, so an operator and the owner read one number.
+            ->withCount('allocations')
             ->orderByDesc('id')
             ->limit(self::RECENT_PAYOUTS)
             ->get();
@@ -95,7 +98,9 @@ class BusinessWalletController extends ApiController
      * (the business's own payouts screen is the place that answers "which account
      * did it go to", and an operator has no reason to read somebody's account
      * number to answer a support question), and no allocation lines, which are a
-     * per-payout second query. What is here is what the console draws.
+     * per-payout second query. The allocation *count* is here because it is one
+     * aggregate for the whole page and it is what tells a grouped payout from a
+     * single sale. What is here is what the console draws.
      *
      * @return array<string, mixed>
      */
@@ -108,6 +113,11 @@ class BusinessWalletController extends ApiController
             'currency' => $payout->currency,
             'amount' => Naira::floatFromKobo((int) $payout->amount_kobo),
             'amount_kobo' => (int) $payout->amount_kobo,
+            'fee' => Naira::floatFromKobo($payout->feeKobo()),
+            'fee_kobo' => $payout->feeKobo(),
+            'net' => Naira::floatFromKobo($payout->netKobo()),
+            'net_kobo' => $payout->netKobo(),
+            'sales_count' => (int) ($payout->allocations_count ?? 0),
             'store_id' => $payout->store_id !== null ? (int) $payout->store_id : null,
             'failure_reason' => $payout->failure_reason,
             'requested_at' => $payout->requested_at?->toISOString(),
