@@ -9,6 +9,8 @@ use App\Models\DeliveryRoute;
 use App\Models\Product;
 use App\Models\Service;
 use App\Models\Store;
+use App\Models\StorefrontPage;
+use App\Support\Storefront\StorefrontPages;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -46,6 +48,19 @@ class CatalogController extends ApiController
                 'slug' => $category->slug,
                 'products_count' => $category->products_count,
             ])->values()->all(),
+            // The footer navigation. Sent with the boot payload so the footer
+            // renders correctly on first paint; the page bodies are fetched
+            // only when a visitor opens one.
+            'footer_pages' => $store->storefrontPages()
+                ->published()
+                ->where('show_in_footer', true)
+                ->orderBy('title')
+                ->get()
+                ->map(fn (StorefrontPage $page) => [
+                    'title' => $page->title,
+                    'slug' => $page->slug,
+                    'path' => StorefrontPages::path($page->slug),
+                ])->values()->all(),
         ]);
     }
 
@@ -219,6 +234,13 @@ class CatalogController extends ApiController
             'support_email' => $store->support_email,
             'support_phone' => $store->support_phone,
             'logo_url' => $store->logo_path ? asset('storage/'.$store->logo_path) : null,
+            'site_title' => $store->storefrontSettings?->site_title,
+            'socials' => [
+                'instagram' => $store->instagram_url,
+                'facebook' => $store->facebook_url,
+                'twitter' => $store->twitter_url,
+                'tiktok' => $store->tiktok_url,
+            ],
         ];
     }
 

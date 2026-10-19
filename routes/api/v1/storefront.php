@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\V1\Storefront\CartController;
 use App\Http\Controllers\Api\V1\Storefront\CatalogController;
 use App\Http\Controllers\Api\V1\Storefront\CheckoutController;
 use App\Http\Controllers\Api\V1\Storefront\ConsentController;
+use App\Http\Controllers\Api\V1\Storefront\ContentController;
 use App\Http\Controllers\Api\V1\Storefront\DataRightsController;
 use App\Http\Controllers\Api\V1\Storefront\DownloadController;
 use App\Http\Controllers\Api\V1\Storefront\InvoicePaymentController;
@@ -86,6 +87,18 @@ Route::prefix('storefront/{store}')->name('api.storefront.')->group(function () 
     // rewrites the raw HTML head so verification meta tags are visible to
     // crawlers that do not run JavaScript. Cached at the edge per store.
     Route::get('tracking', [TrackingController::class, 'show'])->name('tracking');
+
+    // Site metadata for the Cloudflare Worker, which injects the crawler-facing
+    // tags into the shared index.html. Public for the same reason tracking is:
+    // its callers have no session. Published pages only.
+    Route::get('seo', [ContentController::class, 'seo'])->name('seo');
+
+    // Owner-written pages (About, Terms, Privacy and custom). The slug is
+    // constrained because it is generated from a title and never carries
+    // anything but lowercase words and hyphens.
+    Route::get('pages/{slug}', [ContentController::class, 'page'])
+        ->where('slug', '[a-z0-9-]+')
+        ->name('pages.show');
     Route::get('products', [CatalogController::class, 'products'])->name('products.index');
     Route::get('products/{slugOrCode}', [CatalogController::class, 'show'])->name('products.show');
     Route::get('services', [CatalogController::class, 'services'])->name('services.index');

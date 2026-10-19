@@ -4,6 +4,7 @@ use App\Models\User;
 use App\Support\SpaUrls;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Testing\TestResponse;
+use Tests\TestCase;
 
 /*
 | The log viewer is the single surface in this API reachable with a session
@@ -29,7 +30,7 @@ function logViewerToken(User $user, array $abilities = ['admin']): string
 }
 
 /**
- * @param  \Tests\TestCase  $test
+ * @param  TestCase  $test
  */
 function logViewerMint($test, string $token, string $query = ''): TestResponse
 {
@@ -42,7 +43,7 @@ function logViewerMint($test, string $token, string $query = ''): TestResponse
  * The browser half of the handoff: no bearer token, and the default guard put
  * back to `web` (the API request above used Sanctum and leaves it changed).
  *
- * @param  \Tests\TestCase  $test
+ * @param  TestCase  $test
  */
 function logViewerRedeem($test, string $url): TestResponse
 {

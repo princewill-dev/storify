@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\Relations\MorphToMany;
 
@@ -176,6 +177,20 @@ class Store extends Model
     public function deliveryRoutes(): HasMany
     {
         return $this->hasMany(DeliveryRoute::class);
+    }
+
+    /**
+     * Storefront presentation settings. Absent until the owner saves them;
+     * readers fall back to the store's own name, description and logo.
+     */
+    public function storefrontSettings(): HasOne
+    {
+        return $this->hasOne(StorefrontSetting::class);
+    }
+
+    public function storefrontPages(): HasMany
+    {
+        return $this->hasMany(StorefrontPage::class);
     }
 
     public function categories(): HasMany

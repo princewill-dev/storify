@@ -627,7 +627,16 @@ test('the storefront gate is on the routes that publish or rename it, and not on
         ->and($middleware('api.management.storefront.update-slug'))->toContain('plan.feature:storefront')
         ->and($middleware('api.management.storefront.disable-website'))->not->toContain('plan.feature:storefront')
         ->and($middleware('api.management.storefront.check-slug'))->not->toContain('plan.feature:storefront')
-        ->and($middleware('api.management.storefront.stores.index'))->not->toContain('plan.feature:storefront');
+        ->and($middleware('api.management.storefront.stores.index'))->not->toContain('plan.feature:storefront')
+        // Storefront settings follows the same split: the workspace read stays
+        // open so a downgraded business can see what its shop is serving, while
+        // configuring metadata or pages is gated.
+        ->and($middleware('api.management.storefront-settings.update'))->toContain('plan.feature:storefront')
+        ->and($middleware('api.management.storefront-pages.store'))->toContain('plan.feature:storefront')
+        ->and($middleware('api.management.storefront-pages.update'))->toContain('plan.feature:storefront')
+        ->and($middleware('api.management.storefront-pages.destroy'))->toContain('plan.feature:storefront')
+        ->and($middleware('api.management.storefront-settings.show'))->not->toContain('plan.feature:storefront')
+        ->and($middleware('api.management.storefront-pages.show'))->not->toContain('plan.feature:storefront');
 });
 
 test('a plan that excludes the storefront refuses publishing it', function () {

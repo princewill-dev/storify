@@ -4,6 +4,7 @@ use App\Models\Otp;
 use App\Models\RefreshToken;
 use App\Support\Auth\SessionPolicy;
 use Laravel\Sanctum\PersonalAccessToken;
+use Tests\TestCase;
 
 /**
  * Idle-expiring console sessions (WS-64).
@@ -34,7 +35,7 @@ function ws64Bearer(string $token): array
 /**
  * Log a management owner all the way in and return the token pair.
  *
- * @param  \Tests\TestCase  $test
+ * @param  TestCase  $test
  * @return array{access_token: string, refresh_token: string, expires_in: int, session: array<string, int>}
  */
 function ws64ManagementLogin($test, string $email): array
