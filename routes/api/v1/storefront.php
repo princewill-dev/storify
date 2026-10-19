@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\V1\Storefront\ContentController;
 use App\Http\Controllers\Api\V1\Storefront\DataRightsController;
 use App\Http\Controllers\Api\V1\Storefront\DownloadController;
 use App\Http\Controllers\Api\V1\Storefront\InvoicePaymentController;
+use App\Http\Controllers\Api\V1\Storefront\StoreViewController;
 use App\Http\Controllers\Api\V1\Storefront\SupportController;
 use App\Http\Controllers\Api\V1\Storefront\TrackingController;
 use App\Support\Payments\PaymentGatewayRegistry;
@@ -87,6 +88,14 @@ Route::prefix('storefront/{store}')->name('api.storefront.')->group(function () 
     // rewrites the raw HTML head so verification meta tags are visible to
     // crawlers that do not run JavaScript. Cached at the edge per store.
     Route::get('tracking', [TrackingController::class, 'show'])->name('tracking');
+
+    // The store and product view counters behind the business's web-metrics
+    // tiles. Reported by the rendered page, not implied by a catalog fetch —
+    // see StoreViewController for why, and the throttle for how the numbers
+    // are kept honest. Public, like the rest of browsing.
+    Route::post('views', [StoreViewController::class, 'store'])
+        ->middleware('throttle:120,1')
+        ->name('views.store');
 
     // Site metadata for the Cloudflare Worker, which injects the crawler-facing
     // tags into the shared index.html. Public for the same reason tracking is:

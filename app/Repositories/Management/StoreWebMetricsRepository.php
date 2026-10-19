@@ -24,8 +24,10 @@ use Illuminate\Support\Collection;
  *                     store's invoices (the legacy definition; invoices are
  *                     settled off-storefront and were always counted).
  *
- * (Store views is `stores.views`, a counter incremented by the storefront, so
- * it is read straight off the store model by the controller.)
+ * (Store views is `stores.views`, a counter the storefront increments through
+ * `POST /storefront/{store}/views` as each rendered page is navigated to, so it
+ * is read straight off the store model by the controller. `products.views` is
+ * written by the same endpoint.)
  *
  * Deliberate departures from legacy, carried with the queries:
  *   - Money is summed in SQL (the decimal naira columns) and converted once,
