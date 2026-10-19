@@ -65,6 +65,19 @@ final class StorefrontService
     }
 
     /**
+     * Changes a live storefront's public address.
+     *
+     * One column, so unlike `enable()` there is nothing that could be left
+     * half-applied and no transaction. `has_website` and the nation-wide
+     * delivery route are untouched: this is not the enable path, and it must
+     * not rewrite what the storefront already runs on.
+     */
+    public function updateSlug(Store $store, string $slug): void
+    {
+        $store->update(['slug' => $slug]);
+    }
+
+    /**
      * Upserts the "All States" route the storefront checkout charges.
      *
      * @param  array<string, mixed>  $data

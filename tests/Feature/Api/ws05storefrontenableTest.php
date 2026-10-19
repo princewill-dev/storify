@@ -558,8 +558,166 @@ test('disabling a storefront needs the stores settings permission', function () 
     expect($store->fresh()->has_website)->toBeTrue();
 });
 
+test('a live storefront address can be changed without touching the rest of the store', function () {
+    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    $store = ws05Store($owner, [
+        'name' => 'Ada Fashions',
+        'slug' => 'ada-fashions',
+        'has_website' => true,
+    ]);
+
+    $this->withToken(ws05Token($owner))
+        ->putJson("/api/v1/management/stores/{$store->store_id}/storefront-slug", [
+            // Normalised the same way the enable form normalises it.
+            'slug' => 'Ada-Fashions-Lagos',
+        ])
+        ->assertOk()
+        ->assertJsonPath('data.store.slug', 'ada-fashions-lagos')
+        ->assertJsonPath('data.store.storefront_url', ws05Url('ada-fashions-lagos'))
+        // Renaming is not the enable path: it must not rewrite these.
+        ->assertJsonPath('data.store.name', 'Ada Fashions')
+        ->assertJsonPath('data.store.has_website', true);
+
+    $fresh = $store->fresh();
+
+    expect($fresh->slug)->toBe('ada-fashions-lagos')
+        ->and($fresh->name)->toBe('Ada Fashions')
+        ->and($fresh->has_website)->toBeTrue();
+});
+
+test('changing the address releases the old one for another store', function () {
+    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    $store = ws05Store($owner, ['slug' => 'old-address', 'has_website' => true]);
+
+    $this->withToken(ws05Token($owner))
+        ->putJson("/api/v1/management/stores/{$store->store_id}/storefront-slug", [
+            'slug' => 'new-address',
+        ])
+        ->assertOk();
+
+    $this->withToken(ws05Token($owner))
+        ->postJson('/api/v1/management/stores/check-slug', ['slug' => 'old-address'])
+        ->assertOk()
+        ->assertJsonPath('data.available', true);
+});
+
+test('resubmitting the current address changes nothing and is not an error', function () {
+    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    $store = ws05Store($owner, ['slug' => 'live-shop', 'has_website' => true]);
+
+    // The form disables submit while the value is unchanged, so this is what a
+    // double submit or a stale tab looks like. It must not read as a failure.
+    $this->withToken(ws05Token($owner))
+        ->putJson("/api/v1/management/stores/{$store->store_id}/storefront-slug", [
+            'slug' => 'live-shop',
+        ])
+        ->assertOk()
+        ->assertJsonPath('data.store.slug', 'live-shop');
+});
+
+test('an address another store is already using is refused', function () {
+    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    ws05Store($owner, ['slug' => 'taken-slug']);
+    $store = ws05Store($owner, ['slug' => 'live-shop', 'has_website' => true]);
+
+    $this->withToken(ws05Token($owner))
+        ->putJson("/api/v1/management/stores/{$store->store_id}/storefront-slug", [
+            'slug' => 'taken-slug',
+        ])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors('slug');
+
+    expect($store->fresh()->slug)->toBe('live-shop');
+});
+
+test('a reserved address is refused when renaming', function () {
+    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    $store = ws05Store($owner, ['slug' => 'live-shop', 'has_website' => true]);
+
+    $this->withToken(ws05Token($owner))
+        ->putJson("/api/v1/management/stores/{$store->store_id}/storefront-slug", [
+            'slug' => 'admin',
+        ])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors('slug');
+
+    expect($store->fresh()->slug)->toBe('live-shop');
+});
+
+test('an offline storefront has no address to rename', function () {
+    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    $store = ws05Store($owner, ['slug' => 'live-shop', 'has_website' => false]);
+
+    $this->withToken(ws05Token($owner))
+        ->putJson("/api/v1/management/stores/{$store->store_id}/storefront-slug", [
+            'slug' => 'renamed-shop',
+        ])
+        ->assertStatus(422)
+        ->assertJsonPath('errors.store.0', 'This store has no online storefront to rename.');
+
+    expect($store->fresh()->slug)->toBe('live-shop');
+});
+
+test('a deleted store cannot have its address changed', function () {
+    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    $store = ws05Store($owner, [
+        'slug' => 'live-shop',
+        'has_website' => true,
+        'status' => Store::STATUS_DELETED,
+    ]);
+
+    $this->withToken(ws05Token($owner))
+        ->putJson("/api/v1/management/stores/{$store->store_id}/storefront-slug", [
+            'slug' => 'renamed-shop',
+        ])
+        ->assertStatus(404);
+
+    expect($store->fresh()->slug)->toBe('live-shop');
+});
+
+test('a storefront address cannot be changed for another business store', function () {
+    [$owner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    [$otherOwner] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+
+    $theirs = ws05Store($otherOwner, ['slug' => 'their-shop', 'has_website' => true]);
+
+    $this->withToken(ws05Token($owner))
+        ->putJson("/api/v1/management/stores/{$theirs->store_id}/storefront-slug", [
+            'slug' => 'mine-now',
+        ])
+        ->assertStatus(403);
+
+    expect($theirs->fresh()->slug)->toBe('their-shop');
+});
+
+test('renaming a storefront needs the stores settings permission', function () {
+    [$owner, $business] = createBusinessOwner(['trial_ends_at' => now()->addWeek()]);
+    $store = ws05Store($owner, ['slug' => 'live-shop', 'has_website' => true]);
+
+    $staff = User::factory()->create([
+        'role' => 'staff',
+        'status' => 'active',
+        'is_verified' => true,
+        'business_id' => $business->id,
+    ]);
+
+    (new SpatiePermissionSeeder)->run();
+    setPermissionsTeamId($business->id);
+    $staff->assignRole('Managing Director');
+
+    $this->withToken(ws05Token($staff))
+        ->putJson("/api/v1/management/stores/{$store->store_id}/storefront-slug", [
+            'slug' => 'not-allowed',
+        ])
+        ->assertStatus(403);
+
+    expect($store->fresh()->slug)->toBe('live-shop');
+});
+
 test('storefront endpoints require authentication', function () {
     $this->getJson('/api/v1/management/storefront/stores')->assertStatus(401);
     $this->postJson('/api/v1/management/stores/check-slug', ['name' => 'Nope'])->assertStatus(401);
     $this->postJson('/api/v1/management/stores/st_0000000001/disable-website')->assertStatus(401);
+    $this->putJson('/api/v1/management/stores/st_0000000001/storefront-slug', ['slug' => 'nope'])
+        ->assertStatus(401);
 });

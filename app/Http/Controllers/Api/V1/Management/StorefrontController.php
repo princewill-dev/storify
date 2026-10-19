@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\V1\ApiController;
 use App\Http\Controllers\Api\V1\Management\Concerns\ResolvesManagementContext;
 use App\Http\Requests\Management\StorefrontEnableRequest;
 use App\Http\Requests\Management\StorefrontIndexRequest;
+use App\Http\Requests\Management\StorefrontSlugUpdateRequest;
 use App\Http\Requests\Management\StoreSlugCheckRequest;
 use App\Http\Resources\Management\StorefrontResource;
 use App\Models\Store;
@@ -199,6 +200,58 @@ class StorefrontController extends ApiController
         return $this->ok(
             ['store' => (new StorefrontResource($store->fresh(), $this->stores->nationwideRoute($store)))->resolve($request)],
             'Storefront taken offline. '.$url.' no longer serves customers.',
+        );
+    }
+
+    /**
+     * Change a live storefront's public address.
+     *
+     * Enabling is refused once a storefront is live, and rightly so — it also
+     * rewrites the store name and the nation-wide delivery route, and running
+     * it again would move a live shop out from under every link already
+     * shared. But that left the address itself frozen for good. This is the
+     * narrow alternative: one field, one column.
+     *
+     * The old address stops resolving the moment this returns. There is no
+     * alias table and the subdomain is the whole of the lookup key, which is
+     * why the console warns about it before submitting.
+     *
+     * Resubmitting the current address is a success rather than a 422: it
+     * changes nothing, and a double submit should not look like a failure.
+     */
+    public function updateSlug(StorefrontSlugUpdateRequest $request, Store $store): JsonResponse
+    {
+        $this->authorizeStorefront($request, $store);
+
+        if (! $store->has_website) {
+            $message = 'This store has no online storefront to rename.';
+
+            return $this->error($message, 422, ['store' => [$message]]);
+        }
+
+        $slug = (string) $request->validated('slug');
+
+        if ($slug === $store->slug) {
+            return $this->ok(
+                ['store' => (new StorefrontResource($store, $this->stores->nationwideRoute($store)))->resolve($request)],
+                'The storefront address is unchanged.',
+            );
+        }
+
+        $previous = $store->slug;
+
+        $this->storefront->updateSlug($store, $slug);
+
+        Log::info('api.management.storefront_slug_changed', [
+            'user_id' => $this->user($request)->id,
+            'store_id' => $store->id,
+            'from' => $previous,
+            'to' => $slug,
+        ]);
+
+        return $this->ok(
+            ['store' => (new StorefrontResource($store->fresh(), $this->stores->nationwideRoute($store)))->resolve($request)],
+            'Storefront address changed to '.StorefrontResource::urlFor($slug).'.',
         );
     }
 

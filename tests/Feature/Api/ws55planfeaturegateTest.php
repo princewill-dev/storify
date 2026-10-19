@@ -612,7 +612,7 @@ test('the warehouse list is told what the business holds', function () {
 
 /* ------------------------------------------------------------- the storefront */
 
-test('the storefront gate is on the two routes that switch it on, and not on the one that switches it off', function () {
+test('the storefront gate is on the routes that publish or rename it, and not on the one that switches it off', function () {
     // Gating "off" would leave a business that lost the entitlement holding a
     // live storefront it could not close, and a route-name prefix would catch
     // the shared reads (`check-slug`, `storefront.stores.*`) that store create
@@ -624,6 +624,7 @@ test('the storefront gate is on the two routes that switch it on, and not on the
 
     expect($middleware('api.management.storefront.enable-website'))->toContain('plan.feature:storefront')
         ->and($middleware('api.management.storefront.store'))->toContain('plan.feature:storefront')
+        ->and($middleware('api.management.storefront.update-slug'))->toContain('plan.feature:storefront')
         ->and($middleware('api.management.storefront.disable-website'))->not->toContain('plan.feature:storefront')
         ->and($middleware('api.management.storefront.check-slug'))->not->toContain('plan.feature:storefront')
         ->and($middleware('api.management.storefront.stores.index'))->not->toContain('plan.feature:storefront');

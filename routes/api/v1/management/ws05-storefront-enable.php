@@ -42,6 +42,11 @@ Route::middleware('permission:stores settings')->group(function () {
             ->name('storefront.enable-website');
         Route::post('stores/{store}/storefront', [StorefrontController::class, 'store'])
             ->name('storefront.store');
+
+        // Renaming a live storefront is the same entitlement: the thing being
+        // edited is the storefront itself, and it is still serving customers.
+        Route::put('stores/{store}/storefront-slug', [StorefrontController::class, 'updateSlug'])
+            ->name('storefront.update-slug');
     });
 
     Route::post('stores/{store}/disable-website', [StorefrontController::class, 'disableWebsite'])
