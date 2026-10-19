@@ -618,3 +618,49 @@ test('payout payloads carry the fee and the net', function () {
         ->and($recent[0]['net_kobo'])->toBe(335000)
         ->and($recent[0]['sales_count'])->toBe(1);
 });
+
+test('the wallet reports what has actually reached the bank, net of the fee', function () {
+    pf63Platform();
+    pf63Settings([
+        'system_payment_processor' => 'bachs',
+        'minimum_payout_kobo' => 300000,
+        'payout_processing_fee_kobo' => 5000,
+    ]);
+
+    [$business, $store, , , $owner] = pf63Business();
+    pf63Provider();
+
+    pf63Collect($business, 340000, $store);
+
+    $token = $owner->createToken('pf63-owner-lifetime', ['management'], now()->addHour())->plainTextToken;
+
+    // A transfer out with the provider has not arrived, so nothing counts yet.
+    $wallet = $this->withToken($token)->getJson('/api/v1/management/wallet')->assertOk()->json('data.wallet');
+
+    expect($wallet['total_paid_kobo'])->toBe(0);
+
+    $payout = pf63Payouts($business)->sole();
+
+    Http::fakeSequence('sandbox-api.bachs.io/v1/payouts/pay_1')
+        ->push(['id' => 'pay_1', 'status' => 'completed']);
+
+    pf63Reconcile($payout);
+
+    $wallet = $this->withToken($token)->getJson('/api/v1/management/wallet')->assertOk()->json('data.wallet');
+
+    // Net, not gross: the fee never reached the bank, so it is not money the
+    // business has been paid.
+    expect($wallet['total_paid_kobo'])->toBe(335000)
+        ->and((float) $wallet['total_paid'])->toEqualWithDelta(3350.0, 0.001);
+
+    // A reversal takes it back out. The money reached the account and returned,
+    // so the business has not been paid it — and the wallet already has it.
+    Http::fakeSequence('sandbox-api.bachs.io/v1/payouts/pay_1')
+        ->push(['id' => 'pay_1', 'status' => 'reversed']);
+
+    pf63Reconcile($payout->fresh());
+
+    $wallet = $this->withToken($token)->getJson('/api/v1/management/wallet')->assertOk()->json('data.wallet');
+
+    expect($wallet['total_paid_kobo'])->toBe(0);
+});

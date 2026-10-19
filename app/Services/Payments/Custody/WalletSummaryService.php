@@ -153,6 +153,7 @@ final class WalletSummaryService
         $available = (int) $business->available_balance;
 
         $payable = $this->sweep->payableFor($business);
+        $totalPaid = $this->paidOutKobo($business);
 
         $hold = $this->holds->holdOn($business);
         $blocker = $this->sweep->payoutBlocker($business);
@@ -221,6 +222,17 @@ final class WalletSummaryService
             // bank has been asked for, and `pending` is money the provider has not
             // settled to us yet.
             'in_flight' => $this->inFlightPayload($business),
+
+            // Lifetime, not current state: everything that has actually reached
+            // this business's bank. The gross less the fee snapshotted on the row,
+            // because that difference is what the bank statement shows — the
+            // figure a business checks when it asks "how much have I been paid?".
+            // A reversed payout is excluded: the money came back to the wallet, so
+            // it was never paid out. This is the one figure here that is not a
+            // slice of the balance, and it is what makes the wallet answer "how
+            // far have I come" as well as "what is here now".
+            'total_paid' => Naira::floatFromKobo($totalPaid),
+            'total_paid_kobo' => $totalPaid,
 
             'custody_enabled' => (bool) $business->custody_enabled,
             'auto_payout' => (bool) $business->auto_payout,
@@ -470,6 +482,29 @@ final class WalletSummaryService
             'store_id' => $hold->scope === PayoutHold::SCOPE_STORE ? (int) $hold->store_id : null,
             'placed_at' => $hold->placed_at?->toISOString(),
         ];
+    }
+
+    /**
+     * Everything this business has actually been paid, in kobo.
+     *
+     * The sum of completed transfers at the amount the bank received — gross less
+     * the fee snapshotted on each row. One aggregate rather than a walk over the
+     * rows: the wallet is read on every dashboard load, and a business with years
+     * of history should not pay for that history twice.
+     *
+     * Only `paid` counts. A reversed payout reached the bank and came back, and a
+     * failed one never left, so neither is money the business has been paid; both
+     * have already been credited back to the wallet by the time their row says so.
+     */
+    private function paidOutKobo(Business $business): int
+    {
+        $row = Payout::query()
+            ->where('business_id', $business->id)
+            ->where('status', Payout::STATUS_PAID)
+            ->selectRaw('COALESCE(SUM(amount_kobo - fee_kobo), 0) AS total')
+            ->first();
+
+        return (int) ($row?->total ?? 0);
     }
 
     /**
