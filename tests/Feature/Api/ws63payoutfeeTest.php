@@ -2,7 +2,9 @@
 
 use App\Enums\TransactionStatus;
 use App\Jobs\SettlePayouts;
+use App\Mail\PayoutPaidMail;
 use App\Models\Business;
+use App\Models\BusinessNotification;
 use App\Models\JournalEntry;
 use App\Models\Order;
 use App\Models\Payout;
@@ -305,6 +307,54 @@ test('the fee is recorded on the payout and the rail receives the net', function
         // all of it: the fee is part of the payout, not a second one.
         ->and((int) $payout->allocations()->sum('amount_kobo'))->toBe(340000)
         ->and((int) $business->fresh()->available_balance)->toBe(0);
+});
+
+test('the payout mail and notice quote what the bank received, not the gross', function () {
+    // The wallet is debited gross and the rail is asked for the net, so the two
+    // figures are different whenever a fee applies. The business reconciles this
+    // against its bank statement: quoting the gross makes it subtract the fee by
+    // hand, and makes a correct payout look short.
+    pf63Platform();
+    pf63Settings([
+        'system_payment_processor' => 'bachs',
+        'minimum_payout_kobo' => 300000,
+        'payout_processing_fee_kobo' => 5000,
+    ]);
+
+    [$business, $store] = pf63Business();
+    pf63Provider();
+
+    pf63Collect($business, 340000, $store);
+
+    $payout = pf63Payouts($business)->sole();
+
+    Http::fake([
+        'sandbox-api.bachs.io/v1/payouts/pay_1' => Http::response(['id' => 'pay_1', 'status' => 'completed']),
+    ]);
+
+    pf63Reconcile($payout);
+
+    $payout->refresh();
+
+    expect($payout->status)->toBe(Payout::STATUS_PAID)
+        ->and($payout->amount_kobo)->toBe(340000)
+        ->and($payout->feeKobo())->toBe(5000)
+        ->and($payout->netKobo())->toBe(335000);
+
+    $mail = (new PayoutPaidMail($business->owner, $business, $payout, 'Guaranty Trust Bank'))->render();
+
+    expect($mail)
+        ->toContain('NGN 3,350.00')
+        ->not->toContain('3,400.00');
+
+    $notice = BusinessNotification::query()
+        ->where('business_id', $business->id)
+        ->where('type', BusinessNotification::TYPE_PAYOUT_PAID)
+        ->sole();
+
+    expect($notice->title)->toContain('3,350.00')
+        ->and($notice->body)->toContain('3,350.00')
+        ->and((int) $notice->amount_kobo)->toBe(335000);
 });
 
 test('a later policy change cannot alter an in-flight payout', function () {

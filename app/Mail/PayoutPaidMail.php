@@ -23,6 +23,11 @@ use Illuminate\Support\Carbon;
  * It no longer prints what the wallet holds afterwards. That figure was the
  * business's own money explained back to it in the third person, and the payout is
  * what this mail is about.
+ *
+ * The figure it does print is what the bank receives, not the gross the wallet was
+ * debited. The processing fee is withheld from the transfer — the rail is asked for
+ * `netKobo()` — so quoting `amount_kobo` here named a number the business would not
+ * find on its statement, and left it to subtract the fee itself.
  */
 class PayoutPaidMail extends Mailable
 {
@@ -39,15 +44,20 @@ class PayoutPaidMail extends Mailable
 
     public function build(): self
     {
+        // What the bank receives: the gross less the processing fee withheld from
+        // the transfer. This is the figure that appears on the business's statement,
+        // which is the only thing the amount line is for.
+        $amount = number_format($this->payout->netKobo() / 100, 2);
+
         return $this->subject(sprintf(
             'Payout sent — %s %s',
             $this->payout->currency,
-            number_format((int) $this->payout->amount_kobo / 100, 2),
+            $amount,
         ))
             ->view('emails.custody.payout-paid')
             ->with([
                 'company' => (object) $this->company,
-                'amount' => number_format((int) $this->payout->amount_kobo / 100, 2),
+                'amount' => $amount,
                 'bankName' => $this->bankName,
                 'bankCode' => $this->payout->bank_code,
                 // Named `accountNumberMasked` rather than `accountNumber`, so the

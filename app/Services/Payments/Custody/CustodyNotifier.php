@@ -154,7 +154,11 @@ final class CustodyNotifier
         }
 
         $currency = (string) ($payout->currency ?: config('custody.currency', 'NGN'));
-        $amount = $this->money((int) $payout->amount_kobo, $currency);
+        // What the bank received, not the gross the wallet was debited: the payout
+        // fee is withheld from the transfer, so the gross is a figure the business
+        // will never see on its statement and should not be asked to reconcile by
+        // hand. Same number the payout mail prints.
+        $amount = $this->money($payout->netKobo(), $currency);
         $bankName = $this->bankNameFor($payout, $business);
 
         return $this->notify(
@@ -175,7 +179,7 @@ final class CustodyNotifier
                 $payout->paid_at !== null ? ' (sent '.$payout->paid_at->toDayDateTimeString().')' : '',
             ),
             subject: $payout,
-            amountKobo: (int) $payout->amount_kobo,
+            amountKobo: $payout->netKobo(),
             currency: $currency,
             metadata: [
                 'reference' => $payout->reference,
