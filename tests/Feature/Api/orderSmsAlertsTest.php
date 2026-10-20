@@ -124,7 +124,7 @@ beforeEach(function () {
     config([
         'services.termii.api_key' => 'test-termii-key',
         'services.termii.base_url' => 'https://api.ng.termii.com',
-        'services.termii.sender_id' => 'Storify',
+        'services.termii.sender_id' => 'OE Alert',
         'services.termii.channel' => 'dnd',
         'services.termii.default_country_code' => '234',
         'services.termii.timeout_ms' => 10000,

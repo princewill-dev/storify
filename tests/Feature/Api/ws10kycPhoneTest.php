@@ -68,7 +68,7 @@ beforeEach(function () {
     config([
         'services.termii.api_key' => 'test-termii-key',
         'services.termii.base_url' => 'https://api.ng.termii.com',
-        'services.termii.sender_id' => 'Storify',
+        'services.termii.sender_id' => 'OE Alert',
         'services.termii.channel' => 'dnd',
         'services.termii.default_country_code' => '234',
         'services.termii.timeout_ms' => 10000,
@@ -92,16 +92,17 @@ test('sending a code normalises a local number and hands Termii the digits form'
         ->assertJsonPath('data.expires_in', 600)
         ->assertJsonPath('message', 'Verification code sent by SMS.');
 
-    Http::assertSent(function ($request) {
+    $otp = ws10PhoneOtp();
+
+    Http::assertSent(function ($request) use ($otp) {
         return $request->url() === 'https://api.ng.termii.com/api/sms/send'
             && $request['to'] === '2348031234567'
-            && $request['from'] === 'Storify'
+            && $request['from'] === 'OE Alert'
             && $request['type'] === 'plain'
             && $request['channel'] === 'dnd'
-            && $request['api_key'] === 'test-termii-key';
+            && $request['api_key'] === 'test-termii-key'
+            && $request['sms'] === "Your Storify verification code is {$otp->code}. This code expires in 10 minutes. Do not share with anyone.";
     });
-
-    $otp = ws10PhoneOtp();
 
     expect($otp->business_id)->toBeNull()
         ->and($otp->is_verified)->toBeFalse()

@@ -40,10 +40,12 @@ final class KycPhoneVerificationService
 
         $otp = OtpService::generate($phone, self::OTP_TYPE, self::OTP_EXPIRY_MINUTES);
 
+        // This is the copy Termii approved for the DND route, word for word.
+        // The sender it travels under comes from `TERMII_SENDER_ID`.
         $result = $this->sms->send(
             $phone,
-            "Your Storify verification code is {$otp->code}. It expires in "
-            .self::OTP_EXPIRY_MINUTES.' minutes.',
+            "Your Storify verification code is {$otp->code}. This code expires in "
+            .self::OTP_EXPIRY_MINUTES.' minutes. Do not share with anyone.',
         );
 
         if (! $result->ok) {
