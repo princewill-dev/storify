@@ -1660,3 +1660,56 @@ test('a send that goes through says nothing about nothing being sent', function 
             && ($context['outcome']['sent'] ?? null) === 1)
         ->atLeast()->once();
 });
+
+test('a payout that empties the wallet is not reported as a sale-less balance', function () {
+    // The job's post-settlement wallet read used to run on the `Business` it
+    // loaded at the top of `handle()`, while `afterCollection()` settles through
+    // `$transaction->business` — a second instance. The stale copy still held the
+    // pre-payout available balance, so the fresh FIFO walk found every sale the
+    // payout had just claimed, attributed nothing to that cap, and logged
+    // `custody.payout.allocation_short` for the whole amount that had in fact
+    // just been paid. A fully paid-out wallet is the ordinary case, not a gap.
+    pq57Platform();
+    pq57Settings(['system_payment_processor' => 'bachs']);
+
+    [, $business, $store] = pq57Business();
+
+    pq57Provider();
+
+    // Money already payable, and a newer sale still pending. Together they are
+    // exactly what the payout will send, and the stale read saw only the first:
+    // the gap it logged was the part that had already left.
+    pq57Credited($business, 257400, $store);
+
+    app(CustodyService::class)->promoteForBusiness($business->fresh());
+
+    $sale = pq57Credited($business, 48510, $store);
+
+    $business->refresh();
+
+    expect($business->available_balance)->toBe(257400)
+        ->and($business->pending_balance)->toBe(48510);
+
+    Log::spy();
+
+    // Through the sale, with its id, because that is the path the webhook, the
+    // return leg and the till dispatch — and the only one where the job and the
+    // settlement hold different model instances.
+    (new SettlePayouts((int) $business->id, (int) $sale->id))->handle(
+        app(InstantPayoutService::class),
+        app(WalletSummaryService::class),
+        app(PayoutSweepService::class),
+    );
+
+    $payout = Payout::query()->where('business_id', $business->id)->latest('id')->firstOrFail();
+
+    expect($payout->amount_kobo)->toBe(305910)
+        ->and($business->fresh()->available_balance)->toBe(0)
+        ->and($business->fresh()->pending_balance)->toBe(0);
+
+    Log::shouldNotHaveReceived('warning', fn (string $message): bool => $message === 'custody.payout.allocation_short');
+
+    // And no retry: nothing is left behind, so the job is finished with this
+    // business rather than treating a completed payout as a stall.
+    Log::shouldNotHaveReceived('warning', fn (string $message): bool => $message === 'custody.payout.retry');
+});

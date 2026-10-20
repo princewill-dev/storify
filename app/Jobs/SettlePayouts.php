@@ -266,6 +266,16 @@ final class SettlePayouts implements ShouldQueue
             return;
         }
 
+        // **The wallet was written behind this instance's back**, the same way it
+        // is inside `InstantPayoutService::settle()`: `afterCollection()` settles
+        // through `$transaction->business`, which is a different model instance
+        // from this one. Without this, the summary below reads the balances from
+        // before the send — and a payout that emptied the wallet then reports the
+        // whole pre-payout balance as money no sale accounts for, logging a
+        // `custody.payout.allocation_short` against sales the payout's own
+        // allocations have just claimed.
+        $business->refresh();
+
         // Where the money is now. The tally cannot say: `sweepBusiness()` reports what
         // it *sent* and never what it could not read, so an unreachable provider and a
         // business that owes nothing both come back as an empty array. The wallet —
